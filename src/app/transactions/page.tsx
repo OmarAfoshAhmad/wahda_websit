@@ -5,6 +5,7 @@ import { Shell } from "@/components/shell";
 import { Card, Badge, Input, Button } from "@/components/ui";
 import { PrintButton } from "@/components/print-button";
 import { ExportButton } from "@/components/export-button";
+import { TransactionCancelButton } from "@/components/transaction-cancel-button";
 import Link from "next/link";
 
 export default async function TransactionsPage({
@@ -102,8 +103,8 @@ export default async function TransactionsPage({
         {/* ترويسة الطباعة فقط */}
         <div className="hidden print:flex flex-col items-center justify-center mb-2 text-center border-b pb-2 pt-2">
            {/* eslint-disable-next-line @next/next/no-img-element */}
-           <img src="/logo.png" alt="الشعار" className="h-16 w-auto object-contain mb-2" />
-           <h1 className="text-xl font-black text-black">شركة واعد</h1>
+           <img src="/logo.png" alt="Waha Healthy Care" className="h-16 w-auto object-contain mb-2" />
+           <h1 className="text-xl font-black text-black">Waha Healthy Care</h1>
            <h2 className="text-lg font-bold text-black mt-1">سجل الحركات (المراجعة الطبية)</h2>
            <p className="text-sm text-black mt-1 opacity-75">تاريخ استخراج التقرير: {new Date().toLocaleDateString("ar-LY")}</p>
            {session.is_admin && facility_id && <p className="text-sm font-bold mt-1 text-black">خاص بالمرفق: {facilities.find(f => f.id === facility_id)?.name}</p>}
@@ -217,7 +218,7 @@ export default async function TransactionsPage({
                     {new Date(tx.created_at).toLocaleTimeString("ar-LY", { hour: "2-digit", minute: "2-digit" })}
                   </span>
                   <Badge variant={tx.type === "MEDICINE" ? "default" : "warning"}>
-                    {tx.type === "MEDICINE" ? "أدوية" : "مستلزمات"}
+                    {tx.type === "MEDICINE" ? "ادوية صرف عام" : "كشف عام"}
                   </Badge>
                 </div>
                 {/* جسم الكارد */}
@@ -252,16 +253,18 @@ export default async function TransactionsPage({
                   <th className="px-6 py-4 text-xs font-black text-slate-400 text-right">القيمة المخصومة</th>
                   <th className="px-6 py-4 text-xs font-black text-slate-400 text-right">الرصيد المتبقي</th>
                   <th className="px-6 py-4 text-xs font-black text-slate-400 text-right">التاريخ</th>
+                  <th className="px-6 py-4 text-xs font-black text-slate-400 text-center">الحالة</th>
+                  {session.is_admin && <th className="px-6 py-4 text-xs font-black text-slate-400 no-print">إلغاء</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {transactions.length === 0 ? (
                   <tr>
-                    <td colSpan={session.is_admin ? 7 : 6} className="px-6 py-10 text-center italic text-slate-500">لا توجد نتائج مطابقة للفلاتر الحالية.</td>
+                    <td colSpan={session.is_admin ? 9 : 8} className="px-6 py-10 text-center italic text-slate-500">لا توجد نتائج مطابقة للفلاتر الحالية.</td>
                   </tr>
                 ) : (
                   transactions.map((tx, idx) => (
-                    <tr key={tx.id} className="transition-colors hover:bg-slate-50">
+                    <tr key={tx.id} className={`transition-colors hover:bg-slate-50 ${tx.is_cancelled ? "bg-red-50/50 hover:bg-red-50" : ""} ${tx.type === "CANCELLATION" ? "bg-green-50/50 hover:bg-green-50" : ""}`}>
                       <td className="px-6 py-4 font-mono text-xs text-slate-500 font-bold">{(page - 1) * PAGE_SIZE + idx + 1}</td>
                       <td className="px-6 py-4">
                         <p className="font-bold text-slate-900">{tx.beneficiary.name}</p>
@@ -273,12 +276,18 @@ export default async function TransactionsPage({
                         </td>
                       )}
                       <td className="px-6 py-4">
-                        <Badge variant={tx.type === "MEDICINE" ? "default" : "warning"}>
-                          {tx.type === "MEDICINE" ? "أدوية" : "مستلزمات"}
-                        </Badge>
+                        {tx.type === "CANCELLATION" ? (
+                           <Badge variant="success">إلغاء حركة</Badge>
+                        ) : (
+                           <Badge variant={tx.type === "MEDICINE" ? "default" : "warning"}>
+                             {tx.type === "MEDICINE" ? "ادوية صرف عام" : "كشف عام"}
+                           </Badge>
+                        )}
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <span className="font-black text-slate-900">{Number(tx.amount).toLocaleString("ar-LY")}</span>
+                        <span className={`font-black ${tx.type === "CANCELLATION" ? "text-green-700" : (tx.is_cancelled ? "text-slate-400 line-through" : "text-slate-900")}`}>
+                          {Number(tx.amount).toLocaleString("ar-LY")}
+                        </span>
                         <span className="mr-3 text-[10px] text-slate-400">د.ل</span>
                       </td>
                       <td className="px-6 py-4 text-right">
@@ -288,6 +297,20 @@ export default async function TransactionsPage({
                       <td className="px-6 py-4 text-right">
                         <p className="text-sm text-slate-900">{new Date(tx.created_at).toLocaleDateString("ar-LY")}</p>
                       </td>
+                      <td className="px-6 py-4 text-center">
+                        {tx.is_cancelled ? (
+                          <span className="font-bold text-red-600 text-xs text-nowrap">ملغاة</span>
+                        ) : tx.type === "CANCELLATION" ? (
+                          <span className="font-bold text-green-600 text-xs text-nowrap">حركة مصححة</span>
+                        ) : (
+                          <span className="font-bold text-slate-500 text-xs text-nowrap">منفذة</span>
+                        )}
+                      </td>
+                      {session.is_admin && (
+                        <td className="px-6 py-4 text-center no-print">
+                          <TransactionCancelButton transactionId={tx.id} isCancelled={tx.is_cancelled} type={tx.type} />
+                        </td>
+                      )}
                     </tr>
                   ))
                 )}
@@ -304,7 +327,7 @@ export default async function TransactionsPage({
                       <span>{Number(totalRemaining).toLocaleString("ar-LY")}</span>
                       <span className="mr-3 text-[10px] text-slate-400">د.ل</span>
                     </td>
-                    <td className="px-6 py-4"></td>
+                    <td colSpan={2}></td>
                   </tr>
                 </tfoot>
               )}
@@ -338,7 +361,7 @@ export default async function TransactionsPage({
             <div className="flex gap-2">
               {page > 1 ? (
                 <Link
-                  href={`/transactions?${new URLSearchParams({ ...(date ? { date } : {}), ...(facility_id ? { facility_id } : {}), ...(q ? { q } : {}), page: String(page - 1) }).toString()}`}
+                  href={`/transactions?${new URLSearchParams({ ...(start_date ? { start_date } : {}), ...(end_date ? { end_date } : {}), ...(facility_id ? { facility_id } : {}), ...(q ? { q } : {}), page: String(page - 1) }).toString()}`}
                   className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700 transition-colors hover:bg-slate-50"
                 >
                   &#8592; السابق
@@ -350,7 +373,7 @@ export default async function TransactionsPage({
               )}
               {page < totalPages ? (
                 <Link
-                  href={`/transactions?${new URLSearchParams({ ...(date ? { date } : {}), ...(facility_id ? { facility_id } : {}), ...(q ? { q } : {}), page: String(page + 1) }).toString()}`}
+                  href={`/transactions?${new URLSearchParams({ ...(start_date ? { start_date } : {}), ...(end_date ? { end_date } : {}), ...(facility_id ? { facility_id } : {}), ...(q ? { q } : {}), page: String(page + 1) }).toString()}`}
                   className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700 transition-colors hover:bg-slate-50"
                 >
                   التالي &#8594;

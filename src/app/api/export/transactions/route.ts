@@ -85,7 +85,7 @@ export async function GET(request: NextRequest) {
         card_number: tx.beneficiary.card_number,
         amount: Number(tx.amount),
         remaining_balance: Number(tx.beneficiary.remaining_balance),
-        type: tx.type === "MEDICINE" ? "أدوية" : "مستلزمات",
+        type: tx.type === "MEDICINE" ? "ادوية صرف عام" : "كشف عام",
         date: new Date(tx.created_at).toLocaleDateString("en-GB"), // dd/mm/yyyy
         time: new Date(tx.created_at).toLocaleTimeString("en-GB"),
         ...(session.is_admin ? { facility_name: tx.facility.name } : {}),

@@ -28,10 +28,10 @@ export function Shell({ children, facilityName, isAdmin = false }: { children: R
           <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-3">
-                <img src="/logo.png" alt="شعار شركة وعد" width={38} height={38} className="object-contain" />
+                <img src="/logo.png" alt="Waha Healthy Care" width={38} height={38} className="object-contain" />
                 <div>
-                  <h1 className="text-sm font-black leading-tight text-slate-900">شركة وعد</h1>
-                  <p className="text-[11px] font-medium text-primary">لإدارة النفقات الصحية</p>
+                                    <h1 className="text-sm font-black leading-tight text-slate-900">شركة الواحة</h1>
+                  <h2 className="text-sm font-black leading-tight text-slate-900">Waha Healthy Care</h2>
                 </div>
               </div>
               <button
@@ -62,7 +62,7 @@ export function Shell({ children, facilityName, isAdmin = false }: { children: R
                 ))}
               </div>
 
-              <div className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 lg:min-w-[195px]">
+              <div className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 lg:min-w-48.75">
                 <div className="text-right">
                   <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">{isAdmin ? "مشرف" : "مرفق"}</p>
                   <p className="text-[13px] font-bold text-slate-800">{facilityName}</p>

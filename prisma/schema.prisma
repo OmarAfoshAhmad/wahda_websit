@@ -43,8 +43,12 @@ model Transaction {
   facility_id    String
   amount         Decimal
   type           TransactionType
-  created_at     DateTime        @default(now())
-  beneficiary    Beneficiary     @relation(fields: [beneficiary_id], references: [id], onDelete: Restrict)
+  is_cancelled            Boolean      @default(false)
+  created_at              DateTime     @default(now())
+  original_transaction_id String?
+  original_transaction    Transaction? @relation("TransactionCorrection", fields: [original_transaction_id], references: [id])
+  corrections             Transaction[] @relation("TransactionCorrection")
+  beneficiary             Beneficiary  @relation(fields: [beneficiary_id], references: [id], onDelete: Restrict)
   facility       Facility        @relation(fields: [facility_id], references: [id], onDelete: Restrict)
 
   @@index([beneficiary_id])
@@ -92,6 +96,7 @@ enum BeneficiaryStatus {
 enum TransactionType {
   MEDICINE
   SUPPLIES
+  CANCELLATION
 }
 
 enum ImportJobStatus {

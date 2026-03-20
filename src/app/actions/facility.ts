@@ -84,13 +84,17 @@ export async function updateFacility(data: {
   return { success: true };
 }
 
-export async function deleteFacility(formData: FormData) {
+export async function deleteFacility(id: string): Promise<{ error?: string; success?: boolean }> {
   const session = await getSession();
-  if (!session?.is_admin) return;
+  if (!session?.is_admin) return { error: "غير مصرح لك بهذه العملية" };
+  if (!id) return { error: "معرّف المرفق غير صالح" };
+  if (id === session.id) return { error: "لا يمكن حذف الحساب الحالي" };
 
-  const id = formData.get("id") as string;
-  if (!id) return;
-  if (id === session.id) return;
+  // التحقق من وجود عمليات مرتبطة بهذا المرفق
+  const txCount = await prisma.transaction.count({ where: { facility_id: id } });
+  if (txCount > 0) {
+    return { error: `لا يمكن حذف هذا المرفق لأنه يحتوي على ${txCount} عملية مسجّلة` };
+  }
 
   // حذف ناعم — لا نحذف السجل فعلياً
   await prisma.facility.update({
@@ -107,7 +111,8 @@ export async function deleteFacility(formData: FormData) {
     },
   });
 
-  redirect("/admin/facilities");
+  revalidatePath("/admin/facilities");
+  return { success: true };
 }
 
 export async function importFacilitiesFromExcel(formData: FormData): Promise<{

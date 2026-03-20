@@ -202,7 +202,7 @@ export function DeductForm() {
           </div>
           <Button 
             type="submit" 
-            className="h-10 px-5 sm:min-w-[130px]"
+            className="h-10 px-5 sm:min-w-32.5"
             disabled={loading || deducting || !(cardNumber.trim() || searchInput.trim())}
           >
             {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Search className="h-5 w-5" />}
@@ -278,8 +278,8 @@ export function DeductForm() {
                     value={type}
                     onChange={(e) => setType(e.target.value as "MEDICINE" | "SUPPLIES")}
                   >
-                    <option value="MEDICINE">أدوية</option>
-                    <option value="SUPPLIES">مستلزمات</option>
+                    <option value="MEDICINE">ادوية صرف عام</option>
+                    <option value="SUPPLIES">كشف عام</option>
                   </select>
                 </div>
               </div>
@@ -298,7 +298,7 @@ export function DeductForm() {
                   <div className="text-center">
                     <p className="text-xs text-slate-500">أنت على وشك خصم</p>
                     <p className="text-xl font-black text-slate-950">{amount} د.ل</p>
-                    <p className="mt-1 text-[11px] text-slate-500">{type === "MEDICINE" ? "أدوية" : "مستلزمات"} • {beneficiary.name}</p>
+                    <p className="mt-1 text-[11px] text-slate-500">{type === "MEDICINE" ? "ادوية صرف عام" : "كشف عام"} • {beneficiary.name}</p>
                   </div>
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <Button 
