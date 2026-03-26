@@ -11,7 +11,7 @@ interface BeneficiaryEditModalProps {
     name: string;
     card_number: string;
     birth_date: string;
-    status: "ACTIVE" | "FINISHED";
+    status: "ACTIVE" | "FINISHED" | "SUSPENDED";
   };
 }
 
@@ -21,7 +21,7 @@ export function BeneficiaryEditModal({ beneficiary }: BeneficiaryEditModalProps)
   const [name, setName] = useState(beneficiary.name);
   const [cardNumber, setCardNumber] = useState(beneficiary.card_number);
   const [birthDate, setBirthDate] = useState(beneficiary.birth_date);
-  const [status, setStatus] = useState<"ACTIVE" | "FINISHED">(beneficiary.status);
+  const [status, setStatus] = useState<"ACTIVE" | "FINISHED" | "SUSPENDED">(beneficiary.status);
   const [error, setError] = useState<string | null>(null);
 
   // إغلاق بمفتاح Escape
@@ -104,11 +104,12 @@ export function BeneficiaryEditModal({ beneficiary }: BeneficiaryEditModalProps)
                 <label className="mb-1 block text-xs font-black text-slate-500">الحالة</label>
                 <select
                   value={status}
-                  onChange={(e) => setStatus(e.target.value as "ACTIVE" | "FINISHED")}
+                  onChange={(e) => setStatus(e.target.value as "ACTIVE" | "FINISHED" | "SUSPENDED")}
                   className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
                 >
                   <option value="ACTIVE">نشط</option>
                   <option value="FINISHED">مكتمل</option>
+                  <option value="SUSPENDED">موقوف</option>
                 </select>
               </div>
 

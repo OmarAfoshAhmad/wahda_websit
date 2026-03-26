@@ -216,8 +216,8 @@ export default async function BeneficiariesPage({
                         <td className="px-6 py-4 text-sm font-bold text-slate-900">{Number(beneficiary.remaining_balance).toLocaleString("ar-LY")} د.ل</td>
                       )}
                       <td className="px-6 py-4">
-                        <Badge variant={beneficiary.status === "ACTIVE" ? "success" : "default"}>
-                          {beneficiary.status === "ACTIVE" ? "نشط" : "مكتمل"}
+                        <Badge variant={beneficiary.status === "ACTIVE" ? "success" : beneficiary.status === "SUSPENDED" ? "warning" : "default"}>
+                          {beneficiary.status === "ACTIVE" ? "نشط" : beneficiary.status === "SUSPENDED" ? "موقوف" : "مكتمل"}
                         </Badge>
                       </td>
                       {isDeletedView && (

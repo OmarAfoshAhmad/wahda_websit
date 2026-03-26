@@ -93,12 +93,14 @@ model ImportJob {
 enum BeneficiaryStatus {
   ACTIVE
   FINISHED
+  SUSPENDED
 }
 
 enum TransactionType {
   MEDICINE
   SUPPLIES
   CANCELLATION
+  IMPORT
 }
 
 enum ImportJobStatus {

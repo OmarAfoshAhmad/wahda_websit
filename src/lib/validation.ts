@@ -69,7 +69,7 @@ export const updateBeneficiarySchema = z.object({
   name: z.string().min(2, "الاسم يجب أن يكون حرفين على الأقل").max(100, "الاسم طويل جداً"),
   card_number: z.string().min(3, "رقم البطاقة غير صالح").max(50, "رقم البطاقة طويل جداً"),
   birth_date: z.string().max(20, "تاريخ غير صالح").optional(),
-  status: z.enum(["ACTIVE", "FINISHED"], {
+  status: z.enum(["ACTIVE", "FINISHED", "SUSPENDED"], {
     message: "حالة المستفيد غير صحيحة",
   }),
 });

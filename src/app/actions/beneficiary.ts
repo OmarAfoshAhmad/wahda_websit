@@ -90,7 +90,7 @@ export async function updateBeneficiary(data: {
   name: string;
   card_number: string;
   birth_date?: string;
-  status: "ACTIVE" | "FINISHED";
+  status: "ACTIVE" | "FINISHED" | "SUSPENDED";
 }) {
   const session = await getSession();
   if (!session || !session.is_admin) {

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "./ui";
-import { LayoutDashboard, ListOrdered, Upload, LogOut, Users, Building2, KeyRound, AlertTriangle } from "lucide-react";
+import { LayoutDashboard, ListOrdered, Upload, LogOut, Users, Building2, KeyRound, AlertTriangle, FileInput } from "lucide-react";
 import { logout } from "@/app/actions/auth";
 
 const safeLogout = async () => {
@@ -18,6 +18,7 @@ const baseNavigation = [
 const adminNavigation = [
   { name: "المستفيدون", href: "/beneficiaries", icon: Users },
   { name: "الاستيراد", href: "/import", icon: Upload },
+  { name: "استيراد الحركات", href: "/import-transactions", icon: FileInput },
   { name: "المرافق الصحية", href: "/admin/facilities", icon: Building2 },
   { name: "سجل الأخطاء", href: "/admin/client-errors", icon: AlertTriangle },
 ];
