@@ -47,10 +47,10 @@ export default function Error({
         </div>
         {showDetails && (
           <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md text-left ltr max-h-50 overflow-auto">
-            <p className="text-xs font-bold text-red-800 break-words">{error.message}</p>
+            <p className="text-xs font-bold text-red-800 wrap-break-word">{error.message}</p>
             {error.digest && <p className="text-xs text-slate-500 mt-1">Digest: {error.digest}</p>}
             {error.stack && (
-              <pre className="mt-2 text-[0.7rem] text-red-700 whitespace-pre-wrap break-words">{error.stack}</pre>
+              <pre className="mt-2 text-[0.7rem] text-red-700 whitespace-pre-wrap wrap-break-word">{error.stack}</pre>
             )}
           </div>
         )}

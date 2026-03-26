@@ -23,7 +23,8 @@ export const createFacilitySchema = z.object({
   password: z
     .string()
     .min(6, "كلمة المرور يجب أن تكون 6 أحرف على الأقل")
-    .max(128, "كلمة المرور طويلة جداً"),
+    .max(128, "كلمة المرور طويلة جداً")
+    .optional(),
 });
 
 export const updateFacilitySchema = z.object({

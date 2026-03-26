@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Building2, Plus, User } from "lucide-react";
+import { Building2, Plus, User, CheckCircle2, Download } from "lucide-react";
 import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
@@ -16,13 +16,13 @@ const PAGE_SIZE = 8;
 export default async function FacilitiesPage({
   searchParams,
 }: {
-  searchParams: { q?: string; page?: string };
+  searchParams: { q?: string; page?: string; created?: string };
 }) {
   const session = await getSession();
   if (!session) redirect("/login");
   if (!session.is_admin) redirect("/dashboard");
 
-  const { q, page: pageParam } = await searchParams;
+  const { q, page: pageParam, created } = await searchParams;
   const page = Math.max(1, parseInt(pageParam ?? "1", 10) || 1);
 
   const where = {
@@ -37,7 +37,9 @@ export default async function FacilitiesPage({
       : {}),
   };
 
-  const [facilities, totalCount] = await Promise.all([
+  const allWhere = { deleted_at: null };
+
+  const [facilities, totalCount, allFacilities] = await Promise.all([
     prisma.facility.findMany({
       where,
       orderBy: { created_at: "asc" },
@@ -54,6 +56,18 @@ export default async function FacilitiesPage({
       },
     }),
     prisma.facility.count({ where }),
+    prisma.facility.findMany({
+      where: allWhere,
+      orderBy: { created_at: "asc" },
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        is_admin: true,
+        created_at: true,
+        _count: { select: { transactions: true } },
+      },
+    }),
   ]);
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
@@ -72,8 +86,8 @@ export default async function FacilitiesPage({
         {/* ترويسة الطباعة فقط */}
         <div className="hidden print:flex flex-col items-center justify-center mb-6 text-center border-b pb-4 pt-4">
            {/* eslint-disable-next-line @next/next/no-img-element */}
-           <img src="/logo.svg" alt="Waha Healthy Care" className="h-16 w-auto object-contain mb-3" />
-           <h1 className="text-xl font-black text-black">Waha Healthy Care</h1>
+           <img src="/logo.png" alt="Waha Health Care" className="h-16 w-auto object-contain mb-3" />
+           <h1 className="text-xl font-black text-black">Waha Health Care</h1>
            <h2 className="text-lg font-bold text-black mt-1">تقرير المرافق الصحية المسجلة</h2>
            <p className="text-sm text-black mt-1 opacity-75">تاريخ استخراج التقرير: {new Date().toLocaleDateString("ar-LY")}</p>
         </div>
@@ -83,10 +97,25 @@ export default async function FacilitiesPage({
             <h1 className="section-title text-2xl font-black text-slate-950">إدارة المرافق الصحية</h1>
             <p className="mt-1.5 text-sm text-slate-600">قائمة بالمرافق الصحية المسجلة في النظام.</p>
           </div>
-          <div className="no-print">
+          <div className="no-print flex items-center gap-2">
+            <a
+              href="/api/export/facilities"
+              target="_blank"
+              className="inline-flex items-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-black !text-white transition-colors hover:bg-emerald-700 h-10"
+            >
+              <Download className="h-4 w-4" />
+              تصدير Excel
+            </a>
             <PrintButton />
           </div>
         </div>
+
+        {created && (
+          <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700 print:hidden">
+            <CheckCircle2 className="h-4 w-4 shrink-0" />
+            تم إنشاء حساب &quot;{created}&quot; بنجاح — كلمة المرور الافتراضية: <span dir="ltr" className="font-black">123456</span>
+          </div>
+        )}
 
         <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
           {/* قائمة المرافق */}
@@ -119,7 +148,8 @@ export default async function FacilitiesPage({
                       <th className="px-5 py-3 text-center text-xs font-black text-slate-500 uppercase no-print">إجراءات</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  {/* صفوف الشاشة (الصفحة الحالية فقط) */}
+                  <tbody className="divide-y divide-slate-100 print:hidden">
                      {facilities.length === 0 ? (
                         <tr><td colSpan={6} className="px-5 py-8 text-center text-slate-500">لا توجد مرافق مسجلة.</td></tr>
                      ) : (
@@ -155,6 +185,25 @@ export default async function FacilitiesPage({
                           </tr>
                         ))
                      )}
+                  </tbody>
+                  {/* صفوف الطباعة (كل المرافق) */}
+                  <tbody className="divide-y divide-slate-100 hidden print:table-row-group">
+                     {allFacilities.map((f, idx) => (
+                       <tr key={f.id}>
+                         <td className="px-5 py-3 text-sm font-bold text-slate-500 text-center font-mono">{idx + 1}</td>
+                         <td className="px-5 py-3 text-sm font-bold text-slate-900 text-center">{f.name}</td>
+                         <td className="px-5 py-3 text-sm font-mono text-slate-600 text-center">{f.username}</td>
+                         <td className="px-5 py-3 text-sm text-slate-900 text-center">{f._count.transactions}</td>
+                         <td className="px-5 py-3 text-center">
+                             {f.is_admin ? (
+                               <span className="inline-flex items-center rounded-md bg-green-50 px-2 py-1 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-600/20">مشرف</span>
+                             ) : (
+                               <span className="inline-flex items-center rounded-md bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 ring-1 ring-inset ring-slate-600/20">مرفق</span>
+                             )}
+                         </td>
+                         <td className="px-5 py-3 no-print"></td>
+                       </tr>
+                     ))}
                   </tbody>
                 </table>
               </div>

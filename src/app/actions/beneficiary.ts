@@ -28,7 +28,13 @@ export async function getBeneficiaryByCard(card_number: string) {
       return { error: "المستفيد غير موجود" };
     }
 
-    return { beneficiary };
+    return {
+      beneficiary: {
+        ...beneficiary,
+        total_balance: Number(beneficiary.total_balance),
+        remaining_balance: Number(beneficiary.remaining_balance),
+      },
+    };
   } catch {
     return { error: "تعذر جلب بيانات المستفيد" };
   }

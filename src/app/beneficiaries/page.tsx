@@ -41,7 +41,7 @@ export default async function BeneficiariesPage({
       }
     : baseFilter;
 
-  const [beneficiaries, filteredCount, statusCounts] = await Promise.all([
+  const [rawBeneficiaries, filteredCount, statusCounts] = await Promise.all([
     prisma.beneficiary.findMany({
       where,
       orderBy: { created_at: "desc" },
@@ -60,6 +60,13 @@ export default async function BeneficiariesPage({
       GROUP BY is_deleted, status
     `,
   ]);
+
+  // تحويل Decimal إلى Number لتجنب أخطاء التسلسل
+  const beneficiaries = rawBeneficiaries.map((b) => ({
+    ...b,
+    total_balance: Number(b.total_balance),
+    remaining_balance: Number(b.remaining_balance),
+  }));
 
   // حساب الأعداد من نتيجة groupBy
   let totalCount = 0;

@@ -22,14 +22,14 @@ export async function createFacility(prevState: unknown, formData: FormData) {
     return { error: firstError ?? "بيانات غير صالحة" };
   }
 
-  const { name, username, password } = validated.data;
+  const { name, username } = validated.data;
 
   const existing = await prisma.facility.findUnique({ where: { username } });
   if (existing) {
     return { error: "اسم المستخدم محجوز مسبقاً، اختر اسماً آخر" };
   }
 
-  const password_hash = await bcrypt.hash(password, 10);
+  const password_hash = await bcrypt.hash("123456", 10);
 
   await prisma.facility.create({
     data: { name, username, password_hash, is_admin: false, must_change_password: true },
@@ -44,7 +44,7 @@ export async function createFacility(prevState: unknown, formData: FormData) {
     },
   });
 
-  redirect("/admin/facilities");
+  redirect("/admin/facilities?created=" + encodeURIComponent(name));
 }
 
 export async function updateFacility(data: {

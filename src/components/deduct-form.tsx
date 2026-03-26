@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useRef } from "react";
-import { Search, CreditCard, AlertCircle, CheckCircle2, Loader2, DollarSign } from "lucide-react";
+import { Search, CreditCard, AlertCircle, CheckCircle2, Loader2, DollarSign, X } from "lucide-react";
 import { Button, Input, Card, Badge, cn } from "./ui";
 import { getBeneficiaryByCard, searchBeneficiaries } from "@/app/actions/beneficiary";
 import { deductBalance } from "@/app/actions/deduction";
@@ -23,12 +23,15 @@ interface BeneficiarySuggestion {
   status: string;
 }
 
+const RECENT_BENEFICIARIES_KEY = "wahda_recent_beneficiaries";
+
 export function DeductForm() {
   const [searchInput, setSearchInput] = useState("");
   const [cardNumber, setCardNumber] = useState("");
   const [loading, setLoading] = useState(false);
   const [suggestionLoading, setSuggestionLoading] = useState(false);
   const [suggestions, setSuggestions] = useState<BeneficiarySuggestion[]>([]);
+  const [recentBeneficiaries, setRecentBeneficiaries] = useState<BeneficiarySuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [deducting, setDeducting] = useState(false);
   const [beneficiary, setBeneficiary] = useState<Beneficiary | null>(null);
@@ -42,6 +45,47 @@ export function DeductForm() {
 
   const amountRef = useRef<HTMLInputElement>(null);
   const searchBoxRef = useRef<HTMLDivElement>(null);
+
+  const resetSearchState = () => {
+    setSearchInput("");
+    setCardNumber("");
+    setSuggestions([]);
+    setShowSuggestions(false);
+    setBeneficiary(null);
+    setAmount("");
+    setType("MEDICINE");
+    setShowConfirm(false);
+    setError(null);
+    setSuccess(null);
+  };
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(RECENT_BENEFICIARIES_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as BeneficiarySuggestion[];
+      if (Array.isArray(parsed)) {
+        setRecentBeneficiaries(parsed.slice(0, 5));
+      }
+    } catch {
+      // تجاهل أي بيانات محلية غير صالحة
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(RECENT_BENEFICIARIES_KEY, JSON.stringify(recentBeneficiaries.slice(0, 5)));
+    } catch {
+      // في بعض المتصفحات قد يفشل التخزين المحلي
+    }
+  }, [recentBeneficiaries]);
+
+  const saveRecentBeneficiary = (item: BeneficiarySuggestion) => {
+    setRecentBeneficiaries((prev) => {
+      const next = [item, ...prev.filter((x) => x.id !== item.id)].slice(0, 5);
+      return next;
+    });
+  };
 
   useEffect(() => {
     const handleOutsideClick = (event: MouseEvent) => {
@@ -97,9 +141,14 @@ export function DeductForm() {
     setError(null);
   };
 
-  const handleSearch = async (e?: React.FormEvent) => {
+  const handlePickRecent = (item: BeneficiarySuggestion) => {
+    handleSelectSuggestion(item);
+    void handleSearch(undefined, item.card_number);
+  };
+
+  const handleSearch = async (e?: React.FormEvent, explicitCard?: string) => {
     e?.preventDefault();
-    const normalizedCard = cardNumber.trim() || searchInput.trim();
+    const normalizedCard = explicitCard?.trim() || cardNumber.trim() || searchInput.trim();
     if (!normalizedCard) return;
     
     setLoading(true);
@@ -128,6 +177,13 @@ export function DeductForm() {
         card_number: result.beneficiary.card_number,
         name: result.beneficiary.name,
         total_balance: Number(result.beneficiary.total_balance),
+        remaining_balance: Number(result.beneficiary.remaining_balance),
+        status: result.beneficiary.status,
+      });
+      saveRecentBeneficiary({
+        id: result.beneficiary.id,
+        card_number: result.beneficiary.card_number,
+        name: result.beneficiary.name,
         remaining_balance: Number(result.beneficiary.remaining_balance),
         status: result.beneficiary.status,
       });
@@ -196,6 +252,18 @@ export function DeductForm() {
               autoFocus
             />
 
+            {searchInput && (
+              <button
+                type="button"
+                onClick={resetSearchState}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 transition-colors hover:text-slate-700"
+                title="مسح البحث"
+                aria-label="مسح البحث"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+
             {showSuggestions && (suggestionLoading || suggestions.length > 0) && (
               <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-64 overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg">
                 {suggestionLoading ? (
@@ -233,6 +301,34 @@ export function DeductForm() {
         </form>
       </Card>
 
+      {!beneficiary && recentBeneficiaries.length > 0 && (
+        <Card className="p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-xs font-black text-slate-500">آخر 5 مستفيدين</p>
+            <button
+              type="button"
+              onClick={() => setRecentBeneficiaries([])}
+              className="text-xs font-bold text-slate-400 transition-colors hover:text-slate-700"
+            >
+              مسح السجل
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {recentBeneficiaries.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => handlePickRecent(item)}
+                className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-50"
+                title={`${item.name} - ${item.card_number}`}
+              >
+                {item.name}
+              </button>
+            ))}
+          </div>
+        </Card>
+      )}
+
       {error && (
         <div className="flex items-center rounded-md border border-red-200 bg-red-50 p-3 text-red-700">
           <AlertCircle className="ml-2 h-4 w-4" />
@@ -254,9 +350,18 @@ export function DeductForm() {
               <h2 className="text-lg font-black text-slate-900 sm:text-xl">{beneficiary.name}</h2>
               <p className="text-xs font-medium text-slate-500">البطاقة: {beneficiary.card_number}</p>
             </div>
-            <Badge variant={beneficiary.status === "ACTIVE" ? "success" : "danger"}>
-              {beneficiary.status === "ACTIVE" ? "نشط" : "مكتمل"}
-            </Badge>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={resetSearchState}
+                className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-600 transition-colors hover:bg-slate-50"
+              >
+                اختيار مستفيد آخر
+              </button>
+              <Badge variant={beneficiary.status === "ACTIVE" ? "success" : "danger"}>
+                {beneficiary.status === "ACTIVE" ? "نشط" : "مكتمل"}
+              </Badge>
+            </div>
           </div>
 
           <div className="mb-4 grid grid-cols-1 gap-2 md:grid-cols-2">

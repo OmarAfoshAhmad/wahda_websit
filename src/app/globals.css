@@ -18,11 +18,11 @@
 }
 
 :root {
-  --primary: #149b81;
-  --primary-dark: #117b67;
-  --primary-light: #eef8f6;
-  --secondary: #334155;
-  --accent: #2563eb;
+  --primary: #1f4e8c;
+  --primary-dark: #173b6a;
+  --primary-light: #edf3fb;
+  --secondary: #1f3654;
+  --accent: #d69b49;
 
   --background: #f5f6f8;
   --surface: #ffffff;
@@ -32,7 +32,7 @@
   --text-main: #0f172a;
   --text-muted: #64748b;
   --border: #dbe2ea;
-  --ring: rgba(20, 155, 129, 0.18);
+  --ring: rgba(31, 78, 140, 0.2);
 
   --shadow-glow: 0 6px 16px rgba(15, 23, 42, 0.05);
   --shadow-soft: 0 2px 10px rgba(15, 23, 42, 0.04);
@@ -70,7 +70,7 @@ textarea {
 }
 
 ::selection {
-  background: rgba(20, 155, 129, 0.18);
+  background: rgba(31, 78, 140, 0.2);
 }
 
 /* RTL Helpers */
@@ -160,6 +160,11 @@ textarea {
     display: none !important;
   }
 
+  .print\:table-row-group {
+    display: table-row-group !important;
+    visibility: visible !important;
+  }
+
   /* 4. Hide interactive elements inside the report */
   .no-print, 
   button, 
@@ -226,5 +231,9 @@ textarea {
   }
   thead {
     display: table-header-group;
+  }
+  /* Show tfoot only at the very end (not repeated on every page) */
+  tfoot {
+    display: table-row-group;
   }
 }

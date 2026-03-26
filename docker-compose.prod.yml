@@ -1,0 +1,12 @@
+services:
+  app:
+    image: wahda_web:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wahda_app
+    restart: always
+    env_file:
+      - .env.production
+    ports:
+      - "${APP_HOST_PORT:-3101}:3000"

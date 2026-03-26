@@ -64,7 +64,7 @@ export default async function ClientErrorsPage({
                 <Card key={err.id} className="p-4">
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold text-red-700 break-words" dir="ltr">
+                      <p className="text-sm font-bold text-red-700 wrap-break-word" dir="ltr">
                         {meta?.message ?? "Unknown error"}
                       </p>
                       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">

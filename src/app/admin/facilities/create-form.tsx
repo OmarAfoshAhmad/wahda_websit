@@ -35,15 +35,8 @@ export function CreateFacilityForm() {
         />
         <p className="mt-1 text-xs text-slate-400">أحرف إنجليزية صغيرة وأرقام وشرطة سفلية فقط</p>
       </div>
-      <div>
-        <label className="mb-1 block text-xs font-bold text-slate-500">كلمة المرور</label>
-        <input
-          name="password"
-          type="password"
-          required
-          placeholder="6 أحرف على الأقل"
-          className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/20"
-        />
+      <div className="rounded-md border border-blue-100 bg-blue-50 px-4 py-3 text-xs text-blue-700">
+        كلمة المرور الافتراضية: <span className="font-black" dir="ltr">123456</span> — سيُطلب من المستخدم تغييرها عند أول تسجيل دخول.
       </div>
       <button
         type="submit"
