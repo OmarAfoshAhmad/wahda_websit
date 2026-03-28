@@ -82,10 +82,22 @@ export async function checkRateLimit(key: string, category: string = "login"): P
 
       return null;
     } catch {
-      // fallback
+      // إذا فشل Redis — اسقط للـ fallback فقط في التطوير
     }
   }
 
+  // ── في بيئة الإنتاج بدون Redis: نرفض الطلب بشكل آمن ──
+  // منع Bypass هجمات عبر خوادم متعددة (Multi-Instance Attack)
+  if (process.env.NODE_ENV === "production") {
+    console.error(
+      `[RATE-LIMIT] CRITICAL: Redis unavailable in production for key="${category}:${key}". ` +
+      `Blocking request to prevent multi-instance rate-limit bypass.`
+    );
+    return "خدمة التحقق غير متاحة مؤقتاً. يرجى المحاولة لاحقاً.";
+  }
+
+  // بيئة التطوير: fallback للذاكرة مع تحذير
+  console.warn(`[RATE-LIMIT] Using in-memory fallback (dev-only) for key="${category}:${key}"`);
   return checkRateLimitInMemory(key, config);
 }
 

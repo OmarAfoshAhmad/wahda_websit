@@ -123,12 +123,12 @@ function badgeClassForAction(action: string) {
     action === "IMPORT_BENEFICIARIES_BACKGROUND" ||
     action === "IMPORT_FACILITIES"
   ) {
-    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    return "border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400";
   }
   if (action.startsWith("DELETE") || action === "CANCEL_TRANSACTION" || action === "PERMANENT_DELETE_BENEFICIARY") {
-    return "border-red-200 bg-red-50 text-red-700";
+    return "border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400";
   }
-  return "border-slate-200 bg-slate-50 text-slate-700";
+  return "border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 text-slate-700 dark:text-slate-300";
 }
 
 export default async function AuditLogPage({
@@ -210,12 +210,12 @@ export default async function AuditLogPage({
       <div className="space-y-6 pb-24">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary-light text-primary">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary-light dark:bg-primary-light/10 text-primary dark:text-blue-400">
               <Activity className="h-5 w-5" />
             </div>
             <div>
-              <h1 className="text-lg font-black text-slate-900">سجل المراقبة</h1>
-              <p className="text-sm text-slate-500">متابعة عمليات الإضافة والحذف والحركات مع التاريخ والوقت</p>
+              <h1 className="text-lg font-black text-slate-900 dark:text-white">سجل المراقبة</h1>
+              <p className="text-sm text-slate-500 dark:text-slate-400">متابعة عمليات الإضافة والحذف والحركات مع التاريخ والوقت</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -242,11 +242,11 @@ export default async function AuditLogPage({
             <input type="hidden" name="page" value="1" />
 
             <div className="space-y-1">
-              <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">النوع</label>
+              <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">النوع</label>
               <select
                 name="target"
                 defaultValue={target}
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                className="flex h-10 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
               >
                 <option value="all">الكل</option>
                 <option value="beneficiaries">المستفيدون</option>
@@ -256,17 +256,17 @@ export default async function AuditLogPage({
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">المنفذ</label>
+              <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">المنفذ</label>
               <Input name="actor" defaultValue={actor ?? ""} placeholder="اسم المستخدم" className="h-10" />
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">من تاريخ</label>
+              <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">من تاريخ</label>
               <Input type="date" name="start_date" defaultValue={start_date ?? ""} className="h-10" />
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">إلى تاريخ</label>
+              <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">إلى تاريخ</label>
               <Input type="date" name="end_date" defaultValue={end_date ?? ""} className="h-10" />
             </div>
 
@@ -276,31 +276,31 @@ export default async function AuditLogPage({
 
         {rows.length === 0 ? (
           <Card className="p-8 text-center">
-            <p className="text-sm font-bold text-slate-500">لا توجد سجلات مطابقة للفلاتر الحالية</p>
+            <p className="text-sm font-bold text-slate-500 dark:text-slate-400">لا توجد سجلات مطابقة للفلاتر الحالية</p>
           </Card>
         ) : (
           <Card className="overflow-hidden p-0">
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-left">
-                <thead className="border-b border-slate-200 bg-slate-50">
+                <thead className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
                   <tr>
-                    <th className="px-5 py-3 text-xs font-black uppercase tracking-[0.18em] text-slate-400">العملية</th>
-                    <th className="px-5 py-3 text-xs font-black uppercase tracking-[0.18em] text-slate-400">المنفذ</th>
-                    <th className="px-5 py-3 text-xs font-black uppercase tracking-[0.18em] text-slate-400">التفاصيل</th>
-                    <th className="px-5 py-3 text-xs font-black uppercase tracking-[0.18em] text-slate-400">التاريخ</th>
+                    <th className="px-5 py-3 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">العملية</th>
+                    <th className="px-5 py-3 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">المنفذ</th>
+                    <th className="px-5 py-3 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">التفاصيل</th>
+                    <th className="px-5 py-3 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">التاريخ</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {rows.map((row) => (
-                    <tr key={row.id} className="hover:bg-slate-50">
+                    <tr key={row.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                       <td className="px-5 py-3">
                         <span className={`inline-flex items-center rounded-md border px-2 py-1 text-xs font-bold ${badgeClassForAction(row.action)}`}>
                           {actionLabel(row.action)}
                         </span>
                       </td>
-                      <td className="px-5 py-3 text-sm font-bold text-slate-800">{row.user}</td>
-                      <td className="px-5 py-3 text-sm text-slate-600">{summarizeMetadata(row.action, row.metadata)}</td>
-                      <td className="px-5 py-3 text-sm text-slate-500">
+                      <td className="px-5 py-3 text-sm font-bold text-slate-800 dark:text-slate-200">{row.user}</td>
+                      <td className="px-5 py-3 text-sm text-slate-600 dark:text-slate-400">{summarizeMetadata(row.action, row.metadata)}</td>
+                      <td className="px-5 py-3 text-sm text-slate-500 dark:text-slate-400">
                         {new Date(row.created_at).toLocaleString("ar-LY", {
                           dateStyle: "medium",
                           timeStyle: "short",
@@ -319,27 +319,27 @@ export default async function AuditLogPage({
             {page > 1 ? (
               <Link
                 href={buildHref(page - 1)}
-                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-bold text-slate-700 hover:bg-slate-50"
+                className="rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-sm font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
               >
                 السابق
               </Link>
             ) : (
-              <span className="cursor-not-allowed rounded-md border border-slate-100 bg-slate-50 px-3 py-1.5 text-sm font-bold text-slate-300">
+              <span className="cursor-not-allowed rounded-md border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 px-3 py-1.5 text-sm font-bold text-slate-300 dark:text-slate-600">
                 السابق
               </span>
             )}
-            <span className="text-sm text-slate-500">
+            <span className="text-sm text-slate-500 dark:text-slate-400">
               صفحة {page} من {totalPages}
             </span>
             {page < totalPages ? (
               <Link
                 href={buildHref(page + 1)}
-                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-bold text-slate-700 hover:bg-slate-50"
+                className="rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-sm font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
               >
                 التالي
               </Link>
             ) : (
-              <span className="cursor-not-allowed rounded-md border border-slate-100 bg-slate-50 px-3 py-1.5 text-sm font-bold text-slate-300">
+              <span className="cursor-not-allowed rounded-md border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 px-3 py-1.5 text-sm font-bold text-slate-300 dark:text-slate-600">
                 التالي
               </span>
             )}

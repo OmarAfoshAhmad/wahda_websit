@@ -89,13 +89,13 @@ export function ImportUploader() {
 
   return (
     <div className="space-y-6 max-w-xl mx-auto">
-      <Card className="border border-slate-200 p-6 text-center sm:p-8">
-        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-primary">
+      <Card className="border border-slate-200 dark:border-slate-800 p-6 text-center sm:p-8">
+        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-primary dark:text-blue-400">
           <FileSpreadsheet className="h-7 w-7" />
         </div>
         <div>
-          <h3 className="text-lg font-black text-slate-900">رفع ملف المستفيدين</h3>
-          <p className="mx-auto mt-2 max-w-xs text-sm leading-7 text-slate-500">
+          <h3 className="text-lg font-black text-slate-900 dark:text-white">رفع ملف المستفيدين</h3>
+          <p className="mx-auto mt-2 max-w-xs text-sm leading-7 text-slate-500 dark:text-slate-400">
             اختر ملف Excel يحتوي على الحقول <b>card_number</b> و <b>name</b> ويمكنه أن يتضمن <b>birth_date</b> أو <b>date_of_birth</b>.
           </p>
         </div>
@@ -134,47 +134,47 @@ export function ImportUploader() {
       </Card>
 
       {job && (
-        <Card className="border border-slate-200 p-5">
+        <Card className="border border-slate-200 dark:border-slate-800 p-5">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h4 className="text-base font-black text-slate-900">حالة الاستيراد</h4>
-              <p className="mt-1 text-sm text-slate-500">
+              <h4 className="text-base font-black text-slate-900 dark:text-white">حالة الاستيراد</h4>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                 {job.status === "PENDING" && "تم إنشاء المهمة وجارٍ بدء التنفيذ."}
                 {job.status === "PROCESSING" && "يمكنك متابعة العمل على الصفحة بينما يستمر الاستيراد في الخلفية."}
                 {job.status === "COMPLETED" && "اكتملت المهمة بنجاح."}
                 {job.status === "FAILED" && "توقفت المهمة بسبب خطأ ويمكن إعادة المحاولة بملف جديد."}
               </p>
             </div>
-            <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-black text-slate-700">
+            <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm font-black text-slate-700 dark:text-slate-300">
               {job.progress}%
             </div>
           </div>
 
-          <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
+          <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
             <div className="h-full bg-primary transition-all" style={{ width: `${job.progress}%` }} />
           </div>
 
           <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-center">
-              <p className="text-xs text-slate-500">تمت المعالجة</p>
-              <p className="mt-1 text-lg font-black text-slate-900">{job.processedRows}/{job.totalRows}</p>
+            <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3 text-center">
+              <p className="text-xs text-slate-500 dark:text-slate-400">تمت المعالجة</p>
+              <p className="mt-1 text-lg font-black text-slate-900 dark:text-white">{job.processedRows}/{job.totalRows}</p>
             </div>
-            <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-center">
-              <p className="text-xs text-slate-500">تمت الإضافة</p>
-              <p className="mt-1 text-lg font-black text-emerald-700">{job.insertedRows}</p>
+            <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3 text-center">
+              <p className="text-xs text-slate-500 dark:text-slate-400">تمت الإضافة</p>
+              <p className="mt-1 text-lg font-black text-emerald-700 dark:text-emerald-400">{job.insertedRows}</p>
             </div>
-            <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-center">
-              <p className="text-xs text-slate-500">مكرر</p>
-              <p className="mt-1 text-lg font-black text-amber-700">{job.duplicateRows}</p>
+            <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3 text-center">
+              <p className="text-xs text-slate-500 dark:text-slate-400">مكرر</p>
+              <p className="mt-1 text-lg font-black text-amber-700 dark:text-amber-400">{job.duplicateRows}</p>
             </div>
-            <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-center">
-              <p className="text-xs text-slate-500">فشل</p>
-              <p className="mt-1 text-lg font-black text-red-700">{job.failedRows}</p>
+            <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3 text-center">
+              <p className="text-xs text-slate-500 dark:text-slate-400">فشل</p>
+              <p className="mt-1 text-lg font-black text-red-700 dark:text-red-400">{job.failedRows}</p>
             </div>
           </div>
 
           {(isCompleted || isFailed) && (
-            <div className={`mt-4 rounded-md border p-4 ${isCompleted ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700"}`}>
+            <div className={`mt-4 rounded-md border p-4 ${isCompleted ? "border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400" : "border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400"}`}>
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="font-black">{isCompleted ? "اكتمل الاستيراد" : "فشل الاستيراد"}</p>
@@ -189,7 +189,7 @@ export function ImportUploader() {
                   {hasSkippedRows && (
                     <a
                       href={`/api/import-jobs/${job.id}/skipped-file`}
-                      className="inline-flex h-9 items-center justify-center rounded-md border border-current/20 bg-white/70 px-3 text-sm font-bold"
+                      className="inline-flex h-9 items-center justify-center rounded-md border border-current/20 bg-white/70 dark:bg-black/20 px-3 text-sm font-bold"
                     >
                       تنزيل غير المستورد
                     </a>
@@ -197,7 +197,7 @@ export function ImportUploader() {
                   <button
                     type="button"
                     onClick={() => setJob(null)}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-current/20 bg-white/70"
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-current/20 bg-white/70 dark:bg-black/20"
                     title="إخفاء"
                   >
                     <RefreshCw className="h-4 w-4" />
@@ -210,7 +210,7 @@ export function ImportUploader() {
       )}
 
       {result?.error && (
-        <div className="flex items-center rounded-md border border-red-200 bg-red-50 p-4 text-red-700">
+        <div className="flex items-center rounded-md border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-900/20 p-4 text-red-700 dark:text-red-400">
           <AlertCircle className="ml-3 h-5 w-5" />
           <p className="font-medium text-sm">{result.error}</p>
         </div>

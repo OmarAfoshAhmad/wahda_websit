@@ -61,8 +61,8 @@ export default async function Dashboard() {
       <div className="space-y-5">
         {/* عنوان الصفحة */}
         <div>
-          <h1 className="text-2xl font-black text-slate-900">مرحباً، {session.name}</h1>
-          <p className="mt-1 text-sm text-slate-500">
+          <h1 className="text-2xl font-black text-slate-900 dark:text-white">مرحباً، {session.name}</h1>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             {isAdmin ? "لوحة تحكم المشرف" : "نافذة الخصم والمتابعة"}
           </p>
         </div>
@@ -74,10 +74,10 @@ export default async function Dashboard() {
               <Card className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400">إجمالي المستفيدين</p>
-                    <p className="mt-1.5 text-2xl font-black text-slate-900">{totalBeneficiaries.toLocaleString("ar-LY")}</p>
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">إجمالي المستفيدين</p>
+                    <p className="mt-1.5 text-2xl font-black text-slate-900 dark:text-slate-100">{totalBeneficiaries.toLocaleString("ar-LY")}</p>
                   </div>
-                  <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-primary">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-800 dark:text-slate-300">
                     <Users className="h-5 w-5" />
                   </div>
                 </div>
@@ -85,10 +85,10 @@ export default async function Dashboard() {
               <Card className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400">المستفيدون النشطون</p>
-                    <p className="mt-1.5 text-2xl font-black text-emerald-600">{activeBeneficiaries.toLocaleString("ar-LY")}</p>
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">المستفيدون النشطون</p>
+                    <p className="mt-1.5 text-2xl font-black text-emerald-600 dark:text-emerald-400">{activeBeneficiaries.toLocaleString("ar-LY")}</p>
                   </div>
-                  <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-600">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">
                     <CreditCard className="h-5 w-5" />
                   </div>
                 </div>
@@ -99,11 +99,11 @@ export default async function Dashboard() {
           <Card className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">حركات اليوم</p>
-                <p className="mt-1.5 text-2xl font-black text-slate-900">{todayCount.toLocaleString("ar-LY")}</p>
-                <p className="mt-0.5 text-xs text-slate-500">{todayAmount.toLocaleString("ar-LY")} د.ل</p>
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">حركات اليوم</p>
+                <p className="mt-1.5 text-2xl font-black text-slate-900 dark:text-slate-100">{todayCount.toLocaleString("ar-LY")}</p>
+                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{todayAmount.toLocaleString("ar-LY")} د.ل</p>
               </div>
-              <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-amber-200 bg-amber-50 text-amber-600">
+              <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-amber-200 bg-amber-50 text-amber-600 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
                 <TrendingDown className="h-5 w-5" />
               </div>
             </div>
@@ -113,10 +113,10 @@ export default async function Dashboard() {
             <Card className="p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">المرافق الصحية</p>
-                  <p className="mt-1.5 text-2xl font-black text-slate-900">{facilityCount.toLocaleString("ar-LY")}</p>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">المرافق الصحية</p>
+                  <p className="mt-1.5 text-2xl font-black text-slate-900 dark:text-slate-100">{facilityCount.toLocaleString("ar-LY")}</p>
                 </div>
-                <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 text-blue-600">
+                <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 text-blue-600 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
                   <Building2 className="h-5 w-5" />
                 </div>
               </div>
@@ -126,7 +126,7 @@ export default async function Dashboard() {
 
         {/* نموذج الخصم */}
         <div>
-          <h2 className="mb-3 text-lg font-black text-slate-900">خصم الأرصدة</h2>
+          <h2 className="mb-3 text-lg font-black text-slate-900 dark:text-white">خصم الأرصدة</h2>
           <DeductForm />
         </div>
       </div>

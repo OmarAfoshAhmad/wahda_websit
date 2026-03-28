@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Bell, CalendarDays, Wallet, LogOut, CheckCheck, Volume2, VolumeX } from "lucide-react";
+import { ThemeSwitcher } from "@/components/theme-switcher";
 
 type Notification = {
   id: string;
@@ -147,26 +148,30 @@ export function BeneficiaryDashboardClient({ initialData }: { initialData: Dashb
       {/* Top Bar */}
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">بوابة المستفيد</p>
-          <h1 className="text-lg font-black text-slate-900">مرحباً {data.name.split(" ")[0]}</h1>
+          <p className="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">بوابة المستفيد</p>
+          <h1 className="text-lg font-black text-slate-900 dark:text-white">مرحباً {data.name.split(" ")[0]}</h1>
         </div>
 
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setSoundEnabled((v) => !v)}
-            className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border ${soundEnabled ? "border-primary/30 bg-primary-light text-primary" : "border-slate-200 bg-white text-slate-700"}`}
+            className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border ${soundEnabled ? "border-primary/30 bg-primary-light dark:border-primary/30 dark:bg-primary/20 text-primary dark:text-blue-400" : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300"}`}
             aria-label={soundEnabled ? "إيقاف صوت الإشعارات" : "تشغيل صوت الإشعارات"}
             title={soundEnabled ? "الصوت مفعل" : "الصوت متوقف"}
           >
             {soundEnabled ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
           </button>
 
+          <div className="h-11 w-11 [&_button]:h-full [&_button]:w-full [&_button]:rounded-xl [&_button]:border-slate-200 [&_button]:dark:border-slate-700 [&_button]:bg-white [&_button]:dark:bg-slate-800 [&_button]:text-slate-700 [&_button]:dark:text-slate-300">
+            <ThemeSwitcher />
+          </div>
+
           <div className="relative">
             <button
               type="button"
               onClick={() => setNotifOpen((v) => !v)}
-              className="relative inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700"
+              className="relative inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300"
               aria-label="الإشعارات"
             >
               <Bell className="h-5 w-5" />
@@ -178,29 +183,29 @@ export function BeneficiaryDashboardClient({ initialData }: { initialData: Dashb
             </button>
 
             {notifOpen && (
-              <div className="absolute left-0 z-30 mt-2 w-80 max-w-[85vw] rounded-2xl border border-slate-200 bg-white p-3 shadow-lg">
+              <div className="absolute left-0 z-30 mt-2 w-80 max-w-[85vw] rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3 shadow-lg">
                 <div className="mb-2 flex items-center justify-between">
-                  <p className="text-sm font-black text-slate-800">الإشعارات</p>
+                  <p className="text-sm font-black text-slate-800 dark:text-white">الإشعارات</p>
                   <button
                     type="button"
                     onClick={markAllRead}
                     disabled={markingRead || unreadCount === 0}
-                    className="inline-flex items-center gap-1 text-xs font-bold text-primary disabled:opacity-50"
+                    className="inline-flex items-center gap-1 text-xs font-bold text-primary dark:text-blue-400 disabled:opacity-50"
                   >
                     <CheckCheck className="h-4 w-4" />
                     تحديد الكل كمقروء
                   </button>
                 </div>
 
-                <div className="max-h-72 space-y-2 overflow-y-auto">
+                <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
                   {data.notifications.length === 0 ? (
-                    <p className="py-5 text-center text-xs text-slate-400">لا توجد إشعارات</p>
+                    <p className="py-5 text-center text-xs text-slate-400 dark:text-slate-500">لا توجد إشعارات</p>
                   ) : (
                     data.notifications.map((n) => (
-                      <div key={n.id} className={`rounded-xl border p-2.5 ${n.is_read ? "border-slate-200 bg-slate-50" : "border-amber-200 bg-amber-50"}`}>
-                        <p className="text-xs font-black text-slate-800">{n.title}</p>
-                        <p className="mt-0.5 text-xs text-slate-600">{n.message}</p>
-                        <p className="mt-1 text-[11px] text-slate-400">{new Date(n.created_at).toLocaleString("ar-LY")}</p>
+                      <div key={n.id} className={`rounded-xl border p-2.5 ${n.is_read ? "border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-600 dark:text-slate-300" : "border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-900/20 text-slate-800 dark:text-slate-200"}`}>
+                        <p className="text-xs font-black">{n.title}</p>
+                        <p className="mt-0.5 text-xs opacity-90">{n.message}</p>
+                        <p className="mt-1 text-[11px] opacity-70">{new Date(n.created_at).toLocaleString("ar-LY")}</p>
                       </div>
                     ))
                   )}
@@ -212,7 +217,7 @@ export function BeneficiaryDashboardClient({ initialData }: { initialData: Dashb
           <button
             type="button"
             onClick={handleLogout}
-            className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300"
             aria-label="تسجيل الخروج"
           >
             <LogOut className="h-5 w-5" />
@@ -242,10 +247,10 @@ export function BeneficiaryDashboardClient({ initialData }: { initialData: Dashb
       </div>
 
       {/* User meta */}
-      <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
-        <p className="text-sm font-bold text-slate-800">رقم البطاقة: <span className="font-mono">{data.card_number}</span></p>
+      <div className="mt-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3">
+        <p className="text-sm font-bold text-slate-800 dark:text-slate-200">رقم البطاقة: <span className="font-mono">{data.card_number}</span></p>
         {data.birth_date && (
-          <p className="mt-1.5 flex items-center gap-1.5 text-xs text-slate-500">
+          <p className="mt-1.5 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
             <CalendarDays className="h-4 w-4" />
             تاريخ الميلاد: {new Date(data.birth_date).toLocaleDateString("ar-LY")}
           </p>
@@ -253,23 +258,23 @@ export function BeneficiaryDashboardClient({ initialData }: { initialData: Dashb
       </div>
 
       {/* Transactions */}
-      <div className="mt-4 rounded-xl border border-slate-200 bg-white">
-        <div className="border-b border-slate-100 px-4 py-3">
-          <h2 className="text-sm font-black text-slate-800">آخر الحركات</h2>
+      <div className="mt-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+        <div className="border-b border-slate-100 dark:border-slate-800 px-4 py-3">
+          <h2 className="text-sm font-black text-slate-800 dark:text-white">آخر الحركات</h2>
         </div>
 
         {data.transactions.length === 0 ? (
-          <p className="px-4 py-8 text-center text-sm text-slate-400">لا توجد حركات حالياً</p>
+          <p className="px-4 py-8 text-center text-sm text-slate-400 dark:text-slate-500">لا توجد حركات حالياً</p>
         ) : (
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-slate-100 dark:divide-slate-800">
             {data.transactions.map((tx) => (
               <li key={tx.id} className="flex items-center justify-between px-4 py-3">
                 <div>
-                  <p className="text-sm font-bold text-slate-800">{TYPE_LABELS[tx.type] ?? tx.type}</p>
-                  <p className="text-xs text-slate-500">{tx.facility_name}</p>
-                  <p className="text-[11px] text-slate-400">{new Date(tx.created_at).toLocaleDateString("ar-LY")}</p>
+                  <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{TYPE_LABELS[tx.type] ?? tx.type}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">{tx.facility_name}</p>
+                  <p className="text-[11px] text-slate-400 dark:text-slate-500">{new Date(tx.created_at).toLocaleDateString("ar-LY")}</p>
                 </div>
-                <span className="text-base font-black text-red-600">-{tx.amount.toLocaleString("ar-LY")} د.ل</span>
+                <span className="text-base font-black text-red-600 dark:text-red-400">-{tx.amount.toLocaleString("ar-LY")} د.ل</span>
               </li>
             ))}
           </ul>
@@ -278,9 +283,9 @@ export function BeneficiaryDashboardClient({ initialData }: { initialData: Dashb
 
       {/* Toast */}
       {toast && (
-        <div className="fixed inset-x-4 bottom-4 z-40 rounded-xl border border-emerald-200 bg-emerald-50 p-3 shadow-lg">
-          <p className="text-sm font-black text-emerald-700">تم خصم جديد</p>
-          <p className="text-xs text-emerald-700">{toast}</p>
+        <div className="fixed inset-x-4 bottom-4 z-40 rounded-xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-900/20 p-3 shadow-lg">
+          <p className="text-sm font-black text-emerald-700 dark:text-emerald-400">تم خصم جديد</p>
+          <p className="text-xs text-emerald-700 dark:text-emerald-400">{toast}</p>
         </div>
       )}
     </div>

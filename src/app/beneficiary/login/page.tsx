@@ -119,18 +119,18 @@ export default function BeneficiaryLoginPage() {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logo.png" alt="الواحة" width={64} height={64} className="object-contain" />
           <div>
-            <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Waha Health Care</p>
-            <h1 className="mt-0.5 text-xl font-black text-slate-900">بوابة المستفيد</h1>
+            <p className="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">Waha Health Care</p>
+            <h1 className="mt-0.5 text-xl font-black text-slate-900 dark:text-white">بوابة المستفيد</h1>
           </div>
         </div>
 
         {/* بطاقة الدخول */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm">
 
           {step === "card" ? (
             <form onSubmit={handleCardSubmit} className="space-y-5">
               <div className="space-y-1.5">
-                <label className="block text-xs font-black uppercase tracking-widest text-slate-400">
+                <label className="block text-xs font-black uppercase tracking-widest text-slate-400 dark:text-slate-500">
                   رقم البطاقة
                 </label>
                 <div className="relative">
@@ -144,16 +144,16 @@ export default function BeneficiaryLoginPage() {
                     value={cardNumber}
                     onChange={(e) => { setCardNumber(e.target.value); setError(""); }}
                     placeholder="أدخل رقم بطاقتك"
-                    className="h-14 w-full rounded-xl border border-slate-300 bg-slate-50 pr-12 pl-4 text-center text-lg font-bold tracking-widest text-slate-900 placeholder:text-slate-300 focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    className="h-14 w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 pr-12 pl-4 text-center text-lg font-bold tracking-widest text-slate-900 dark:text-white placeholder:text-slate-300 dark:placeholder:text-slate-500 focus:border-primary focus:bg-white dark:focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-colors"
                     required
                   />
                 </div>
               </div>
 
               {error && (
-                <div className={`flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 ${errorPulse ? "animate-shake" : ""}`}>
-                  <ShieldAlert className="h-4 w-4 shrink-0 text-red-500" />
-                  <p className="text-sm font-bold text-red-700">{error}</p>
+                <div className={`flex items-center gap-2 rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-900/20 px-4 py-3 ${errorPulse ? "animate-shake" : ""}`}>
+                  <ShieldAlert className="h-4 w-4 shrink-0 text-red-500 dark:text-red-400" />
+                  <p className="text-sm font-bold text-red-700 dark:text-red-400">{error}</p>
                 </div>
               )}
 
@@ -169,10 +169,10 @@ export default function BeneficiaryLoginPage() {
           ) : (
             <div className="space-y-5">
               <div>
-                <p className="text-center text-xs font-black uppercase tracking-widest text-slate-400">
+                <p className="text-center text-xs font-black uppercase tracking-widest text-slate-400 dark:text-slate-500">
                   رمز PIN
                 </p>
-                <p className="mt-1 text-center text-sm text-slate-500">
+                <p className="mt-1 text-center text-sm text-slate-500 dark:text-slate-400">
                   أدخل الرمز السري المكوّن من 6 أرقام
                 </p>
               </div>
@@ -190,20 +190,20 @@ export default function BeneficiaryLoginPage() {
                     onChange={(e) => handlePinChange(i, e.target.value)}
                     onKeyDown={(e) => handlePinKeyDown(i, e)}
                     disabled={loading}
-                    className="h-14 w-11 rounded-xl border border-slate-300 bg-slate-50 text-center text-2xl font-black text-slate-900 focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-50"
+                    className="h-14 w-11 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-center text-2xl font-black text-slate-900 dark:text-white focus:border-primary focus:bg-white dark:focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-50 transition-colors"
                   />
                 ))}
               </div>
 
-              <button type="button" onClick={() => setShowPin(!showPin)} className="flex items-center gap-1.5 mx-auto text-xs text-slate-400 hover:text-slate-600">
+              <button type="button" onClick={() => setShowPin(!showPin)} className="flex items-center gap-1.5 mx-auto text-xs text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
                 {showPin ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                 {showPin ? "إخفاء الأرقام" : "إظهار الأرقام"}
               </button>
 
               {error && (
-                <div className={`flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 ${errorPulse ? "animate-shake" : ""}`}>
-                  <ShieldAlert className="h-4 w-4 shrink-0 text-red-500" />
-                  <p className="text-sm font-bold text-red-700">{error}</p>
+                <div className={`flex items-center gap-2 rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-900/20 px-4 py-3 ${errorPulse ? "animate-shake" : ""}`}>
+                  <ShieldAlert className="h-4 w-4 shrink-0 text-red-500 dark:text-red-400" />
+                  <p className="text-sm font-bold text-red-700 dark:text-red-400">{error}</p>
                 </div>
               )}
 
@@ -216,7 +216,7 @@ export default function BeneficiaryLoginPage() {
               <button
                 type="button"
                 onClick={() => { setStep("card"); setPin(["", "", "", "", "", ""]); setError(""); }}
-                className="w-full text-center text-sm font-bold text-slate-400 hover:text-slate-700"
+                className="w-full text-center text-sm font-bold text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
               >
                 ← تغيير رقم البطاقة
               </button>
@@ -224,7 +224,7 @@ export default function BeneficiaryLoginPage() {
           )}
         </div>
 
-        <p className="mt-5 text-center text-xs text-slate-400">
+        <p className="mt-5 text-center text-xs text-slate-400 dark:text-slate-500">
           بوابة آمنة مخصصة للمستفيدين فقط
         </p>
       </div>

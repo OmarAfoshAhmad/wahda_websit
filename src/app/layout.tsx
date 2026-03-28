@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Tajawal } from "next/font/google";
 import { ToastProvider } from "@/components/toast";
+import { ThemeProvider } from "@/components/theme-provider";
 import { validateEnv } from "@/lib/env";
 import "./globals.css";
 
@@ -33,9 +34,11 @@ export default function RootLayout({
   return (
     <html lang="ar" dir="rtl" data-scroll-behavior="smooth" suppressHydrationWarning>
       <body className={`${tajawal.variable} ${tajawal.className}`} suppressHydrationWarning>
-        <ToastProvider>
-          {children}
-        </ToastProvider>
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+          <ToastProvider>
+            {children}
+          </ToastProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

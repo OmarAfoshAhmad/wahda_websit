@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "./ui";
 import { LayoutDashboard, ListOrdered, LogOut, Users, Building2, KeyRound, DatabaseBackup, ClipboardList } from "lucide-react";
 import { logout } from "@/app/actions/auth";
+import { ThemeSwitcher } from "./theme-switcher";
 
 const safeLogout = async () => {
   try { await logout(); } catch { window.location.href = "/login"; }
@@ -28,29 +29,32 @@ export function Shell({ children, facilityName, isAdmin = false }: { children: R
   const allNav = isAdmin ? [...baseNavigation, ...adminNavigation] : baseNavigation;
 
   return (
-    <div className="page-shell min-h-screen pb-5">
-      <nav className="sticky top-0 z-50 border-b border-slate-200 bg-white">
+    <div className="page-shell min-h-screen pb-5 bg-slate-50 dark:bg-[#0b1120] text-slate-900 dark:text-slate-100 transition-colors">
+      <nav className="sticky top-0 z-50 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 transition-colors">
         <div className="mx-auto max-w-7xl px-3 py-2.5 sm:px-5">
           <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-3">
-                <Image src="/logo.png" alt="Waha Health Care" width={38} height={38} className="object-contain" style={{ height: 'auto' }} />
+                <Image src="/logo.png" alt="Waha Health Care" width={38} height={38} className="object-contain dark:brightness-110" style={{ height: 'auto' }} />
                 <div>
-                                    <h1 className="text-sm font-black leading-tight text-slate-900">شركة الواحة</h1>
-                  <h2 className="text-sm font-black leading-tight text-slate-900">Waha Health Care</h2>
+                  <h1 className="text-sm font-black leading-tight text-slate-900 dark:text-white">شركة الواحة</h1>
+                  <h2 className="text-sm font-black leading-tight text-slate-900 dark:text-slate-300">Waha Health Care</h2>
                 </div>
               </div>
-              <button
-                onClick={() => safeLogout()}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-500 transition-colors hover:bg-slate-50 hover:text-red-600 lg:hidden"
-                title="تسجيل الخروج"
-              >
-                <LogOut className="h-5 w-5" />
-              </button>
+              <div className="flex items-center gap-2 lg:hidden">
+                <ThemeSwitcher />
+                <button
+                  onClick={() => safeLogout()}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-red-600 dark:hover:text-red-400"
+                  title="تسجيل الخروج"
+                >
+                  <LogOut className="h-5 w-5" />
+                </button>
+              </div>
             </div>
 
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-              <div className="flex gap-1 overflow-x-auto pb-1 lg:pb-0">
+              <div className="flex gap-1 overflow-x-auto pb-1 lg:pb-0 scrollbar-hide">
                 {allNav.map((item) => (
                   <Link
                     key={item.href}
@@ -58,8 +62,8 @@ export function Shell({ children, facilityName, isAdmin = false }: { children: R
                     className={cn(
                       "inline-flex min-w-fit items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-bold transition-colors",
                       pathname === item.href || pathname.startsWith(item.href + "/")
-                        ? "border border-primary/10 bg-primary-light text-primary"
-                        : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                        ? "border border-primary/20 bg-primary/10 text-primary dark:border-primary/30 dark:bg-primary/20 dark:text-blue-400"
+                        : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200"
                     )}
                   >
                     <item.icon className="h-3.5 w-3.5" />
@@ -68,25 +72,26 @@ export function Shell({ children, facilityName, isAdmin = false }: { children: R
                 ))}
               </div>
 
-              <div className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 lg:min-w-48.75">
+              <div className="flex items-center justify-between gap-3 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-2.5 py-1.5 lg:min-w-48.75">
                 <div className="text-right">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">{isAdmin ? "مشرف" : "مرفق"}</p>
-                  <p className="text-[13px] font-bold text-slate-800">{facilityName}</p>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">{isAdmin ? "مشرف" : "مرفق"}</p>
+                  <p className="text-[13px] font-bold text-slate-800 dark:text-slate-200">{facilityName}</p>
                 </div>
                 <div className="hidden items-center gap-1 lg:flex">
+                  <ThemeSwitcher />
                   <Link
                     href="/settings"
-                    className="flex h-10 w-10 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-500 transition-colors hover:bg-slate-100 hover:text-primary"
+                    className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-primary dark:hover:text-primary-light"
                     title="تغيير كلمة المرور"
                   >
                     <KeyRound className="h-4 w-4" />
                   </Link>
                   <button
                     onClick={() => safeLogout()}
-                    className="flex h-10 w-10 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-500 transition-colors hover:bg-slate-100 hover:text-red-600"
+                    className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-red-600 dark:hover:text-red-400"
                     title="تسجيل الخروج"
                   >
-                    <LogOut className="h-5 w-5" />
+                    <LogOut className="h-4 w-4" />
                   </button>
                 </div>
               </div>

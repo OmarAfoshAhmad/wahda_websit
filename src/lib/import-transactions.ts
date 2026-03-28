@@ -274,7 +274,7 @@ async function importFamilyTransactions(
   const perMember = Math.round((totalUsedAmount / familyMembers.length) * 100) / 100;
   let transactionCount = 0;
 
-  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+  await prisma.$transaction(async (tx) => {
     for (const member of familyMembers) {
       const currentBalance = Number(member.remaining_balance);
       const deductAmount = Math.min(perMember, currentBalance);

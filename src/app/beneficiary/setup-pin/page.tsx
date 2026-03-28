@@ -92,18 +92,18 @@ function SetupPinForm() {
     <div className="space-y-5">
       {/* المؤشر */}
       <div className="flex items-center justify-center gap-3">
-        <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-black ${step === "enter" ? "bg-primary text-white" : "bg-emerald-100 text-emerald-700"}`}>
+        <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-black ${step === "enter" ? "bg-primary text-white" : "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400"}`}>
           {step === "enter" ? "1" : <ShieldCheck className="h-4 w-4" />}
         </div>
-        <div className="h-px w-8 bg-slate-200" />
-        <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-black ${step === "confirm" ? "bg-primary text-white" : "bg-slate-100 text-slate-400"}`}>
+        <div className="h-px w-8 bg-slate-200 dark:bg-slate-700" />
+        <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-black ${step === "confirm" ? "bg-primary text-white" : "bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500"}`}>
           2
         </div>
       </div>
 
       {step === "enter" ? (
         <>
-          <p className="text-center text-sm text-slate-600">اختر رمز PIN من 6 أرقام</p>
+          <p className="text-center text-sm text-slate-600 dark:text-slate-400">اختر رمز PIN من 6 أرقام</p>
           <div className="flex justify-center gap-2.5" dir="ltr">
             {pin.map((d, i) => (
               <input
@@ -116,18 +116,18 @@ function SetupPinForm() {
                 autoFocus={i === 0}
                 onChange={(e) => handleChange(i, e.target.value, pin, setPin, pinRefs, handleFirstComplete)}
                 onKeyDown={(e) => handleKeyDown(i, e, pin, pinRefs)}
-                className="h-14 w-11 rounded-xl border border-slate-300 bg-slate-50 text-center text-2xl font-black text-slate-900 focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                className="h-14 w-11 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-center text-2xl font-black text-slate-900 dark:text-white focus:border-primary focus:bg-white dark:focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-colors"
               />
             ))}
           </div>
-          <button type="button" onClick={() => setShowPin(!showPin)} className="flex items-center gap-1.5 mx-auto text-xs text-slate-400 hover:text-slate-600">
+          <button type="button" onClick={() => setShowPin(!showPin)} className="flex items-center gap-1.5 mx-auto text-xs text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
             {showPin ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
             {showPin ? "إخفاء الأرقام" : "إظهار الأرقام"}
           </button>
         </>
       ) : (
         <>
-          <p className="text-center text-sm text-slate-600">أعد إدخال الرمز للتأكيد</p>
+          <p className="text-center text-sm text-slate-600 dark:text-slate-400">أعد إدخال الرمز للتأكيد</p>
           <div className="flex justify-center gap-2.5" dir="ltr">
             {confirmPin.map((d, i) => (
               <input
@@ -140,11 +140,11 @@ function SetupPinForm() {
                 onChange={(e) => handleChange(i, e.target.value, confirmPin, setConfirmPin, confirmRefs, handleConfirmComplete)}
                 onKeyDown={(e) => handleKeyDown(i, e, confirmPin, confirmRefs)}
                 disabled={loading}
-                className="h-14 w-11 rounded-xl border border-slate-300 bg-slate-50 text-center text-2xl font-black text-slate-900 focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-50"
+                className="h-14 w-11 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-center text-2xl font-black text-slate-900 dark:text-white focus:border-primary focus:bg-white dark:focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-50 transition-colors"
               />
             ))}
           </div>
-          <button type="button" onClick={() => setShowPin(!showPin)} className="flex items-center gap-1.5 mx-auto text-xs text-slate-400 hover:text-slate-600">
+          <button type="button" onClick={() => setShowPin(!showPin)} className="flex items-center gap-1.5 mx-auto text-xs text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
             {showPin ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
             {showPin ? "إخفاء الأرقام" : "إظهار الأرقام"}
           </button>
@@ -154,9 +154,9 @@ function SetupPinForm() {
       {loading && <div className="flex justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}
 
       {error && (
-        <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
-          <ShieldAlert className="h-4 w-4 shrink-0 text-red-500" />
-          <p className="text-sm font-bold text-red-700">{error}</p>
+        <div className="flex items-center gap-2 rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-900/20 px-4 py-3">
+          <ShieldAlert className="h-4 w-4 shrink-0 text-red-500 dark:text-red-400" />
+          <p className="text-sm font-bold text-red-700 dark:text-red-400">{error}</p>
         </div>
       )}
     </div>
@@ -171,19 +171,19 @@ export default function SetupPinPage() {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logo.png" alt="الواحة" width={64} height={64} className="object-contain" />
           <div>
-            <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Waha Health Care</p>
-            <h1 className="mt-0.5 text-xl font-black text-slate-900">إنشاء رمز الدخول</h1>
-            <p className="mt-1 text-sm text-slate-500">سيُستخدم هذا الرمز في كل مرة تدخل فيها</p>
+            <p className="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">Waha Health Care</p>
+            <h1 className="mt-0.5 text-xl font-black text-slate-900 dark:text-white">إنشاء رمز الدخول</h1>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">سيُستخدم هذا الرمز في كل مرة تدخل فيها</p>
           </div>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm">
           <Suspense>
             <SetupPinForm />
           </Suspense>
         </div>
 
-        <p className="mt-5 text-center text-xs text-slate-400">
+        <p className="mt-5 text-center text-xs text-slate-400 dark:text-slate-500">
           لا تشارك رمز PIN مع أحد
         </p>
       </div>

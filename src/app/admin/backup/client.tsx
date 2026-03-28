@@ -344,24 +344,24 @@ export function BackupClient() {
         {/* تصدير */}
         <Card className="p-5">
           <div className="mb-4 flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-primary">
+            <div className="flex h-11 w-11 items-center justify-center rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-primary dark:text-blue-400">
               <Database className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-base font-black text-slate-900">تحميل نسخة احتياطية</h2>
-              <p className="text-xs text-slate-500">تنزيل جميع البيانات كملف JSON على جهازك</p>
+              <h2 className="text-base font-black text-slate-900 dark:text-white">تحميل نسخة احتياطية</h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400">تنزيل جميع البيانات كملف JSON على جهازك</p>
             </div>
           </div>
 
-          <div className="mb-4 rounded-md border border-sky-200 bg-sky-50 p-3">
-            <p className="text-xs font-bold text-sky-700">
+          <div className="mb-4 rounded-md border border-sky-200 dark:border-sky-900/50 bg-sky-50 dark:bg-sky-900/20 p-3">
+            <p className="text-xs font-bold text-sky-700 dark:text-sky-400">
               الملف الناتج مشفّر بصيغة WBK (AES-256 + GZIP).
               يشمل users, providers, transactions, notifications, audit_logs.
               لا يتم تصدير كلمات المرور ويمكنك اختيار تضمين PIN hash.
             </p>
           </div>
 
-          <label className="mb-4 flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm font-bold text-slate-700">
+          <label className="mb-4 flex items-center gap-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3 text-sm font-bold text-slate-700 dark:text-slate-300">
             <input
               type="checkbox"
               checked={includeSensitive}
@@ -380,17 +380,17 @@ export function BackupClient() {
         {/* استعادة */}
         <Card className="p-5">
           <div className="mb-4 flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-emerald-600">
+            <div className="flex h-11 w-11 items-center justify-center rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-emerald-600 dark:text-emerald-400">
               <Shield className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-base font-black text-slate-900">استعادة نسخة احتياطية</h2>
-              <p className="text-xs text-slate-500">رفع ملف نسخة احتياطية لاستعادة البيانات</p>
+              <h2 className="text-base font-black text-slate-900 dark:text-white">استعادة نسخة احتياطية</h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400">رفع ملف نسخة احتياطية لاستعادة البيانات</p>
             </div>
           </div>
 
-          <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3">
-            <p className="text-xs font-bold text-amber-700">
+          <div className="mb-4 rounded-md border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-900/20 p-3">
+            <p className="text-xs font-bold text-amber-700 dark:text-amber-400">
               الاستعادة تعمل بالخلفية وتضيف البيانات غير الموجودة فقط — لا تحذف أو تستبدل أي بيانات حالية.
               المرافق المُستعادة ستحتاج لإعادة تعيين كلمة المرور.
             </p>
@@ -419,7 +419,7 @@ export function BackupClient() {
       {restoreJob && (
         <Card className="p-4">
           <div className="mb-2 flex items-center justify-between gap-3">
-            <h3 className="text-sm font-black text-slate-900">تقدم الاستعادة</h3>
+            <h3 className="text-sm font-black text-slate-900 dark:text-white">تقدم الاستعادة</h3>
             <div className="flex items-center gap-2">
               {(restoreJob.status === "PENDING" || restoreJob.status === "PROCESSING") && (
                 <Button
@@ -431,44 +431,56 @@ export function BackupClient() {
                   {cancelLoading ? "جاري الإلغاء..." : "إلغاء الاستعادة"}
                 </Button>
               )}
-              <span className="text-xs font-bold text-slate-600">
+              <span className="text-xs font-bold text-slate-600 dark:text-slate-400">
                 {restoreJob.progress}% ({restoreJob.completedSteps}/{restoreJob.totalSteps || 0})
               </span>
             </div>
           </div>
 
-          <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+          <div className="h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
             <div
-              className="h-full bg-emerald-600 transition-all duration-300"
+              className="h-full bg-emerald-600 dark:bg-emerald-500 transition-all duration-300"
               style={{ width: `${Math.min(100, Math.max(0, restoreJob.progress))}%` }}
             />
           </div>
 
-          <p className="mt-2 text-xs font-bold text-slate-600">
+          <p className="mt-2 text-xs font-bold text-slate-600 dark:text-slate-400">
             المرحلة الحالية: {phaseLabel(restoreJob.currentPhase)}
           </p>
 
-          <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-700 md:grid-cols-3">
-            <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1">مرافق مضافة: {restoreJob.summary.users.added}</div>
-            <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1">مرافق محدثة: {restoreJob.summary.users.updated}</div>
-            <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1">مستفيدون مضافون: {restoreJob.summary.providers.added}</div>
-            <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1">مستفيدون محدثون: {restoreJob.summary.providers.updated}</div>
-            <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1">حركات مضافة: {restoreJob.summary.transactions.added}</div>
-            <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1">حركات متخطاة: {restoreJob.summary.transactions.skipped}</div>
+          <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-700 dark:text-slate-300 md:grid-cols-3">
+            <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1 flex items-center justify-between">
+              <span>مرافق مضافة:</span> <span>{restoreJob.summary.users.added}</span>
+            </div>
+            <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1 flex items-center justify-between">
+              <span>مرافق محدثة:</span> <span>{restoreJob.summary.users.updated}</span>
+            </div>
+            <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1 flex items-center justify-between">
+              <span>مستفيدون مضافون:</span> <span>{restoreJob.summary.providers.added}</span>
+            </div>
+            <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1 flex items-center justify-between">
+              <span>مستفيدون محدثون:</span> <span>{restoreJob.summary.providers.updated}</span>
+            </div>
+            <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1 flex items-center justify-between">
+              <span>حركات مضافة:</span> <span>{restoreJob.summary.transactions.added}</span>
+            </div>
+            <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1 flex items-center justify-between">
+              <span>حركات متخطاة:</span> <span>{restoreJob.summary.transactions.skipped}</span>
+            </div>
           </div>
         </Card>
       )}
 
       {/* رسالة النتيجة */}
       {result && (
-        <Card className={`p-4 ${result.type === "success" ? "border-emerald-200 bg-emerald-50" : "border-red-200 bg-red-50"}`}>
+        <Card className={`p-4 ${result.type === "success" ? "border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-900/20" : "border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-900/20"}`}>
           <div className="flex items-center gap-2">
             {result.type === "success" ? (
-              <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />
+              <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
             ) : (
-              <AlertTriangle className="h-5 w-5 shrink-0 text-red-600" />
+              <AlertTriangle className="h-5 w-5 shrink-0 text-red-600 dark:text-red-400" />
             )}
-            <p className={`text-sm font-bold ${result.type === "success" ? "text-emerald-700" : "text-red-700"}`}>
+            <p className={`text-sm font-bold ${result.type === "success" ? "text-emerald-700 dark:text-emerald-400" : "text-red-700 dark:text-red-400"}`}>
               {result.message}
             </p>
           </div>
@@ -477,29 +489,29 @@ export function BackupClient() {
 
       {/* تأكيد الاستعادة */}
       {confirmRestore && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xl">
             <div className="mb-3 flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-amber-500" />
-              <h3 className="text-base font-black text-slate-900">تأكيد الاستعادة</h3>
+              <h3 className="text-base font-black text-slate-900 dark:text-white">تأكيد الاستعادة</h3>
             </div>
 
-            <p className="mb-2 text-sm text-slate-600">
+            <p className="mb-2 text-sm text-slate-600 dark:text-slate-400">
               هل أنت متأكد من استعادة النسخة الاحتياطية من الملف:
             </p>
-            <p className="mb-4 rounded-md bg-slate-50 px-3 py-2 text-sm font-bold text-slate-800" dir="ltr">
+            <p className="mb-4 rounded-md bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm font-bold text-slate-800 dark:text-slate-200" dir="ltr">
               {selectedFile?.name}
             </p>
-            <p className="mb-4 text-xs text-slate-500">
+            <p className="mb-4 text-xs text-slate-500 dark:text-slate-400">
               سيتم إضافة البيانات غير الموجودة فقط. لن يتم حذف أو تعديل أي بيانات حالية.
             </p>
 
             <div className="mb-4">
-              <label className="mb-1 block text-xs font-black text-slate-500">للتأكيد اكتب: RESTORE</label>
+              <label className="mb-1 block text-xs font-black text-slate-500 dark:text-slate-400">للتأكيد اكتب: RESTORE</label>
               <input
                 value={restoreText}
                 onChange={(e) => setRestoreText(e.target.value)}
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                className="flex h-10 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
                 placeholder="RESTORE"
                 dir="ltr"
               />

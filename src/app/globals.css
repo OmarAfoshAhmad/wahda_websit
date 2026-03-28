@@ -1,5 +1,5 @@
 @import "tailwindcss";
-
+@custom-variant dark (&:where(.dark, .dark *));
 @theme {
   --color-primary: var(--primary);
   --color-primary-dark: var(--primary-dark);
@@ -38,28 +38,27 @@
   --shadow-soft: 0 2px 10px rgba(15, 23, 42, 0.04);
 }
 
-/* ── Dark Mode ── */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --primary: #5b8fd9;
-    --primary-dark: #3d6db8;
-    --primary-light: #1a2744;
-    --secondary: #94a3b8;
-    --accent: #e6b668;
+/* ── Dark Mode (Class based for next-themes) ── */
+.dark {
+  /* High contrast colors for better readability */
+  --primary: #60a5fa;      /* Lighter blue for dark mode */
+  --primary-dark: #3b82f6; /* Core blue */
+  --primary-light: #1e3a8a;/* Deep blue for active states */
+  --secondary: #94a3b8;    /* Lighter slate for secondary text */
+  --accent: #fbbf24;       /* Bright amber/gold */
 
-    --background: #0f172a;
-    --surface: #1e293b;
-    --surface-strong: #1e293b;
-    --surface-alt: #162032;
+  --background: #0b1120;   /* Very dark slate for main background */
+  --surface: #1e293b;      /* Slightly lighter slate for cards */
+  --surface-strong: #334155;/* Prominent surface */
+  --surface-alt: #0f172a;  /* Alternate background */
 
-    --text-main: #e2e8f0;
-    --text-muted: #94a3b8;
-    --border: #334155;
-    --ring: rgba(91, 143, 217, 0.3);
+  --text-main: #f8fafc;    /* Near white for readable main text */
+  --text-muted: #94a3b8;   /* Slate 400 for muted text */
+  --border: #334155;       /* Slate 700 for borders */
+  --ring: rgba(96, 165, 250, 0.4);
 
-    --shadow-glow: 0 6px 16px rgba(0, 0, 0, 0.3);
-    --shadow-soft: 0 2px 10px rgba(0, 0, 0, 0.2);
-  }
+  --shadow-glow: 0 4px 14px rgba(0, 0, 0, 0.5);
+  --shadow-soft: 0 2px 10px rgba(0, 0, 0, 0.4);
 }
 
 * {

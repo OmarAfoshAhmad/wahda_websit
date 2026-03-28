@@ -33,7 +33,7 @@ export async function deleteCancellationTransaction(cancellationId: string) {
 
     const refundAmountReversed = Math.abs(Number(cancellationTransaction.amount));
 
-    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    await prisma.$transaction(async (tx) => {
       // 1. قفل صف المستفيد لمنع race condition
       const locked = await tx.$queryRaw<Array<{ id: string; remaining_balance: number }>>`
         SELECT id, remaining_balance FROM "Beneficiary"
