@@ -5,56 +5,75 @@ import { Shell } from "@/components/shell";
 import { DeductForm } from "@/components/deduct-form";
 import { Card } from "@/components/ui";
 import { Users, CreditCard, TrendingDown, Building2 } from "lucide-react";
+import { unstable_cache } from "next/cache";
+
+// ─── كاش إحصائيات المشرف: تتحدث كل 60 ثانية ───
+const getCachedAdminStats = unstable_cache(
+  async () => {
+    const [stats, facilityCount] = await Promise.all([
+      prisma.$queryRaw<
+        Array<{
+          total_beneficiaries: bigint;
+          active_beneficiaries: bigint;
+        }>
+      >`
+        SELECT
+          COUNT(*) FILTER (WHERE "deleted_at" IS NULL) AS total_beneficiaries,
+          COUNT(*) FILTER (WHERE "deleted_at" IS NULL AND status = 'ACTIVE') AS active_beneficiaries
+        FROM "Beneficiary"
+      `,
+      prisma.facility.count({ where: { deleted_at: null } })
+    ]);
+    return {
+      total_beneficiaries: stats[0]?.total_beneficiaries ? Number(stats[0].total_beneficiaries) : 0,
+      active_beneficiaries: stats[0]?.active_beneficiaries ? Number(stats[0].active_beneficiaries) : 0,
+      facilityCount,
+    };
+  },
+  ["admin-dashboard-stats-v1"],
+  { revalidate: 60 }
+);
+
+// ─── كاش حركات اليوم للحساب الحالي: تتحدث كل 30 ثانية ───
+const getCachedTodayStats = unstable_cache(
+  async (facilityId: string) => {
+    // startOfDay string key is constant for today
+    const startOfDay = new Date(new Date().setHours(0, 0, 0, 0));
+    const result = await prisma.transaction.aggregate({
+      where: {
+        ...(facilityId !== "admin" ? { facility_id: facilityId } : {}),
+        created_at: { gte: startOfDay },
+        is_cancelled: false,
+      },
+      _sum: { amount: true },
+      _count: true,
+    });
+    return {
+      amount: Number(result._sum.amount ?? 0),
+      count: result._count,
+    };
+  },
+  ["today-transactions-stats-v1"],
+  { revalidate: 30 }
+);
 
 export default async function Dashboard() {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  // إحصائيات مخصصة حسب نوع المستخدم
   const isAdmin = session.is_admin;
 
-  const [stats, todayStats] = await Promise.all([
-    // الإحصائيات العامة
-    isAdmin
-      ? prisma.$queryRaw<
-          Array<{
-            total_beneficiaries: bigint;
-            active_beneficiaries: bigint;
-            total_facilities: bigint;
-          }>
-        >`
-          SELECT
-            COUNT(*) FILTER (WHERE "deleted_at" IS NULL) AS total_beneficiaries,
-            COUNT(*) FILTER (WHERE "deleted_at" IS NULL AND status = 'ACTIVE') AS active_beneficiaries,
-            0::bigint AS total_facilities
-          FROM "Beneficiary"
-        `
-      : Promise.resolve(null),
-
-    // حركات اليوم
-    prisma.transaction.aggregate({
-      where: {
-        ...(isAdmin ? {} : { facility_id: session.id }),
-        created_at: {
-          gte: new Date(new Date().setHours(0, 0, 0, 0)),
-        },
-        is_cancelled: false,
-      },
-      _sum: { amount: true },
-      _count: true,
-    }),
+  const [adminStats, todayStats] = await Promise.all([
+    isAdmin ? getCachedAdminStats() : Promise.resolve({ total_beneficiaries: 0, active_beneficiaries: 0, facilityCount: 0 }),
+    getCachedTodayStats(isAdmin ? "admin" : session.id)
   ]);
 
-  let facilityCount = 0;
-  if (isAdmin) {
-    facilityCount = await prisma.facility.count({ where: { deleted_at: null } });
-  }
-
-  const stat = stats?.[0];
-  const totalBeneficiaries = stat ? Number(stat.total_beneficiaries) : 0;
-  const activeBeneficiaries = stat ? Number(stat.active_beneficiaries) : 0;
-  const todayAmount = Number(todayStats._sum.amount ?? 0);
-  const todayCount = todayStats._count;
+  const totalBeneficiaries = adminStats.total_beneficiaries;
+  const activeBeneficiaries = adminStats.active_beneficiaries;
+  const facilityCount = adminStats.facilityCount;
+  
+  const todayAmount = todayStats.amount;
+  const todayCount = todayStats.count;
 
   return (
     <Shell facilityName={session.name} isAdmin={session.is_admin}>

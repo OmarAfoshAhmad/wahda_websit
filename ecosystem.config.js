@@ -24,7 +24,7 @@ module.exports = {
   apps: [
     {
       name: "waha-health-care",
-      script: "server.js", // ملف Next.js standalone
+      script: "./.next/standalone/server.js", // ملف Next.js standalone
       instances: INSTANCES,
       exec_mode: "cluster",   // مشاركة المنفذ عبر الـ cluster
       
