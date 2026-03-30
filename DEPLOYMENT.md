@@ -28,6 +28,7 @@
 
 - يجب أن يحتوي على `networks: waadapp_tba_network` مع `external: true`
 - البورت: `3101:3000`
+- خدمة `app` يجب أن تستخدم: `image: ${APP_IMAGE:-wahda_web:latest}` لدعم rollback السريع
 
 ## قاعدة البيانات
 
@@ -76,6 +77,7 @@ DEFAULT_ADMIN_NAME=System Admin
 
 - يجب تثبيت `openssl` في مرحلة runner: `apt-get install -y openssl`
 - يجب `chown -R node:node /app` قبل `USER node` (Prisma يحتاج صلاحيات كتابة)
+- migration لم تعد تعمل تلقائياً عند startup إلا إذا فعّلت `RUN_DB_MIGRATIONS_ON_BOOT=true`
 
 ## خطوات رفع تحديث
 
@@ -83,26 +85,79 @@ DEFAULT_ADMIN_NAME=System Admin
 > لا تستخدم `prisma migrate reset` أو `prisma db push --force-reset` على الإنتاج أبداً.
 > المايقريشن فقط عبر `prisma migrate deploy` الذي يطبّق المايقريشنات الجديدة دون مسح البيانات.
 
+### الطريقة الموصى بها (Candidate ثم Promote)
+
 ```bash
-# 1. على جهازك المحلي
+# 1) على جهازك المحلي
 git add -A
 git commit -m "وصف التحديث"
 git push origin main
 
-# 2. على السيرفر
+# 2) على السيرفر
 cd /opt/wahda_websit/alwaha-care
 git pull origin main
 
-# 3. إعادة بناء الصورة (بدون مسح volumes أو بيانات)
+# 3) بناء وتشغيل نسخة Candidate على منفذ منفصل (لا تؤثر على الإنتاج)
+chmod +x infra/deploy-candidate.sh infra/promote-candidate.sh
+./infra/deploy-candidate.sh
+
+# 4) اختبر النسخة الجديدة عبر منفذ Candidate
+# افتراضياً: http://<server-ip>:3102
+
+# 5) بعد الموافقة فقط: Promote إلى الإنتاج مع rollback تلقائي عند الفشل
+./infra/promote-candidate.sh
+
+# اختياري: تسمية Release يدوياً
+# ./infra/deploy-candidate.sh wahda_web:candidate-20260330-1
+# ./infra/promote-candidate.sh wahda_web:candidate-20260330-1
+```
+
+### حواجز أمان migrations (مفعلة افتراضياً)
+
+- يتم فحص migration SQL قبل التطبيق، وإذا وُجدت عبارات مدمّرة (`DROP/RENAME/ALTER TYPE/SET NOT NULL`) يتم إيقاف النشر افتراضياً
+- قبل `prisma migrate deploy` يتم إنشاء backup للقاعدة تلقائياً داخل `./backups`
+- يمكن التحكم بالسلوك عبر متغيرات البيئة التالية:
+
+| المتغير                        | الافتراضي   | الوظيفة                           |
+| ------------------------------ | ----------- | --------------------------------- |
+| `CHECK_DESTRUCTIVE_MIGRATIONS` | `true`      | فحص migrations المدمّرة قبل النشر |
+| `ALLOW_DESTRUCTIVE_MIGRATIONS` | `false`     | تجاوز الحظر بعد موافقة صريحة      |
+| `RUN_DB_BACKUP`                | `true`      | إنشاء backup قبل تطبيق migrations |
+| `BACKUP_DIR`                   | `./backups` | مسار حفظ النسخ الاحتياطية         |
+| `BACKUP_PREFIX`                | `wahda_db`  | بادئة اسم ملف backup              |
+
+مثال (فقط عند موافقة صريحة على migration غير متوافقة للخلف):
+
+```bash
+ALLOW_DESTRUCTIVE_MIGRATIONS=true ./infra/promote-candidate.sh
+```
+
+### ما الذي تفعله السكربتات الجديدة؟
+
+- `deploy-candidate.sh` يبني الصورة الجديدة ويشغلها في حاوية مستقلة `wahda_app_candidate` على منفذ منفصل
+- النسخة الحالية `wahda_app` تبقى تعمل بدون أي تغيير أثناء الاختبار
+- `promote-candidate.sh` ينقل الصورة المختبرة للإنتاج فقط عند طلبك
+- عند فشل الـ health check بعد النقل، rollback تلقائي للصورة السابقة
+
+### ملاحظة مهمة عن قاعدة البيانات
+
+- إذا كان الإصدار الجديد يحتوي migrations غير متوافقة للخلف، فقد تتأثر النسخة القديمة بعد تطبيق migration
+- لذلك يوصى أن تكون migrations في الإنتاج backward-compatible قدر الإمكان (Expand/Contract)
+
+### طريقة بديلة (نشر آمن تلقائي مباشر)
+
+```bash
+chmod +x infra/deploy-safe-rollout.sh
+./infra/deploy-safe-rollout.sh
+```
+
+### الطريقة القديمة (Fallback فقط)
+
+```bash
 docker compose -f docker-compose.prod.yml down
 docker build -t wahda_web:latest . --no-cache
 docker compose -f docker-compose.prod.yml up -d
-
-# 4. تطبيق المايقريشنات الجديدة (إن وُجدت) — آمن على البيانات
 docker exec wahda_app npx prisma migrate deploy
-
-# 5. التحقق (انتظر 30 ثانية)
-docker logs wahda_app --tail 20
 ```
 
 ### ⛔ أوامر محظورة على الإنتاج

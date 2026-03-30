@@ -48,4 +48,4 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 
-CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy && node prisma/bootstrap-admin.js && node server.js"]
+CMD ["sh", "-c", "if [ \"${RUN_DB_MIGRATIONS_ON_BOOT:-false}\" = \"true\" ]; then node node_modules/prisma/build/index.js migrate deploy; fi; node prisma/bootstrap-admin.js; node server.js"]
