@@ -4,7 +4,6 @@ import prisma from "@/lib/prisma";
 import { deductionSchema } from "@/lib/validation";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { revalidatePath } from "next/cache";
-import { Prisma } from "@prisma/client";
 import { requireActiveFacilitySession } from "@/lib/session-guard";
 import { logger } from "@/lib/logger";
 import { emitNotification } from "@/lib/sse-notifications";

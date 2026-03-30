@@ -72,9 +72,17 @@ export function ImportUploader() {
       }
 
       setJob(payload.job);
-      fetch(`/api/import-jobs/${payload.job.id}/run`, { method: "POST" }).catch(() => {
-        setResult({ error: "فشل بدء عملية الاستيراد. حاول مرة أخرى." });
-      });
+      fetch(`/api/import-jobs/${payload.job.id}/run`, { method: "POST" })
+        .then(async (runResponse) => {
+          if (!runResponse.ok) {
+            const runPayload = await runResponse.json().catch(() => ({} as { error?: string }));
+            throw new Error(runPayload.error ?? "فشل بدء عملية الاستيراد. حاول مرة أخرى.");
+          }
+        })
+        .catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : "فشل بدء عملية الاستيراد. حاول مرة أخرى.";
+          setResult({ error: message });
+        });
     } catch {
       setResult({ error: "تعذر رفع الملف أو بدء مهمة الاستيراد." });
     } finally {

@@ -1,5 +1,5 @@
 /// <reference types="vitest/globals" />
-import { render, screen, act } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { ToastProvider, useToast } from '@/components/toast';
 import userEvent from '@testing-library/user-event';
 

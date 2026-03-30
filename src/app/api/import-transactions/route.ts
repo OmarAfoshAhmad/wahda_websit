@@ -8,6 +8,23 @@ const ALLOWED_MIME = [
   "application/vnd.ms-excel",
 ];
 
+function toReadableImportError(error: unknown): string {
+  if (error instanceof Error) {
+    if (error.message.includes("WAAD_FACILITY_ID")) {
+      return "إعدادات الخادم غير مكتملة: WAAD_FACILITY_ID غير مضبوط.";
+    }
+    const lower = error.message.toLowerCase();
+    if (lower.includes("non-existing facility") || lower.includes("transaction_facility_id_fkey")) {
+      return "معرّف المرفق المخصص للاستيراد غير صحيح أو غير موجود في قاعدة البيانات.";
+    }
+    if (lower.includes("invalid signature") || lower.includes("can't find end of central directory")) {
+      return "الملف ليس بصيغة Excel .xlsx صالحة. افتحه في Excel ثم احفظه كـ .xlsx وأعد الرفع.";
+    }
+    return `فشل في معالجة الملف: ${error.message}`;
+  }
+  return "فشل في قراءة أو معالجة ملف Excel.";
+}
+
 export async function POST(request: Request) {
   const session = await getSession();
   if (!session) {
@@ -28,6 +45,14 @@ export async function POST(request: Request) {
     const ext = file.name.split(".").pop()?.toLowerCase();
     if (!["xlsx", "xls"].includes(ext ?? "") && !ALLOWED_MIME.includes(file.type)) {
       return NextResponse.json({ error: "نوع الملف غير مدعوم. الرجاء رفع ملف Excel (.xlsx أو .xls)" }, { status: 400 });
+    }
+
+    // ExcelJS يدعم xlsx فقط — بعض الملفات تكون xls أو xlsx شكلياً لكنها ليست OOXML.
+    if (ext === "xls") {
+      return NextResponse.json(
+        { error: "صيغة .xls غير مدعومة في هذا المسار. الرجاء تحويل الملف إلى .xlsx ثم إعادة المحاولة." },
+        { status: 400 },
+      );
     }
 
     if (file.size > 10 * 1024 * 1024) {
@@ -52,7 +77,8 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ result }, { status: 200 });
-  } catch {
-    return NextResponse.json({ error: "فشل في قراءة أو معالجة ملف Excel." }, { status: 400 });
+  } catch (error) {
+    console.error("[import-transactions] Failed to import file", error);
+    return NextResponse.json({ error: toReadableImportError(error) }, { status: 400 });
   }
 }

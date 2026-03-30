@@ -6,6 +6,7 @@
  * في بيئة التطوير بدون Redis: يُسقط تحذيراً ويُعيد null بدلاً من الانهيار.
  */
 
+import { URL } from "url";
 import type { Queue, Worker, Job } from "bullmq";
 
 // نوع Job Data لاستيراد المستفيدين
@@ -19,16 +20,22 @@ let importQueue: Queue<ImportJobData> | null = null;
 let importWorker: Worker<ImportJobData> | null = null;
 
 function getRedisConnection() {
+  const enableRedisInDev = process.env.ENABLE_REDIS_QUEUE === "true";
+  if (process.env.NODE_ENV !== "production" && !enableRedisInDev) {
+    return null;
+  }
+
   const url = process.env.REDIS_URL;
   if (!url) return null;
   try {
-    const { URL } = require("url");
     const parsed = new URL(url);
     return {
       host: parsed.hostname,
       port: Number(parsed.port) || 6379,
       password: parsed.password || undefined,
       tls: parsed.protocol === "rediss:" ? {} : undefined,
+      connectTimeout: 3000,
+      maxRetriesPerRequest: 1,
     };
   } catch {
     return null;
@@ -68,14 +75,31 @@ export async function getImportQueue(): Promise<Queue<ImportJobData> | null> {
  * يضيف مهمة استيراد للطابور — تُنفَّذ بشكل آمن حتى لو انهار السيرفر
  */
 export async function enqueueImportJob(jobId: string, username: string): Promise<boolean> {
-  const queue = await getImportQueue();
-  if (!queue) {
-    // fallback: تشغيل مباشر بدون طابور (dev mode)
+  try {
+    const queue = await getImportQueue();
+    if (!queue) {
+      // fallback: تشغيل مباشر بدون طابور (dev mode)
+      return false;
+    }
+
+    await queue.add(`import:${jobId}`, { jobId, username }, { jobId });
+    return true;
+  } catch (error) {
+    if (importQueue) {
+      try {
+        await importQueue.close();
+      } catch {
+        // تجاهل أخطاء الإغلاق
+      }
+      importQueue = null;
+    }
+
+    console.warn("[QUEUE] enqueue failed; falling back to direct processing", {
+      jobId,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return false;
   }
-
-  await queue.add(`import:${jobId}`, { jobId, username }, { jobId });
-  return true;
 }
 
 /**

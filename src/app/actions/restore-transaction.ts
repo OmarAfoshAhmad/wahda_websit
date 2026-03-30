@@ -2,7 +2,6 @@
 
 import prisma from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
-import { Prisma } from "@prisma/client";
 import { logger } from "@/lib/logger";
 
 import { requireActiveFacilitySession } from "@/lib/session-guard";

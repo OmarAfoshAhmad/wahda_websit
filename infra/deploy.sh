@@ -4,9 +4,9 @@
 #  deploy.sh
 # ═══════════════════════════════════════════════════════════════════
 #
-# يُشغّل 3 مكونات على VPS واحد بـ 2 CPU / 4GB RAM:
+# يُشغّل 3 مكونات على VPS واحد بـ 4 CPU / 16GB RAM:
 #   1. PgBouncer  — مُجمّع اتصالات PostgreSQL (منفذ 5433)
-#   2. Next.js ×2 — نسختان من التطبيق (PM2 cluster mode)
+#   2. Next.js ×N — عدد نسخ ديناميكي حسب CPU عبر PM2 cluster mode
 #   3. Nginx      — موزع الحمل (منفذ 80 / 443)
 #
 # الاستخدام:
@@ -42,12 +42,12 @@ fi
 pm2 delete waha-health-care 2>/dev/null || true
 echo "   ✅ PM2 جاهز"
 
-# 4. تشغيل نسختَي Next.js عبر PM2
+# 4. تشغيل التطبيق عبر PM2 (عدد نسخ ديناميكي)
 echo "🌐 [4/5] تشغيل التطبيق..."
 mkdir -p logs
 pm2 start ecosystem.config.js --env production
 pm2 save
-echo "   ✅ النسختان تعملان:"
+echo "   ✅ التطبيق يعمل (عدد النسخ حسب CPU):"
 pm2 list | grep waha-health-care
 
 # 5. التحقق من Nginx

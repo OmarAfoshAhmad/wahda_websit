@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { ToastProvider } from '@/components/toast';
 import { DeductForm } from '@/components/deduct-form';
 import userEvent from '@testing-library/user-event';
-import { searchBeneficiaries, getBeneficiaryByCard } from '@/app/actions/beneficiary';
+import { getBeneficiaryByCard } from '@/app/actions/beneficiary';
 import { deductBalance } from '@/app/actions/deduction';
 import { vi } from 'vitest';
 
@@ -18,6 +18,9 @@ vi.mock('@/app/actions/deduction', () => ({
 }));
 
 describe('DeductForm Component', () => {
+  const mockedGetBeneficiaryByCard = vi.mocked(getBeneficiaryByCard);
+  const mockedDeductBalance = vi.mocked(deductBalance);
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -44,7 +47,7 @@ describe('DeductForm Component', () => {
 
   it('يجب أن يعرض رسالة خطأ عند البحث عن مستفيد غير موجود', async () => {
     // محاكاة استجابة الخادم لعدم وجود مستفيد
-    (getBeneficiaryByCard as any).mockResolvedValueOnce({ error: 'المستفيد غير موجود' });
+    mockedGetBeneficiaryByCard.mockResolvedValueOnce({ error: 'المستفيد غير موجود' });
 
     render(
       <ToastProvider>
@@ -66,7 +69,7 @@ describe('DeductForm Component', () => {
 
   it('يجب أن يعرض بيانات المستفيد ويسمح بإتمام عملية الخصم بنجاح', async () => {
     // محاكاة العثور على المستفيد بنجاح
-    (getBeneficiaryByCard as any).mockResolvedValueOnce({
+    mockedGetBeneficiaryByCard.mockResolvedValueOnce({
       beneficiary: {
         id: '123',
         name: 'أحمد محمود',
@@ -77,7 +80,7 @@ describe('DeductForm Component', () => {
     });
 
     // محاكاة استجابة عملية الخصم
-    (deductBalance as any).mockResolvedValueOnce({
+    mockedDeductBalance.mockResolvedValueOnce({
       success: true,
       newBalance: 400
     });

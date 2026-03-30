@@ -6,12 +6,13 @@
 const REQUIRED_VARS = [
   "DATABASE_URL",
   "JWT_SECRET",
+  "BACKUP_ENCRYPTION_KEY",
+  "BENEFICIARY_TOKEN_SECRET",
 ] as const;
 
 const OPTIONAL_VARS = [
   "REDIS_URL",
-  "BACKUP_ENCRYPTION_KEY",
-  "BENEFICIARY_TOKEN_SECRET",
+  "WAAD_FACILITY_ID",
   "ADMIN_SEED_PASSWORD",
   "INITIAL_BALANCE",
 ] as const;
@@ -36,9 +37,19 @@ export function validateEnv() {
     );
   }
 
-  // تحذيرات للمتغيرات الاختيارية المهمة
-  if (!process.env.REDIS_URL?.trim()) {
-    console.warn("⚠️  REDIS_URL غير معيّن — سيتم استخدام الذاكرة المحلية لـ Rate Limiting و SSE");
+  for (const key of OPTIONAL_VARS) {
+    if (!process.env[key]?.trim()) {
+      switch (key) {
+        case "REDIS_URL":
+          console.warn("⚠️  REDIS_URL غير معيّن — سيتم استخدام الذاكرة المحلية لـ Rate Limiting و SSE");
+          break;
+        case "WAAD_FACILITY_ID":
+          console.warn("⚠️  WAAD_FACILITY_ID غير معيّن — سيتعطل استيراد المعاملات إذا استُخدم");
+          break;
+        default:
+          break;
+      }
+    }
   }
 
   if (process.env.JWT_SECRET && process.env.JWT_SECRET.length < 32) {

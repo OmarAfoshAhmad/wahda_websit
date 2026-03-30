@@ -1,8 +1,9 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 /**
  * ecosystem.config.js — PM2 Cluster Configuration
  * ================================================
- * يُشغّل نسختين من Next.js على نفس السيرفر (2 CPU VPS).
- * كل نسخة تواجه منفذاً مختلفاً، وNginx يوزع الحمل بينهما.
+ * يُشغّل Next.js بعدد نسخ يساوي عدد أنوية السيرفر تلقائياً.
+ * على سيرفر 4 CPU ستكون 4 نسخ (cluster mode).
  *
  * الاستخدام:
  *   pm2 start ecosystem.config.js
@@ -16,7 +17,7 @@
 
 const os = require("os");
 
-// عدد النسخ = عدد الـ CPUs (2 في حالة VPS من CPU مزدوج)
+// عدد النسخ = عدد الـ CPUs (مثال: 4 في حالة سيرفر 4 vCPU)
 // في Serverless أو Docker، استخدم "max"
 const INSTANCES = Math.max(1, os.cpus().length);
 

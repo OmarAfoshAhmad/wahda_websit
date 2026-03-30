@@ -1,11 +1,36 @@
 "use server";
 
-import { Prisma, TransactionType } from "@prisma/client";
+import { TransactionType } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import ExcelJS from "exceljs";
 
-/** Waad admin facility ID */
-const WAAD_FACILITY_ID = "cmmqyphii0000u9x0knelmjp9";
+/** Waad admin facility ID — must be set via WAAD_FACILITY_ID env var */
+function getWaadFacilityId(): string {
+  const id = process.env.WAAD_FACILITY_ID;
+  if (!id) throw new Error("WAAD_FACILITY_ID env var is not set");
+  return id;
+}
+
+async function resolveImportFacilityId(username: string): Promise<string> {
+  const actorFacility = await prisma.facility.findUnique({
+    where: { username },
+    select: { id: true },
+  });
+
+  if (actorFacility?.id) return actorFacility.id;
+
+  const configuredId = getWaadFacilityId();
+  const configuredFacility = await prisma.facility.findUnique({
+    where: { id: configuredId },
+    select: { id: true },
+  });
+
+  if (!configuredFacility) {
+    throw new Error("WAAD_FACILITY_ID points to non-existing facility");
+  }
+
+  return configuredFacility.id;
+}
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -115,30 +140,46 @@ export async function processTransactionImport(
   fileBuffer: Buffer,
   username: string,
 ): Promise<{ result?: TransactionImportResult; error?: string }> {
-  // 1. Parse file
-  const workbook = new ExcelJS.Workbook();
-  const fileArrayBuffer = fileBuffer.buffer.slice(
-    fileBuffer.byteOffset,
-    fileBuffer.byteOffset + fileBuffer.byteLength,
-  ) as ArrayBuffer;
-  await workbook.xlsx.load(fileArrayBuffer);
-  const rows = parseExcelRows(workbook);
+  try {
+    // 1. Parse file
+    const workbook = new ExcelJS.Workbook();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await workbook.xlsx.load(fileBuffer as any);
+    const rows = parseExcelRows(workbook);
 
-  if (rows.length === 0) {
-    return { error: "الملف لا يحتوي على بيانات." };
-  }
+    if (rows.length === 0) {
+      return { error: "الملف لا يحتوي على بيانات." };
+    }
 
-  // 2. Build lookup
-  const lookup = await buildCardLookup();
+    const importFacilityId = await resolveImportFacilityId(username);
 
-  // 3. Categorize rows
-  const notFoundRows: NotFoundRow[] = [];
-  const toImport: Array<{ row: ParsedRow; baseCard: string }> = [];
-  const toSuspend: Array<{ row: ParsedRow; baseCard: string }> = [];
+    // 2. Build lookup
+    const lookup = await buildCardLookup();
 
-  for (const row of rows) {
-    // رصيد كلي = 0 أو رصيد مستخدم = 0 → تصفير الأسرة وإنهاء رصيدها
-    if (row.totalBalance === 0 || row.usedBalance <= 0) {
+    // 3. Categorize rows
+    const notFoundRows: NotFoundRow[] = [];
+    const toImport: Array<{ row: ParsedRow; baseCard: string }> = [];
+    const toSuspend: Array<{ row: ParsedRow; baseCard: string }> = [];
+
+    for (const row of rows) {
+      // رصيد كلي = 0 أو رصيد مستخدم = 0 → تصفير الأسرة وإنهاء رصيدها
+      if (row.totalBalance === 0 || row.usedBalance <= 0) {
+        const baseCard = resolveCardNumber(row.cardNumber, lookup);
+        if (!baseCard) {
+          notFoundRows.push({
+            rowNumber: row.rowNumber,
+            cardNumber: row.cardNumber,
+            name: row.name,
+            familyCount: row.familyCount,
+            totalBalance: row.totalBalance,
+            usedBalance: row.usedBalance,
+          });
+        } else {
+          toSuspend.push({ row, baseCard });
+        }
+        continue;
+      }
+
       const baseCard = resolveCardNumber(row.cardNumber, lookup);
       if (!baseCard) {
         notFoundRows.push({
@@ -149,69 +190,61 @@ export async function processTransactionImport(
           totalBalance: row.totalBalance,
           usedBalance: row.usedBalance,
         });
-      } else {
-        toSuspend.push({ row, baseCard });
+        continue;
       }
-      continue;
+
+      toImport.push({ row, baseCard });
     }
 
-    const baseCard = resolveCardNumber(row.cardNumber, lookup);
-    if (!baseCard) {
-      notFoundRows.push({
-        rowNumber: row.rowNumber,
-        cardNumber: row.cardNumber,
-        name: row.name,
-        familyCount: row.familyCount,
-        totalBalance: row.totalBalance,
-        usedBalance: row.usedBalance,
-      });
-      continue;
+    // 4a. Suspend families with totalBalance = 0
+    let suspendedFamilies = 0;
+    let skippedAlreadySuspended = 0;
+
+    for (const { baseCard } of toSuspend) {
+      const suspendResult = await suspendFamily(baseCard);
+      if (suspendResult === "already_suspended") {
+        skippedAlreadySuspended++;
+      } else {
+        suspendedFamilies++;
+      }
     }
 
-    toImport.push({ row, baseCard });
-  }
+    // 4b. Process imports
+    let importedFamilies = 0;
+    let importedTransactions = 0;
+    let skippedAlreadyImported = 0;
 
-  // 4a. Suspend families with totalBalance = 0
-  let suspendedFamilies = 0;
-  let skippedAlreadySuspended = 0;
+    for (const { row, baseCard } of toImport) {
+      const familyResult = await importFamilyTransactions(baseCard, row.usedBalance, importFacilityId);
 
-  for (const { baseCard } of toSuspend) {
-    const suspendResult = await suspendFamily(baseCard);
-    if (suspendResult === "already_suspended") {
-      skippedAlreadySuspended++;
-    } else {
-      suspendedFamilies++;
+      if (familyResult === "already_imported") {
+        skippedAlreadyImported++;
+      } else {
+        importedFamilies++;
+        importedTransactions += familyResult.count;
+      }
     }
-  }
 
-  // 4b. Process imports
-  let importedFamilies = 0;
-  let importedTransactions = 0;
-  let skippedAlreadyImported = 0;
+    // 5. Audit log
+    await prisma.auditLog.create({
+      data: {
+        facility_id: importFacilityId,
+        user: username,
+        action: "IMPORT_TRANSACTIONS",
+        metadata: {
+          totalRows: rows.length,
+          importedFamilies,
+          importedTransactions,
+          suspendedFamilies,
+          skippedAlreadySuspended,
+          skippedNotFound: notFoundRows.length,
+          skippedAlreadyImported,
+        },
+      },
+    });
 
-  for (const { row, baseCard } of toImport) {
-    const familyResult = await importFamilyTransactions(baseCard, row.usedBalance);
-
-    if (familyResult === "already_imported") {
-      skippedAlreadyImported++;
-    } else {
-      importedFamilies++;
-      importedTransactions += familyResult.count;
-    }
-  }
-
-  // 5. Audit log
-  const facility = await prisma.facility.findUnique({
-    where: { username },
-    select: { id: true },
-  });
-
-  await prisma.auditLog.create({
-    data: {
-      facility_id: facility?.id ?? WAAD_FACILITY_ID,
-      user: username,
-      action: "IMPORT_TRANSACTIONS",
-      metadata: {
+    return {
+      result: {
         totalRows: rows.length,
         importedFamilies,
         importedTransactions,
@@ -219,22 +252,15 @@ export async function processTransactionImport(
         skippedAlreadySuspended,
         skippedNotFound: notFoundRows.length,
         skippedAlreadyImported,
+        notFoundRows,
       },
-    },
-  });
-
-  return {
-    result: {
-      totalRows: rows.length,
-      importedFamilies,
-      importedTransactions,
-      suspendedFamilies,
-      skippedAlreadySuspended,
-      skippedNotFound: notFoundRows.length,
-      skippedAlreadyImported,
-      notFoundRows,
-    },
-  };
+    };
+  } catch (error) {
+    if (error instanceof Error) {
+      return { error: error.message };
+    }
+    return { error: "حدث خطأ غير متوقع أثناء معالجة الملف." };
+  }
 }
 
 // ─── Family Import ───────────────────────────────────────────────
@@ -242,6 +268,7 @@ export async function processTransactionImport(
 async function importFamilyTransactions(
   baseCard: string,
   totalUsedAmount: number,
+  facilityId: string,
 ): Promise<"already_imported" | { count: number }> {
   // Find ALL family members (base card + suffixes like W1, S1, D1, etc.)
   const familyMembers = await prisma.beneficiary.findMany({
@@ -262,7 +289,7 @@ async function importFamilyTransactions(
     where: {
       beneficiary_id: familyMembers[0].id,
       type: TransactionType.IMPORT,
-      facility_id: WAAD_FACILITY_ID,
+      facility_id: facilityId,
     },
   });
 
@@ -297,7 +324,7 @@ async function importFamilyTransactions(
       await tx.transaction.create({
         data: {
           beneficiary_id: member.id,
-          facility_id: WAAD_FACILITY_ID,
+          facility_id: facilityId,
           amount: deductAmount,
           type: TransactionType.IMPORT,
         },
