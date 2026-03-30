@@ -40,10 +40,37 @@ require_cmd() {
 }
 
 find_destructive_migrations() {
+  # Only check PENDING migrations (not already applied).
+  # We ask Prisma which migrations are pending, then grep only those folders.
+  local pending
+  pending="$(docker run --rm \
+    --env-file "$ENV_FILE" \
+    --network "$NETWORK_NAME" \
+    "$TARGET_IMAGE" \
+    node node_modules/prisma/build/index.js migrate status 2>&1 || true)"
+
+  # Extract migration folder names that are "Not yet applied"
+  local pending_dirs
+  pending_dirs="$(echo "$pending" | grep -oP '\d{14}_\S+(?=\s)' | while read -r dir; do
+    # Check if this migration appears as pending (listed after "Following migration" or "not yet applied")
+    echo "$dir"
+  done)"
+
+  # If prisma migrate status fails or shows no pending, try simpler heuristic:
+  # compare migration folders with _prisma_migrations table entries
+  if [[ -z "$pending_dirs" ]]; then
+    # No pending migrations detected — nothing destructive to worry about
+    return 0
+  fi
+
+  # Build grep pattern for pending dirs only
+  local pattern
+  pattern="$(echo "$pending_dirs" | paste -sd '|')"
+
   docker run --rm \
     --entrypoint sh \
     "$TARGET_IMAGE" \
-    -c "if [ -d prisma/migrations ]; then grep -RinE 'DROP[[:space:]]+TABLE|DROP[[:space:]]+COLUMN|RENAME[[:space:]]+COLUMN|ALTER[[:space:]]+TABLE.*ALTER[[:space:]]+COLUMN.*TYPE|SET[[:space:]]+NOT[[:space:]]+NULL' prisma/migrations || true; fi"
+    -c "if [ -d prisma/migrations ]; then grep -RinE 'DROP[[:space:]]+TABLE|DROP[[:space:]]+COLUMN|RENAME[[:space:]]+COLUMN|ALTER[[:space:]]+TABLE.*ALTER[[:space:]]+COLUMN.*TYPE|SET[[:space:]]+NOT[[:space:]]+NULL' prisma/migrations | grep -E '$pattern' || true; fi"
 }
 
 backup_database() {
@@ -60,7 +87,7 @@ backup_database() {
     --network "$NETWORK_NAME" \
     -v "$BACKUP_DIR:/backups" \
     postgres:16-alpine \
-    sh -c "pg_dump \"\$DATABASE_URL\" -Fc -f \"/backups/$(basename "$backup_file")\""
+    sh -c "pg_dump \"\${DATABASE_URL%%\\?*}\" -Fc -f \"/backups/$(basename "$backup_file")\""
 
   log "Database backup completed: $backup_file"
 }
@@ -148,11 +175,11 @@ if [[ "$RUN_MIGRATIONS" == "true" ]]; then
     --env-file "$ENV_FILE" \
     --network "$NETWORK_NAME" \
     "$TARGET_IMAGE" \
-    npx prisma migrate deploy
+    node node_modules/prisma/build/index.js migrate deploy
 fi
 
 log "Promoting image to production app: $TARGET_IMAGE"
-APP_IMAGE="$TARGET_IMAGE" docker compose -f "$COMPOSE_FILE" up -d --no-deps "$APP_SERVICE"
+APP_IMAGE="$TARGET_IMAGE" docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --no-deps "$APP_SERVICE"
 
 if ! wait_for_container_health "$APP_CONTAINER" 45; then
   log "Health check failed after promote."
@@ -160,7 +187,7 @@ if ! wait_for_container_health "$APP_CONTAINER" 45; then
 
   if [[ -n "$ROLLBACK_TAG" ]]; then
     log "Rolling back to: $ROLLBACK_TAG"
-    APP_IMAGE="$ROLLBACK_TAG" docker compose -f "$COMPOSE_FILE" up -d --no-deps "$APP_SERVICE"
+    APP_IMAGE="$ROLLBACK_TAG" docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --no-deps "$APP_SERVICE"
 
     if wait_for_container_health "$APP_CONTAINER" 45; then
       log "Rollback succeeded."

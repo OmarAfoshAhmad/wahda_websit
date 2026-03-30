@@ -15,7 +15,9 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 RUN npx prisma generate
-RUN npm run build
+RUN --mount=type=secret,id=build_env \
+    export $(cat /run/secrets/build_env) && \
+    npm run build
 
 FROM node:20-bookworm-slim AS runner
 WORKDIR /app
@@ -26,6 +28,7 @@ RUN openssl version >/dev/null 2>&1 || (apt-get update -y && apt-get install -y 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
 
 # Standalone output — only copy what's needed
 COPY --from=builder /app/public ./public
@@ -36,6 +39,7 @@ COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
+COPY --from=builder /app/node_modules/bcryptjs ./node_modules/bcryptjs
 
 # Fix permissions for node user
 RUN chown -R node:node /app
