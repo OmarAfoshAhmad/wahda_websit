@@ -530,9 +530,13 @@ export async function processImportJob(jobId: string, username: string) {
       },
     });
 
-    revalidatePath("/dashboard");
-    revalidatePath("/import");
-    revalidatePath("/beneficiaries");
+    try {
+      revalidatePath("/dashboard");
+      revalidatePath("/import");
+      revalidatePath("/beneficiaries");
+    } catch {
+      // revalidatePath غير متاح عند التشغيل من BullMQ Worker (خارج سياق الطلب)
+    }
 
     return { job: toSnapshot(completedJob) };
   } catch (error) {
