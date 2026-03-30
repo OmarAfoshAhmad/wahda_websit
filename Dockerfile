@@ -40,6 +40,9 @@ COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
 COPY --from=builder /app/node_modules/bcryptjs ./node_modules/bcryptjs
+# BullMQ + ioredis for import job queue
+COPY --from=builder /app/node_modules/bullmq ./node_modules/bullmq
+COPY --from=builder /app/node_modules/ioredis ./node_modules/ioredis
 
 # Fix permissions for node user
 RUN chown -R node:node /app

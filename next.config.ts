@@ -36,6 +36,7 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
+  serverExternalPackages: ["bullmq", "ioredis"],
   async headers() {
     return [
       {
