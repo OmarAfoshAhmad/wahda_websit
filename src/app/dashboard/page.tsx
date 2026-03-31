@@ -62,7 +62,7 @@ export default async function Dashboard() {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const isAdmin = session.is_admin;
+  const isAdmin = session.is_admin || session.is_manager;
   const cacheTag = isAdmin ? "admin" : session.id;
 
   const [adminStats, todayStats] = await Promise.all([
@@ -78,7 +78,7 @@ export default async function Dashboard() {
   const todayCount = todayStats.count;
 
   return (
-    <Shell facilityName={session.name} isAdmin={session.is_admin}>
+    <Shell facilityName={session.name} isAdmin={session.is_admin} isManager={session.is_manager}>
       <div className="space-y-5">
         {/* عنوان الصفحة */}
         <div>

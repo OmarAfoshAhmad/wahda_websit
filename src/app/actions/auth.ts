@@ -2,7 +2,7 @@
 
 import prisma from "@/lib/prisma";
 import { loginSchema, changePasswordSchema, voluntaryChangePasswordSchema } from "@/lib/validation";
-import { login, logout as authLogout, getSession } from "@/lib/auth";
+import { login, logout as authLogout, getSession, type ManagerPermissions } from "@/lib/auth";
 import { checkRateLimit, resetRateLimit } from "@/lib/rate-limit";
 import { logger } from "@/lib/logger";
 import bcrypt from "bcryptjs";
@@ -63,6 +63,8 @@ export async function authenticate(prevState: unknown, formData: FormData) {
       name: facility.name,
       username: facility.username,
       is_admin: facility.is_admin,
+      is_manager: facility.is_manager,
+      manager_permissions: facility.manager_permissions as ManagerPermissions | null,
       must_change_password: facility.must_change_password,
     });
   } catch (error) {
@@ -131,6 +133,8 @@ export async function changePassword(prevState: unknown, formData: FormData) {
     name: session.name,
     username: session.username,
     is_admin: session.is_admin,
+    is_manager: session.is_manager,
+    manager_permissions: session.manager_permissions,
     must_change_password: false,
   });
 

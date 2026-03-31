@@ -1,12 +1,13 @@
 "use server";
 
 import prisma from "@/lib/prisma";
-import { requireActiveFacilitySession } from "@/lib/session-guard";
+import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getArabicSearchTerms } from "@/lib/search";
 import { updateBeneficiarySchema, createBeneficiarySchema } from "@/lib/validation";
 import { INITIAL_BALANCE } from "@/lib/config";
 import { revalidatePath } from "next/cache";
+import { logger } from "@/lib/logger";
 
 function normalizeCardNumber(value: string) {
   return value.trim().toUpperCase();
@@ -57,7 +58,8 @@ export async function getBeneficiaryByCard(card_number: string) {
         remaining_balance: Number(beneficiary.remaining_balance),
       },
     };
-  } catch {
+  } catch (error: unknown) {
+    logger.error("Get beneficiary by card error", { error: String(error) });
     return { error: "تعذر جلب بيانات المستفيد" };
   }
 }
@@ -106,7 +108,8 @@ export async function searchBeneficiaries(query: string) {
     `;
 
     return { items: rows };
-  } catch {
+  } catch (error: unknown) {
+    logger.error("Search beneficiaries error", { error: String(error) });
     return { error: "تعذر تنفيذ البحث", items: [] as Array<{ id: string; name: string; card_number: string; remaining_balance: number; status: string }> };
   }
 }
@@ -117,7 +120,7 @@ export async function createBeneficiary(data: {
   birth_date?: string;
 }) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || !hasPermission(session, 'add_beneficiary')) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -132,59 +135,69 @@ export async function createBeneficiary(data: {
   const parsedBirthDate = parseBirthDate(payload.birth_date);
 
   try {
-    const existing = await prisma.beneficiary.findFirst({
-      where: {
-        card_number: { equals: normalizedCardNumber, mode: "insensitive" },
-      },
-      select: { id: true },
-    });
+    await prisma.$transaction(async (tx) => {
+      // قفل استشاري لمنع الإنشاء المتزامن بنفس رقم البطاقة
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${normalizedCardNumber}))`;
 
-    if (existing) {
-      return { error: "رقم البطاقة مستخدم مسبقاً ولا يمكن استخدامه لشخص آخر" };
-    }
-
-    if (parsedBirthDate) {
-      const existingPerson = await prisma.beneficiary.findFirst({
+      const existing = await tx.beneficiary.findFirst({
         where: {
-          deleted_at: null,
-          name: { equals: normalizedName, mode: "insensitive" },
-          birth_date: parsedBirthDate,
+          card_number: { equals: normalizedCardNumber, mode: "insensitive" },
         },
-        select: { id: true, card_number: true },
+        select: { id: true },
       });
 
-      if (existingPerson) {
-        return { error: "هذا المستفيد (نفس الاسم وتاريخ الميلاد) مسجل مسبقاً برقم بطاقة آخر" };
+      if (existing) {
+        throw new Error("CARD_EXISTS");
       }
-    }
 
-    const beneficiary = await prisma.beneficiary.create({
-      data: {
-        name: normalizedName,
-        card_number: normalizedCardNumber,
-        birth_date: parsedBirthDate,
-        total_balance: INITIAL_BALANCE,
-        remaining_balance: INITIAL_BALANCE,
-        status: "ACTIVE",
-      },
-    });
+      if (parsedBirthDate) {
+        const existingPerson = await tx.beneficiary.findFirst({
+          where: {
+            deleted_at: null,
+            name: { equals: normalizedName, mode: "insensitive" },
+            birth_date: parsedBirthDate,
+          },
+          select: { id: true, card_number: true },
+        });
 
-    await prisma.auditLog.create({
-      data: {
-        facility_id: session.id,
-        user: session.username,
-        action: "CREATE_BENEFICIARY",
-        metadata: {
-          beneficiary_id: beneficiary.id,
+        if (existingPerson) {
+          throw new Error("PERSON_EXISTS");
+        }
+      }
+
+      const beneficiary = await tx.beneficiary.create({
+        data: {
+          name: normalizedName,
           card_number: normalizedCardNumber,
+          birth_date: parsedBirthDate,
+          total_balance: INITIAL_BALANCE,
+          remaining_balance: INITIAL_BALANCE,
+          status: "ACTIVE",
         },
-      },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          facility_id: session.id,
+          user: session.username,
+          action: "CREATE_BENEFICIARY",
+          metadata: {
+            beneficiary_id: beneficiary.id,
+            card_number: normalizedCardNumber,
+          },
+        },
+      });
     });
 
     revalidatePath("/beneficiaries");
     revalidatePath("/deduct");
     return { success: true };
-  } catch {
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      if (error.message === "CARD_EXISTS") return { error: "رقم البطاقة مستخدم مسبقاً ولا يمكن استخدامه لشخص آخر" };
+      if (error.message === "PERSON_EXISTS") return { error: "هذا المستفيد (نفس الاسم وتاريخ الميلاد) مسجل مسبقاً برقم بطاقة آخر" };
+    }
+    logger.error("Create beneficiary error", { error: String(error) });
     return { error: "تعذر إنشاء المستفيد" };
   }
 }
@@ -197,7 +210,7 @@ export async function updateBeneficiary(data: {
   status: "ACTIVE" | "FINISHED" | "SUSPENDED";
 }) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || !session.is_admin && !session.is_manager) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -212,67 +225,76 @@ export async function updateBeneficiary(data: {
   const parsedBirthDate = parseBirthDate(payload.birth_date);
 
   try {
-    // البحث فقط بين السجلات غير المحذوفة لتجنب التعارض مع الحذف الناعم
-    const existing = await prisma.beneficiary.findFirst({
-      where: {
-        card_number: { equals: normalizedCardNumber, mode: "insensitive" },
-      },
-      select: { id: true },
-    });
+    await prisma.$transaction(async (tx) => {
+      // قفل استشاري لمنع التحديث المتزامن بنفس رقم البطاقة
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${normalizedCardNumber}))`;
 
-    if (existing && existing.id !== payload.id) {
-      return { error: "رقم البطاقة مستخدم مسبقاً ولا يمكن استخدامه لشخص آخر" };
-    }
-
-    if (parsedBirthDate) {
-      const existingPerson = await prisma.beneficiary.findFirst({
+      const existing = await tx.beneficiary.findFirst({
         where: {
-          id: { not: payload.id },
-          deleted_at: null,
-          name: { equals: normalizedName, mode: "insensitive" },
-          birth_date: parsedBirthDate,
+          card_number: { equals: normalizedCardNumber, mode: "insensitive" },
         },
-        select: { id: true, card_number: true },
+        select: { id: true },
       });
 
-      if (existingPerson) {
-        return { error: "لا يمكن إعطاء بطاقتين لنفس المستفيد (تطابق الاسم وتاريخ الميلاد)" };
+      if (existing && existing.id !== payload.id) {
+        throw new Error("CARD_EXISTS");
       }
-    }
 
-    await prisma.beneficiary.update({
-      where: { id: payload.id },
-      data: {
-        name: normalizedName,
-        card_number: normalizedCardNumber,
-        birth_date: parsedBirthDate,
-        status: payload.status,
-      },
-    });
+      if (parsedBirthDate) {
+        const existingPerson = await tx.beneficiary.findFirst({
+          where: {
+            id: { not: payload.id },
+            deleted_at: null,
+            name: { equals: normalizedName, mode: "insensitive" },
+            birth_date: parsedBirthDate,
+          },
+          select: { id: true, card_number: true },
+        });
 
-    await prisma.auditLog.create({
-      data: {
-        facility_id: session.id,
-        user: session.username,
-        action: "UPDATE_BENEFICIARY",
-        metadata: {
-          beneficiary_id: payload.id,
+        if (existingPerson) {
+          throw new Error("PERSON_EXISTS");
+        }
+      }
+
+      await tx.beneficiary.update({
+        where: { id: payload.id },
+        data: {
+          name: normalizedName,
           card_number: normalizedCardNumber,
+          birth_date: parsedBirthDate,
+          status: payload.status,
         },
-      },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          facility_id: session.id,
+          user: session.username,
+          action: "UPDATE_BENEFICIARY",
+          metadata: {
+            beneficiary_id: payload.id,
+            card_number: normalizedCardNumber,
+          },
+        },
+      });
     });
 
     revalidatePath("/beneficiaries");
     revalidatePath("/deduct");
     return { success: true };
-  } catch {
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      if (error.message === "CARD_EXISTS") return { error: "رقم البطاقة مستخدم مسبقاً ولا يمكن استخدامه لشخص آخر" };
+      if (error.message === "PERSON_EXISTS") return { error: "لا يمكن إعطاء بطاقتين لنفس المستفيد (تطابق الاسم وتاريخ الميلاد)" };
+    }
+    logger.error("Update beneficiary error", { error: String(error) });
     return { error: "تعذر تحديث بيانات المستفيد" };
   }
 }
 
 export async function deleteBeneficiary(id: string) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || !hasPermission(session, 'delete_beneficiary')) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -313,14 +335,15 @@ export async function deleteBeneficiary(id: string) {
 
     revalidatePath("/beneficiaries");
     return { success: true };
-  } catch {
+  } catch (error: unknown) {
+    logger.error("Delete beneficiary error", { error: String(error) });
     return { error: "تعذر حذف المستفيد" };
   }
 }
 
 export async function restoreBeneficiary(id: string) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || !hasPermission(session, 'delete_beneficiary')) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -379,14 +402,15 @@ export async function restoreBeneficiary(id: string) {
 
     revalidatePath("/beneficiaries");
     return { success: true };
-  } catch {
+  } catch (error: unknown) {
+    logger.error("Restore beneficiary error", { error: String(error) });
     return { error: "تعذر استرجاع المستفيد" };
   }
 }
 
 export async function permanentDeleteBeneficiary(id: string) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || !hasPermission(session, 'delete_beneficiary')) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -424,7 +448,8 @@ export async function permanentDeleteBeneficiary(id: string) {
 
     revalidatePath("/beneficiaries");
     return { success: true };
-  } catch {
+  } catch (error: unknown) {
+    logger.error("Permanent delete beneficiary error", { error: String(error) });
     return { error: "تعذر الحذف النهائي للمستفيد" };
   }
 }

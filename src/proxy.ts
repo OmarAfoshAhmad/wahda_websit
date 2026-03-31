@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { decrypt } from "@/lib/auth";
+import { decrypt, encrypt } from "@/lib/auth";
 import { jwtVerify } from "jose";
 
 const publicRoutes = ["/login", "/api/login"];
@@ -78,6 +78,23 @@ export async function proxy(req: NextRequest) {
   // حماية مسارات /admin للمشرفين فقط
   if (path.startsWith("/admin") && !session?.is_admin) {
     return NextResponse.redirect(new URL("/dashboard", req.nextUrl));
+  }
+
+  // تجديد الجلسة (sliding window) لمنع انتهاء صلاحيتها أثناء الاستخدام
+  if (cookie && session) {
+    const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const refreshed = await encrypt({ ...session, expires });
+    const res = NextResponse.next();
+    res.cookies.set({
+      name: "session",
+      value: refreshed,
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      path: "/",
+      expires,
+    });
+    return res;
   }
 
   return NextResponse.next();

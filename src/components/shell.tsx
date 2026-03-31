@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { cn } from "./ui";
-import { LayoutDashboard, ListOrdered, LogOut, Users, Building2, KeyRound, DatabaseBackup, ClipboardList } from "lucide-react";
+import { LayoutDashboard, ListOrdered, LogOut, Users, Building2, KeyRound, DatabaseBackup, ClipboardList, UserCog } from "lucide-react";
 import { logout } from "@/app/actions/auth";
 import { ThemeSwitcher } from "./theme-switcher";
 
@@ -17,16 +17,37 @@ const baseNavigation = [
   { name: "الحركات", href: "/transactions", icon: ListOrdered },
 ];
 
-const adminNavigation = [
+const managerNavigation = [
   { name: "المستفيدون", href: "/beneficiaries", icon: Users },
   { name: "المرافق الصحية", href: "/admin/facilities", icon: Building2 },
   { name: "سجل المراقبة", href: "/admin/audit-log", icon: ClipboardList },
-  { name: "النسخ الاحتياطي", href: "/admin/backup", icon: DatabaseBackup },
 ];
 
-export function Shell({ children, facilityName, isAdmin = false }: { children: React.ReactNode; facilityName: string; isAdmin?: boolean }) {
+const superAdminNavigation = [
+  { name: "النسخ الاحتياطي", href: "/admin/backup", icon: DatabaseBackup },
+  { name: "المديرون", href: "/admin/managers", icon: UserCog },
+];
+
+export function Shell({
+  children,
+  facilityName,
+  isAdmin = false,
+  isManager = false,
+}: {
+  children: React.ReactNode;
+  facilityName: string;
+  isAdmin?: boolean;
+  isManager?: boolean;
+}) {
   const pathname = usePathname();
-  const allNav = isAdmin ? [...baseNavigation, ...adminNavigation] : baseNavigation;
+
+  const allNav = isAdmin
+    ? [...baseNavigation, ...managerNavigation, ...superAdminNavigation]
+    : isManager
+    ? [...baseNavigation, ...managerNavigation]
+    : baseNavigation;
+
+  const roleLabel = isAdmin ? "مشرف" : isManager ? "مدير" : "مرفق";
 
   return (
     <div className="page-shell min-h-screen pb-5 bg-slate-50 dark:bg-[#0b1120] text-slate-900 dark:text-slate-100 transition-colors">
@@ -74,7 +95,7 @@ export function Shell({ children, facilityName, isAdmin = false }: { children: R
 
               <div className="flex items-center justify-between gap-3 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-2.5 py-1.5 lg:min-w-48.75">
                 <div className="text-right">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">{isAdmin ? "مشرف" : "مرفق"}</p>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">{roleLabel}</p>
                   <p className="text-[13px] font-bold text-slate-800 dark:text-slate-200">{facilityName}</p>
                 </div>
                 <div className="hidden items-center gap-1 lg:flex">

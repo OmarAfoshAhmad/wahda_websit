@@ -3,6 +3,7 @@ import { Search, Users, CalendarDays, CreditCard, Trash2, RotateCcw, Upload, Dow
 import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { canAccessAdmin } from "@/lib/session-guard";
 import { getArabicSearchTerms } from "@/lib/search";
 import { Shell } from "@/components/shell";
 import { Card, Badge } from "@/components/ui";
@@ -40,7 +41,7 @@ export default async function BeneficiariesPage({
 }) {
   const session = await getSession();
   if (!session) redirect("/login");
-  if (!session.is_admin) redirect("/dashboard");
+  if (!canAccessAdmin(session)) redirect("/dashboard");
 
   const { q, page: pageParam, pageSize: pageSizeParam, view, sort, order, status, completed_via: completedViaParam } = await searchParams;
   const query = (q?.trim() ?? "").slice(0, 100);
@@ -152,7 +153,7 @@ export default async function BeneficiariesPage({
   const exportHref = `/api/export/beneficiaries?${exportParams.toString()}`;
 
   return (
-    <Shell facilityName={session.name} isAdmin={session.is_admin}>
+    <Shell facilityName={session.name} isAdmin={session.is_admin} isManager={session.is_manager}>
       <div className="space-y-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>

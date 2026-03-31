@@ -29,7 +29,17 @@ export function ImportUploader() {
       return;
     }
 
+    let attempts = 0;
+    const MAX_POLL_ATTEMPTS = 300; // 300 × 1200ms = 6 دقائق كحد أقصى
+
     const timer = window.setInterval(async () => {
+      attempts++;
+      if (attempts >= MAX_POLL_ATTEMPTS) {
+        window.clearInterval(timer);
+        setJob((prev) => prev ? { ...prev, status: "FAILED" as ImportJobStatus, errorMessage: "انتهت مهلة الاستطلاع" } : prev);
+        return;
+      }
+
       try {
         const response = await fetch(`/api/import-jobs/${job.id}`, { method: "GET" });
         if (!response.ok) return;

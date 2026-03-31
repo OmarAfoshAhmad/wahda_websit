@@ -4,12 +4,12 @@ import prisma from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { logger } from "@/lib/logger";
 
-import { requireActiveFacilitySession } from "@/lib/session-guard";
+import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 
 export async function cancelTransaction(transactionId: string) {
   try {
     const session = await requireActiveFacilitySession();
-    if (!session || !session.is_admin) {
+    if (!session || !hasPermission(session, 'cancel_transactions')) {
       return { error: "غير مصرح لك بإجراء هذه العملية" };
     }
 

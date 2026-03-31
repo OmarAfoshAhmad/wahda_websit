@@ -1,4 +1,5 @@
 import { getSession } from "@/lib/auth";
+import { canAccessAdmin } from "@/lib/session-guard";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
@@ -71,7 +72,7 @@ export default async function TransactionsPage({
   };
 
   // كل مرفق يرى حركاته فقط — المشرف يرى الكل ويمكنه الفلترة
-  const where: Prisma.TransactionWhereInput = session.is_admin
+  const where: Prisma.TransactionWhereInput = canAccessAdmin(session)
     ? (facility_id ? { facility_id } : {})
     : { facility_id: session.id };
 
@@ -147,12 +148,12 @@ export default async function TransactionsPage({
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
   // المشرف يرى قائمة كل المرافق في الفلتر
-  const facilities: Array<{ id: string; name: string }> = session.is_admin
+  const facilities: Array<{ id: string; name: string }> = canAccessAdmin(session)
     ? await prisma.facility.findMany({ where: { deleted_at: null }, select: { id: true, name: true }, orderBy: { name: "asc" } })
     : [{ id: session.id, name: session.name }];
 
   return (
-    <Shell facilityName={session.name} isAdmin={session.is_admin}>
+    <Shell facilityName={session.name} isAdmin={session.is_admin} isManager={session.is_manager}>
       <div id="printable-report" className="space-y-4 pb-20">
 
         {/* ترويسة الطباعة فقط */}

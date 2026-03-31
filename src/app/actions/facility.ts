@@ -3,14 +3,14 @@
 import bcrypt from "bcryptjs";
 import { randomBytes } from "crypto";
 import prisma from "@/lib/prisma";
-import { requireActiveFacilitySession } from "@/lib/session-guard";
+import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 import { createFacilitySchema, updateFacilitySchema } from "@/lib/validation";
 import ExcelJS from "exceljs";
 import { revalidatePath } from "next/cache";
 
 export async function createFacility(prevState: unknown, formData: FormData) {
   const session = await requireActiveFacilitySession();
-  if (!session?.is_admin) {
+  if (!session || !hasPermission(session, 'add_facility')) {
     return { error: "غير مصرح لك بهذه العملية" };
   }
 
@@ -182,12 +182,16 @@ export async function importFacilitiesFromExcel(formData: FormData): Promise<{
   error?: string;
 }> {
   const session = await requireActiveFacilitySession();
-  if (!session?.is_admin) {
-    return { error: "غير مصرح لك بهذه العملية" };
+  if (!session) {
+    return { error: "غير مصرح" };
   }
 
   const file = formData.get("file") as File | null;
   if (!file) return { error: "لم يتم اختيار ملف" };
+
+  if (!hasPermission(session, 'import_facilities')) {
+    return { error: "غير مصرح لك باستيراد المرافق" };
+  }
 
   if (!file.name.match(/\.(xlsx|xls)$/i)) {
     return { error: "يجب أن يكون الملف بصيغة Excel (.xlsx أو .xls)" };

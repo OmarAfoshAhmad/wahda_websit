@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { Badge, Card, Input, Button } from "@/components/ui";
 import { Shell } from "@/components/shell";
 import { getSession } from "@/lib/auth";
+import { canAccessAdmin } from "@/lib/session-guard";
 import prisma from "@/lib/prisma";
 import { Activity, Download } from "lucide-react";
 import { AuditLogClearButton } from "../../../components/audit-log-clear-button";
@@ -302,7 +303,7 @@ export default async function AuditLogPage({
   const exportHref = `/api/export/audit-log?${exportParams.toString()}`;
 
   return (
-    <Shell facilityName={session.name} isAdmin={session.is_admin}>
+    <Shell facilityName={session.name} isAdmin={session.is_admin} isManager={session.is_manager}>
       <div className="space-y-6 pb-24">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">

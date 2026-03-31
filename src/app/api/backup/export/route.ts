@@ -19,12 +19,13 @@ export async function GET(request: NextRequest) {
   const includeSensitive = searchParams.get("sensitive") !== "false";
 
   try {
-    // تحميل تسلسلي لتقليل ذروة استهلاك الذاكرة
-    const facilities = await prisma.facility.findMany({ orderBy: { created_at: "asc" } });
-    const beneficiaries = await prisma.beneficiary.findMany({ orderBy: { created_at: "asc" } });
-    const transactions = await prisma.transaction.findMany({ orderBy: { created_at: "asc" } });
-    const auditLogs = await prisma.auditLog.findMany({ orderBy: { created_at: "asc" } });
-    const notifications = await prisma.notification.findMany({ orderBy: { created_at: "asc" } });
+    const [facilities, beneficiaries, transactions, auditLogs, notifications] = await Promise.all([
+      prisma.facility.findMany({ orderBy: { created_at: "asc" } }),
+      prisma.beneficiary.findMany({ orderBy: { created_at: "asc" } }),
+      prisma.transaction.findMany({ orderBy: { created_at: "asc" } }),
+      prisma.auditLog.findMany({ orderBy: { created_at: "asc" } }),
+      prisma.notification.findMany({ orderBy: { created_at: "asc" } }),
+    ]);
 
     const backup = {
       version: "1.0" as const,

@@ -46,12 +46,21 @@ type SkippedImportRowReport = {
   rawRow: Record<string, unknown>;
 };
 
-function normalizeString(value: unknown) {
-  if (typeof value !== "string") {
-    return String(value ?? "").trim();
+function normalizeString(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+
+  // ExcelJS RichText: { richText: [{ text: "..." }, ...] }
+  if (value !== null && typeof value === "object") {
+    const v = value as Record<string, unknown>;
+    if (Array.isArray(v.richText)) {
+      return (v.richText as Array<{ text?: unknown }>)
+        .map((r) => String(r.text ?? ""))
+        .join("")
+        .trim();
+    }
   }
 
-  return value.trim();
+  return String(value ?? "").trim();
 }
 
 function normalizePersonName(value: string) {
@@ -426,6 +435,19 @@ export async function processImportJob(jobId: string, username: string) {
         : [];
 
       const existingCards = new Set(existing.map((item) => item.normalized_card_number));
+      // نجلب id + card_number للسجلات الموجودة لتنفيذ التحديث عليها
+      const existingCardRows = existing.length > 0
+        ? await prisma.beneficiary.findMany({
+            where: {
+              card_number: { in: [...existingCards], mode: "insensitive" },
+            },
+            select: { id: true, card_number: true },
+          })
+        : [];
+      const cardToId = new Map(
+        existingCardRows.map((r) => [r.card_number.trim().toUpperCase(), r.id])
+      );
+
       const existingPersonKeys = new Set(
         existingPersons
           .map((row) => personKey(row.name, row.birth_date))
@@ -442,16 +464,14 @@ export async function processImportJob(jobId: string, username: string) {
         return true;
       });
 
+      // صفوف سيتم تحديثها (رقم البطاقة موجود مسبقاً)
+      const rowsToUpdate = chunk.filter((row) =>
+        existingCards.has(row.data.card_number.trim().toUpperCase())
+      );
+
+      // صفوف مكررة (نفس الشخص، بطاقة مختلفة) — لا تزال تُتخطى
       chunk.forEach((row) => {
-        if (existingCards.has(row.data.card_number.trim().toUpperCase())) {
-          skippedRows.push(createSkippedRowReport({
-            reason: "already_exists",
-            rowNumber: row.rowNumber,
-            rawRow: row.rawRow,
-            normalized: row.data,
-          }));
-          return;
-        }
+        if (existingCards.has(row.data.card_number.trim().toUpperCase())) return; // ستُحدَّث
 
         const pKey = personKey(row.data.name, row.data.birth_date);
         if (pKey && existingPersonKeys.has(pKey)) {
@@ -464,7 +484,14 @@ export async function processImportJob(jobId: string, username: string) {
         }
       });
 
-      duplicateRows += chunk.length - rowsToInsert.length;
+      // عدد المكررين الحقيقيين (duplicate_person فقط، ليس already_exists)
+      const trueDuplicates = chunk.filter((row) => {
+        if (existingCards.has(row.data.card_number.trim().toUpperCase())) return false;
+        const pKey = personKey(row.data.name, row.data.birth_date);
+        return pKey !== null && existingPersonKeys.has(pKey);
+      }).length;
+
+      duplicateRows += trueDuplicates;
       processedRows += chunk.length;
 
       if (rowsToInsert.length > 0) {
@@ -481,6 +508,24 @@ export async function processImportJob(jobId: string, username: string) {
         });
         insertedRows += result.count;
         duplicateRows += rowsToInsert.length - result.count;
+      }
+
+      // تحديث الاسم وتاريخ الميلاد للسجلات الموجودة (لا نلمس الأرصدة ولا الحالة)
+      if (rowsToUpdate.length > 0) {
+        await Promise.all(
+          rowsToUpdate.map((row) => {
+            const id = cardToId.get(row.data.card_number.trim().toUpperCase());
+            if (!id) return Promise.resolve();
+            return prisma.beneficiary.update({
+              where: { id },
+              data: {
+                name: row.data.name,
+                birth_date: row.data.birth_date,
+              },
+            });
+          })
+        );
+        insertedRows += rowsToUpdate.length;
       }
 
       await prisma.importJob.update({

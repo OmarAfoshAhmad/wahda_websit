@@ -3,6 +3,7 @@ import { User, Download } from "lucide-react";
 import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { canAccessAdmin } from "@/lib/session-guard";
 import { getArabicSearchTerms } from "@/lib/search";
 import { Shell } from "@/components/shell";
 import { Card, Badge, Input, Button } from "@/components/ui";
@@ -23,7 +24,7 @@ export default async function FacilitiesPage({
 }) {
   const session = await getSession();
   if (!session) redirect("/login");
-  if (!session.is_admin) redirect("/dashboard");
+  if (!canAccessAdmin(session)) redirect("/dashboard");
 
   const { q, page: pageParam } = await searchParams;
   const page = Math.max(1, parseInt(pageParam ?? "1", 10) || 1);
@@ -83,7 +84,7 @@ export default async function FacilitiesPage({
   };
 
   return (
-    <Shell facilityName={session.name} isAdmin={session.is_admin}>
+    <Shell facilityName={session.name} isAdmin={session.is_admin} isManager={session.is_manager}>
       <div id="printable-report" className="space-y-6 pb-24">
 
         {/* ترويسة الطباعة فقط */}
@@ -245,8 +246,9 @@ export default async function FacilitiesPage({
             </Card>
           </div>
 
-          {/* استيراد وإنشاء (عمود جانبي) */}
+          {/* استيراد وإنشاء (عمود جانبي) — متاح للمشرف فقط */}
           <div className="space-y-4 no-print">
+            {session.is_admin && (
             <Card className="p-4">
               <FacilityImportUploader />
               <div className="mt-4 border-t border-slate-100 dark:border-slate-800 pt-4">
@@ -254,6 +256,7 @@ export default async function FacilitiesPage({
                 <CreateFacilityForm />
               </div>
             </Card>
+            )}
           </div>
         </div>
       </div>

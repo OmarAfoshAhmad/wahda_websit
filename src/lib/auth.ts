@@ -27,9 +27,27 @@ export async function decrypt(input: string): Promise<Record<string, unknown>> {
   return payload;
 }
 
-export async function login(user: { id: string; name: string; username: string; is_admin: boolean; must_change_password: boolean }) {
+export type ManagerPermissions = {
+  import_beneficiaries: boolean;
+  import_facilities: boolean;
+  cancel_transactions: boolean;
+  correct_transactions: boolean;
+  delete_beneficiary: boolean;
+  add_beneficiary: boolean;
+  add_facility: boolean;
+};
+
+export async function login(user: {
+  id: string;
+  name: string;
+  username: string;
+  is_admin: boolean;
+  is_manager: boolean;
+  manager_permissions: ManagerPermissions | null;
+  must_change_password: boolean;
+}) {
   const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
-  const session = await encrypt(user);
+  const session = await encrypt(user as unknown as Record<string, unknown>);
 
   (await cookies()).set("session", session, {
     expires,
@@ -55,6 +73,8 @@ export interface Session {
   name: string;
   username: string;
   is_admin: boolean;
+  is_manager: boolean;
+  manager_permissions: ManagerPermissions | null;
   must_change_password: boolean;
   expires?: Date;
 }

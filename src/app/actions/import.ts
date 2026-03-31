@@ -1,6 +1,6 @@
 "use server";
 
-import { requireActiveFacilitySession } from "@/lib/session-guard";
+import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 import { createImportJob } from "@/lib/import-jobs";
 
 export async function queueBeneficiariesImport(data: unknown[]) {
@@ -8,8 +8,8 @@ export async function queueBeneficiariesImport(data: unknown[]) {
   if (!session) {
     return { error: "غير مصرح" };
   }
-  if (!session.is_admin) {
-    return { error: "هذه العملية للمشرف فقط" };
+  if (!hasPermission(session, 'import_beneficiaries')) {
+    return { error: "هذه العملية تتطلب صلاحية استيراد المستفيدين" };
   }
 
   return createImportJob(data, session.username);
