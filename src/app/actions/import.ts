@@ -1,10 +1,10 @@
 "use server";
 
-import { getSession } from "@/lib/auth";
+import { requireActiveFacilitySession } from "@/lib/session-guard";
 import { createImportJob } from "@/lib/import-jobs";
 
 export async function queueBeneficiariesImport(data: unknown[]) {
-  const session = await getSession();
+  const session = await requireActiveFacilitySession();
   if (!session) {
     return { error: "غير مصرح" };
   }

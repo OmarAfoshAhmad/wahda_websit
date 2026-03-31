@@ -53,7 +53,8 @@ const getCachedTodayStats = unstable_cache(
       count: result._count,
     };
   },
-  ["today-transactions-stats-v1"],
+  // تضمين facilityId في مفتاح الكاش لمنع تصادم البيانات بين المرافق
+  ["today-transactions-stats-v2"],
   { revalidate: 30 }
 );
 
@@ -62,10 +63,11 @@ export default async function Dashboard() {
   if (!session) redirect("/login");
 
   const isAdmin = session.is_admin;
+  const cacheTag = isAdmin ? "admin" : session.id;
 
   const [adminStats, todayStats] = await Promise.all([
     isAdmin ? getCachedAdminStats() : Promise.resolve({ total_beneficiaries: 0, active_beneficiaries: 0, facilityCount: 0 }),
-    getCachedTodayStats(isAdmin ? "admin" : session.id)
+    getCachedTodayStats(cacheTag)
   ]);
 
   const totalBeneficiaries = adminStats.total_beneficiaries;

@@ -23,67 +23,82 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "رقم البطاقة مطلوب" }, { status: 400 });
   }
 
-  const beneficiary = await prisma.beneficiary.findFirst({
-    where: { card_number: { equals: card_number, mode: "insensitive" }, deleted_at: null },
-    select: {
-      id: true,
-      name: true,
-      card_number: true,
-      pin_hash: true,
-      failed_attempts: true,
-      locked_until: true,
-    },
-  });
+  // استخدام transaction مع SELECT FOR UPDATE لمنع race condition
+  const result = await prisma.$transaction(async (tx) => {
+    const beneficiaries = await tx.$queryRaw<Array<{
+      id: string;
+      name: string;
+      card_number: string;
+      pin_hash: string | null;
+      failed_attempts: number;
+      locked_until: Date | null;
+    }>>`
+      SELECT id, name, card_number, pin_hash, failed_attempts, locked_until
+      FROM "Beneficiary"
+      WHERE UPPER(BTRIM(card_number)) = UPPER(BTRIM(${card_number}))
+      AND "deleted_at" IS NULL
+      LIMIT 1
+      FOR UPDATE
+    `;
 
-  if (!beneficiary) {
-    return NextResponse.json({ error: GENERIC_AUTH_ERROR }, { status: 401 });
-  }
+    if (beneficiaries.length === 0) {
+      return { type: "error" as const, status: 401, body: { error: GENERIC_AUTH_ERROR } };
+    }
 
-  // فحص الحجب
-  const lockedUntil = beneficiary.locked_until as Date | null;
-  if (lockedUntil && lockedUntil.getTime() > Date.now()) {
-    const minutesLeft = Math.ceil((lockedUntil.getTime() - Date.now()) / 60000);
-    return NextResponse.json(
-      { error: `الحساب محجوب مؤقتاً. حاول بعد ${minutesLeft} دقيقة` },
-      { status: 429 }
-    );
-  }
+    const beneficiary = beneficiaries[0];
 
-  // لا يوجد PIN بعد → اطلب الإعداد
-  if (!beneficiary.pin_hash) {
-    return NextResponse.json({ status: "needs_setup" });
-  }
+    // فحص الحجب
+    if (beneficiary.locked_until && beneficiary.locked_until.getTime() > Date.now()) {
+      const minutesLeft = Math.ceil((beneficiary.locked_until.getTime() - Date.now()) / 60000);
+      return { type: "error" as const, status: 429, body: { error: `الحساب محجوب مؤقتاً. حاول بعد ${minutesLeft} دقيقة` } };
+    }
 
-  // يجب تقديم PIN إذا كان موجوداً
-  if (!pin || pin.length !== 6) {
-    return NextResponse.json({ status: "needs_pin" });
-  }
+    // لا يوجد PIN بعد → اطلب الإعداد
+    if (!beneficiary.pin_hash) {
+      return { type: "status" as const, body: { status: "needs_setup" } };
+    }
 
-  const valid = await bcrypt.compare(pin, beneficiary.pin_hash);
+    // يجب تقديم PIN إذا كان موجوداً
+    if (!pin || pin.length !== 6) {
+      return { type: "status" as const, body: { status: "needs_pin" } };
+    }
 
-  if (!valid) {
-    const newAttempts = beneficiary.failed_attempts + 1;
-    const shouldLock = newAttempts >= MAX_ATTEMPTS;
-    await prisma.beneficiary.update({
+    const valid = await bcrypt.compare(pin, beneficiary.pin_hash);
+
+    if (!valid) {
+      const newAttempts = beneficiary.failed_attempts + 1;
+      const shouldLock = newAttempts >= MAX_ATTEMPTS;
+      await tx.beneficiary.update({
+        where: { id: beneficiary.id },
+        data: {
+          failed_attempts: newAttempts,
+          locked_until: shouldLock ? new Date(Date.now() + LOCK_MINUTES * 60 * 1000) : undefined,
+        },
+      });
+      const remaining = MAX_ATTEMPTS - newAttempts;
+      return {
+        type: "error" as const,
+        status: 401,
+        body: { error: shouldLock ? `تم حجب الحساب لمدة ${LOCK_MINUTES} دقائق` : `${GENERIC_AUTH_ERROR}. تبقى ${remaining} محاولة` },
+      };
+    }
+
+    // ناجح — إعادة تعيين المحاولات
+    await tx.beneficiary.update({
       where: { id: beneficiary.id },
-      data: {
-        failed_attempts: newAttempts,
-        locked_until: shouldLock ? new Date(Date.now() + LOCK_MINUTES * 60 * 1000) : undefined,
-      },
+      data: { failed_attempts: 0, locked_until: null },
     });
-    const remaining = MAX_ATTEMPTS - newAttempts;
-    return NextResponse.json(
-      { error: shouldLock ? `تم حجب الحساب لمدة ${LOCK_MINUTES} دقائق` : `${GENERIC_AUTH_ERROR}. تبقى ${remaining} محاولة` },
-      { status: 401 }
-    );
-  }
 
-  // ناجح — إعادة تعيين المحاولات
-  await prisma.beneficiary.update({
-    where: { id: beneficiary.id },
-    data: { failed_attempts: 0, locked_until: null },
+    return { type: "success" as const, beneficiary: { id: beneficiary.id, name: beneficiary.name, card_number: beneficiary.card_number } };
   });
 
-  await beneficiaryLogin({ id: beneficiary.id, name: beneficiary.name, card_number: beneficiary.card_number });
+  if (result.type === "error") {
+    return NextResponse.json(result.body, { status: result.status });
+  }
+  if (result.type === "status") {
+    return NextResponse.json(result.body);
+  }
+
+  await beneficiaryLogin(result.beneficiary);
   return NextResponse.json({ status: "ok" });
 }

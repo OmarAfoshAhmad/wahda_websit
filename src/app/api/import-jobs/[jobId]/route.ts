@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { requireActiveFacilitySession } from "@/lib/session-guard";
 import { getImportJobSnapshot } from "@/lib/import-jobs";
 
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ jobId: string }> }
 ) {
-  const session = await getSession();
+  const session = await requireActiveFacilitySession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

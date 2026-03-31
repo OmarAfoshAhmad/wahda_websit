@@ -8,6 +8,7 @@ import { Card, Badge, Input, Button } from "@/components/ui";
 import { PrintButton } from "@/components/print-button";
 import { ExportButton } from "@/components/export-button";
 import { TransactionCancelButton } from "@/components/transaction-cancel-button";
+import { PaginationButtons } from "@/components/pagination-buttons";
 import Link from "next/link";
 import { DatabaseBackup, FileInput } from "lucide-react";
 
@@ -30,19 +31,59 @@ type TransactionRow = {
 export default async function TransactionsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ start_date?: string; end_date?: string; facility_id?: string; page?: string; q?: string }>;
+  searchParams: Promise<{ start_date?: string; end_date?: string; facility_id?: string; page?: string; q?: string; sort?: string; order?: string; status?: string }>;
 }) {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const { start_date, end_date, facility_id, page: pageParam, q } = await searchParams;
+  const { start_date, end_date, facility_id, page: pageParam, q, sort, order, status } = await searchParams;
   const PAGE_SIZE = 50;
   const page = Math.max(1, parseInt(pageParam ?? "1", 10) || 1);
+
+  const ALLOWED_STATUS = ["all", "active", "cancelled", "cancellation"] as const;
+  type TxStatus = typeof ALLOWED_STATUS[number];
+  const statusFilter: TxStatus = (ALLOWED_STATUS as ReadonlyArray<string>).includes(status ?? "") ? status as TxStatus : "all";
+
+  const TX_SORT_COLS = ["created_at", "amount"] as const;
+  type TxSortCol = typeof TX_SORT_COLS[number];
+  const sortCol: TxSortCol = (TX_SORT_COLS as ReadonlyArray<string>).includes(sort ?? "") ? sort as TxSortCol : "created_at";
+  const sortDir: "asc" | "desc" = order === "asc" ? "asc" : "desc";
+
+  const buildTxParams = (overrides: Record<string, string> = {}) => {
+    const p = new URLSearchParams();
+    if (start_date) p.set("start_date", start_date);
+    if (end_date) p.set("end_date", end_date);
+    if (facility_id) p.set("facility_id", facility_id);
+    if (q) p.set("q", q);
+    if (statusFilter !== "all") p.set("status", statusFilter);
+    p.set("sort", sortCol);
+    p.set("order", sortDir);
+    Object.entries(overrides).forEach(([k, v]) => p.set(k, v));
+    return p.toString();
+  };
+
+  const txSortHref = (col: string) => {
+    return `/transactions?${buildTxParams({ sort: col, order: sortCol === col && sortDir === "asc" ? "desc" : "asc" })}`;
+  };
+
+  const txPageHref = (p: number) => {
+    return `/transactions?${buildTxParams({ page: String(p) })}`;
+  };
 
   // كل مرفق يرى حركاته فقط — المشرف يرى الكل ويمكنه الفلترة
   const where: Prisma.TransactionWhereInput = session.is_admin
     ? (facility_id ? { facility_id } : {})
     : { facility_id: session.id };
+
+  // فلتر الحالة
+  if (statusFilter === "active") {
+    where.is_cancelled = false;
+    where.type = { not: "CANCELLATION" };
+  } else if (statusFilter === "cancelled") {
+    where.is_cancelled = true;
+  } else if (statusFilter === "cancellation") {
+    where.type = "CANCELLATION";
+  }
 
   // فلترة بالبحث (اسم أو رقم بطاقة)
   const searchQuery = q?.trim().slice(0, 100) ?? "";
@@ -54,28 +95,33 @@ export default async function TransactionsPage({
   }
 
   // فلترة بالتاريخ (من - إلى)
-  if (start_date || end_date) {
-    where.created_at = {};
-    if (start_date) {
-      const start = new Date(start_date);
-      if (!isNaN(start.getTime())) {
-        where.created_at.gte = start;
-      }
+  // عند عدم تحديد أي تاريخ: نعرض آخر 30 يوم فقط لضمان الأداء
+  const hasDateFilter = !!(start_date || end_date);
+  where.created_at = {};
+  if (start_date) {
+    const start = new Date(start_date);
+    if (!isNaN(start.getTime())) {
+      where.created_at.gte = start;
     }
-    if (end_date) {
-      const end = new Date(end_date);
-      if (!isNaN(end.getTime())) {
-        // نضبط الوقت لنهاية اليوم لضمان شمولية اليوم المحدد
-        end.setHours(23, 59, 59, 999);
-        where.created_at.lte = end;
-      }
+  } else if (!hasDateFilter) {
+    const defaultStart = new Date();
+    defaultStart.setDate(defaultStart.getDate() - 30);
+    defaultStart.setHours(0, 0, 0, 0);
+    where.created_at.gte = defaultStart;
+  }
+  if (end_date) {
+    const end = new Date(end_date);
+    if (!isNaN(end.getTime())) {
+      // نضبط الوقت لنهاية اليوم لضمان شمولية اليوم المحدد
+      end.setHours(23, 59, 59, 999);
+      where.created_at.lte = end;
     }
   }
 
   const [transactions, totalCount, aggregate] = await Promise.all([
     prisma.transaction.findMany({
       where,
-      orderBy: { created_at: "desc" },
+      orderBy: { [sortCol]: sortDir },
       select: {
         id: true,
         amount: true,
@@ -119,32 +165,39 @@ export default async function TransactionsPage({
            {session.is_admin && facility_id && <p className="text-sm font-bold mt-1 text-black">خاص بالمرفق: {facilities.find((f: { id: string; name: string }) => f.id === facility_id)?.name}</p>}
         </div>
         
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-2 print:hidden">
-          <div>
-            <h1 className="text-2xl font-black text-slate-900 dark:text-white">سجل الحركات (المراجعة الطبية)</h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400">تقرير مفصل بجميع العمليات</p>
-          </div>
-          <div className="no-print flex items-center gap-2">
-            {session.is_admin && (
-              <Link
-                href="/import-transactions"
-                className="inline-flex h-10 items-center justify-center gap-1.5 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 text-sm font-bold text-slate-800 dark:text-slate-200 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700"
-              >
-                <FileInput className="h-4 w-4" />
-                استيراد الحركات
-              </Link>
-            )}
-            {session.is_admin && (
-              <Link
-                href="/admin/backup"
-                className="inline-flex h-10 items-center justify-center gap-1.5 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 text-sm font-bold text-slate-800 dark:text-slate-200 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700"
-              >
-                <DatabaseBackup className="h-4 w-4" />
-                النسخ الاحتياطي
-              </Link>
-            )}
-            <ExportButton searchParams={{ start_date, end_date, facility_id, q }} />
-            <PrintButton />
+        <div className="print:hidden">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h1 className="text-xl font-black text-slate-900 dark:text-white sm:text-2xl">سجل الحركات (المراجعة الطبية)</h1>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                {hasDateFilter ? "نتائج مفلترة" : "آخر 30 يوم — حدد تاريخاً لعرض فترة مختلفة"}
+              </p>
+            </div>
+            {/* أزرار الرأس — أيقونات فقط على الجوال، نص كامل على الشاشات الكبيرة */}
+            <div className="no-print flex shrink-0 items-center gap-1.5 sm:gap-2">
+              {session.is_admin && (
+                <Link
+                  href="/import-transactions"
+                  title="استيراد الحركات"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700 sm:w-auto sm:gap-1.5 sm:px-3"
+                >
+                  <FileInput className="h-4 w-4 shrink-0" />
+                  <span className="hidden text-sm font-bold sm:inline">استيراد الحركات</span>
+                </Link>
+              )}
+              {session.is_admin && (
+                <Link
+                  href="/admin/backup"
+                  title="النسخ الاحتياطي"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700 sm:w-auto sm:gap-1.5 sm:px-3"
+                >
+                  <DatabaseBackup className="h-4 w-4 shrink-0" />
+                  <span className="hidden text-sm font-bold sm:inline">النسخ الاحتياطي</span>
+                </Link>
+              )}
+              <ExportButton searchParams={{ start_date, end_date, facility_id, q }} />
+              <PrintButton />
+            </div>
           </div>
         </div>
 
@@ -175,6 +228,7 @@ export default async function TransactionsPage({
           <input type="hidden" name="start_date" value={start_date ?? ""} />
           <input type="hidden" name="end_date" value={end_date ?? ""} />
           <input type="hidden" name="facility_id" value={facility_id ?? ""} />
+          {statusFilter !== "all" && <input type="hidden" name="status" value={statusFilter} />}
           <div className="w-full">
             <label className="block text-xs font-black text-slate-400 mb-1">بحث باسم المستفيد أو رقم البطاقة</label>
             <Input
@@ -195,7 +249,7 @@ export default async function TransactionsPage({
             <input type="hidden" name="page" value="1" />
             <input type="hidden" name="q" value={q ?? ""} />
             
-            <div className={`grid grid-cols-1 gap-4 ${session.is_admin ? "md:grid-cols-4" : "md:grid-cols-3"}`}>
+            <div className={`grid grid-cols-1 gap-4 ${session.is_admin ? "md:grid-cols-5" : "md:grid-cols-4"}`}>
               <div className="space-y-1">
                 <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">من تاريخ</label>
                 <Input type="date" name="start_date" defaultValue={start_date} />
@@ -203,6 +257,20 @@ export default async function TransactionsPage({
               <div className="space-y-1">
                 <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">إلى تاريخ</label>
                 <Input type="date" name="end_date" defaultValue={end_date} />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">الحالة</label>
+                <select
+                  name="status"
+                  defaultValue={statusFilter}
+                  className="flex h-10 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                >
+                  <option value="all">كل الحركات</option>
+                  <option value="active">منفذة فعلياً</option>
+                  <option value="cancelled">ملغاة</option>
+                  <option value="cancellation">إلغاء حركة (تصحيح)</option>
+                </select>
               </div>
               
               {session.is_admin && (
@@ -277,9 +345,17 @@ export default async function TransactionsPage({
                   <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500">المستفيد</th>
                   {session.is_admin && <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500">المرفق</th>}
                   <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500">النوع</th>
-                  <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 text-right">القيمة المخصومة</th>
+                  <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 text-right">
+                    <Link href={txSortHref("amount")} className="inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
+                      القيمة المخصومة {sortCol === "amount" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                    </Link>
+                  </th>
                   <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 text-right">الرصيد المتبقي</th>
-                  <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 text-right">التاريخ</th>
+                  <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 text-right">
+                    <Link href={txSortHref("created_at")} className="inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
+                      التاريخ {sortCol === "created_at" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                    </Link>
+                  </th>
                   <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 text-center">الحالة</th>
                   {session.is_admin && <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 no-print">إلغاء</th>}
                 </tr>
@@ -382,30 +458,7 @@ export default async function TransactionsPage({
 
             {/* أزرار التنقل */}
             <div className="flex gap-2">
-              {page > 1 ? (
-                <Link
-                  href={`/transactions?${new URLSearchParams({ ...(start_date ? { start_date } : {}), ...(end_date ? { end_date } : {}), ...(facility_id ? { facility_id } : {}), ...(q ? { q } : {}), page: String(page - 1) }).toString()}`}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-2 text-sm font-black text-slate-700 dark:text-slate-300 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700"
-                >
-                  &#8592; السابق
-                </Link>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 rounded-md border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 px-4 py-2 text-sm font-black text-slate-300 dark:text-slate-600 cursor-not-allowed">
-                  &#8592; السابق
-                </span>
-              )}
-              {page < totalPages ? (
-                <Link
-                  href={`/transactions?${new URLSearchParams({ ...(start_date ? { start_date } : {}), ...(end_date ? { end_date } : {}), ...(facility_id ? { facility_id } : {}), ...(q ? { q } : {}), page: String(page + 1) }).toString()}`}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-2 text-sm font-black text-slate-700 dark:text-slate-300 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700"
-                >
-                  التالي &#8594;
-                </Link>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 rounded-md border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 px-4 py-2 text-sm font-black text-slate-300 dark:text-slate-600 cursor-not-allowed">
-                  التالي &#8594;
-                </span>
-              )}
+              <PaginationButtons page={page} totalPages={totalPages} hrefForPage={txPageHref} />
             </div>
           </div>
         </div>

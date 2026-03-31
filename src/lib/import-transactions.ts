@@ -314,10 +314,12 @@ async function importFamilyTransactions(
       // Update balance
       await tx.beneficiary.update({
         where: { id: member.id },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         data: {
           remaining_balance: newBalance,
           status: newStatus as "ACTIVE" | "FINISHED",
-        },
+          ...(newStatus === "FINISHED" ? { completed_via: "IMPORT" } : {}),
+        } as any,
       });
 
       // Create transaction
@@ -364,13 +366,15 @@ async function suspendFamily(
 
   await prisma.$transaction(
     familyMembers.map((member) =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       prisma.beneficiary.update({
         where: { id: member.id },
         data: {
           total_balance: 0,
           remaining_balance: 0,
           status: "FINISHED",
-        },
+          completed_via: "IMPORT",
+        } as any,
       }),
     ),
   );

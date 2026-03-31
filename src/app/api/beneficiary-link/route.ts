@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { requireActiveFacilitySession } from "@/lib/session-guard";
 import { createBeneficiaryToken } from "@/lib/beneficiary-token";
 
 export async function GET(request: NextRequest) {
-  const session = await getSession();
+  const session = await requireActiveFacilitySession();
   if (!session || !session.is_admin) {
     return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
   }

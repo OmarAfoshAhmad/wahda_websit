@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import ExcelJS from "exceljs";
-import { getSession } from "@/lib/auth";
+import { requireActiveFacilitySession } from "@/lib/session-guard";
 import { processTransactionImport } from "@/lib/import-transactions";
 
 const ALLOWED_MIME = [
@@ -26,7 +26,7 @@ function toReadableImportError(error: unknown): string {
 }
 
 export async function POST(request: Request) {
-  const session = await getSession();
+  const session = await requireActiveFacilitySession();
   if (!session) {
     return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
   }

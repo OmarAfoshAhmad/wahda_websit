@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { getSession } from "@/lib/auth";
+import { requireActiveFacilitySession } from "@/lib/session-guard";
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession();
+  const session = await requireActiveFacilitySession();
   if (!session?.is_admin) {
     return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
   }

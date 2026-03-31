@@ -45,7 +45,12 @@ export function BeneficiaryDashboardClient({ initialData }: { initialData: Dashb
   const [notifOpen, setNotifOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [markingRead, setMarkingRead] = useState(false);
-  const [soundEnabled, setSoundEnabled] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(() => {
+    // قراءة التفضيل من localStorage — الافتراضي true
+    if (typeof window === "undefined") return true;
+    const stored = localStorage.getItem("notif-sound");
+    return stored === null ? true : stored === "true";
+  });
 
   const unreadCount = useMemo(() => data.notifications.filter((n) => !n.is_read).length, [data.notifications]);
   const usedBalance = data.total_balance - data.remaining_balance;
@@ -155,7 +160,11 @@ export function BeneficiaryDashboardClient({ initialData }: { initialData: Dashb
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => setSoundEnabled((v) => !v)}
+            onClick={() => setSoundEnabled((v) => {
+              const next = !v;
+              localStorage.setItem("notif-sound", String(next));
+              return next;
+            })}
             className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border ${soundEnabled ? "border-primary/30 bg-primary-light dark:border-primary/30 dark:bg-primary/20 text-primary dark:text-blue-400" : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300"}`}
             aria-label={soundEnabled ? "إيقاف صوت الإشعارات" : "تشغيل صوت الإشعارات"}
             title={soundEnabled ? "الصوت مفعل" : "الصوت متوقف"}

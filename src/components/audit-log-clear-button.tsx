@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Trash2, Loader2 } from "lucide-react";
 
 type Props = {
-  target: "all" | "beneficiaries" | "transactions" | "facilities";
+  target: "all" | "beneficiaries" | "transactions" | "facilities" | "completed";
   actor: string;
   startDate: string;
   endDate: string;

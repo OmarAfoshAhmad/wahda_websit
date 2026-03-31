@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { requireActiveFacilitySession } from "@/lib/session-guard";
 import { processImportJob } from "@/lib/import-jobs";
 import { enqueueImportJob } from "@/lib/queue";
 import { logger } from "@/lib/logger";
@@ -8,7 +8,7 @@ export async function POST(
   _request: Request,
   { params }: { params: Promise<{ jobId: string }> }
 ) {
-  const session = await getSession();
+  const session = await requireActiveFacilitySession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

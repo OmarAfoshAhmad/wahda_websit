@@ -13,9 +13,7 @@ export async function requireActiveFacilitySession(): Promise<Session | null> {
   const session = await getSession();
   if (!session) return null;
 
-  // المشرفون يبقون نشطين دائماً — لا يُطبَّق الحذف الناعم عليهم
-  if (session.is_admin) return session;
-
+  // التحقق من أن المستخدم (مرفق أو مشرف) لم يُحذف ناعماً
   const facility = await prisma.facility.findFirst({
     where: { id: session.id, deleted_at: null },
     select: { id: true },

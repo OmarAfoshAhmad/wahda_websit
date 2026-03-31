@@ -35,7 +35,7 @@ export function Shell({ children, facilityName, isAdmin = false }: { children: R
           <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-3">
-                <Image src="/logo.png" alt="Waha Health Care" width={38} height={38} className="object-contain dark:brightness-110" style={{ height: 'auto' }} />
+                <Image src="/logo.png" alt="Waha Health Care" width={38} height={38} className="object-contain dark:brightness-110" style={{ width: 'auto', height: 'auto' }} />
                 <div>
                   <h1 className="text-sm font-black leading-tight text-slate-900 dark:text-white">شركة الواحة</h1>
                   <h2 className="text-sm font-black leading-tight text-slate-900 dark:text-slate-300">Waha Health Care</h2>

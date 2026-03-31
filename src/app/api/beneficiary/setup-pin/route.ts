@@ -26,26 +26,46 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "رمز PIN غير متطابق" }, { status: 400 });
   }
 
-  const beneficiary = await prisma.beneficiary.findFirst({
-    where: { card_number: { equals: card_number, mode: "insensitive" }, deleted_at: null },
-    select: { id: true, name: true, card_number: true, pin_hash: true },
+  // استخدام transaction مع SELECT FOR UPDATE لمنع race condition
+  const result = await prisma.$transaction(async (tx) => {
+    const beneficiaries = await tx.$queryRaw<Array<{
+      id: string;
+      name: string;
+      card_number: string;
+      pin_hash: string | null;
+    }>>`
+      SELECT id, name, card_number, pin_hash
+      FROM "Beneficiary"
+      WHERE UPPER(BTRIM(card_number)) = UPPER(BTRIM(${card_number}))
+      AND "deleted_at" IS NULL
+      LIMIT 1
+      FOR UPDATE
+    `;
+
+    if (beneficiaries.length === 0) {
+      return { type: "error" as const, status: 401, body: { error: GENERIC_AUTH_ERROR } };
+    }
+
+    const beneficiary = beneficiaries[0];
+
+    // منع التعيين مرة ثانية (يجب المرور بالمشرف لإعادة التعيين)
+    if (beneficiary.pin_hash) {
+      return { type: "error" as const, status: 409, body: { error: "تم تعيين رمز PIN مسبقاً" } };
+    }
+
+    const pin_hash = await bcrypt.hash(pin, 12);
+    await tx.beneficiary.update({
+      where: { id: beneficiary.id },
+      data: { pin_hash, failed_attempts: 0, locked_until: null },
+    });
+
+    return { type: "success" as const, beneficiary: { id: beneficiary.id, name: beneficiary.name, card_number: beneficiary.card_number } };
   });
 
-  if (!beneficiary) {
-    return NextResponse.json({ error: GENERIC_AUTH_ERROR }, { status: 401 });
+  if (result.type === "error") {
+    return NextResponse.json(result.body, { status: result.status });
   }
 
-  // منع التعيين مرة ثانية (يجب المرور بالمشرف لإعادة التعيين)
-  if (beneficiary.pin_hash) {
-    return NextResponse.json({ error: "تم تعيين رمز PIN مسبقاً" }, { status: 409 });
-  }
-
-  const pin_hash = await bcrypt.hash(pin, 12);
-  await prisma.beneficiary.update({
-    where: { id: beneficiary.id },
-    data: { pin_hash, failed_attempts: 0, locked_until: null },
-  });
-
-  await beneficiaryLogin({ id: beneficiary.id, name: beneficiary.name, card_number: beneficiary.card_number });
+  await beneficiaryLogin(result.beneficiary);
   return NextResponse.json({ status: "ok" });
 }

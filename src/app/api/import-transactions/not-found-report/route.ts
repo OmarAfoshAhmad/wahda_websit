@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { requireActiveFacilitySession } from "@/lib/session-guard";
 import { generateNotFoundWorkbook, type NotFoundRow } from "@/lib/import-transactions";
 
 export async function POST(request: Request) {
-  const session = await getSession();
+  const session = await requireActiveFacilitySession();
   if (!session) {
     return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
   }

@@ -1,7 +1,7 @@
 "use server";
 
 import prisma from "@/lib/prisma";
-import { getSession } from "@/lib/auth";
+import { requireActiveFacilitySession } from "@/lib/session-guard";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getArabicSearchTerms } from "@/lib/search";
 import { updateBeneficiarySchema, createBeneficiarySchema } from "@/lib/validation";
@@ -24,7 +24,7 @@ function parseBirthDate(value?: string) {
 }
 
 export async function getBeneficiaryByCard(card_number: string) {
-  const session = await getSession();
+  const session = await requireActiveFacilitySession();
   if (!session) {
     return { error: "غير مصرح" };
   }
@@ -63,7 +63,7 @@ export async function getBeneficiaryByCard(card_number: string) {
 }
 
 export async function searchBeneficiaries(query: string) {
-  const session = await getSession();
+  const session = await requireActiveFacilitySession();
   if (!session) {
     return { error: "غير مصرح", items: [] as Array<{ id: string; name: string; card_number: string; remaining_balance: number; status: string }> };
   }
@@ -77,31 +77,35 @@ export async function searchBeneficiaries(query: string) {
   }
 
   try {
-    const items = await prisma.beneficiary.findMany({
-      where: {
-        deleted_at: null,
-        OR: getArabicSearchTerms(q).flatMap(t => [
-          { card_number: { contains: t, mode: "insensitive" as const } },
-          { name: { contains: t, mode: "insensitive" as const } },
-        ]),
-      },
-      select: {
-        id: true,
-        name: true,
-        card_number: true,
-        remaining_balance: true,
-        status: true,
-      },
-      orderBy: [{ name: "asc" }],
-      take: 8,
-    });
+    // pg_trgm: ILIKE مع GIN index للسرعة + word_similarity للترتيب حسب الأولوية
+    const likePattern = `%${q}%`;
+    const rows = await prisma.$queryRaw<Array<{
+      id: string;
+      name: string;
+      card_number: string;
+      remaining_balance: number;
+      status: string;
+    }>>`
+      SELECT
+        id,
+        name,
+        card_number,
+        remaining_balance::float8,
+        status
+      FROM "Beneficiary"
+      WHERE deleted_at IS NULL
+        AND (
+          name ILIKE ${likePattern}
+          OR card_number ILIKE ${likePattern}
+        )
+      ORDER BY GREATEST(
+        word_similarity(${q}, name),
+        word_similarity(${q}, card_number)
+      ) DESC
+      LIMIT 20
+    `;
 
-    return {
-      items: items.map((item) => ({
-        ...item,
-        remaining_balance: Number(item.remaining_balance),
-      })),
-    };
+    return { items: rows };
   } catch {
     return { error: "تعذر تنفيذ البحث", items: [] as Array<{ id: string; name: string; card_number: string; remaining_balance: number; status: string }> };
   }
@@ -112,7 +116,7 @@ export async function createBeneficiary(data: {
   card_number: string;
   birth_date?: string;
 }) {
-  const session = await getSession();
+  const session = await requireActiveFacilitySession();
   if (!session || !session.is_admin) {
     return { error: "غير مصرح بهذه العملية" };
   }
@@ -192,7 +196,7 @@ export async function updateBeneficiary(data: {
   birth_date?: string;
   status: "ACTIVE" | "FINISHED" | "SUSPENDED";
 }) {
-  const session = await getSession();
+  const session = await requireActiveFacilitySession();
   if (!session || !session.is_admin) {
     return { error: "غير مصرح بهذه العملية" };
   }
@@ -267,7 +271,7 @@ export async function updateBeneficiary(data: {
 }
 
 export async function deleteBeneficiary(id: string) {
-  const session = await getSession();
+  const session = await requireActiveFacilitySession();
   if (!session || !session.is_admin) {
     return { error: "غير مصرح بهذه العملية" };
   }
@@ -277,6 +281,7 @@ export async function deleteBeneficiary(id: string) {
       where: { id },
       select: {
         id: true,
+        name: true,
         card_number: true,
         deleted_at: true,
         _count: { select: { transactions: true } },
@@ -302,7 +307,7 @@ export async function deleteBeneficiary(id: string) {
         facility_id: session.id,
         user: session.username,
         action: "DELETE_BENEFICIARY",
-        metadata: { beneficiary_id: id, card_number: beneficiary.card_number },
+        metadata: { beneficiary_name: beneficiary.name, beneficiary_id: id, card_number: beneficiary.card_number },
       },
     });
 
@@ -314,7 +319,7 @@ export async function deleteBeneficiary(id: string) {
 }
 
 export async function restoreBeneficiary(id: string) {
-  const session = await getSession();
+  const session = await requireActiveFacilitySession();
   if (!session || !session.is_admin) {
     return { error: "غير مصرح بهذه العملية" };
   }
@@ -368,7 +373,7 @@ export async function restoreBeneficiary(id: string) {
         facility_id: session.id,
         user: session.username,
         action: "RESTORE_BENEFICIARY",
-        metadata: { beneficiary_id: id, card_number: beneficiary.card_number },
+        metadata: { beneficiary_name: beneficiary.name, beneficiary_id: id, card_number: beneficiary.card_number },
       },
     });
 
@@ -380,7 +385,7 @@ export async function restoreBeneficiary(id: string) {
 }
 
 export async function permanentDeleteBeneficiary(id: string) {
-  const session = await getSession();
+  const session = await requireActiveFacilitySession();
   if (!session || !session.is_admin) {
     return { error: "غير مصرح بهذه العملية" };
   }
@@ -411,7 +416,7 @@ export async function permanentDeleteBeneficiary(id: string) {
           facility_id: session.id,
           user: session.username,
           action: "PERMANENT_DELETE_BENEFICIARY",
-          metadata: { beneficiary_id: id, card_number: beneficiary.card_number },
+          metadata: { beneficiary_name: beneficiary.name, beneficiary_id: id, card_number: beneficiary.card_number },
         },
       });
       await tx.beneficiary.delete({ where: { id } });

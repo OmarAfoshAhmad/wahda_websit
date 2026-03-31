@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import ExcelJS from "exceljs";
-import { getSession } from "@/lib/auth";
+import { requireActiveFacilitySession } from "@/lib/session-guard";
 import { createImportJob } from "@/lib/import-jobs";
 
 // MIME types المقبولة صراحةً لملفات Excel — لا نقبل octet-stream
@@ -11,7 +11,7 @@ const ALLOWED_MIME = [
 ];
 
 export async function POST(request: Request) {
-  const session = await getSession();
+  const session = await requireActiveFacilitySession();
   if (!session) {
     return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
   }

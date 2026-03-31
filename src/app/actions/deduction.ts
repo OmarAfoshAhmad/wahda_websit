@@ -32,8 +32,8 @@ export async function deductBalance(formData: {
     const result = await prisma.$transaction(async (tx) => {
       // 1. Get beneficiary with row-level lock (using raw sql as Prisma interactive tx isn't always enough for specific locking locks)
       // On PostgreSQL, we can use SELECT ... FOR UPDATE
-      const beneficiaries = await tx.$queryRaw<Array<{ id: string; remaining_balance: number; status: string }>>`
-        SELECT id, remaining_balance, status FROM "Beneficiary" 
+      const beneficiaries = await tx.$queryRaw<Array<{ id: string; name: string; remaining_balance: number; status: string }>>`
+        SELECT id, name, remaining_balance, status FROM "Beneficiary" 
         WHERE UPPER(BTRIM(card_number)) = UPPER(BTRIM(${card_number}))
         AND "deleted_at" IS NULL
         LIMIT 1 
@@ -58,11 +58,13 @@ export async function deductBalance(formData: {
       const newStatus = newBalance <= 0 ? "FINISHED" : "ACTIVE";
 
       // 2. Update beneficiary
-      await tx.beneficiary.update({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (tx.beneficiary.update as any)({
         where: { id: beneficiary.id },
         data: {
           remaining_balance: newBalance,
           status: newStatus,
+          ...(newStatus === "FINISHED" ? { completed_via: "MANUAL" } : {}),
         },
       });
 
@@ -93,10 +95,12 @@ export async function deductBalance(formData: {
           user: session.username,
           action: "DEDUCT_BALANCE",
           metadata: {
+            beneficiary_name: beneficiary.name,
             card_number,
             amount,
             type,
             transaction_id: transaction.id,
+            ...(newStatus === "FINISHED" ? { beneficiary_completed: true } : {}),
           },
         },
       });

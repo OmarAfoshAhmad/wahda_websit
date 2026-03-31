@@ -18,7 +18,7 @@ export default async function BeneficiaryDashboardPage() {
       remaining_balance: true,
       status: true,
       transactions: {
-        where: { is_cancelled: false },
+        where: { is_cancelled: false, type: { not: "CANCELLATION" } },
         orderBy: { created_at: "desc" },
         take: 30,
         select: {

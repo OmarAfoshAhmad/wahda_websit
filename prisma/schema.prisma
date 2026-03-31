@@ -33,6 +33,7 @@ model Beneficiary {
   pin_hash          String?
   failed_attempts   Int               @default(0)
   locked_until      DateTime?
+  completed_via     String?           // "MANUAL" | "IMPORT" | null
   deleted_at        DateTime?
   created_at        DateTime          @default(now())
   transactions      Transaction[]
@@ -43,6 +44,8 @@ model Beneficiary {
   /// 2) active person uniqueness on normalized(name) + birth_date when birth_date is not null
   @@index([card_number])
   @@index([deleted_at])
+  @@index([status])
+  @@index([completed_via])
 }
 
 model Notification {
@@ -88,7 +91,8 @@ model AuditLog {
   created_at  DateTime @default(now())
 
   @@index([facility_id, created_at])
-  @@index([action])
+  @@index([action, created_at])
+  @@index([user])
 }
 
 model ImportJob {

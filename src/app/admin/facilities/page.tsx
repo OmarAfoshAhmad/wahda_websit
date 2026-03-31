@@ -10,6 +10,8 @@ import { CreateFacilityForm } from "./create-form";
 import { FacilityEditModal } from "@/components/facility-edit-modal";
 import { FacilityDeleteButton } from "@/components/facility-delete-button";
 import { FacilityImportUploader } from "@/components/facility-import-uploader";
+import { FacilityToggleAdminButton } from "@/components/facility-toggle-admin-button";
+import { PaginationButtons } from "@/components/pagination-buttons";
 import { PrintButton } from "@/components/print-button";
 
 const PAGE_SIZE = 8;
@@ -162,6 +164,13 @@ export default async function FacilitiesPage({
                             </td>
                             <td className="px-5 py-3 no-print">
                                 <div className="flex items-center justify-center gap-2">
+                                  {f.id !== session.id && (
+                                    <FacilityToggleAdminButton
+                                      facilityId={f.id}
+                                      isAdmin={f.is_admin}
+                                      facilityName={f.name}
+                                    />
+                                  )}
                                   {!f.is_admin && (
                                     <>
                                       <FacilityEditModal facility={{ id: f.id, name: f.name, username: f.username }} />
@@ -266,30 +275,7 @@ export default async function FacilitiesPage({
             </span>
 
             <div className="flex gap-2">
-              {page > 1 ? (
-                <Link
-                  href={buildHref(page - 1)}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-2 text-sm font-black text-slate-700 dark:text-slate-300 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700"
-                >
-                  &#8592; السابق
-                </Link>
-              ) : (
-                <span className="inline-flex items-center rounded-md border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 px-4 py-2 text-sm font-black text-slate-300 dark:text-slate-600 cursor-not-allowed">
-                  &#8592; السابق
-                </span>
-              )}
-              {page < totalPages ? (
-                <Link
-                  href={buildHref(page + 1)}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-2 text-sm font-black text-slate-700 dark:text-slate-300 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700"
-                >
-                  التالي &#8594;
-                </Link>
-              ) : (
-                <span className="inline-flex items-center rounded-md border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 px-4 py-2 text-sm font-black text-slate-300 dark:text-slate-600 cursor-not-allowed">
-                  التالي &#8594;
-                </span>
-              )}
+              <PaginationButtons page={page} totalPages={totalPages} hrefForPage={buildHref} />
             </div>
           </div>
         </div>

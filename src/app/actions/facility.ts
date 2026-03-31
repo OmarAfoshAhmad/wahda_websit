@@ -3,13 +3,13 @@
 import bcrypt from "bcryptjs";
 import { randomBytes } from "crypto";
 import prisma from "@/lib/prisma";
-import { getSession } from "@/lib/auth";
+import { requireActiveFacilitySession } from "@/lib/session-guard";
 import { createFacilitySchema, updateFacilitySchema } from "@/lib/validation";
 import ExcelJS from "exceljs";
 import { revalidatePath } from "next/cache";
 
 export async function createFacility(prevState: unknown, formData: FormData) {
-  const session = await getSession();
+  const session = await requireActiveFacilitySession();
   if (!session?.is_admin) {
     return { error: "غير مصرح لك بهذه العملية" };
   }
@@ -23,17 +23,18 @@ export async function createFacility(prevState: unknown, formData: FormData) {
   }
 
   const { name, username } = validated.data;
+  const isAdmin = formData.get("is_admin") === "true";
 
   const existing = await prisma.facility.findUnique({ where: { username } });
   if (existing) {
     return { error: "اسم المستخدم محجوز مسبقاً، اختر اسماً آخر" };
   }
 
-  const tempPassword = randomBytes(4).toString("hex");
+  const tempPassword = "123456";
   const password_hash = await bcrypt.hash(tempPassword, 10);
 
   await prisma.facility.create({
-    data: { name, username, password_hash, is_admin: false, must_change_password: true },
+    data: { name, username, password_hash, is_admin: isAdmin, must_change_password: true },
   });
 
   await prisma.auditLog.create({
@@ -41,7 +42,7 @@ export async function createFacility(prevState: unknown, formData: FormData) {
       facility_id: session.id,
       user: session.username,
       action: "CREATE_FACILITY",
-      metadata: { new_facility_username: username, name },
+      metadata: { new_facility_username: username, name, is_admin: isAdmin },
     },
   });
 
@@ -59,7 +60,7 @@ export async function updateFacility(data: {
   username: string;
   resetPassword?: boolean;
 }) {
-  const session = await getSession();
+  const session = await requireActiveFacilitySession();
   if (!session?.is_admin) {
     return { error: "غير مصرح لك بهذه العملية" };
   }
@@ -119,8 +120,32 @@ export async function updateFacility(data: {
   return { success: true };
 }
 
+export async function toggleFacilityAdmin(id: string): Promise<{ error?: string; success?: boolean; is_admin?: boolean }> {
+  const session = await requireActiveFacilitySession();
+  if (!session?.is_admin) return { error: "غير مصرح لك بهذه العملية" };
+  if (id === session.id) return { error: "لا يمكن تغيير صلاحياتك الخاصة" };
+
+  const facility = await prisma.facility.findUnique({ where: { id }, select: { is_admin: true, name: true, username: true, deleted_at: true } });
+  if (!facility || facility.deleted_at) return { error: "المرفق غير موجود" };
+
+  const newIsAdmin = !facility.is_admin;
+  await prisma.facility.update({ where: { id }, data: { is_admin: newIsAdmin } });
+
+  await prisma.auditLog.create({
+    data: {
+      facility_id: session.id,
+      user: session.username,
+      action: "UPDATE_FACILITY",
+      metadata: { facility_id: id, name: facility.name, username: facility.username, set_is_admin: newIsAdmin },
+    },
+  });
+
+  revalidatePath("/admin/facilities");
+  return { success: true, is_admin: newIsAdmin };
+}
+
 export async function deleteFacility(id: string): Promise<{ error?: string; success?: boolean }> {
-  const session = await getSession();
+  const session = await requireActiveFacilitySession();
   if (!session?.is_admin) return { error: "غير مصرح لك بهذه العملية" };
   if (!id) return { error: "معرّف المرفق غير صالح" };
   if (id === session.id) return { error: "لا يمكن حذف الحساب الحالي" };
@@ -156,7 +181,7 @@ export async function importFacilitiesFromExcel(formData: FormData): Promise<{
   errors?: string[];
   error?: string;
 }> {
-  const session = await getSession();
+  const session = await requireActiveFacilitySession();
   if (!session?.is_admin) {
     return { error: "غير مصرح لك بهذه العملية" };
   }

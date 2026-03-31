@@ -6,7 +6,7 @@ export const loginSchema = z.object({
 });
 
 export const deductionSchema = z.object({
-  card_number: z.string().min(1, "رقم البطاقة مطلوب").max(50, "رقم البطاقة طويل جداً"),
+  card_number: z.string().min(1, "رقم البطاقة مطلوب").max(50, "رقم البطاقة طويل جداً").regex(/^[A-Za-z0-9\u0600-\u06FF\s\-_]+$/, "رقم البطاقة يحتوي على أحرف غير مسموحة"),
   amount: z.coerce.number().positive("يجب أن يكون المبلغ أكبر من الصفر").max(999_999, "المبلغ كبير جداً"),
   type: z.enum(["MEDICINE", "SUPPLIES"], {
     message: "يرجى اختيار نوع العملية",
@@ -67,8 +67,8 @@ export const voluntaryChangePasswordSchema = z.object({
 export const updateBeneficiarySchema = z.object({
   id: z.string().min(1, "معرف المستفيد مطلوب"),
   name: z.string().min(2, "الاسم يجب أن يكون حرفين على الأقل").max(100, "الاسم طويل جداً"),
-  card_number: z.string().min(3, "رقم البطاقة غير صالح").max(50, "رقم البطاقة طويل جداً"),
-  birth_date: z.string().max(20, "تاريخ غير صالح").optional(),
+  card_number: z.string().min(3, "رقم البطاقة غير صالح").max(50, "رقم البطاقة طويل جداً").regex(/^[A-Za-z0-9\u0600-\u06FF\s\-_]+$/, "رقم البطاقة يحتوي على أحرف غير مسموحة"),
+  birth_date: z.string().max(20, "تاريخ غير صالح").regex(/^(\d{4}-\d{2}-\d{2})?$/, "صيغة التاريخ يجب أن تكون YYYY-MM-DD").optional(),
   status: z.enum(["ACTIVE", "FINISHED", "SUSPENDED"], {
     message: "حالة المستفيد غير صحيحة",
   }),
@@ -76,8 +76,8 @@ export const updateBeneficiarySchema = z.object({
 
 export const createBeneficiarySchema = z.object({
   name: z.string().min(2, "الاسم يجب أن يكون حرفين على الأقل").max(100, "الاسم طويل جداً"),
-  card_number: z.string().min(3, "رقم البطاقة غير صالح").max(50, "رقم البطاقة طويل جداً"),
-  birth_date: z.string().max(20, "تاريخ غير صالح").optional(),
+  card_number: z.string().min(3, "رقم البطاقة غير صالح").max(50, "رقم البطاقة طويل جداً").regex(/^[A-Za-z0-9\u0600-\u06FF\s\-_]+$/, "رقم البطاقة يحتوي على أحرف غير مسموحة"),
+  birth_date: z.string().max(20, "تاريخ غير صالح").regex(/^(\d{4}-\d{2}-\d{2})?$/, "صيغة التاريخ يجب أن تكون YYYY-MM-DD").optional(),
 });
 
 export type CreateFacilityInput = z.infer<typeof createFacilitySchema>;

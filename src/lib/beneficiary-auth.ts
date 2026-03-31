@@ -4,10 +4,14 @@ import { cookies } from "next/headers";
 const COOKIE_NAME = "ben_session";
 const EXPIRES_MS = 7 * 24 * 60 * 60 * 1000; // 7 أيام
 
+let _warnedMissingBenKey = false;
 function getKey() {
-  // يفضل استخدام مفتاح منفصل للمستفيدين — يقع الفال على JWT_SECRET للتوافق
-  const secret = process.env.BENEFICIARY_JWT_SECRET || process.env.JWT_SECRET;
+  const secret = process.env.BENEFICIARY_JWT_SECRET ?? process.env.JWT_SECRET;
   if (!secret) throw new Error("BENEFICIARY_JWT_SECRET or JWT_SECRET not set");
+  if (!process.env.BENEFICIARY_JWT_SECRET && !_warnedMissingBenKey) {
+    _warnedMissingBenKey = true;
+    console.warn("[SECURITY] BENEFICIARY_JWT_SECRET غير مضبوط — يُستخدم JWT_SECRET كبديل. يُنصح بإعداد مفتاح منفصل.");
+  }
   return new TextEncoder().encode(secret);
 }
 

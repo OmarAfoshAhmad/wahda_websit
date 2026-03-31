@@ -83,7 +83,7 @@ function summarizeMetadata(action: string, metadata: unknown): string {
   }
 
   if (action === "IMPORT_BENEFICIARIES_BACKGROUND") {
-    return `تمت إضافة: ${String(m.inserted_rows ?? "-")} · مكررة: ${String(m.duplicate_rows ?? "-")}`;
+    return `تمت إضافة: ${String(m.insertedRows ?? "-")} · مكررة: ${String(m.duplicateRows ?? "-")} · الإجمالي: ${String(m.totalRows ?? "-")}`;
   }
 
   if (action === "CANCEL_TRANSACTION") {

@@ -22,10 +22,11 @@ export function ExportButton({ searchParams }: ExportButtonProps) {
     <Button
       type="button"
       onClick={handleExport}
-      className="bg-emerald-600 hover:bg-emerald-700 text-white print:hidden h-10 px-4 flex items-center gap-2"
+      title="تصدير Excel"
+      className="bg-emerald-600 hover:bg-emerald-700 text-white print:hidden h-9 w-9 px-0 sm:h-10 sm:w-auto sm:px-4 inline-flex items-center justify-center gap-2"
     >
-      <Download className="h-4 w-4" />
-      تصدير Excel
+      <Download className="h-4 w-4 shrink-0" />
+      <span className="hidden sm:inline">تصدير Excel</span>
     </Button>
   );
 }

@@ -1,3 +1,4 @@
+import React from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Badge, Card, Input, Button } from "@/components/ui";
@@ -7,7 +8,7 @@ import prisma from "@/lib/prisma";
 import { Activity, Download } from "lucide-react";
 import { AuditLogClearButton } from "../../../components/audit-log-clear-button";
 
-type TargetFilter = "all" | "beneficiaries" | "transactions" | "facilities";
+type TargetFilter = "all" | "beneficiaries" | "transactions" | "facilities" | "completed";
 
 const PAGE_SIZE = 30;
 
@@ -35,6 +36,7 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
   ],
   transactions: ["DEDUCT_BALANCE", "CANCEL_TRANSACTION", "REVERT_CANCELLATION", "IMPORT_TRANSACTIONS"],
   facilities: ["CREATE_FACILITY", "IMPORT_FACILITIES", "DELETE_FACILITY"],
+  completed: ["DEDUCT_BALANCE", "IMPORT_TRANSACTIONS"],
 };
 
 function actionLabel(action: string) {
@@ -68,48 +70,136 @@ function actionLabel(action: string) {
   }
 }
 
-function summarizeMetadata(action: string, metadata: unknown): string {
+function summarizeMetadata(action: string, metadata: unknown): React.ReactNode {
   if (!metadata || typeof metadata !== "object") return "-";
   const m = metadata as Record<string, unknown>;
 
-  if (action === "CREATE_BENEFICIARY" || action === "UPDATE_BENEFICIARY") {
-    return `بطاقة: ${String(m.card_number ?? "-")}`;
+  if (action === "CREATE_BENEFICIARY") {
+    return (
+      <span>
+        <span className="font-bold text-slate-800 dark:text-slate-200">{String(m.card_number ?? "-")}</span>
+        {m.beneficiary_name ? <span className="mr-1.5 text-slate-500 dark:text-slate-400">— {String(m.beneficiary_name)}</span> : null}
+      </span>
+    );
+  }
+
+  if (action === "UPDATE_BENEFICIARY") {
+    return (
+      <span>
+        <span className="font-bold text-slate-800 dark:text-slate-200">{String(m.card_number ?? "-")}</span>
+        {m.beneficiary_name ? <span className="mr-1.5 text-slate-500 dark:text-slate-400">— {String(m.beneficiary_name)}</span> : null}
+        <span className="mr-1.5 text-xs text-slate-400 dark:text-slate-500">(تعديل بيانات)</span>
+      </span>
+    );
   }
 
   if (action === "DELETE_BENEFICIARY" || action === "PERMANENT_DELETE_BENEFICIARY" || action === "RESTORE_BENEFICIARY") {
-    return `مستفيد: ${String(m.beneficiary_id ?? "-")}`;
+    const label = action === "DELETE_BENEFICIARY" ? "حذف" : action === "PERMANENT_DELETE_BENEFICIARY" ? "حذف نهائي" : "استرجاع";
+    const name = String(m.beneficiary_name ?? m.beneficiary_id ?? "-");
+    const card = m.card_number ? ` · بطاقة: ${String(m.card_number)}` : "";
+    return (
+      <span>
+        <span className="font-bold text-slate-800 dark:text-slate-200">{name}</span>
+        <span className="mr-1.5 text-xs text-slate-400 dark:text-slate-500">({label}{card})</span>
+      </span>
+    );
   }
 
   if (action === "DEDUCT_BALANCE") {
-    return `بطاقة: ${String(m.card_number ?? "-")} · مبلغ: ${String(m.amount ?? "-")}`;
+    const name = m.beneficiary_name ? String(m.beneficiary_name) : null;
+    const completed = m.beneficiary_completed ? true : false;
+    return (
+      <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        {name && <span className="font-bold text-slate-800 dark:text-slate-200">{name}</span>}
+        <span className="text-slate-500 dark:text-slate-400">بطاقة: {String(m.card_number ?? "-")}</span>
+        <span className="text-slate-500 dark:text-slate-400">مبلغ: {String(m.amount ?? "-")} د.ل</span>
+        <span className="text-xs text-slate-400 dark:text-slate-500">({String(m.type === "MEDICINE" ? "دواء" : m.type === "SUPPLIES" ? "مستلزمات" : String(m.type ?? "-"))})</span>
+        {completed && (
+          <span className="inline-flex items-center rounded-md border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/30 px-1.5 py-0.5 text-xs font-bold text-emerald-700 dark:text-emerald-400">
+            اكتمل الرصيد ✓
+          </span>
+        )}
+      </span>
+    );
   }
 
   if (action === "IMPORT_BENEFICIARIES_BACKGROUND") {
-    return `تمت إضافة: ${String(m.inserted_rows ?? "-")} · مكررة: ${String(m.duplicate_rows ?? "-")}`;
+    const jobId = m.jobId ? String(m.jobId) : null;
+    const dupeCount = Number(m.duplicateRows ?? 0);
+    return (
+      <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-slate-500 dark:text-slate-400">
+        <span>تمت إضافة: <strong className="text-slate-700 dark:text-slate-300">{String(m.insertedRows ?? "-")}</strong></span>
+        <span>مكررة: <strong className="text-slate-700 dark:text-slate-300">{String(m.duplicateRows ?? "-")}</strong></span>
+        {m.totalRows ? <span>الإجمالي: <strong className="text-slate-700 dark:text-slate-300">{String(m.totalRows)}</strong></span> : null}
+        {jobId && dupeCount > 0 && (
+          <a
+            href={`/api/export/import-report?jobId=${encodeURIComponent(jobId)}`}
+            className="inline-flex items-center gap-1 rounded border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30 px-2 py-0.5 text-xs font-bold text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-colors"
+            title="تصدير تقرير المكررين والمتخطين بصيغة Excel"
+          >
+            ↓ تقرير المكررين ({dupeCount})
+          </a>
+        )}
+      </span>
+    );
   }
 
   if (action === "CANCEL_TRANSACTION") {
-    return `حركة: ${String(m.original_transaction_id ?? "-")} · مبلغ مرتجع: ${String(m.refunded_amount ?? "-")}`;
+    return (
+      <span className="text-slate-500 dark:text-slate-400">
+        مبلغ مرتجع: <strong className="text-slate-700 dark:text-slate-300">{String(m.refunded_amount ?? "-")} د.ل</strong>
+        {m.card_number ? <span className="mr-1.5">· بطاقة: {String(m.card_number)}</span> : null}
+      </span>
+    );
   }
 
   if (action === "REVERT_CANCELLATION") {
-    return `إلغاء: ${String(m.cancellation_transaction_id ?? "-")} · حركة أصلية: ${String(m.original_transaction_id ?? "-")}`;
+    return (
+      <span className="text-slate-500 dark:text-slate-400">
+        {m.card_number ? <span>بطاقة: {String(m.card_number)} · </span> : null}
+        <span>إلغاء الإلغاء</span>
+      </span>
+    );
   }
 
   if (action === "IMPORT_TRANSACTIONS") {
-    return `تمت إضافة: ${String(m.added ?? "-")} · متخطاة: ${String(m.skipped ?? "-")}`;
+    return (
+      <span className="flex flex-wrap gap-x-2 text-slate-500 dark:text-slate-400">
+        <span>عائلات: <strong className="text-slate-700 dark:text-slate-300">{String(m.importedFamilies ?? m.added ?? "-")}</strong></span>
+        <span>حركات: <strong className="text-slate-700 dark:text-slate-300">{String(m.importedTransactions ?? "-")}</strong></span>
+        {m.suspendedFamilies ? <span>موقوفة: <strong className="text-slate-700 dark:text-slate-300">{String(m.suspendedFamilies)}</strong></span> : null}
+        {Number(m.skippedNotFound ?? 0) > 0 ? <span className="text-amber-600 dark:text-amber-400">غير موجودة: {String(m.skippedNotFound)}</span> : null}
+        {Number(m.skippedAlreadyImported ?? 0) > 0 ? <span className="text-slate-400 dark:text-slate-500">مكررة: {String(m.skippedAlreadyImported)}</span> : null}
+      </span>
+    );
   }
 
   if (action === "CREATE_FACILITY") {
-    return `مرفق: ${String(m.name ?? "-")} · مستخدم: ${String(m.new_facility_username ?? "-")}`;
+    return (
+      <span>
+        <span className="font-bold text-slate-800 dark:text-slate-200">{String(m.name ?? "-")}</span>
+        <span className="mr-1.5 text-slate-400 dark:text-slate-500 font-mono text-xs">{String(m.new_facility_username ?? "-")}</span>
+        {m.is_admin ? <span className="mr-1 inline-flex items-center rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/30 px-1.5 py-0.5 text-xs font-bold text-amber-700 dark:text-amber-400">مشرف</span> : null}
+      </span>
+    );
   }
 
   if (action === "IMPORT_FACILITIES") {
-    return `تمت إضافة: ${String(m.created ?? "-")} · متخطاة: ${String(m.skipped ?? "-")}`;
+    return (
+      <span className="text-slate-500 dark:text-slate-400">
+        تمت إضافة: <strong className="text-slate-700 dark:text-slate-300">{String(m.created ?? "-")}</strong>
+        {" · "}متخطاة: <strong className="text-slate-700 dark:text-slate-300">{String(m.skipped ?? "-")}</strong>
+      </span>
+    );
   }
 
   if (action === "DELETE_FACILITY") {
-    return `معرف المرفق: ${String(m.deleted_facility_id ?? "-")}`;
+    return (
+      <span className="text-slate-500 dark:text-slate-400">
+        {m.name ? <strong className="text-slate-700 dark:text-slate-300">{String(m.name)}</strong> : null}
+        {m.deleted_facility_username ? <span className="mr-1.5 font-mono text-xs">{String(m.deleted_facility_username)}</span> : null}
+      </span>
+    );
   }
 
   return "-";
@@ -143,7 +233,7 @@ export default async function AuditLogPage({
   const { page: pageParam, target: targetParam, actor, start_date, end_date } = await searchParams;
 
   const target: TargetFilter =
-    targetParam === "beneficiaries" || targetParam === "transactions" || targetParam === "facilities"
+    targetParam === "beneficiaries" || targetParam === "transactions" || targetParam === "facilities" || targetParam === "completed"
       ? targetParam
       : "all";
 
@@ -162,10 +252,16 @@ export default async function AuditLogPage({
     }
   }
 
+  // فلتر المكتملين: عمليات DEDUCT_BALANCE + IMPORT_TRANSACTIONS التي تحمل beneficiary_completed أو importedFamilies
+  const completedMetadataFilter = target === "completed"
+    ? { path: ["beneficiary_completed"], equals: true }
+    : undefined;
+
   const where = {
     action: { in: TARGET_ACTIONS[target] },
     ...(actor?.trim() ? { user: { contains: actor.trim(), mode: "insensitive" as const } } : {}),
     ...(Object.keys(createdAtFilter).length > 0 ? { created_at: createdAtFilter } : {}),
+    ...(completedMetadataFilter ? { metadata: completedMetadataFilter } : {}),
   };
 
   const [rows, totalCount] = await Promise.all([
@@ -208,24 +304,25 @@ export default async function AuditLogPage({
   return (
     <Shell facilityName={session.name} isAdmin={session.is_admin}>
       <div className="space-y-6 pb-24">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary-light dark:bg-primary-light/10 text-primary dark:text-blue-400">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary-light dark:bg-primary-light/10 text-primary dark:text-blue-400">
               <Activity className="h-5 w-5" />
             </div>
             <div>
               <h1 className="text-lg font-black text-slate-900 dark:text-white">سجل المراقبة</h1>
-              <p className="text-sm text-slate-500 dark:text-slate-400">متابعة عمليات الإضافة والحذف والحركات مع التاريخ والوقت</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">متابعة عمليات الإضافة والحذف والحركات مع التاريخ والوقت</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge>{totalCount} عملية</Badge>
             <a
               href={exportHref}
               target="_blank"
-              className="inline-flex h-10 items-center justify-center gap-1.5 rounded-md bg-emerald-600 px-3 text-sm font-black text-white! transition-colors hover:bg-emerald-700"
+              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-emerald-600 px-3 text-sm font-black text-white! transition-colors hover:bg-emerald-700"
             >
               <Download className="h-4 w-4" />
-              تنزيل Excel
+              <span>تنزيل Excel</span>
             </a>
             <AuditLogClearButton
               target={target}
@@ -233,12 +330,11 @@ export default async function AuditLogPage({
               startDate={start_date ?? ""}
               endDate={end_date ?? ""}
             />
-            <Badge>{totalCount} عملية</Badge>
           </div>
         </div>
 
         <Card className="p-4">
-          <form method="get" className="grid grid-cols-1 gap-3 md:grid-cols-5 md:items-end">
+          <form method="get" className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-5 md:items-end">
             <input type="hidden" name="page" value="1" />
 
             <div className="space-y-1">
@@ -252,6 +348,7 @@ export default async function AuditLogPage({
                 <option value="beneficiaries">المستفيدون</option>
                 <option value="transactions">الحركات</option>
                 <option value="facilities">المرافق</option>
+                <option value="completed">المكتملون ✓</option>
               </select>
             </div>
 
@@ -270,7 +367,9 @@ export default async function AuditLogPage({
               <Input type="date" name="end_date" defaultValue={end_date ?? ""} className="h-10" />
             </div>
 
-            <Button type="submit" className="h-10">تطبيق الفلتر</Button>
+            <div className="sm:col-span-2 md:col-span-1">
+              <Button type="submit" className="h-10 w-full">تطبيق الفلتر</Button>
+            </div>
           </form>
         </Card>
 
@@ -279,39 +378,67 @@ export default async function AuditLogPage({
             <p className="text-sm font-bold text-slate-500 dark:text-slate-400">لا توجد سجلات مطابقة للفلاتر الحالية</p>
           </Card>
         ) : (
-          <Card className="overflow-hidden p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-left">
-                <thead className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
-                  <tr>
-                    <th className="px-5 py-3 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">العملية</th>
-                    <th className="px-5 py-3 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">المنفذ</th>
-                    <th className="px-5 py-3 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">التفاصيل</th>
-                    <th className="px-5 py-3 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">التاريخ</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {rows.map((row) => (
-                    <tr key={row.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                      <td className="px-5 py-3">
-                        <span className={`inline-flex items-center rounded-md border px-2 py-1 text-xs font-bold ${badgeClassForAction(row.action)}`}>
-                          {actionLabel(row.action)}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3 text-sm font-bold text-slate-800 dark:text-slate-200">{row.user}</td>
-                      <td className="px-5 py-3 text-sm text-slate-600 dark:text-slate-400">{summarizeMetadata(row.action, row.metadata)}</td>
-                      <td className="px-5 py-3 text-sm text-slate-500 dark:text-slate-400">
-                        {new Date(row.created_at).toLocaleString("ar-LY", {
-                          dateStyle: "medium",
-                          timeStyle: "short",
-                        })}
-                      </td>
+          <>
+            {/* ── جدول: شاشات md وأكبر ── */}
+            <Card className="hidden md:block overflow-hidden p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-left">
+                  <thead className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
+                    <tr>
+                      <th className="px-5 py-3 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">العملية</th>
+                      <th className="px-5 py-3 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">المنفذ</th>
+                      <th className="px-5 py-3 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">التفاصيل</th>
+                      <th className="px-5 py-3 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">التاريخ</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {rows.map((row) => (
+                      <tr key={row.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                        <td className="px-5 py-3">
+                          <span className={`inline-flex items-center rounded-md border px-2 py-1 text-xs font-bold ${badgeClassForAction(row.action)}`}>
+                            {actionLabel(row.action)}
+                          </span>
+                        </td>
+                        <td className="px-5 py-3 text-sm font-bold text-slate-800 dark:text-slate-200">{row.user}</td>
+                        <td className="px-5 py-3 text-sm text-slate-600 dark:text-slate-400">{summarizeMetadata(row.action, row.metadata)}</td>
+                        <td className="px-5 py-3 text-sm text-slate-500 dark:text-slate-400">
+                          {new Date(row.created_at).toLocaleString("ar-LY", {
+                            dateStyle: "medium",
+                            timeStyle: "short",
+                          })}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+
+            {/* ── بطاقات: شاشات أقل من md ── */}
+            <div className="md:hidden space-y-2">
+              {rows.map((row) => (
+                <Card key={row.id} className="p-4 space-y-2.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <span className={`inline-flex items-center rounded-md border px-2 py-1 text-xs font-bold ${badgeClassForAction(row.action)}`}>
+                      {actionLabel(row.action)}
+                    </span>
+                    <span className="text-xs text-slate-400 dark:text-slate-500 shrink-0">
+                      {new Date(row.created_at).toLocaleString("ar-LY", {
+                        dateStyle: "short",
+                        timeStyle: "short",
+                      })}
+                    </span>
+                  </div>
+                  <div className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                    المنفذ: <span className="text-slate-800 dark:text-slate-200">{row.user}</span>
+                  </div>
+                  <div className="text-sm text-slate-600 dark:text-slate-400">
+                    {summarizeMetadata(row.action, row.metadata)}
+                  </div>
+                </Card>
+              ))}
             </div>
-          </Card>
+          </>
         )}
 
         {totalPages > 1 && (
