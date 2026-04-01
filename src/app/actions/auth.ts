@@ -190,8 +190,10 @@ export async function logout() {
         },
       });
     }
-  } catch {
-    // لا نوقف عملية الخروج بسبب خطأ في التسجيل
+  } catch (error: unknown) {
+    // سجل الخطأ لكن لا توقف عملية الخروج
+    const { logger } = await import("@/lib/logger");
+    logger.warn("Logout audit log failed", { error: String(error) });
   }
   await authLogout();
   redirect("/login");

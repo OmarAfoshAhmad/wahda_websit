@@ -24,11 +24,16 @@ export default async function ManagersPage() {
   if (!session.is_admin) redirect("/dashboard");
 
   const managers = await prisma.facility.findMany({
-    where: { is_manager: true, deleted_at: null },
+    where: {
+      OR: [{ is_manager: true }, { is_admin: true }],
+      deleted_at: null,
+    },
     select: {
       id: true,
       name: true,
       username: true,
+      is_admin: true,
+      is_manager: true,
       manager_permissions: true,
       must_change_password: true,
       created_at: true,
@@ -100,6 +105,15 @@ export default async function ManagersPage() {
                             <p className="font-black text-sm text-slate-900 dark:text-white truncate">
                               {mgr.name}
                             </p>
+                            {mgr.is_admin ? (
+                              <span className="inline-flex items-center rounded-full bg-violet-100 dark:bg-violet-900/30 px-2 py-0.5 text-xs font-bold text-violet-700 dark:text-violet-400">
+                                مشرف عام
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center rounded-full bg-blue-100 dark:bg-blue-900/30 px-2 py-0.5 text-xs font-bold text-blue-700 dark:text-blue-400">
+                                مدير
+                              </span>
+                            )}
                             {mgr.must_change_password && (
                               <span className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 text-xs font-bold text-amber-700 dark:text-amber-400">
                                 كلمة المرور مؤقتة
@@ -111,41 +125,55 @@ export default async function ManagersPage() {
                           </p>
                         </div>
                         <div className="flex shrink-0 gap-2">
-                          <ManagerPermissionsModal
-                            managerId={mgr.id}
-                            managerName={mgr.name}
-                            permissions={fullPerms}
-                          />
-                          <ManagerDeleteButton id={mgr.id} name={mgr.name} />
+                          {!mgr.is_admin && (
+                            <ManagerPermissionsModal
+                              managerId={mgr.id}
+                              managerName={mgr.name}
+                              permissions={fullPerms}
+                            />
+                          )}
+                          {mgr.id !== session.id && (
+                            <ManagerDeleteButton id={mgr.id} name={mgr.name} />
+                          )}
                         </div>
                       </div>
 
                       {/* الصلاحيات الممنوحة */}
-                      {enabledKeys.length > 0 && (
-                        <div className="mb-2 flex flex-wrap gap-1.5">
-                          {enabledKeys.map((k) => (
-                            <span
-                              key={k}
-                              className="inline-flex items-center rounded-full bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 text-xs font-bold text-emerald-700 dark:text-emerald-400"
-                            >
-                              ✓ {PERMISSION_LABELS[k]}
+                      {mgr.is_admin ? (
+                         <div className="mb-2 flex flex-wrap gap-1.5">
+                            <span className="inline-flex items-center rounded-full bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 text-xs font-bold text-emerald-700 dark:text-emerald-400">
+                              ✓ جميع صلاحيات النظام مفعلة
                             </span>
-                          ))}
-                        </div>
-                      )}
+                         </div>
+                      ) : (
+                        <>
+                          {enabledKeys.length > 0 && (
+                            <div className="mb-2 flex flex-wrap gap-1.5">
+                              {enabledKeys.map((k) => (
+                                <span
+                                  key={k}
+                                  className="inline-flex items-center rounded-full bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 text-xs font-bold text-emerald-700 dark:text-emerald-400"
+                                >
+                                  ✓ {PERMISSION_LABELS[k]}
+                                </span>
+                              ))}
+                            </div>
+                          )}
 
-                      {/* الصلاحيات المحجوبة */}
-                      {disabledKeys.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5">
-                          {disabledKeys.map((k) => (
-                            <span
-                              key={k}
-                              className="inline-flex items-center rounded-full bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-xs font-bold text-slate-400 dark:text-slate-500"
-                            >
-                              {PERMISSION_LABELS[k]}
-                            </span>
-                          ))}
-                        </div>
+                          {/* الصلاحيات المحجوبة */}
+                          {disabledKeys.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5">
+                              {disabledKeys.map((k) => (
+                                <span
+                                  key={k}
+                                  className="inline-flex items-center rounded-full bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-xs font-bold text-slate-400 dark:text-slate-500"
+                                >
+                                  {PERMISSION_LABELS[k]}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </>
                       )}
 
                       {/* تاريخ الإنشاء */}

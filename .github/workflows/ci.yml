@@ -33,5 +33,7 @@ jobs:
           NEXT_TELEMETRY_DISABLED: 1
           # Add placeholder env vars for next build that are required in src/lib/env.ts
           DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/placeholder"
-          JWT_SECRET: "placeholder-jwt-secret-min-64-characters-long"
-          BENEFICIARY_JWT_SECRET: "placeholder-beneficiary-jwt-secret"
+          JWT_SECRET: "placeholder-jwt-secret-min-64-characters-long-xxxxxxxxxxxxxxxxx"
+          BACKUP_ENCRYPTION_KEY: "placeholder-backup-key-min-64-chars-xxxxxxxxxxxxxxxxxxxxxx"
+          BENEFICIARY_TOKEN_SECRET: "placeholder-beneficiary-token-secret-xxxxxxxxxxxxxxxxxx"
+          BENEFICIARY_JWT_SECRET: "placeholder-beneficiary-jwt-secret-xxxxxxxxxxxxxxxxxxx"

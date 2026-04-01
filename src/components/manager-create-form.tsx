@@ -46,10 +46,24 @@ export function ManagerCreateForm() {
         </p>
       </div>
 
+      <div className="space-y-2">
+        <label className="block text-xs font-bold text-slate-500 dark:text-slate-400">نوع الحساب</label>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-800 p-2 hover:bg-slate-50 dark:hover:bg-slate-800/50 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50/50 dark:has-[:checked]:bg-blue-900/10">
+            <input type="radio" name="is_admin" value="false" defaultChecked className="h-4 w-4 text-blue-600" />
+            <span className="text-xs font-bold text-slate-700 dark:text-slate-200">مدير صلاحيات</span>
+          </label>
+          <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-800 p-2 hover:bg-slate-50 dark:hover:bg-slate-800/50 has-[:checked]:border-violet-500 has-[:checked]:bg-violet-50/50 dark:has-[:checked]:bg-violet-900/10">
+            <input type="radio" name="is_admin" value="true" className="h-4 w-4 text-violet-600" />
+            <span className="text-xs font-bold text-slate-700 dark:text-slate-200">مشرف عام</span>
+          </label>
+        </div>
+      </div>
+
       <div className="flex items-start gap-2 rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-3 py-2.5">
         <UserCog className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
         <p className="text-xs text-amber-700 dark:text-amber-400">
-          حساب المدير يرى جميع المستفيدين والحركات. الصلاحيات التفصيلية يمكن ضبطها بعد الإنشاء.
+          المشرف العام يملك كافة الصلاحيات، بينما المدير يتم تحديد صلاحياته بدقة بعد الإنشاء.
         </p>
       </div>
 

@@ -23,7 +23,6 @@ export async function createFacility(prevState: unknown, formData: FormData) {
   }
 
   const { name, username } = validated.data;
-  const isAdmin = formData.get("is_admin") === "true";
 
   const existing = await prisma.facility.findUnique({ where: { username } });
   if (existing) {
@@ -34,7 +33,7 @@ export async function createFacility(prevState: unknown, formData: FormData) {
   const password_hash = await bcrypt.hash(tempPassword, 10);
 
   await prisma.facility.create({
-    data: { name, username, password_hash, is_admin: isAdmin, must_change_password: true },
+    data: { name, username, password_hash, is_admin: false, must_change_password: true },
   });
 
   await prisma.auditLog.create({
@@ -42,7 +41,7 @@ export async function createFacility(prevState: unknown, formData: FormData) {
       facility_id: session.id,
       user: session.username,
       action: "CREATE_FACILITY",
-      metadata: { new_facility_username: username, name, is_admin: isAdmin },
+      metadata: { new_facility_username: username, name },
     },
   });
 

@@ -31,6 +31,8 @@ export default async function FacilitiesPage({
 
   const where = {
     deleted_at: null,
+    is_admin: false,
+    is_manager: false,
     ...(q && q.trim()
       ? {
           OR: getArabicSearchTerms(q.trim()).flatMap(t => [
@@ -41,7 +43,11 @@ export default async function FacilitiesPage({
       : {}),
   };
 
-  const allWhere = { deleted_at: null };
+  const allWhere = { 
+    deleted_at: null,
+    is_admin: false,
+    is_manager: false,
+  };
 
   const [facilities, totalCount, allFacilities] = await Promise.all([
     prisma.facility.findMany({
@@ -165,13 +171,6 @@ export default async function FacilitiesPage({
                             </td>
                             <td className="px-5 py-3 no-print">
                                 <div className="flex items-center justify-center gap-2">
-                                  {f.id !== session.id && (
-                                    <FacilityToggleAdminButton
-                                      facilityId={f.id}
-                                      isAdmin={f.is_admin}
-                                      facilityName={f.name}
-                                    />
-                                  )}
                                   {!f.is_admin && (
                                     <>
                                       <FacilityEditModal facility={{ id: f.id, name: f.name, username: f.username }} />

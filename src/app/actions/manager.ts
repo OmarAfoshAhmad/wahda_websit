@@ -45,14 +45,16 @@ export async function createManager(prevState: unknown, formData: FormData) {
   const tempPassword = "123456";
   const password_hash = await bcrypt.hash(tempPassword, 10);
 
+  const isAdmin = formData.get("is_admin") === "true";
+
   await prisma.facility.create({
     data: {
       name,
       username,
       password_hash,
-      is_admin: false,
-      is_manager: true,
-      manager_permissions: DEFAULT_PERMISSIONS as unknown as Record<string, boolean>,
+      is_admin: isAdmin,
+      is_manager: !isAdmin,
+      manager_permissions: (isAdmin ? null : DEFAULT_PERMISSIONS) as unknown as Record<string, boolean>,
       must_change_password: true,
     },
   });
@@ -133,11 +135,11 @@ export async function deleteManager(
 
   const manager = await prisma.facility.findUnique({
     where: { id: managerId },
-    select: { id: true, is_manager: true, deleted_at: true, name: true },
+    select: { id: true, is_manager: true, is_admin: true, deleted_at: true, name: true },
   });
 
-  if (!manager || !manager.is_manager || manager.deleted_at) {
-    return { error: "الحساب غير موجود أو ليس حساب مدير" };
+  if (!manager || (!manager.is_manager && !manager.is_admin) || manager.deleted_at) {
+    return { error: "الحساب غير موجود أو ليس حساب إدارة" };
   }
 
   await prisma.facility.update({

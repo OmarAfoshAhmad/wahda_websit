@@ -135,6 +135,15 @@ export async function deductBalance(formData: {
     return { success: true, newBalance: result.newBalance };
   } catch (error: unknown) {
     logger.error("Deduction error", { error: String(error) });
-    return { error: error instanceof Error ? error.message : "Failed to process deduction" };
+    // Only expose known safe messages thrown by our own code
+    const knownErrors = [
+      "المستفيد غير موجود",
+      "رصيد المستفيد صفر أو مكتمل",
+    ];
+    const msg = error instanceof Error ? error.message : "";
+    const safeMsg = knownErrors.includes(msg) || msg.startsWith("المبلغ أكبر من الرصيد")
+      ? msg
+      : "تعذر تنفيذ عملية الخصم";
+    return { error: safeMsg };
   }
 }
