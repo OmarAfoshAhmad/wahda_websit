@@ -188,3 +188,95 @@ docker exec wahda_app npx prisma migrate deploy
 | `DATABASE_URL not set`                                           | متغيرات بيئة ناقصة           | تحقق من `.env.production` على السيرفر           |
 | `Failed to find Server Action`                                   | كاش متصفح قديم               | امسح كاش المتصفح أو Ctrl+F5                     |
 | `[redis:pub] Error: connect ECONNREFUSED`                        | Redis غير متاح               | التطبيق يعمل بدونه — تأكد من `wahda_redis` يعمل |
+
+## النسخ الاحتياطي المجدول
+
+### إعداد سريع (Cron على Linux)
+
+```bash
+cd /opt/wahda_websit/alwaha-care
+chmod +x scripts/backup.sh scripts/install-backup-cron.sh
+./scripts/install-backup-cron.sh
+```
+
+- الجدولة الافتراضية: يومياً الساعة `02:00` صباحاً.
+- لتخصيص الجدولة:
+
+```bash
+BACKUP_CRON_EXPR="0 */6 * * *" ./scripts/install-backup-cron.sh
+```
+
+- لمراجعة المهمة:
+
+```bash
+crontab -l | grep backup.sh
+```
+
+### ما الذي تحسّن في سكربت النسخ
+
+- قفل تشغيل (`lock file`) لمنع تشغيل نسختين احتياطيتين بنفس الوقت.
+- فحص سلامة gzip بعد الإنشاء.
+- فحص سريع لمحتوى dump قبل اعتماد الملف.
+- إنشاء ملف بصمة `SHA256` بجانب كل نسخة.
+- تنظيف ملفات البصمة القديمة مع النسخ القديمة.
+
+## النسخ الاحتياطي إلى Google Drive (كل ساعة/ساعتين + احتفاظ شهر)
+
+تمت إضافة سكربتات جاهزة:
+
+- `scripts/backup-drive.sh`
+- `scripts/install-backup-drive-cron.sh`
+
+تعتمد على `rclone` لرفع أحدث نسخة إلى Google Drive ثم حذف الملفات الأقدم من 30 يوم.
+
+### 1) تثبيت وإعداد rclone
+
+على السيرفر:
+
+```bash
+sudo apt-get update && sudo apt-get install -y rclone
+rclone config
+```
+
+أنشئ remote باسم `gdrive` (أو أي اسم) واربطه بحساب Google Drive.
+
+### 2) تشغيل يدوي للتجربة
+
+```bash
+cd /opt/wahda_websit/alwaha-care
+chmod +x scripts/backup-drive.sh scripts/install-backup-drive-cron.sh
+DRIVE_REMOTE="gdrive:wahda_db_backups" ./scripts/backup-drive.sh
+```
+
+### 3) الجدولة كل ساعتين (افتراضي)
+
+```bash
+cd /opt/wahda_websit/alwaha-care
+DRIVE_REMOTE="gdrive:wahda_db_backups" ./scripts/install-backup-drive-cron.sh
+```
+
+### 4) الجدولة كل ساعة (اختياري)
+
+```bash
+cd /opt/wahda_websit/alwaha-care
+BACKUP_DRIVE_CRON_EXPR="0 * * * *" DRIVE_REMOTE="gdrive:wahda_db_backups" ./scripts/install-backup-drive-cron.sh
+```
+
+### 5) سياسة الاحتفاظ
+
+- محليًا: تعتمد على `KEEP_DAYS` (افتراضي 30) داخل `backup.sh`
+- على Google Drive: `backup-drive.sh` يحذف الملفات الأقدم من `KEEP_DAYS` (افتراضي 30)
+
+مثال تغيير الاحتفاظ إلى 45 يوم:
+
+```bash
+KEEP_DAYS=45 DRIVE_REMOTE="gdrive:wahda_db_backups" ./scripts/install-backup-drive-cron.sh
+```
+
+## اقتراحات إضافية لتحسين النسخ الاحتياطي
+
+1. نسخ خارج السيرفر يومياً (S3/Azure Blob/rsync) للحماية من فقدان القرص بالكامل.
+2. اختبار استعادة شهري في بيئة staging والتأكد من نجاح تسجيل الدخول والخصم.
+3. تشفير مجلد النسخ على مستوى القرص أو تخزينه على volume مشفّر.
+4. مراقبة امتلاء مساحة القرص مع تنبيه عند تجاوز 80%.
+5. الاحتفاظ بنسخ أسبوعية/شهرية طويلة الأمد بجانب النسخ اليومية.

@@ -12,7 +12,10 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
-    "load-test": "node scripts/load-test.mjs"
+    "load-test": "node scripts/load-test.mjs",
+    "backup:drive": "bash scripts/backup-drive.sh",
+    "backup:drive:install-cron": "bash scripts/install-backup-drive-cron.sh",
+    "report:duplicates": "node scripts/export-duplicate-beneficiaries-report.js"
   },
   "dependencies": {
     "@prisma/client": "^6.0.0",

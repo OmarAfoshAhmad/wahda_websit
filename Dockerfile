@@ -19,11 +19,10 @@ RUN --mount=type=secret,id=build_env \
     export $(cat /run/secrets/build_env) && \
     npm run build
 
-FROM node:20-bookworm-slim AS runner
+FROM node:20-bookworm AS runner
 WORKDIR /app
 
-# Install OpenSSL if not already present (required by Prisma)
-RUN openssl version >/dev/null 2>&1 || (apt-get update -y && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*)
+# node:20-bookworm includes openssl (needed by Prisma to detect libssl version)
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1

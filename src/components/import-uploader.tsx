@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Upload, FileSpreadsheet, AlertCircle, Loader2, RefreshCw } from "lucide-react";
+import { Upload, FileSpreadsheet, AlertCircle, Loader2, RefreshCw, Download } from "lucide-react";
 import { Button, Card } from "./ui";
 
 type ImportJobStatus = "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED";
@@ -14,6 +14,7 @@ type ImportJobSnapshot = {
   insertedRows: number;
   duplicateRows: number;
   failedRows: number;
+  updatedRows?: number;
   errorMessage: string | null;
   progress: number;
 };
@@ -104,6 +105,7 @@ export function ImportUploader() {
   const isCompleted = job?.status === "COMPLETED";
   const isFailed = job?.status === "FAILED";
   const hasSkippedRows = Boolean(job && (job.failedRows > 0 || job.duplicateRows > 0));
+  const hasUpdates = Boolean(job && job.updatedRows !== undefined && job.updatedRows > 0);
 
   return (
     <div className="space-y-6 max-w-xl mx-auto">
@@ -116,6 +118,14 @@ export function ImportUploader() {
           <p className="mx-auto mt-2 max-w-xs text-sm leading-7 text-slate-500 dark:text-slate-400">
             اختر ملف Excel يحتوي على الحقول <b>card_number</b> و <b>name</b> ويمكنه أن يتضمن <b>birth_date</b> أو <b>date_of_birth</b>.
           </p>
+          <a
+            href="/قالب_استيراد_المستفيدين.csv"
+            download
+            className="mx-auto mt-3 inline-flex items-center gap-1 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
+          >
+            <Download className="h-3.5 w-3.5" />
+            تحميل قالب الاستيراد
+          </a>
         </div>
         
         <input
@@ -172,10 +182,14 @@ export function ImportUploader() {
             <div className="h-full bg-primary transition-all" style={{ width: `${job.progress}%` }} />
           </div>
 
-          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
             <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3 text-center">
               <p className="text-xs text-slate-500 dark:text-slate-400">تمت المعالجة</p>
               <p className="mt-1 text-lg font-black text-slate-900 dark:text-white">{job.processedRows}/{job.totalRows}</p>
+            </div>
+            <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3 text-center">
+              <p className="text-xs text-slate-500 dark:text-slate-400">تم التحديث</p>
+              <p className="mt-1 text-lg font-black text-blue-700 dark:text-blue-400">{job.updatedRows ?? 0}</p>
             </div>
             <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3 text-center">
               <p className="text-xs text-slate-500 dark:text-slate-400">تمت الإضافة</p>
@@ -197,9 +211,13 @@ export function ImportUploader() {
                 <div>
                   <p className="font-black">{isCompleted ? "اكتمل الاستيراد" : "فشل الاستيراد"}</p>
                   <p className="mt-1 text-sm">{job.errorMessage ?? (isCompleted ? "تم تحديث البيانات ويمكنك الآن مراجعة المستفيدين." : "تحقق من الملف ثم أعد المحاولة.")}</p>
-                  {hasSkippedRows && (
+                  {(hasSkippedRows || hasUpdates) && (
                     <p className="mt-2 text-sm font-medium">
-                      يمكنك تنزيل ملف مستقل يحتوي على السجلات غير المستوردة وسبب كل حالة.
+                      {(hasSkippedRows && hasUpdates) 
+                        ? "يمكنك متابعة التحديثات عبر الإحصائيات أعلاه، وتنزيل ملف مستقل بالسجلات غير المستوردة."
+                        : hasSkippedRows 
+                        ? "يمكنك تنزيل ملف مستقل يحتوي على السجلات غير المستوردة وسبب كل حالة."
+                        : "تم تحديث السجلات بنجاح (لا توجد سجلات غير مستوردة لتنزيلها)."}
                     </p>
                   )}
                 </div>

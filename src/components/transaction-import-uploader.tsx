@@ -5,8 +5,20 @@ import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2, Download }
 import { Button, Card } from "./ui";
 import type { TransactionImportResult, NotFoundRow } from "@/lib/import-transactions";
 
-export function TransactionImportUploader() {
+type FacilityOption = {
+  id: string;
+  name: string;
+};
+
+export function TransactionImportUploader({
+  facilities,
+  defaultFacilityId,
+}: {
+  facilities: FacilityOption[];
+  defaultFacilityId: string;
+}) {
   const [file, setFile] = useState<File | null>(null);
+  const [facilityId, setFacilityId] = useState<string>(defaultFacilityId);
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<TransactionImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -29,6 +41,9 @@ export function TransactionImportUploader() {
     try {
       const formData = new FormData();
       formData.append("file", file);
+      if (facilityId) {
+        formData.append("facility_id", facilityId);
+      }
 
       const response = await fetch("/api/import-transactions", {
         method: "POST",
@@ -85,10 +100,18 @@ export function TransactionImportUploader() {
           <FileSpreadsheet className="h-7 w-7" />
         </div>
         <div>
-          <h3 className="text-lg font-black text-slate-900 dark:text-white">رفع ملف الحركات</h3>
+          <h3 className="text-lg font-black text-slate-900 dark:text-white">رفع ملف الحركات المجمعة</h3>
           <p className="mx-auto mt-2 max-w-xs text-sm leading-7 text-slate-500 dark:text-slate-400">
             اختر ملف Excel يحتوي على حقول <b>رقم البطاقة</b> و<b>الاسم</b> و<b>عدد الافراد</b> و<b>الرصيد الكلي</b> و<b>الرصيد المستخدم</b>.
           </p>
+          <a
+            href="/قالب_استيراد_الحركات_المجمعة.csv"
+            download
+            className="mx-auto mt-3 inline-flex items-center gap-1 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
+          >
+            <Download className="h-3.5 w-3.5" />
+            تحميل قالب الاستيراد
+          </a>
         </div>
 
         <input
@@ -100,6 +123,18 @@ export function TransactionImportUploader() {
         />
 
         <div className="mx-auto mt-5 flex w-full max-w-sm flex-col items-center space-y-3">
+          <select
+            value={facilityId}
+            onChange={(e) => setFacilityId(e.target.value)}
+            className="h-12 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 text-sm text-slate-900 dark:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+          >
+            {facilities.map((facility) => (
+              <option key={facility.id} value={facility.id}>
+                {facility.name}
+              </option>
+            ))}
+          </select>
+
           <Button
             variant="outline"
             className="h-12 w-full"
@@ -117,7 +152,7 @@ export function TransactionImportUploader() {
             {uploading ? (
               <><Loader2 className="ml-2 h-5 w-5 animate-spin" /><span className="mr-2">جارٍ معالجة الملف…</span></>
             ) : (
-              <><Upload className="h-5 w-5" /><span className="mr-2">بدء استيراد الحركات</span></>
+              <><Upload className="h-5 w-5" /><span className="mr-2">بدء استيراد الحركات المجمعة</span></>
             )}
           </Button>
         </div>
@@ -139,10 +174,11 @@ export function TransactionImportUploader() {
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             <StatBox label="إجمالي الصفوف" value={result.totalRows} />
-            <StatBox label="أسر مستوردة" value={result.importedFamilies} color="emerald" />
-            <StatBox label="حركات مُسجَّلة" value={result.importedTransactions} color="emerald" />
+            <StatBox label="أسر جديدة" value={result.importedFamilies} color="emerald" />
+            <StatBox label="حركات جديدة" value={result.importedTransactions} color="emerald" />
+            <StatBox label="أسر تم تحديثها" value={result.updatedFamilies} color="amber" />
+            <StatBox label="حركات محدَّثة" value={result.updatedTransactions} color="amber" />
             <StatBox label="أسر انتهى رصيدها (صُفِّر)" value={result.suspendedFamilies} color="amber" />
-            <StatBox label="مستورد مسبقاً" value={result.skippedAlreadyImported} color="slate" />
             <StatBox label="منتهٍ مسبقاً" value={result.skippedAlreadySuspended} color="slate" />
             <StatBox label="غير موجودين" value={result.skippedNotFound} color="red" />
           </div>

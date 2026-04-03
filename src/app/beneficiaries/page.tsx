@@ -13,8 +13,14 @@ import { BeneficiaryCreateModal } from "@/components/beneficiary-create-modal";
 import { BeneficiaryDeleteButton } from "@/components/beneficiary-delete-button";
 import { BeneficiaryRestoreActions } from "@/components/beneficiary-restore-actions";
 import { BeneficiaryResetPinButton } from "@/components/beneficiary-reset-pin-button";
+import { BeneficiaryMergeDuplicatesButton } from "@/components/beneficiary-merge-duplicates-button";
 import { PaginationButtons } from "@/components/pagination-buttons";
+import { BeneficiariesBulkActionButton } from "@/components/beneficiaries-bulk-action-button";
 import { unstable_cache } from "next/cache";
+
+function normalizeCardKey(value: string) {
+  return value.trim().toUpperCase();
+}
 
 // كاش إحصائيات أعداد المستفيدين — تتحدث كل 30 ثانية
 const getCachedStatusCounts = unstable_cache(
@@ -132,6 +138,12 @@ export default async function BeneficiariesPage({
     completed_via: (b as unknown as Record<string, unknown>).completed_via as string | null,
   }));
 
+  const duplicateCardCount = beneficiaries.reduce<Record<string, number>>((acc, b) => {
+    const key = normalizeCardKey(b.card_number);
+    acc[key] = (acc[key] ?? 0) + 1;
+    return acc;
+  }, {});
+
   // حساب الأعداد من نتيجة groupBy
   let totalCount = 0;
   let activeCount = 0;
@@ -147,6 +159,7 @@ export default async function BeneficiariesPage({
   }
 
   const totalPages = Math.max(1, Math.ceil(filteredCount / PAGE_SIZE));
+  const emptyColSpan = session.is_admin ? 8 : 6;
   const exportParams = new URLSearchParams();
   if (query) exportParams.set("q", query);
   if (isDeletedView) exportParams.set("view", "deleted");
@@ -320,10 +333,24 @@ export default async function BeneficiariesPage({
           )}        </div>
 
         <Card className="overflow-hidden">
+          <form id="beneficiaries-bulk-form">
+          {session.is_admin && (
+            <div className="flex items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/40 px-4 py-3 sm:px-6">
+              <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                {isDeletedView
+                  ? "يمكنك تحديد أكثر من مستفيد محذوف ثم تنفيذ الحذف النهائي الجماعي للسجلات القابلة."
+                  : "يمكنك تحديد أكثر من مستفيد ثم تنفيذ الحذف الناعم الجماعي."}
+              </p>
+              <BeneficiariesBulkActionButton formId="beneficiaries-bulk-form" mode={isDeletedView ? "permanent" : "soft"} />
+            </div>
+          )}
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-left">
               <thead className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
                 <tr>
+                  {session.is_admin && (
+                    <th className="px-4 py-4 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">تحديد</th>
+                  )}
                   <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">
                     <Link href={sortHref("name")} className="inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
                       المستفيد {sortCol === "name" ? (sortDir === "asc" ? "↑" : "↓") : ""}
@@ -357,11 +384,23 @@ export default async function BeneficiariesPage({
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {beneficiaries.length === 0 ? (
                   <tr>
-                    <td colSpan={session.is_admin ? 7 : 6} className="px-6 py-10 text-center text-sm text-slate-500 dark:text-slate-400">{isDeletedView ? "لا يوجد مستفيدون محذوفون." : "لا توجد نتائج مطابقة."}</td>
+                    <td colSpan={emptyColSpan} className="px-6 py-10 text-center text-sm text-slate-500 dark:text-slate-400">{isDeletedView ? "لا يوجد مستفيدون محذوفون." : "لا توجد نتائج مطابقة."}</td>
                   </tr>
                 ) : (
                   beneficiaries.map((beneficiary) => (
                     <tr key={beneficiary.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                      {session.is_admin && (
+                        <td className="px-4 py-4">
+                          <input
+                            type="checkbox"
+                            name="ids"
+                            value={beneficiary.id}
+                            disabled={beneficiary._count.transactions > 0}
+                            title={beneficiary._count.transactions > 0 ? "لا يمكن تنفيذ هذا الإجراء على مستفيد لديه حركات مالية" : "تحديد المستفيد"}
+                            className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-40"
+                          />
+                        </td>
+                      )}
                       <td className="px-6 py-4">
                         <p className="font-bold text-slate-900 dark:text-white">{beneficiary.name}</p>
                       </td>
@@ -412,6 +451,13 @@ export default async function BeneficiariesPage({
                             ) : (
                               <>
                                 {beneficiary.pin_hash && <BeneficiaryResetPinButton beneficiaryId={beneficiary.id} />}
+                                {duplicateCardCount[normalizeCardKey(beneficiary.card_number)] > 1 && (
+                                  <BeneficiaryMergeDuplicatesButton
+                                    beneficiaryId={beneficiary.id}
+                                    beneficiaryName={beneficiary.name}
+                                    cardNumber={beneficiary.card_number}
+                                  />
+                                )}
                                 <BeneficiaryEditModal
                                   beneficiary={{
                                     id: beneficiary.id,
@@ -437,6 +483,7 @@ export default async function BeneficiariesPage({
               </tbody>
             </table>
           </div>
+          </form>
 
           <div className="flex items-center justify-between gap-3 border-t border-slate-200 dark:border-slate-800 px-4 py-3 sm:px-6 bg-white dark:bg-slate-900">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">

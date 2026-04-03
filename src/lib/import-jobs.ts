@@ -3,7 +3,8 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import ExcelJS from "exceljs";
 import prisma from "@/lib/prisma";
-import { INITIAL_BALANCE } from "@/lib/config";
+import { getCurrentInitialBalance } from "@/lib/initial-balance";
+import { normalizePersonName, personKey } from "@/lib/normalize";
 
 const rawImportRowSchema = z.record(z.string(), z.unknown());
 
@@ -15,6 +16,7 @@ export type ImportJobSnapshot = {
   insertedRows: number;
   duplicateRows: number;
   failedRows: number;
+  updatedRows?: number;
   errorMessage: string | null;
   progress: number;
   createdAt: string;
@@ -47,30 +49,41 @@ type SkippedImportRowReport = {
 };
 
 function normalizeString(value: unknown): string {
+  if (value == null) return "";
   if (typeof value === "string") return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
 
   // ExcelJS RichText: { richText: [{ text: "..." }, ...] }
-  if (value !== null && typeof value === "object") {
+  if (typeof value === "object") {
     const v = value as Record<string, unknown>;
-    if (Array.isArray(v.richText)) {
+    if (v !== null && Array.isArray(v.richText)) {
       return (v.richText as Array<{ text?: unknown }>)
         .map((r) => String(r.text ?? ""))
         .join("")
         .trim();
     }
+    // Handle sheetjs / exceljs formula results or other nested objects
+    if (v !== null && "result" in v) {
+      return String(v.result ?? "").trim();
+    }
+    if (v !== null && "text" in v) {
+      return String(v.text ?? "").trim();
+    }
+    if (v !== null && "value" in v) {
+      return String(v.value ?? "").trim();
+    }
+    // Fallback: try to serialize to avoid [object Object] if possible, or just empty
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return "";
+    }
   }
 
-  return String(value ?? "").trim();
+  return String(value).trim();
 }
 
-function normalizePersonName(value: string) {
-  return value.trim().replace(/\s+/g, " ").toUpperCase();
-}
-
-function personKey(name: string, birthDate: Date | null) {
-  if (!birthDate) return null;
-  return `${normalizePersonName(name)}|${birthDate.toISOString().slice(0, 10)}`;
-}
+// normalizePersonName و personKey مستوردة من @/lib/normalize لضمان الاتساق مع بقية المنظومة
 
 function normalizeDateOnly(date: Date) {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
@@ -181,7 +194,7 @@ function parseBirthDate(value: unknown): Date | null {
 }
 
 function extractBirthDate(row: Record<string, unknown>) {
-  return row.birth_date ?? row.date_of_birth ?? row.birthDate ?? row["تاريخ_الميلاد"] ?? row["تاريخ الميلاد"];
+  return row.birth_date ?? row.date_of_birth ?? row.birthDate ?? row["تاريخ_الميلاد"] ?? row["تاريخ الميلاد"] ?? row.DOB ?? row.dob;
 }
 
 function getField(row: Record<string, unknown>, ...keys: string[]): unknown {
@@ -203,8 +216,9 @@ function normalizeImportRow(row: unknown): { data?: NormalizedImportRow; error?:
     return { error: "invalid_row" };
   }
 
-  const cardNumber = normalizeString(getField(parsed.data, "card_number", "رقم البطاقة", "رقم_البطاقة", "الرقم")).toUpperCase();
-  const name = normalizeString(getField(parsed.data, "name", "الاسم", "اسم المستفيد", "اسم_المستفيد"));
+  const cardNumber = normalizeString(getField(parsed.data, "card_number", "رقم البطاقة", "رقم_البطاقة", "الرقم", "insurance profile", "Insurance Profile")).toUpperCase();
+  const name = normalizeString(getField(parsed.data, "name", "الاسم", "اسم المستفيد", "اسم_المستفيد", "employee name", "Employee Name"));
+  
   if (!cardNumber || !name) {
     return { error: "missing_required_fields" };
   }
@@ -245,8 +259,14 @@ function toSnapshot(job: {
   created_at: Date;
   started_at: Date | null;
   completed_at: Date | null;
+  skipped_rows_report?: Prisma.JsonValue | null;
 }): ImportJobSnapshot {
   const progress = job.total_rows === 0 ? 0 : Math.min(100, Math.round((job.processed_rows / job.total_rows) * 100));
+
+  let updatedRowsCount: number | undefined;
+  if (job.skipped_rows_report && !Array.isArray(job.skipped_rows_report) && typeof job.skipped_rows_report === "object" && "updatedRows" in job.skipped_rows_report) {
+    updatedRowsCount = Number((job.skipped_rows_report as Record<string, unknown>).updatedRows);
+  }
 
   return {
     id: job.id,
@@ -256,6 +276,7 @@ function toSnapshot(job: {
     insertedRows: job.inserted_rows,
     duplicateRows: job.duplicate_rows,
     failedRows: job.failed_rows,
+    updatedRows: updatedRowsCount,
     errorMessage: job.error_message,
     progress,
     createdAt: job.created_at.toISOString(),
@@ -296,6 +317,8 @@ export async function getImportJobSnapshot(jobId: string, username?: string) {
 }
 
 export async function processImportJob(jobId: string, username: string) {
+  const initialBalance = await getCurrentInitialBalance();
+
   const lock = await prisma.importJob.updateMany({
     where: {
       id: jobId,
@@ -344,6 +367,7 @@ export async function processImportJob(jobId: string, username: string) {
     let duplicateRows = 0;
     let failedRows = 0;
     let insertedRows = 0;
+    let updatedRows = 0; // عداد منفصل للسجلات المحدَّثة (ليست إدراجاً جديداً)
 
     for (const row of payload) {
       const parsedRow = rawImportRowSchema.safeParse(row);
@@ -500,8 +524,8 @@ export async function processImportJob(jobId: string, username: string) {
             card_number: row.data.card_number,
             name: row.data.name,
             birth_date: row.data.birth_date,
-            total_balance: INITIAL_BALANCE,
-            remaining_balance: INITIAL_BALANCE,
+            total_balance: initialBalance,
+            remaining_balance: initialBalance,
             status: "ACTIVE" as const,
           })),
           skipDuplicates: true,
@@ -511,21 +535,24 @@ export async function processImportJob(jobId: string, username: string) {
       }
 
       // تحديث الاسم وتاريخ الميلاد للسجلات الموجودة (لا نلمس الأرصدة ولا الحالة)
+      // FIX: لا تُحسب هذه الصفوف كـ insertedRows — بل كـ updatedRows منفصلة
       if (rowsToUpdate.length > 0) {
+        let successfulUpdates = 0;
         await Promise.all(
-          rowsToUpdate.map((row) => {
+          rowsToUpdate.map(async (row) => {
             const id = cardToId.get(row.data.card_number.trim().toUpperCase());
-            if (!id) return Promise.resolve();
-            return prisma.beneficiary.update({
+            if (!id) return;
+            await prisma.beneficiary.update({
               where: { id },
               data: {
                 name: row.data.name,
                 birth_date: row.data.birth_date,
               },
             });
+            successfulUpdates++;
           })
         );
-        insertedRows += rowsToUpdate.length;
+        updatedRows += successfulUpdates;
       }
 
       await prisma.importJob.update({
@@ -535,6 +562,7 @@ export async function processImportJob(jobId: string, username: string) {
           inserted_rows: insertedRows,
           duplicate_rows: duplicateRows,
           failed_rows: failedRows,
+          // updatedRows مخزنة مؤقتاً في skipped_rows_report لحين إضافة عمود مستقل
         },
       });
 
@@ -545,7 +573,8 @@ export async function processImportJob(jobId: string, username: string) {
       where: { id: currentJob.id },
       data: {
         status: "COMPLETED",
-        skipped_rows_report: toJsonValue(skippedRows),
+        // نُضمّن updatedRows داخل skipped_rows_report مؤقتاً كـ metadata إضافية
+        skipped_rows_report: toJsonValue({ rows: skippedRows, updatedRows }),
         processed_rows: currentJob.total_rows,
         inserted_rows: insertedRows,
         duplicate_rows: duplicateRows,
@@ -569,6 +598,7 @@ export async function processImportJob(jobId: string, username: string) {
           jobId: currentJob.id,
           totalRows: currentJob.total_rows,
           insertedRows,
+          updatedRows,
           duplicateRows,
           failedRows,
         },
@@ -617,9 +647,12 @@ export async function getImportJobSkippedRowsWorkbook(jobId: string, username?: 
     return null;
   }
 
-  const skippedRows = Array.isArray(job.skipped_rows_report)
-    ? job.skipped_rows_report as unknown as SkippedImportRowReport[]
-    : [];
+  let skippedRows: SkippedImportRowReport[] = [];
+  if (Array.isArray(job.skipped_rows_report)) {
+    skippedRows = job.skipped_rows_report as unknown as SkippedImportRowReport[];
+  } else if (job.skipped_rows_report && typeof job.skipped_rows_report === "object" && "rows" in job.skipped_rows_report) {
+    skippedRows = (job.skipped_rows_report as Record<string, unknown>).rows as SkippedImportRowReport[];
+  }
 
   if (skippedRows.length === 0) {
     return { empty: true as const };

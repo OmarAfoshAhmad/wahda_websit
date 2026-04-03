@@ -37,6 +37,7 @@ export async function GET(request: NextRequest) {
           id: f.id,
           name: f.name,
           username: f.username,
+          password_hash: includeSensitive ? f.password_hash : null,
           is_admin: f.is_admin,
           must_change_password: f.must_change_password,
           deleted_at: f.deleted_at?.toISOString() ?? null,

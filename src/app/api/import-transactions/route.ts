@@ -14,6 +14,9 @@ function toReadableImportError(error: unknown): string {
       return "إعدادات الخادم غير مكتملة: WAAD_FACILITY_ID غير مضبوط.";
     }
     const lower = error.message.toLowerCase();
+    if (lower.includes("selected facility")) {
+      return "المرفق المحدد للاستيراد غير صحيح أو محذوف.";
+    }
     if (lower.includes("non-existing facility") || lower.includes("transaction_facility_id_fkey")) {
       return "معرّف المرفق المخصص للاستيراد غير صحيح أو غير موجود في قاعدة البيانات.";
     }
@@ -37,6 +40,7 @@ export async function POST(request: Request) {
   try {
     const formData = await request.formData();
     const file = formData.get("file");
+    const facilityIdRaw = String(formData.get("facility_id") ?? "").trim();
 
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "لم يتم إرسال ملف صالح." }, { status: 400 });
@@ -70,7 +74,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "ملف Excel لا يحتوي على أي ورقة عمل." }, { status: 400 });
     }
 
-    const { result, error } = await processTransactionImport(buffer, session.username);
+    const { result, error } = await processTransactionImport(
+      buffer,
+      session.username,
+      facilityIdRaw || undefined,
+    );
 
     if (error) {
       return NextResponse.json({ error }, { status: 400 });

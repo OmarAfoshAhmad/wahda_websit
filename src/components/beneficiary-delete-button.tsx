@@ -4,7 +4,8 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Trash2, X, Loader2 } from "lucide-react";
 import { Button, Card } from "./ui";
-import { deleteBeneficiary } from "@/app/actions/beneficiary";
+import { deleteBeneficiary, restoreBeneficiary } from "@/app/actions/beneficiary";
+import { ConfirmationModal } from "@/components/confirmation-modal";
 
 interface Props {
   id: string;
@@ -17,6 +18,7 @@ export function BeneficiaryDeleteButton({ id, name, hasTransactions }: Props) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [undoOpen, setUndoOpen] = useState(false);
 
   // إغلاق بمفتاح Escape
   React.useEffect(() => {
@@ -37,6 +39,7 @@ export function BeneficiaryDeleteButton({ id, name, hasTransactions }: Props) {
         setError(result.error);
       } else {
         setOpen(false);
+        setUndoOpen(true);
         router.refresh();
       }
     } catch {
@@ -98,6 +101,28 @@ export function BeneficiaryDeleteButton({ id, name, hasTransactions }: Props) {
           </Card>
         </div>
       )}
+
+      <ConfirmationModal
+        isOpen={undoOpen}
+        onClose={() => setUndoOpen(false)}
+        onConfirm={async () => {
+          setLoading(true);
+          const restoreResult = await restoreBeneficiary(id);
+          if (restoreResult.error) {
+            setError(restoreResult.error);
+          } else {
+            setUndoOpen(false);
+            router.refresh();
+          }
+          setLoading(false);
+        }}
+        isLoading={loading}
+        error={error}
+        title="تم حذف المستفيد"
+        description="هل تريد التراجع الآن عن الحذف؟"
+        confirmLabel="نعم، تراجع"
+        variant="warning"
+      />
     </>
   );
 }

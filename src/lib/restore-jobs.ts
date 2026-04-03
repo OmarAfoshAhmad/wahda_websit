@@ -5,6 +5,7 @@ import prisma from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { decryptBackup } from "@/lib/backup-crypto";
 import { backupSchema } from "@/lib/backup-validation";
+import { normalizeCardNumber, normalizePersonName } from "@/lib/normalize";
 
 const MAX_BACKUP_SIZE = 100 * 1024 * 1024; // 100 MB
 const BATCH_SIZE = 100;
@@ -35,14 +36,6 @@ type CreateRestoreJobInput = {
   username: string;
   payload: Buffer;
 };
-
-function normalizeCardNumber(value: string) {
-  return value.trim().toUpperCase();
-}
-
-function normalizePersonName(value: string) {
-  return value.trim().replace(/\s+/g, " ");
-}
 
 function chunkRows<T>(rows: T[], size: number): T[][] {
   const chunks: T[][] = [];
@@ -370,6 +363,7 @@ export async function processRestoreJob(jobId: string, username: string) {
 
     const generatedSecret = randomBytes(24).toString("base64url");
     const defaultPasswordHash = await bcrypt.hash(generatedSecret, 10);
+    const hasFacilityPasswordHashes = users.some((user) => Boolean(user.password_hash));
 
     let completedSteps = 0;
     let restoredFacilities = 0;
@@ -397,7 +391,9 @@ export async function processRestoreJob(jobId: string, username: string) {
             where: { username: user.username },
             data: {
               name: user.name,
+              ...(user.password_hash ? { password_hash: user.password_hash } : {}),
               is_admin: user.is_admin,
+              must_change_password: user.password_hash ? user.must_change_password : true,
               deleted_at: user.deleted_at ? new Date(user.deleted_at) : null,
             },
           });
@@ -409,9 +405,9 @@ export async function processRestoreJob(jobId: string, username: string) {
               id: user.id,
               name: user.name,
               username: user.username,
-              password_hash: defaultPasswordHash,
+              password_hash: user.password_hash ?? defaultPasswordHash,
               is_admin: user.is_admin,
-              must_change_password: true,
+              must_change_password: user.password_hash ? user.must_change_password : true,
               deleted_at: user.deleted_at ? new Date(user.deleted_at) : null,
               created_at: new Date(user.created_at),
             },
@@ -732,6 +728,7 @@ export async function processRestoreJob(jobId: string, username: string) {
         metadata: {
           backup_date: backup.exported_at,
           includes_sensitive: backup.includes_sensitive,
+          restored_password_hashes: hasFacilityPasswordHashes,
           restored: buildSummary(completedJob),
           restore_job_id: completedJob.id,
         },

@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Shield, ShieldOff, Loader2 } from "lucide-react";
 import { toggleFacilityAdmin } from "@/app/actions/facility";
+import { ConfirmationModal } from "@/components/confirmation-modal";
 
 interface Props {
   facilityId: string;
@@ -13,24 +14,25 @@ interface Props {
 export function FacilityToggleAdminButton({ facilityId, isAdmin, facilityName }: Props) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const handleToggle = () => {
-    const msg = isAdmin
-      ? `هل تريد إزالة صلاحيات المشرف من "${facilityName}"؟`
-      : `هل تريد منح صلاحيات المشرف لـ "${facilityName}"؟`;
-    if (!confirm(msg)) return;
-
     setError(null);
     startTransition(async () => {
       const result = await toggleFacilityAdmin(facilityId);
       if (result.error) setError(result.error);
+      else setConfirmOpen(false);
     });
   };
+
+  const confirmText = isAdmin
+    ? `هل تريد إزالة صلاحيات المشرف من "${facilityName}"؟`
+    : `هل تريد منح صلاحيات المشرف لـ "${facilityName}"؟`;
 
   return (
     <div className="relative">
       <button
-        onClick={handleToggle}
+        onClick={() => setConfirmOpen(true)}
         disabled={pending}
         title={isAdmin ? "إزالة صلاحية الأدمن" : "منح صلاحية الأدمن"}
         className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
@@ -52,6 +54,18 @@ export function FacilityToggleAdminButton({ facilityId, isAdmin, facilityName }:
           {error}
         </div>
       )}
+
+      <ConfirmationModal
+        isOpen={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={handleToggle}
+        title={isAdmin ? "إزالة صلاحية المشرف" : "منح صلاحية المشرف"}
+        description={confirmText}
+        confirmLabel={isAdmin ? "نعم، إزالة الصلاحية" : "نعم، منح الصلاحية"}
+        isLoading={pending}
+        error={error}
+        variant="warning"
+      />
     </div>
   );
 }

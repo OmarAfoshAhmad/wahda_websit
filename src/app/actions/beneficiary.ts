@@ -5,23 +5,160 @@ import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getArabicSearchTerms } from "@/lib/search";
 import { updateBeneficiarySchema, createBeneficiarySchema } from "@/lib/validation";
-import { INITIAL_BALANCE } from "@/lib/config";
+import { getCurrentInitialBalance } from "@/lib/initial-balance";
 import { revalidatePath } from "next/cache";
 import { logger } from "@/lib/logger";
+import { normalizePersonName, normalizeCardNumber, canonicalizeCardNumber, leadingZeroScoreAfterPrefix } from "@/lib/normalize";
 
-function normalizeCardNumber(value: string) {
-  return value.trim().toUpperCase();
+// FIX #findCanonicalDuplicate: يستخدم SQL مباشرةً بدلاً من جلب كل بطاقات WAB2025 في الذاكرة.
+// يعتمد على الـ unique index الموجود على UPPER(BTRIM(card_number)) في قاعدة البيانات.
+async function findCanonicalDuplicate(
+  tx: Omit<typeof prisma, "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends">,
+  inputCard: string,
+  excludeId?: string,
+) {
+  const normalizedInput = normalizeCardNumber(inputCard);
+  const canonicalInput = canonicalizeCardNumber(normalizedInput);
+
+  // للبطاقات غير القياسية: مطابقة مباشرة
+  if (!normalizedInput.startsWith("WAB2025")) {
+    return tx.beneficiary.findFirst({
+      where: {
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+        card_number: { equals: normalizedInput, mode: "insensitive" },
+      },
+      select: { id: true, card_number: true },
+    });
+  }
+
+  // FIX: استخدام SQL نظيف لتوحيد البطاقات مباشرةً في قاعدة البيانات
+  // بدلاً من جلب كل بطاقات WAB2025 في الذاكرة (O(N) → O(1))
+  // المنطق: WAB202500123 و WAB2025123 يُعطيان نفس الـ canonical
+  if (excludeId) {
+    const results = await tx.$queryRaw<Array<{ id: string; card_number: string }>>`
+      SELECT id, card_number
+      FROM "Beneficiary"
+      WHERE card_number ILIKE 'WAB2025%'
+        AND id != ${excludeId}
+        AND (
+          regexp_replace(
+            UPPER(BTRIM(card_number)),
+            E'^WAB2025(0*)([0-9])',
+            'WAB2025\\2'
+          ) = ${canonicalInput}
+          OR UPPER(BTRIM(card_number)) = ${canonicalInput}
+        )
+      LIMIT 1
+    `;
+    return results[0] ?? null;
+  }
+
+  const results = await tx.$queryRaw<Array<{ id: string; card_number: string }>>`
+    SELECT id, card_number
+    FROM "Beneficiary"
+    WHERE card_number ILIKE 'WAB2025%'
+      AND (
+        regexp_replace(
+          UPPER(BTRIM(card_number)),
+          E'^WAB2025(0*)([0-9])',
+          'WAB2025\\2'
+        ) = ${canonicalInput}
+        OR UPPER(BTRIM(card_number)) = ${canonicalInput}
+      )
+    LIMIT 1
+  `;
+
+  return results[0] ?? null;
 }
 
-function normalizePersonName(value: string) {
-  return value.trim().replace(/\s+/g, " ");
-}
+// normalizePersonName مستوردة من @/lib/normalize لضمان التطابق مع الاستيراد وكشف التكرارات
+// (الفارق الحرج: النسخة القديمة لم تستخدم toUpperCase())
 
 function parseBirthDate(value?: string) {
   if (!value) return null;
   const d = new Date(value);
   if (isNaN(d.getTime())) return null;
   return d;
+}
+
+function groupIdsBySource(rows: Array<{ id: string; beneficiary_id: string }>) {
+  const bySource = new Map<string, string[]>();
+  for (const row of rows) {
+    const arr = bySource.get(row.beneficiary_id) ?? [];
+    arr.push(row.id);
+    bySource.set(row.beneficiary_id, arr);
+  }
+  return [...bySource.entries()].map(([from_beneficiary_id, ids]) => ({ from_beneficiary_id, ids }));
+}
+
+type MergeStrategy = "ZERO_PRIORITY" | "LOWEST_BALANCE" | "HIGHEST_TRANSACTIONS";
+
+function pickKeepByStrategy(
+  matches: Array<{ id: string; card_number: string; remaining_balance: number; total_balance: number; tx_count?: number }>,
+  strategy: MergeStrategy,
+  fallbackKeepId?: string,
+) {
+  if (matches.length === 0) return null;
+
+  if (fallbackKeepId && matches.some((m) => m.id === fallbackKeepId)) {
+    return matches.find((m) => m.id === fallbackKeepId) ?? matches[0];
+  }
+
+  if (strategy === "LOWEST_BALANCE") {
+    return [...matches].sort((a, b) => Number(a.remaining_balance) - Number(b.remaining_balance))[0];
+  }
+
+  if (strategy === "HIGHEST_TRANSACTIONS") {
+    return [...matches].sort((a, b) => (b.tx_count ?? 0) - (a.tx_count ?? 0))[0];
+  }
+
+  const maxZeroScore = Math.max(...matches.map((m) => leadingZeroScoreAfterPrefix(m.card_number)));
+  return (
+    matches.find((m) => leadingZeroScoreAfterPrefix(m.card_number) === maxZeroScore) ??
+    matches[0]
+  );
+}
+
+async function recalculateBeneficiaryRemainingFromTransactions(
+  tx: Omit<typeof prisma, "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends">,
+  beneficiaryId: string,
+) {
+  const beneficiary = await tx.beneficiary.findUnique({
+    where: { id: beneficiaryId },
+    select: { id: true, total_balance: true, status: true, completed_via: true },
+  });
+  if (!beneficiary) return;
+
+  const activeTransactions = await tx.transaction.aggregate({
+    where: {
+      beneficiary_id: beneficiaryId,
+      is_cancelled: false,
+      type: { not: "CANCELLATION" },
+    },
+    _sum: { amount: true },
+  });
+
+  const spent = Number(activeTransactions._sum.amount ?? 0);
+  const totalBalance = Number(beneficiary.total_balance);
+  const remaining = Math.max(0, totalBalance - spent);
+
+  let nextStatus: "ACTIVE" | "SUSPENDED" | "FINISHED";
+  if (beneficiary.status === "SUSPENDED") {
+    nextStatus = "SUSPENDED";
+  } else if (remaining <= 0) {
+    nextStatus = "FINISHED";
+  } else {
+    nextStatus = "ACTIVE";
+  }
+
+  await tx.beneficiary.update({
+    where: { id: beneficiaryId },
+    data: {
+      remaining_balance: remaining,
+      status: nextStatus,
+      completed_via: nextStatus === "FINISHED" ? (beneficiary.completed_via ?? "IMPORT") : null,
+    },
+  });
 }
 
 export async function getBeneficiaryByCard(card_number: string) {
@@ -133,18 +270,14 @@ export async function createBeneficiary(data: {
   const normalizedCardNumber = normalizeCardNumber(payload.card_number);
   const normalizedName = normalizePersonName(payload.name);
   const parsedBirthDate = parseBirthDate(payload.birth_date);
+  const initialBalance = await getCurrentInitialBalance();
 
   try {
     await prisma.$transaction(async (tx) => {
-      // قفل استشاري لمنع الإنشاء المتزامن بنفس رقم البطاقة
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${normalizedCardNumber}))`;
+      // قفل استشاري لمنع إدخال بطاقات مكررة في نفس اللحظة
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('BeneficiaryCard'), hashtext(${normalizedCardNumber}))`;
 
-      const existing = await tx.beneficiary.findFirst({
-        where: {
-          card_number: { equals: normalizedCardNumber, mode: "insensitive" },
-        },
-        select: { id: true },
-      });
+      const existing = await findCanonicalDuplicate(tx, normalizedCardNumber);
 
       if (existing) {
         throw new Error("CARD_EXISTS");
@@ -170,8 +303,8 @@ export async function createBeneficiary(data: {
           name: normalizedName,
           card_number: normalizedCardNumber,
           birth_date: parsedBirthDate,
-          total_balance: INITIAL_BALANCE,
-          remaining_balance: INITIAL_BALANCE,
+          total_balance: initialBalance,
+          remaining_balance: initialBalance,
           status: "ACTIVE",
         },
       });
@@ -208,9 +341,11 @@ export async function updateBeneficiary(data: {
   card_number: string;
   birth_date?: string;
   status: "ACTIVE" | "FINISHED" | "SUSPENDED";
+  total_balance?: number;
+  remaining_balance?: number;
 }) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin && !session.is_manager) {
+  if (!session || (!session.is_admin && !session.is_manager)) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -227,14 +362,9 @@ export async function updateBeneficiary(data: {
   try {
     await prisma.$transaction(async (tx) => {
       // قفل استشاري لمنع التحديث المتزامن بنفس رقم البطاقة
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${normalizedCardNumber}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('BeneficiaryCard'), hashtext(${normalizedCardNumber}))`;
 
-      const existing = await tx.beneficiary.findFirst({
-        where: {
-          card_number: { equals: normalizedCardNumber, mode: "insensitive" },
-        },
-        select: { id: true },
-      });
+      const existing = await findCanonicalDuplicate(tx, normalizedCardNumber, payload.id);
 
       if (existing && existing.id !== payload.id) {
         throw new Error("CARD_EXISTS");
@@ -263,6 +393,8 @@ export async function updateBeneficiary(data: {
           card_number: normalizedCardNumber,
           birth_date: parsedBirthDate,
           status: payload.status,
+          ...(payload.total_balance !== undefined ? { total_balance: payload.total_balance } : {}),
+          ...(payload.remaining_balance !== undefined ? { remaining_balance: payload.remaining_balance } : {}),
         },
       });
 
@@ -359,13 +491,7 @@ export async function restoreBeneficiary(id: string) {
 
     // تحقق من عدم وجود مستفيد نشط بنفس رقم البطاقة
     const normalizedCardNumber = normalizeCardNumber(beneficiary.card_number);
-    const duplicate = await prisma.beneficiary.findFirst({
-      where: {
-        id: { not: id },
-        card_number: { equals: normalizedCardNumber, mode: "insensitive" },
-      },
-      select: { id: true },
-    });
+    const duplicate = await findCanonicalDuplicate(prisma, normalizedCardNumber, id);
     if (duplicate) {
       return { error: "رقم البطاقة مستخدم مسبقاً ولا يمكن ربطه بشخصين" };
     }
@@ -451,5 +577,820 @@ export async function permanentDeleteBeneficiary(id: string) {
   } catch (error: unknown) {
     logger.error("Permanent delete beneficiary error", { error: String(error) });
     return { error: "تعذر الحذف النهائي للمستفيد" };
+  }
+}
+
+export async function bulkDeleteBeneficiaries(formData: FormData) {
+  const session = await requireActiveFacilitySession();
+  if (!session || !hasPermission(session, "delete_beneficiary")) {
+    return { error: "غير مصرح بهذه العملية" };
+  }
+
+  const ids = [...new Set(
+    formData
+      .getAll("ids")
+      .map((value) => String(value))
+      .filter((value) => value.length > 0)
+  )];
+
+  if (ids.length === 0) {
+    return { error: "لم يتم تحديد أي مستفيد" };
+  }
+
+  try {
+    const beneficiaries = await prisma.beneficiary.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        name: true,
+        card_number: true,
+        deleted_at: true,
+        _count: { select: { transactions: true } },
+      },
+    });
+
+    const deletableIds = beneficiaries
+      .filter((b) => b.deleted_at === null && b._count.transactions === 0)
+      .map((b) => b.id);
+
+    const skippedCount = beneficiaries.length - deletableIds.length;
+
+    if (deletableIds.length === 0) {
+      return { error: "لا توجد سجلات قابلة للحذف ضمن المحدد" };
+    }
+
+    const deletedAt = new Date();
+
+    await prisma.$transaction(async (tx) => {
+      await tx.beneficiary.updateMany({
+        where: { id: { in: deletableIds } },
+        data: { deleted_at: deletedAt },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          facility_id: session.id,
+          user: session.username,
+          action: "BULK_DELETE_BENEFICIARY",
+          metadata: {
+            selected_count: ids.length,
+            deleted_count: deletableIds.length,
+            skipped_count: skippedCount,
+            beneficiary_ids: deletableIds,
+          },
+        },
+      });
+    });
+
+    revalidatePath("/beneficiaries");
+    return { success: true, deletedCount: deletableIds.length, skippedCount };
+  } catch (error: unknown) {
+    logger.error("Bulk delete beneficiaries error", { error: String(error) });
+    return { error: "تعذر تنفيذ الحذف الجماعي" };
+  }
+}
+
+export async function bulkPermanentDeleteBeneficiaries(formData: FormData) {
+  const session = await requireActiveFacilitySession();
+  if (!session || !hasPermission(session, "delete_beneficiary")) {
+    return { error: "غير مصرح بهذه العملية" };
+  }
+
+  const ids = [...new Set(
+    formData
+      .getAll("ids")
+      .map((value) => String(value))
+      .filter((value) => value.length > 0)
+  )];
+
+  if (ids.length === 0) {
+    return { error: "لم يتم تحديد أي مستفيد" };
+  }
+
+  try {
+    const beneficiaries = await prisma.beneficiary.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        deleted_at: true,
+        _count: { select: { transactions: true } },
+      },
+    });
+
+    const deletableIds = beneficiaries
+      .filter((b) => b.deleted_at !== null && b._count.transactions === 0)
+      .map((b) => b.id);
+
+    const skippedCount = beneficiaries.length - deletableIds.length;
+
+    if (deletableIds.length === 0) {
+      return { error: "لا توجد سجلات قابلة للحذف النهائي ضمن المحدد" };
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.beneficiary.deleteMany({ where: { id: { in: deletableIds } } });
+
+      await tx.auditLog.create({
+        data: {
+          facility_id: session.id,
+          user: session.username,
+          action: "BULK_PERMANENT_DELETE_BENEFICIARY",
+          metadata: {
+            selected_count: ids.length,
+            deleted_count: deletableIds.length,
+            skipped_count: skippedCount,
+            beneficiary_ids: deletableIds,
+          },
+        },
+      });
+    });
+
+    revalidatePath("/beneficiaries");
+    return { success: true, deletedCount: deletableIds.length, skippedCount };
+  } catch (error: unknown) {
+    logger.error("Bulk permanent delete beneficiaries error", { error: String(error) });
+    return { error: "تعذر تنفيذ الحذف النهائي الجماعي" };
+  }
+}
+
+export async function mergeDuplicateBeneficiaries(
+  keepId: string,
+  options?: {
+    forceKeep?: boolean;
+    explicitMergeIds?: string[];
+    candidateIds?: string[];
+    strategy?: MergeStrategy;
+  },
+) {
+  const session = await requireActiveFacilitySession();
+  if (!session || !hasPermission(session, "delete_beneficiary")) {
+    return { error: "غير مصرح بهذه العملية" };
+  }
+
+  if (!keepId) {
+    return { error: "معرف السجل الأساسي غير صالح" };
+  }
+
+  try {
+    const keepBeneficiary = await prisma.beneficiary.findUnique({
+      where: { id: keepId },
+      select: {
+        id: true,
+        name: true,
+        card_number: true,
+        remaining_balance: true,
+        total_balance: true,
+        status: true,
+        completed_via: true,
+        deleted_at: true,
+      },
+    });
+
+    if (!keepBeneficiary || keepBeneficiary.deleted_at !== null) {
+      return { error: "السجل الأساسي غير موجود أو محذوف" };
+    }
+
+    const cardKey = normalizeCardNumber(keepBeneficiary.card_number);
+    const canonicalCardKey = canonicalizeCardNumber(cardKey);
+
+    const candidateIds = [...new Set((options?.candidateIds ?? []).filter(Boolean))];
+
+    const matches = candidateIds.length > 0
+      ? await prisma.beneficiary.findMany({
+          where: {
+            deleted_at: null,
+            id: { in: [...new Set([keepId, ...candidateIds])] },
+          },
+          select: {
+            id: true,
+            name: true,
+            card_number: true,
+            remaining_balance: true,
+            total_balance: true,
+            status: true,
+            completed_via: true,
+          },
+        }).then((rows) => rows.map((r) => ({
+          ...r,
+          remaining_balance: Number(r.remaining_balance),
+          total_balance: Number(r.total_balance),
+        })))
+      : await prisma.$queryRaw<Array<{
+          id: string;
+          name: string;
+          card_number: string;
+          remaining_balance: number;
+          total_balance: number;
+          status: "ACTIVE" | "SUSPENDED" | "FINISHED";
+          completed_via: string | null;
+        }>>`
+          SELECT
+            id,
+            name,
+            card_number,
+            remaining_balance::float8 AS remaining_balance,
+            total_balance::float8 AS total_balance,
+            status::text AS status,
+            completed_via
+          FROM "Beneficiary"
+          WHERE deleted_at IS NULL
+            AND UPPER(BTRIM(card_number)) LIKE 'WAB2025%'
+        `
+          .then((rows) => rows.filter((row) => canonicalizeCardNumber(row.card_number) === canonicalCardKey));
+
+    if (matches.length <= 1) {
+      return { error: "لا توجد سجلات مكررة قابلة للدمج لهذا المستفيد" };
+    }
+
+    const strategy = options?.strategy ?? "ZERO_PRIORITY";
+    const preferredKeep = options?.forceKeep
+      ? matches.find((m) => m.id === keepId) ?? null
+      : pickKeepByStrategy(
+          matches.map((m) => ({
+            id: m.id,
+            card_number: m.card_number,
+            remaining_balance: Number(m.remaining_balance),
+            total_balance: Number(m.total_balance),
+          })),
+          strategy,
+          keepId,
+        );
+
+    if (!preferredKeep) {
+      return { error: "تعذر تحديد السجل الأساسي للدمج" };
+    }
+
+    const chosenKeepId = preferredKeep.id;
+    // FIX: preferredKeep قد لا يحتوي على 'name' (عند ZERO_PRIORITY) — نجلبه من matches
+    const chosenKeepName = matches.find((m) => m.id === chosenKeepId)?.name ?? "";
+    const chosenKeepCard = normalizeCardNumber(preferredKeep.card_number);
+    const explicitMergeIds = (options?.explicitMergeIds ?? []).filter((id) => id && id !== chosenKeepId);
+    const mergeIds = explicitMergeIds.length > 0
+      ? matches.map((m) => m.id).filter((id) => explicitMergeIds.includes(id))
+      : matches.map((m) => m.id).filter((id) => id !== chosenKeepId);
+    if (mergeIds.length === 0) {
+      return { error: "لا توجد سجلات فرعية للدمج" };
+    }
+
+    const allRows = matches;
+    const mergedRemaining = options?.forceKeep && preferredKeep
+      ? Number(preferredKeep.remaining_balance)
+      : Math.max(...allRows.map((r) => Number(r.remaining_balance)));
+
+    const mergedTotal = options?.forceKeep && preferredKeep
+      ? Number(preferredKeep.total_balance)
+      : Math.max(...allRows.map((r) => Number(r.total_balance)));
+    const mergedStatus = allRows.some((r) => r.status === "ACTIVE")
+      ? "ACTIVE"
+      : allRows.some((r) => r.status === "SUSPENDED")
+      ? "SUSPENDED"
+      : "FINISHED";
+    const mergedCompletedVia = keepBeneficiary.completed_via ?? allRows.find((r) => r.completed_via)?.completed_via ?? null;
+
+    let mergeAuditId = "";
+
+    await prisma.$transaction(async (tx) => {
+      const keepBefore = await tx.beneficiary.findUnique({
+        where: { id: chosenKeepId },
+        select: {
+          id: true,
+          card_number: true,
+          total_balance: true,
+          remaining_balance: true,
+          status: true,
+          completed_via: true,
+          deleted_at: true,
+        },
+      });
+
+      const mergedBefore = await tx.beneficiary.findMany({
+        where: { id: { in: mergeIds } },
+        select: {
+          id: true,
+          name: true,
+          card_number: true,
+          total_balance: true,
+          remaining_balance: true,
+          status: true,
+          completed_via: true,
+          deleted_at: true,
+        },
+      });
+
+      const movedTransactionRows = await tx.transaction.findMany({
+        where: { beneficiary_id: { in: mergeIds } },
+        select: { id: true, beneficiary_id: true },
+      });
+      const movedNotificationRows = await tx.notification.findMany({
+        where: { beneficiary_id: { in: mergeIds } },
+        select: { id: true, beneficiary_id: true },
+      });
+
+      const movedTransactions = await tx.transaction.updateMany({
+        where: { id: { in: movedTransactionRows.map((r) => r.id) } },
+        data: { beneficiary_id: chosenKeepId },
+      });
+
+      const movedNotifications = await tx.notification.updateMany({
+        where: { id: { in: movedNotificationRows.map((r) => r.id) } },
+        data: { beneficiary_id: chosenKeepId },
+      });
+
+      await tx.beneficiary.update({
+        where: { id: chosenKeepId },
+        data: {
+          card_number: chosenKeepCard,
+          total_balance: mergedTotal,
+          remaining_balance: mergedRemaining,
+          status: mergedStatus,
+          completed_via: mergedCompletedVia,
+        },
+      });
+
+      await tx.beneficiary.updateMany({
+        where: { id: { in: mergeIds } },
+        data: { deleted_at: new Date() },
+      });
+
+      // إعادة حساب الرصيد الفعلي بعد نقل الحركات لضمان دقة الرصيد المعتمد.
+      await recalculateBeneficiaryRemainingFromTransactions(tx, chosenKeepId);
+
+      const keepAfter = await tx.beneficiary.findUnique({
+        where: { id: chosenKeepId },
+        select: { remaining_balance: true },
+      });
+
+      const existingMergeLog = await tx.$queryRaw<Array<{ id: string; metadata: unknown }>>`
+        SELECT id, metadata
+        FROM "AuditLog"
+        WHERE action = 'MERGE_DUPLICATE_BENEFICIARY'
+          AND metadata ->> 'card_number' = ${canonicalCardKey}
+        ORDER BY created_at DESC
+        LIMIT 1
+      `;
+
+      const previousMetadata = (existingMergeLog[0]?.metadata ?? {}) as Record<string, unknown>;
+      const previousMergeCount = Number(previousMetadata.merge_count ?? 0);
+
+      const nextMetadata = {
+        card_number: canonicalCardKey,
+        keep_beneficiary_id: chosenKeepId,
+        keep_beneficiary_name: chosenKeepName,
+        requested_keep_beneficiary_id: keepId,
+        chosen_keep_card_number: chosenKeepCard,
+        merged_beneficiary_ids: mergeIds,
+        moved_transactions: movedTransactions.count,
+        moved_notifications: movedNotifications.count,
+        strategy,
+        undo_available: true,
+        undo_reverted_at: null,
+        case_status: "MERGED_APPROVED",
+        case_status_label: "تمت معالجة الدمج واعتمد",
+        last_merged_at: new Date().toISOString(),
+        last_merged_by: session.username,
+        merge_count: previousMergeCount + 1,
+        approved_remaining_balance: Number(keepAfter?.remaining_balance ?? 0),
+        undo_snapshot: {
+          keep_before: keepBefore
+            ? {
+                id: keepBefore.id,
+                card_number: keepBefore.card_number,
+                total_balance: Number(keepBefore.total_balance),
+                remaining_balance: Number(keepBefore.remaining_balance),
+                status: keepBefore.status,
+                completed_via: keepBefore.completed_via,
+                deleted_at: keepBefore.deleted_at ? keepBefore.deleted_at.toISOString() : null,
+              }
+            : null,
+          merged_before: mergedBefore.map((row) => ({
+            id: row.id,
+            name: row.name,
+            card_number: row.card_number,
+            total_balance: Number(row.total_balance),
+            remaining_balance: Number(row.remaining_balance),
+            status: row.status,
+            completed_via: row.completed_via,
+            deleted_at: row.deleted_at ? row.deleted_at.toISOString() : null,
+          })),
+          moved_transactions: groupIdsBySource(movedTransactionRows),
+          moved_notifications: groupIdsBySource(movedNotificationRows),
+        },
+      };
+
+      if (existingMergeLog[0]?.id) {
+        await tx.auditLog.update({
+          where: { id: existingMergeLog[0].id },
+          data: {
+            user: session.username,
+            metadata: nextMetadata,
+          },
+        });
+        mergeAuditId = existingMergeLog[0].id;
+      } else {
+        const log = await tx.auditLog.create({
+          data: {
+            facility_id: session.id,
+            user: session.username,
+            action: "MERGE_DUPLICATE_BENEFICIARY",
+            metadata: nextMetadata,
+          },
+        });
+        mergeAuditId = log.id;
+      }
+    });
+
+    revalidatePath("/beneficiaries");
+    revalidatePath("/transactions");
+    revalidatePath("/admin/duplicates");
+    return { success: true, mergedCount: mergeIds.length, keepId: chosenKeepId, keepCard: chosenKeepCard, mergeAuditId };
+  } catch (error: unknown) {
+    logger.error("Merge duplicate beneficiaries error", { error: String(error) });
+    return { error: "تعذر تنفيذ دمج السجلات المكررة" };
+  }
+}
+
+export async function mergeDuplicateGroupByCanonicalAction(formData: FormData) {
+  const canonicalCardRaw = String(formData.get("canonical_card") ?? "").trim();
+  if (!canonicalCardRaw) {
+    return { error: "قيمة البطاقة المعيارية غير صالحة" };
+  }
+
+  const canonicalCard = canonicalizeCardNumber(canonicalCardRaw);
+  const strategy = String(formData.get("strategy") ?? "ZERO_PRIORITY") as MergeStrategy;
+
+  const session = await requireActiveFacilitySession();
+  if (!session || !hasPermission(session, "delete_beneficiary")) {
+    return { error: "غير مصرح بهذه العملية" };
+  }
+
+  try {
+    const matchedRows = await prisma.$queryRaw<Array<{
+      id: string;
+      card_number: string;
+      remaining_balance: any;
+      total_balance: any;
+      transactions_count: bigint;
+    }>>`
+      SELECT 
+        b.id, 
+        b.card_number, 
+        b.remaining_balance,
+        b.total_balance,
+        (SELECT COUNT(*) FROM "Transaction" t WHERE t.beneficiary_id = b.id) as transactions_count
+      FROM "Beneficiary" b
+      WHERE b.deleted_at IS NULL
+        AND regexp_replace(
+          UPPER(BTRIM(b.card_number)),
+          E'^WAB2025(0*)([0-9])',
+          'WAB2025\\2'
+        ) = ${canonicalCard}
+    `;
+
+    const matched = matchedRows.map(r => ({
+      id: r.id,
+      card_number: r.card_number,
+      remaining_balance: r.remaining_balance,
+      total_balance: r.total_balance,
+      _count: { transactions: Number(r.transactions_count) }
+    }));
+    if (matched.length <= 1) {
+      return { error: "لا توجد مجموعة مكررة قابلة للدمج" };
+    }
+
+    const picked = pickKeepByStrategy(
+      matched.map((m) => ({
+        id: m.id,
+        card_number: m.card_number,
+        remaining_balance: Number(m.remaining_balance),
+        total_balance: Number(m.total_balance),
+        tx_count: m._count.transactions,
+      })),
+      strategy,
+    );
+
+    if (!picked) return { error: "تعذر تحديد سجل الإبقاء" };
+
+    return mergeDuplicateBeneficiaries(picked.id, {
+      forceKeep: true,
+      strategy,
+    });
+  } catch (error: unknown) {
+    logger.error("Merge duplicate group by canonical error", { error: String(error) });
+    return { error: "تعذر تنفيذ دمج مجموعة التكرار" };
+  }
+}
+
+export async function mergeDuplicateManualSelectionAction(formData: FormData) {
+  const session = await requireActiveFacilitySession();
+  if (!session || !hasPermission(session, "delete_beneficiary")) {
+    return { error: "غير مصرح بهذه العملية" };
+  }
+
+  const keepId = String(formData.get("keep_id") ?? "").trim();
+
+  if (!keepId) return { error: "يجب تحديد السجل المراد الإبقاء عليه" };
+
+  return mergeDuplicateBeneficiaries(keepId, {
+    forceKeep: true,
+    strategy: "ZERO_PRIORITY",
+  });
+}
+
+export async function mergeNeedsReviewGroupAction(formData: FormData) {
+  const session = await requireActiveFacilitySession();
+  if (!session || !hasPermission(session, "delete_beneficiary")) {
+    return { error: "غير مصرح بهذه العملية" };
+  }
+
+  const keepId = String(formData.get("keep_id") ?? "").trim();
+  const memberIds = [...new Set(formData.getAll("member_ids").map((v) => String(v).trim()).filter(Boolean))];
+
+  if (!keepId) return { error: "يجب تحديد السجل المراد الإبقاء عليه" };
+  if (memberIds.length <= 1) return { error: "المجموعة لا تحتوي على سجلات كافية للمعالجة" };
+
+  const mergeIds = memberIds.filter((id) => id !== keepId);
+  if (mergeIds.length === 0) return { error: "لا توجد سجلات فرعية للدمج" };
+
+  return mergeDuplicateBeneficiaries(keepId, {
+    forceKeep: true,
+    explicitMergeIds: mergeIds,
+    candidateIds: memberIds,
+    strategy: "ZERO_PRIORITY",
+  });
+}
+
+export async function mergeNeedsReviewBatchAction(formData: FormData) {
+  const session = await requireActiveFacilitySession();
+  if (!session || !hasPermission(session, "delete_beneficiary")) {
+    return { error: "غير مصرح بهذه العملية" };
+  }
+
+  const payloads = formData
+    .getAll("group_payload")
+    .map((v) => String(v))
+    .filter(Boolean);
+
+  if (payloads.length === 0) {
+    return { error: "لا توجد مجموعات محددة للمعالجة" };
+  }
+
+  let mergedGroups = 0;
+  let mergedRows = 0;
+  let firstAuditId: string | null = null;
+
+  for (const payload of payloads) {
+    try {
+      const parsed = JSON.parse(payload) as { keepId?: string; memberIds?: string[] };
+      const keepId = String(parsed.keepId ?? "").trim();
+      const memberIds = [...new Set((parsed.memberIds ?? []).map((x) => String(x).trim()).filter(Boolean))];
+      if (!keepId || memberIds.length <= 1) continue;
+
+      const result = await mergeDuplicateBeneficiaries(keepId, {
+        forceKeep: true,
+        explicitMergeIds: memberIds.filter((id) => id !== keepId),
+        candidateIds: memberIds,
+        strategy: "ZERO_PRIORITY",
+      });
+
+      if (!result.error) {
+        mergedGroups += 1;
+        mergedRows += Number(result.mergedCount ?? 0);
+        if (!firstAuditId && (result as { mergeAuditId?: string }).mergeAuditId) {
+          firstAuditId = (result as { mergeAuditId?: string }).mergeAuditId ?? null;
+        }
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  if (mergedGroups === 0) {
+    return { error: "لم يتم دمج أي مجموعة بهذه الدفعة" };
+  }
+
+  return { success: true, mergedGroups, mergedRows, firstAuditId };
+}
+
+export async function mergeDuplicateBatchByConditionAction(formData: FormData) {
+  const session = await requireActiveFacilitySession();
+  if (!session || !hasPermission(session, "delete_beneficiary")) {
+    return { error: "غير مصرح بهذه العملية" };
+  }
+
+  const strategy = String(formData.get("strategy") ?? "ZERO_PRIORITY") as MergeStrategy;
+  const canonicalCards = [...new Set(formData.getAll("canonical_card").map((v) => String(v).trim()).filter(Boolean))];
+  const groupPayloads = formData.getAll("group_payload").map((v) => String(v).trim()).filter(Boolean);
+
+  if (canonicalCards.length === 0 && groupPayloads.length === 0) {
+    return { error: "لا توجد مجموعات محددة للدمج الجماعي" };
+  }
+
+  let mergedGroups = 0;
+  let mergedRows = 0;
+  let batchTotalRows = 0;
+  let firstAuditId: string | null = null;
+
+  // Process payloads (precise IDs)
+  for (const payloadRaw of groupPayloads) {
+    try {
+      const { keepId, memberIds } = JSON.parse(payloadRaw) as { keepId: string; memberIds: string[] };
+      const res = await mergeDuplicateBeneficiaries(keepId, {
+        forceKeep: true,
+        candidateIds: memberIds,
+        strategy,
+      });
+      if (res && !res.error) {
+        mergedGroups += 1;
+        const currentMerged = Number(res.mergedCount ?? 0);
+        mergedRows += currentMerged;
+        batchTotalRows += (currentMerged + 1); // +1 is the keep_id beneficiary themselves
+        if (!firstAuditId && res.mergeAuditId) firstAuditId = res.mergeAuditId;
+      }
+    } catch { continue; }
+  }
+
+  // Fallback to canonical re-discovery
+  for (const canonical of canonicalCards) {
+    const fd = new FormData();
+    fd.set("canonical_card", canonical);
+    fd.set("strategy", strategy);
+    const result = await mergeDuplicateGroupByCanonicalAction(fd);
+    if (result && !result.error) {
+      const r = result as { mergedCount?: number; mergeAuditId?: string };
+      mergedGroups += 1;
+      mergedRows += Number(r.mergedCount ?? 0);
+      if (!firstAuditId && r.mergeAuditId) firstAuditId = r.mergeAuditId;
+    }
+  }
+
+  if (mergedGroups === 0) {
+    return { error: "لم يتم دمج أي مجموعة بهذه الدفعة" };
+  }
+
+  return {
+    success: true,
+    mergedGroups,
+    mergedRows,
+    batchTotalRows,
+    firstAuditId,
+  };
+}
+
+export async function undoMergeDuplicateBeneficiariesByAuditId(formData: FormData) {
+  const session = await requireActiveFacilitySession();
+  if (!session || !hasPermission(session, "delete_beneficiary")) {
+    return { error: "غير مصرح بهذه العملية" };
+  }
+
+  const auditId = String(formData.get("audit_id") ?? "").trim();
+  if (!auditId) {
+    return { error: "معرف عملية الدمج غير صالح" };
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const mergeLog = await tx.auditLog.findUnique({ where: { id: auditId } });
+      if (!mergeLog || mergeLog.action !== "MERGE_DUPLICATE_BENEFICIARY") {
+        throw new Error("MERGE_LOG_NOT_FOUND");
+      }
+
+      const metadata = (mergeLog.metadata ?? {}) as Record<string, unknown>;
+      const undoSnapshot = (metadata.undo_snapshot ?? null) as
+        | {
+            keep_before?: {
+              id: string;
+              card_number: string;
+              total_balance: number;
+              remaining_balance: number;
+              status: "ACTIVE" | "SUSPENDED" | "FINISHED";
+              completed_via: string | null;
+              deleted_at: string | null;
+            } | null;
+            merged_before?: Array<{
+              id: string;
+              card_number: string;
+              total_balance: number;
+              remaining_balance: number;
+              status: "ACTIVE" | "SUSPENDED" | "FINISHED";
+              completed_via: string | null;
+              deleted_at: string | null;
+            }>;
+            moved_transactions?: Array<{ from_beneficiary_id: string; ids: string[] }>;
+            moved_notifications?: Array<{ from_beneficiary_id: string; ids: string[] }>;
+          }
+        | null;
+
+      if (!undoSnapshot || !undoSnapshot.keep_before) {
+        throw new Error("UNDO_NOT_AVAILABLE");
+      }
+
+      if (metadata.undo_reverted_at) {
+        throw new Error("UNDO_ALREADY_APPLIED");
+      }
+
+      const keepBefore = undoSnapshot.keep_before;
+      const mergedBefore = undoSnapshot.merged_before ?? [];
+      const movedTransactions = undoSnapshot.moved_transactions ?? [];
+      const movedNotifications = undoSnapshot.moved_notifications ?? [];
+
+      await tx.beneficiary.update({
+        where: { id: keepBefore.id },
+        data: {
+          card_number: keepBefore.card_number,
+          total_balance: keepBefore.total_balance,
+          remaining_balance: keepBefore.remaining_balance,
+          status: keepBefore.status,
+          completed_via: keepBefore.completed_via,
+          deleted_at: keepBefore.deleted_at ? new Date(keepBefore.deleted_at) : null,
+        },
+      });
+
+      for (const row of mergedBefore) {
+        await tx.beneficiary.update({
+          where: { id: row.id },
+          data: {
+            card_number: row.card_number,
+            total_balance: row.total_balance,
+            remaining_balance: row.remaining_balance,
+            status: row.status,
+            completed_via: row.completed_via,
+            deleted_at: row.deleted_at ? new Date(row.deleted_at) : null,
+          },
+        });
+      }
+
+      for (const batch of movedTransactions) {
+        if (batch.ids.length === 0) continue;
+        await tx.transaction.updateMany({
+          where: { id: { in: batch.ids } },
+          data: { beneficiary_id: batch.from_beneficiary_id },
+        });
+      }
+
+      for (const batch of movedNotifications) {
+        if (batch.ids.length === 0) continue;
+        await tx.notification.updateMany({
+          where: { id: { in: batch.ids } },
+          data: { beneficiary_id: batch.from_beneficiary_id },
+        });
+      }
+
+      const currentMeta = metadata;
+
+      await tx.auditLog.update({
+        where: { id: auditId },
+        data: {
+          metadata: {
+            ...currentMeta,
+            undo_reverted_at: new Date().toISOString(),
+            undo_reverted_by: session.username,
+            case_status: "UNDO_REVERTED",
+            case_status_label: "تم التراجع",
+          },
+        },
+      });
+    });
+
+    revalidatePath("/beneficiaries");
+    revalidatePath("/transactions");
+    revalidatePath("/admin/duplicates");
+    return { success: true };
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      if (error.message === "MERGE_LOG_NOT_FOUND") return { error: "عملية الدمج غير موجودة" };
+      if (error.message === "UNDO_NOT_AVAILABLE") return { error: "لا يمكن التراجع عن هذه العملية لأنها لا تحتوي بيانات استرجاع" };
+      if (error.message === "UNDO_ALREADY_APPLIED") return { error: "تم التراجع عن هذه العملية مسبقاً" };
+    }
+    logger.error("Undo merge duplicate beneficiaries error", { error: String(error), auditId });
+    return { error: "تعذر التراجع عن عملية الدمج" };
+  }
+}
+
+export async function ignoreDuplicatePairAction(formData: FormData) {
+  const session = await requireActiveFacilitySession();
+  if (!session || !hasPermission(session, "delete_beneficiary")) {
+    return { error: "غير مصرح بهذه العملية" };
+  }
+
+  const ids = formData.getAll("ids").map(String).filter(Boolean);
+  if (ids.length < 2) return { error: "يجب تحديد معرفين على الأقل للاستبعاد" };
+
+  try {
+    await prisma.auditLog.create({
+      data: {
+        action: "IGNORE_DUPLICATE_PAIR",
+        user: session.username,
+        facility_id: session.id,
+        metadata: {
+          ignore_ids: ids,
+          timestamp: new Date().toISOString(),
+          reason: "Manual exclusion via admin (marked as different people)",
+        },
+      },
+    });
+    revalidatePath("/admin/duplicates");
+    return { success: true };
+  } catch (error: any) {
+    return { error: "فشل تسجيل الاستبعاد: " + error.message };
   }
 }

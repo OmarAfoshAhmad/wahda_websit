@@ -22,7 +22,7 @@ model Facility {
   transactions         Transaction[]
 
   @@index([deleted_at])
-  @@index([is_manager])
+  @@index([is_manager], map: "idx_facility_is_manager_fixed")
 }
 
 model Beneficiary {

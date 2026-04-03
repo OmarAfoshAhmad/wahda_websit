@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { cn } from "./ui";
-import { LayoutDashboard, ListOrdered, LogOut, Users, Building2, KeyRound, DatabaseBackup, ClipboardList, UserCog } from "lucide-react";
+import { LayoutDashboard, ListOrdered, LogOut, Users, Building2, KeyRound, DatabaseBackup, ClipboardList, UserCog, FileSpreadsheet, GitMerge } from "lucide-react";
 import { logout } from "@/app/actions/auth";
 import { ThemeSwitcher } from "./theme-switcher";
 
@@ -25,6 +25,7 @@ const managerNavigation = [
 
 const superAdminNavigation = [
   { name: "النسخ الاحتياطي", href: "/admin/backup", icon: DatabaseBackup },
+  { name: "إدارة التكرارات", href: "/admin/duplicates", icon: GitMerge },
   { name: "المديرون", href: "/admin/managers", icon: UserCog },
 ];
 

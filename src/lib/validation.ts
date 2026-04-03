@@ -72,12 +72,22 @@ export const updateBeneficiarySchema = z.object({
   status: z.enum(["ACTIVE", "FINISHED", "SUSPENDED"], {
     message: "حالة المستفيد غير صحيحة",
   }),
+  total_balance: z.coerce.number().min(0, "الرصيد لا يمكن أن يكون سالباً").optional(),
+  remaining_balance: z.coerce.number().min(0, "الرصيد لا يمكن أن يكون سالباً").optional(),
 });
 
 export const createBeneficiarySchema = z.object({
   name: z.string().min(2, "الاسم يجب أن يكون حرفين على الأقل").max(100, "الاسم طويل جداً"),
   card_number: z.string().min(3, "رقم البطاقة غير صالح").max(50, "رقم البطاقة طويل جداً").regex(/^[A-Za-z0-9\u0600-\u06FF\s\-_]+$/, "رقم البطاقة يحتوي على أحرف غير مسموحة"),
   birth_date: z.string().max(20, "تاريخ غير صالح").regex(/^(\d{4}-\d{2}-\d{2})?$/, "صيغة التاريخ يجب أن تكون YYYY-MM-DD").optional(),
+});
+
+export const updateInitialBalanceSchema = z.object({
+  initialBalance: z.coerce
+    .number()
+    .int("يجب إدخال رقم صحيح")
+    .min(1, "الحد الأدنى 1")
+    .max(1_000_000, "الحد الأقصى 1,000,000"),
 });
 
 export type CreateFacilityInput = z.infer<typeof createFacilitySchema>;

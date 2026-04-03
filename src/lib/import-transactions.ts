@@ -4,32 +4,44 @@ import { TransactionType } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import ExcelJS from "exceljs";
 
-/** Waad admin facility ID — must be set via WAAD_FACILITY_ID env var */
-function getWaadFacilityId(): string {
-  const id = process.env.WAAD_FACILITY_ID;
-  if (!id) throw new Error("WAAD_FACILITY_ID env var is not set");
-  return id;
+/** Waad company facility ID (optional fallback) */
+function getWaadFacilityId(): string | undefined {
+  const id = process.env.WAAD_FACILITY_ID?.trim();
+  return id || undefined;
 }
 
-async function resolveImportFacilityId(username: string): Promise<string> {
-  const actorFacility = await prisma.facility.findUnique({
-    where: { username },
+async function resolveImportFacilityId(username: string, selectedFacilityId?: string): Promise<string> {
+  if (selectedFacilityId) {
+    const selectedFacility = await prisma.facility.findFirst({
+      where: { id: selectedFacilityId, deleted_at: null },
+      select: { id: true },
+    });
+    if (!selectedFacility) {
+      throw new Error("Selected facility does not exist");
+    }
+    return selectedFacility.id;
+  }
+
+  const configuredId = getWaadFacilityId();
+  if (configuredId) {
+    const configuredFacility = await prisma.facility.findFirst({
+      where: { id: configuredId, deleted_at: null },
+      select: { id: true },
+    });
+
+    if (configuredFacility?.id) {
+      return configuredFacility.id;
+    }
+  }
+
+  const actorFacility = await prisma.facility.findFirst({
+    where: { username, deleted_at: null },
     select: { id: true },
   });
 
   if (actorFacility?.id) return actorFacility.id;
 
-  const configuredId = getWaadFacilityId();
-  const configuredFacility = await prisma.facility.findUnique({
-    where: { id: configuredId },
-    select: { id: true },
-  });
-
-  if (!configuredFacility) {
-    throw new Error("WAAD_FACILITY_ID points to non-existing facility");
-  }
-
-  return configuredFacility.id;
+  throw new Error("WAAD_FACILITY_ID points to non-existing facility");
 }
 
 // ─── Types ───────────────────────────────────────────────────────
@@ -38,6 +50,8 @@ export type TransactionImportResult = {
   totalRows: number;
   importedFamilies: number;
   importedTransactions: number;
+  updatedFamilies: number;
+  updatedTransactions: number;
   suspendedFamilies: number;
   skippedAlreadySuspended: number;
   skippedNotFound: number;
@@ -139,6 +153,7 @@ function parseExcelRows(workbook: ExcelJS.Workbook): ParsedRow[] {
 export async function processTransactionImport(
   fileBuffer: Buffer,
   username: string,
+  selectedFacilityId?: string,
 ): Promise<{ result?: TransactionImportResult; error?: string }> {
   try {
     // 1. Parse file
@@ -151,7 +166,7 @@ export async function processTransactionImport(
       return { error: "الملف لا يحتوي على بيانات." };
     }
 
-    const importFacilityId = await resolveImportFacilityId(username);
+    const importFacilityId = await resolveImportFacilityId(username, selectedFacilityId);
 
     // 2. Build lookup
     const lookup = await buildCardLookup();
@@ -213,12 +228,15 @@ export async function processTransactionImport(
     let importedFamilies = 0;
     let importedTransactions = 0;
     let skippedAlreadyImported = 0;
+    let updatedFamilies = 0;
+    let updatedTransactions = 0;
 
     for (const { row, baseCard } of toImport) {
       const familyResult = await importFamilyTransactions(baseCard, row.usedBalance, importFacilityId);
 
-      if (familyResult === "already_imported") {
-        skippedAlreadyImported++;
+      if (familyResult.mode === "updated") {
+        updatedFamilies++;
+        updatedTransactions += familyResult.count;
       } else {
         importedFamilies++;
         importedTransactions += familyResult.count;
@@ -239,6 +257,8 @@ export async function processTransactionImport(
           skippedAlreadySuspended,
           skippedNotFound: notFoundRows.length,
           skippedAlreadyImported,
+          updatedFamilies,
+          updatedTransactions,
         },
       },
     });
@@ -248,6 +268,8 @@ export async function processTransactionImport(
         totalRows: rows.length,
         importedFamilies,
         importedTransactions,
+        updatedFamilies,
+        updatedTransactions,
         suspendedFamilies,
         skippedAlreadySuspended,
         skippedNotFound: notFoundRows.length,
@@ -269,7 +291,7 @@ async function importFamilyTransactions(
   baseCard: string,
   totalUsedAmount: number,
   facilityId: string,
-): Promise<"already_imported" | { count: number }> {
+): Promise<{ count: number; mode: "created" | "updated" }> {
   // Find ALL family members (base card + suffixes like W1, S1, D1, etc.)
   const familyMembers = await prisma.beneficiary.findMany({
     where: {
@@ -281,34 +303,42 @@ async function importFamilyTransactions(
   });
 
   if (familyMembers.length === 0) {
-    return "already_imported"; // shouldn't happen since we checked lookup
+    return { count: 0, mode: "updated" }; // shouldn't happen since we checked lookup
   }
 
-  // Check if any IMPORT transaction already exists for the base member
-  const existingImport = await prisma.transaction.findFirst({
+  const existingImports = await prisma.transaction.findMany({
     where: {
-      beneficiary_id: familyMembers[0].id,
+      beneficiary_id: { in: familyMembers.map((m) => m.id) },
       type: TransactionType.IMPORT,
       facility_id: facilityId,
+      is_cancelled: false,
     },
+    select: { id: true, beneficiary_id: true, amount: true },
+    orderBy: { created_at: "asc" },
   });
-
-  if (existingImport) {
-    return "already_imported";
-  }
+  const hasExistingImport = existingImports.length > 0;
 
   // Distribute amount equally among family members
   const perMember = Math.round((totalUsedAmount / familyMembers.length) * 100) / 100;
   let transactionCount = 0;
 
+  const importsByMember = new Map<string, Array<{ id: string; amount: number }>>();
+  for (const tx of existingImports) {
+    const arr = importsByMember.get(tx.beneficiary_id) ?? [];
+    arr.push({ id: tx.id, amount: Number(tx.amount) });
+    importsByMember.set(tx.beneficiary_id, arr);
+  }
+
   await prisma.$transaction(async (tx) => {
     for (const member of familyMembers) {
       const currentBalance = Number(member.remaining_balance);
-      const deductAmount = Math.min(perMember, currentBalance);
+      const existingForMember = importsByMember.get(member.id) ?? [];
+      const previousImported = existingForMember.reduce((sum, item) => sum + Number(item.amount), 0);
 
-      if (deductAmount <= 0) continue;
-
-      const newBalance = currentBalance - deductAmount;
+      // نعيد بناء الرصيد قبل استيراد IMPORT ثم نطبق القيمة الجديدة
+      const balanceBeforeImport = currentBalance + previousImported;
+      const deductAmount = Math.min(perMember, balanceBeforeImport);
+      const newBalance = Math.max(0, balanceBeforeImport - deductAmount);
       const newStatus = newBalance <= 0 ? "FINISHED" : "ACTIVE";
 
       // Update balance
@@ -322,21 +352,42 @@ async function importFamilyTransactions(
         } as any,
       });
 
-      // Create transaction
-      await tx.transaction.create({
-        data: {
-          beneficiary_id: member.id,
-          facility_id: facilityId,
-          amount: deductAmount,
-          type: TransactionType.IMPORT,
-        },
-      });
+      if (deductAmount <= 0) {
+        if (existingForMember.length > 0) {
+          await tx.transaction.deleteMany({
+            where: { id: { in: existingForMember.map((item) => item.id) } },
+          });
+        }
+        continue;
+      }
+
+      if (existingForMember.length === 0) {
+        await tx.transaction.create({
+          data: {
+            beneficiary_id: member.id,
+            facility_id: facilityId,
+            amount: deductAmount,
+            type: TransactionType.IMPORT,
+          },
+        });
+      } else {
+        await tx.transaction.update({
+          where: { id: existingForMember[0].id },
+          data: { amount: deductAmount },
+        });
+
+        if (existingForMember.length > 1) {
+          await tx.transaction.deleteMany({
+            where: { id: { in: existingForMember.slice(1).map((item) => item.id) } },
+          });
+        }
+      }
 
       transactionCount++;
     }
   });
 
-  return { count: transactionCount };
+  return { count: transactionCount, mode: hasExistingImport ? "updated" : "created" };
 }
 
 // ─── Suspend Family ──────────────────────────────────────────────
@@ -372,8 +423,9 @@ async function suspendFamily(
         data: {
           total_balance: 0,
           remaining_balance: 0,
-          status: "FINISHED",
-          completed_via: "IMPORT",
+          // FIX: SUSPENDED وليس FINISHED — الإيقاف قرار خارجي وليس استنفاداً للرصيد
+          status: "SUSPENDED",
+          completed_via: null,
         } as any,
       }),
     ),

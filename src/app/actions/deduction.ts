@@ -12,10 +12,34 @@ export async function deductBalance(formData: {
   card_number: string;
   amount: number;
   type: "MEDICINE" | "SUPPLIES";
+  transactionDate?: Date;
+  facilityId?: string;
 }) {
   const session = await requireActiveFacilitySession();
   if (!session) {
     return { error: "غير مصرح لك بهذه العملية" };
+  }
+
+  let effectiveFacilityId = session.id;
+  let effectiveFacilityName = session.name;
+  const requestedFacilityId = typeof formData.facilityId === "string" ? formData.facilityId.trim() : "";
+
+  if (requestedFacilityId) {
+    if (!session.is_admin && requestedFacilityId !== session.id) {
+      return { error: "غير مصرح لك باختيار هذا المرفق" };
+    }
+
+    const targetFacility = await prisma.facility.findFirst({
+      where: { id: requestedFacilityId, deleted_at: null },
+      select: { id: true, name: true },
+    });
+
+    if (!targetFacility) {
+      return { error: "المرفق المحدد غير موجود" };
+    }
+
+    effectiveFacilityId = targetFacility.id;
+    effectiveFacilityName = targetFacility.name;
   }
 
   const rateLimitError = await checkRateLimit(`deduct:${session.id}`, "deduct");
@@ -27,6 +51,10 @@ export async function deductBalance(formData: {
   }
 
   const { card_number, amount, type } = validated.data;
+  const manualTransactionDate =
+    formData.transactionDate instanceof Date && !Number.isNaN(formData.transactionDate.getTime())
+      ? formData.transactionDate
+      : null;
 
   try {
     const result = await prisma.$transaction(async (tx) => {
@@ -46,6 +74,10 @@ export async function deductBalance(formData: {
 
       const beneficiary = beneficiaries[0];
 
+      // FIX: منع الخصم من المستفيدين الموقوفين (SUSPENDED) أيضاً
+      if (beneficiary.status === "SUSPENDED") {
+        throw new Error("حساب المستفيد موقوف ولا يمكن إجراء خصم عليه");
+      }
       if (beneficiary.status === "FINISHED" || beneficiary.remaining_balance <= 0) {
         throw new Error("رصيد المستفيد صفر أو مكتمل");
       }
@@ -72,9 +104,10 @@ export async function deductBalance(formData: {
       const transaction = await tx.transaction.create({
         data: {
           beneficiary_id: beneficiary.id,
-          facility_id: session.id,
+          facility_id: effectiveFacilityId,
           amount,
           type,
+          ...(manualTransactionDate ? { created_at: manualTransactionDate } : {}),
         },
       });
 
@@ -83,7 +116,7 @@ export async function deductBalance(formData: {
         data: {
           beneficiary_id: beneficiary.id,
           title: "تم خصم من رصيدك",
-          message: `تم خصم ${Number(amount).toLocaleString("ar-LY")} د.ل من رصيدك لدى ${session.name}`,
+          message: `تم خصم ${Number(amount).toLocaleString("ar-LY")} د.ل من رصيدك لدى ${effectiveFacilityName}`,
           amount,
         },
       });
@@ -91,7 +124,7 @@ export async function deductBalance(formData: {
       // 4. Create audit log
       await tx.auditLog.create({
         data: {
-          facility_id: session.id,
+          facility_id: effectiveFacilityId,
           user: session.username,
           action: "DEDUCT_BALANCE",
           metadata: {
@@ -100,6 +133,9 @@ export async function deductBalance(formData: {
             amount,
             type,
             transaction_id: transaction.id,
+            facility_id: effectiveFacilityId,
+            facility_name: effectiveFacilityName,
+            ...(manualTransactionDate ? { transaction_date: manualTransactionDate.toISOString() } : {}),
             ...(newStatus === "FINISHED" ? { beneficiary_completed: true } : {}),
           },
         },
@@ -115,7 +151,7 @@ export async function deductBalance(formData: {
           amount: Number(transaction.amount),
           type: transaction.type,
           created_at: transaction.created_at.toISOString(),
-          facility_name: session.name,
+          facility_name: effectiveFacilityName,
         },
       };
     });
@@ -123,7 +159,7 @@ export async function deductBalance(formData: {
     emitNotification(result.beneficiaryId, {
       id: result.notificationId,
       title: "تم خصم من رصيدك",
-      message: `تم خصم ${Number(amount).toLocaleString("ar-LY")} د.ل من رصيدك لدى ${session.name}`,
+      message: `تم خصم ${Number(amount).toLocaleString("ar-LY")} د.ل من رصيدك لدى ${effectiveFacilityName}`,
       amount,
       remaining_balance: result.newBalance,
       created_at: new Date().toISOString(),
@@ -139,6 +175,7 @@ export async function deductBalance(formData: {
     const knownErrors = [
       "المستفيد غير موجود",
       "رصيد المستفيد صفر أو مكتمل",
+      "حساب المستفيد موقوف ولا يمكن إجراء خصم عليه",
     ];
     const msg = error instanceof Error ? error.message : "";
     const safeMsg = knownErrors.includes(msg) || msg.startsWith("المبلغ أكبر من الرصيد")

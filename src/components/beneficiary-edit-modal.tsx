@@ -12,6 +12,8 @@ interface BeneficiaryEditModalProps {
     card_number: string;
     birth_date: string;
     status: "ACTIVE" | "FINISHED" | "SUSPENDED";
+    total_balance?: number;
+    remaining_balance?: number;
   };
 }
 
@@ -22,6 +24,8 @@ export function BeneficiaryEditModal({ beneficiary }: BeneficiaryEditModalProps)
   const [cardNumber, setCardNumber] = useState(beneficiary.card_number);
   const [birthDate, setBirthDate] = useState(beneficiary.birth_date);
   const [status, setStatus] = useState<"ACTIVE" | "FINISHED" | "SUSPENDED">(beneficiary.status);
+  const [totalBalance, setTotalBalance] = useState(beneficiary.total_balance ?? 600);
+  const [remainingBalance, setRemainingBalance] = useState(beneficiary.remaining_balance ?? 600);
   const [error, setError] = useState<string | null>(null);
 
   // إغلاق بمفتاح Escape
@@ -44,6 +48,8 @@ export function BeneficiaryEditModal({ beneficiary }: BeneficiaryEditModalProps)
           card_number: cardNumber,
           birth_date: birthDate,
           status,
+          total_balance: Number(totalBalance),
+          remaining_balance: Number(remainingBalance),
         });
 
         if (result.error) {
@@ -84,8 +90,8 @@ export function BeneficiaryEditModal({ beneficiary }: BeneficiaryEditModalProps)
               </button>
             </div>
 
-            <div className="space-y-3">
-              <div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="md:col-span-2">
                 <label className="mb-1 block text-xs font-black text-slate-500">الاسم</label>
                 <Input value={name} onChange={(e) => setName(e.target.value)} className="h-10" />
               </div>
@@ -101,6 +107,16 @@ export function BeneficiaryEditModal({ beneficiary }: BeneficiaryEditModalProps)
               </div>
 
               <div>
+                <label className="mb-1 block text-xs font-black text-slate-500">الرصيد الكلي</label>
+                <Input type="number" value={totalBalance} onChange={(e) => setTotalBalance(Number(e.target.value))} className="h-10 font-mono" />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-black text-slate-500">الرصيد المتبقي</label>
+                <Input type="number" value={remainingBalance} onChange={(e) => setRemainingBalance(Number(e.target.value))} className="h-10 font-mono bg-slate-50" />
+              </div>
+
+              <div className="md:col-span-2">
                 <label className="mb-1 block text-xs font-black text-slate-500">الحالة</label>
                 <select
                   value={status}
@@ -113,7 +129,10 @@ export function BeneficiaryEditModal({ beneficiary }: BeneficiaryEditModalProps)
                 </select>
               </div>
 
-              {error && <p className="text-sm font-bold text-red-600">{error}</p>}
+              {error && <p className="md:col-span-2 text-sm font-bold text-red-600">{error}</p>}
+              <p className="md:col-span-2 text-[10px] text-slate-500 leading-tight">
+                * ملاحظة: سيتم إعادة حساب الرصيد المتبقي تلقائياً بمجرد دمج البطاقات أو إجراء معاملة جديدة بناءً على الحركات المالية المسجلة.
+              </p>
             </div>
 
             <div className="mt-4 flex gap-2">

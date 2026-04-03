@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Search } from "lucide-react";
-import { Input } from "@/components/ui";
+import { Button, Input } from "@/components/ui";
 
 interface BeneficiariesSearchProps {
   initialQuery: string;
@@ -14,52 +14,44 @@ export function BeneficiariesSearch({ initialQuery }: BeneficiariesSearchProps) 
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [query, setQuery] = useState(initialQuery);
-  const isTypingRef = useRef(false);
 
-  const paramsSnapshot = useMemo(() => searchParams.toString(), [searchParams]);
+  const submitSearch = () => {
+    const currentQuery = (searchParams.get("q") ?? "").trim();
+    const nextQuery = query.trim();
+    if (currentQuery === nextQuery) return;
 
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      const currentQuery = (searchParams.get("q") ?? "").trim();
-      const nextQuery = query.trim();
+    const params = new URLSearchParams(searchParams.toString());
+    if (nextQuery) {
+      params.set("q", nextQuery);
+    } else {
+      params.delete("q");
+    }
 
-      if (currentQuery === nextQuery) {
-        isTypingRef.current = false;
-        return;
-      }
-
-      const params = new URLSearchParams(paramsSnapshot);
-      if (nextQuery) {
-        params.set("q", nextQuery);
-      } else {
-        params.delete("q");
-      }
-
-      // عند البحث نعود لأول صفحة
-      params.set("page", "1");
-
-      const next = params.toString();
-      router.replace(next ? `${pathname}?${next}` : pathname);
-
-      // نُعيد التعيين بعد الانتهاء
-      setTimeout(() => { isTypingRef.current = false; }, 100);
-    }, 400);
-
-    return () => clearTimeout(handler);
-  }, [query, pathname, router, paramsSnapshot, searchParams]);
+    params.set("page", "1");
+    const next = params.toString();
+    router.replace(next ? `${pathname}?${next}` : pathname);
+  };
 
   return (
-    <div className="relative">
-      <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
-      <Input
-        value={query}
-        onChange={(e) => {
-          isTypingRef.current = true;
-          setQuery(e.target.value);
-        }}
-        placeholder="ابحث بالاسم أو رقم البطاقة"
-        className="pr-10"
-      />
-    </div>
+    <form
+      className="flex gap-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        submitSearch();
+      }}
+    >
+      <div className="relative flex-1">
+        <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="ابحث بالاسم أو رقم البطاقة"
+          className="pr-10"
+        />
+      </div>
+      <Button type="submit" className="h-10 px-4 whitespace-nowrap">
+        بحث
+      </Button>
+    </form>
   );
 }

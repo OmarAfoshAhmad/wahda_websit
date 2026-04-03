@@ -1,136 +1,18 @@
-"use client";
+import { redirect } from "next/navigation";
+import { getSession } from "@/lib/auth";
+import { getCurrentInitialBalance } from "@/lib/initial-balance";
+import { SettingsPageClient } from "@/components/settings-page-client";
 
-import React, { useActionState, useState } from "react";
-import { voluntaryChangePassword } from "@/app/actions/auth";
-import { Button, Input, Card } from "@/components/ui";
-import { KeyRound, Loader2, CheckCircle2, Eye, EyeOff } from "lucide-react";
-import Link from "next/link";
+export default async function SettingsPage() {
+  const session = await getSession();
+  if (!session) redirect("/login");
 
-export default function SettingsPage() {
-  const [state, action, isPending] = useActionState(voluntaryChangePassword, undefined);
-  const [showCurrent, setShowCurrent] = useState(false);
-  const [showNew, setShowNew] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
+  const initialBalance = await getCurrentInitialBalance();
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4 py-10 sm:px-6">
-      <div className="w-full max-w-md">
-        <div className="mb-6 text-center">
-          <div className="mb-4 flex flex-col items-center gap-3">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-primary/30 bg-primary/5">
-              <KeyRound className="h-8 w-8 text-primary" />
-            </div>
-            <div>
-              <p className="text-base font-black text-slate-900">Waha Health Care</p>
-            </div>
-          </div>
-          <h2 className="section-title text-2xl font-black text-slate-950">تغيير كلمة المرور</h2>
-          <p className="mt-2 text-sm font-medium text-slate-500">
-            أدخل كلمة مرورك الحالية ثم اختر كلمة مرور جديدة.
-          </p>
-        </div>
-
-        <Card className="p-6">
-          {state?.success ? (
-            <div className="flex flex-col items-center gap-4 py-4 text-center">
-              <CheckCircle2 className="h-12 w-12 text-green-500" />
-              <p className="font-bold text-slate-800">{state.success}</p>
-              <Link
-                href="/dashboard"
-                className="mt-2 text-sm font-semibold text-primary hover:underline"
-              >
-                العودة إلى الرئيسية
-              </Link>
-            </div>
-          ) : (
-            <form action={action} className="space-y-5">
-              {state?.error && (
-                <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                  {state.error}
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <label className="block text-xs font-black uppercase tracking-[0.18em] text-slate-400">
-                  كلمة المرور الحالية
-                </label>
-                <div className="relative">
-                  <Input
-                    name="currentPassword"
-                    type={showCurrent ? "text" : "password"}
-                    autoComplete="current-password"
-                    placeholder="أدخل كلمة مرورك الحالية"
-                    className="h-12 pl-12 text-sm"
-                    required
-                  />
-                  <button type="button" onClick={() => setShowCurrent(!showCurrent)} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" tabIndex={-1}>
-                    {showCurrent ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="block text-xs font-black uppercase tracking-[0.18em] text-slate-400">
-                  كلمة المرور الجديدة
-                </label>
-                <div className="relative">
-                  <Input
-                    name="newPassword"
-                    type={showNew ? "text" : "password"}
-                    autoComplete="new-password"
-                    placeholder="6 أحرف على الأقل"
-                    className="h-12 pl-12 text-sm"
-                    required
-                    minLength={6}
-                  />
-                  <button type="button" onClick={() => setShowNew(!showNew)} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" tabIndex={-1}>
-                    {showNew ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="block text-xs font-black uppercase tracking-[0.18em] text-slate-400">
-                  تأكيد كلمة المرور
-                </label>
-                <div className="relative">
-                  <Input
-                    name="confirmPassword"
-                    type={showConfirm ? "text" : "password"}
-                    autoComplete="new-password"
-                    placeholder="أعد كتابة كلمة المرور الجديدة"
-                    className="h-12 pl-12 text-sm"
-                    required
-                  />
-                  <button type="button" onClick={() => setShowConfirm(!showConfirm)} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" tabIndex={-1}>
-                    {showConfirm ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                  </button>
-                </div>
-              </div>
-
-              <Button type="submit" disabled={isPending} className="h-12 w-full">
-                {isPending ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    جارٍ الحفظ...
-                  </span>
-                ) : (
-                  "حفظ كلمة المرور"
-                )}
-              </Button>
-
-              <div className="text-center">
-                <Link
-                  href="/dashboard"
-                  className="text-xs font-semibold text-slate-400 hover:text-slate-600 hover:underline"
-                >
-                  إلغاء والعودة
-                </Link>
-              </div>
-            </form>
-          )}
-        </Card>
-      </div>
-    </div>
+    <SettingsPageClient
+      initialBalance={initialBalance}
+      canManageInitialBalance={Boolean(session.is_admin)}
+    />
   );
 }

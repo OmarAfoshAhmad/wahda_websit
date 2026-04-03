@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button, Card } from "@/components/ui";
 import { Download, Upload, Loader2, CheckCircle2, AlertTriangle, Database, Shield } from "lucide-react";
+import { ConfirmationModal } from "@/components/confirmation-modal";
 
 type RestoreSummary = {
   users: { added: number; updated: number };
@@ -88,6 +89,7 @@ export function BackupClient() {
   const [restoreText, setRestoreText] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [restoreJob, setRestoreJob] = useState<RestoreJob | null>(null);
+  const [confirmCancelRestore, setConfirmCancelRestore] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const parseErrorFromResponse = async (res: Response, fallback: string) => {
@@ -111,22 +113,14 @@ export function BackupClient() {
       }
 
       const blob = await res.blob();
-      // تنظيف اسم الملف من الممكن أن يحتوي على أحرف خبيثة
-      const disposition = res.headers.get("Content-Disposition");
-      const filenameMatch = disposition?.match(/filename="(.+)"/);
-      let filename = filenameMatch?.[1] || `wahda-backup-${new Date().toISOString().slice(0, 10)}.wbk`;
-      // إزالة أي أحرف مسار أو أحرف خطرة
-      filename = filename.replace(/[/\\<>:"|?*]/g, "_").replace(/\.\./g, "");
-      if (!filename.endsWith(".wbk")) filename += ".wbk";
+      let filename = `wahda-backup-${new Date().toISOString().slice(0, 10)}.wbk`;
 
       const safeBlob = new Blob([blob], { type: "application/octet-stream" });
       const url = URL.createObjectURL(safeBlob);
       const a = document.createElement("a");
       a.href = url;
       a.download = filename;
-      document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
       setResult({ type: "success", message: "تم تحميل النسخة الاحتياطية بنجاح" });
@@ -212,8 +206,6 @@ export function BackupClient() {
 
   const handleCancelRunningRestore = async () => {
     if (!restoreJob) return;
-    const yes = window.confirm("هل تريد إلغاء عملية الاستعادة الحالية؟");
-    if (!yes) return;
 
     setCancelLoading(true);
     try {
@@ -233,6 +225,7 @@ export function BackupClient() {
       if (job) setRestoreJob(job);
 
       setImportLoading(false);
+      setConfirmCancelRestore(false);
       setResult({ type: "success", message: "تم إرسال أمر الإلغاء وسيتم إيقاف الاستعادة." });
     } catch (error) {
       setResult({ type: "error", message: error instanceof Error ? error.message : "تعذر إلغاء مهمة الاستعادة" });
@@ -424,7 +417,7 @@ export function BackupClient() {
               {(restoreJob.status === "PENDING" || restoreJob.status === "PROCESSING") && (
                 <Button
                   variant="outline"
-                  onClick={handleCancelRunningRestore}
+                  onClick={() => setConfirmCancelRestore(true)}
                   disabled={cancelLoading}
                   className="h-8 px-3 text-xs"
                 >
@@ -528,6 +521,17 @@ export function BackupClient() {
           </div>
         </div>
       )}
+
+      <ConfirmationModal
+        isOpen={confirmCancelRestore}
+        onClose={() => setConfirmCancelRestore(false)}
+        onConfirm={handleCancelRunningRestore}
+        isLoading={cancelLoading}
+        title="تأكيد إلغاء الاستعادة"
+        description="هل تريد إلغاء عملية الاستعادة الحالية؟"
+        confirmLabel="نعم، إلغاء الاستعادة"
+        variant="warning"
+      />
     </div>
   );
 }

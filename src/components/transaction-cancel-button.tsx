@@ -16,6 +16,8 @@ interface TransactionCancelButtonProps {
 export function TransactionCancelButton({ transactionId, isCancelled, type }: TransactionCancelButtonProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [undoModalOpen, setUndoModalOpen] = useState(false);
+  const [undoCancellationId, setUndoCancellationId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
@@ -42,6 +44,10 @@ export function TransactionCancelButton({ transactionId, isCancelled, type }: Tr
         // Cancel transaction
         const result = await cancelTransaction(transactionId);
         if (result.success) {
+          if (result.cancellationId) {
+            setUndoCancellationId(result.cancellationId);
+            setUndoModalOpen(true);
+          }
           router.refresh();
           setIsModalOpen(false);
         } else {
@@ -87,6 +93,29 @@ export function TransactionCancelButton({ transactionId, isCancelled, type }: Tr
           variant="danger"
         />
       )}
+
+      <ConfirmationModal
+        isOpen={undoModalOpen}
+        onClose={() => { setUndoModalOpen(false); setUndoCancellationId(null); }}
+        onConfirm={async () => {
+          if (!undoCancellationId) return;
+          setIsLoading(true);
+          const undoResult = await deleteCancellationTransaction(undoCancellationId);
+          if (!undoResult.success) {
+            setError(undoResult.error || "تعذر التراجع عن الإلغاء");
+          }
+          setIsLoading(false);
+          setUndoModalOpen(false);
+          setUndoCancellationId(null);
+          router.refresh();
+        }}
+        isLoading={isLoading}
+        error={error}
+        title="تم إلغاء الحركة"
+        description="هل تريد التراجع فوراً عن عملية الإلغاء وإعادة الخصم؟"
+        confirmLabel="نعم، تراجع الآن"
+        variant="warning"
+      />
     </>
   );
 }

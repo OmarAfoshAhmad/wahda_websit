@@ -8,10 +8,12 @@ import { getArabicSearchTerms } from "@/lib/search";
 import { Card, Badge, Input, Button } from "@/components/ui";
 import { PrintButton } from "@/components/print-button";
 import { ExportButton } from "@/components/export-button";
-import { TransactionCancelButton } from "@/components/transaction-cancel-button";
 import { PaginationButtons } from "@/components/pagination-buttons";
+import { bulkTransactionSelectionAction } from "@/app/actions/cancel-transaction";
+import { BulkTransactionActionButton } from "@/components/bulk-transaction-action-button";
+import { TransactionEditModal } from "../../components/transaction-edit-modal";
 import Link from "next/link";
-import { DatabaseBackup, FileInput } from "lucide-react";
+import { FileInput, PlusCircle } from "lucide-react";
 
 type TransactionRow = {
   id: string;
@@ -19,12 +21,23 @@ type TransactionRow = {
   type: string;
   is_cancelled: boolean;
   created_at: Date;
+  corrections: Array<{
+    id: string;
+    amount: unknown;
+    is_cancelled: boolean;
+  }>;
+  original_transaction: {
+    id: string;
+    amount: unknown;
+    is_cancelled: boolean;
+  } | null;
   beneficiary: {
     name: string;
     card_number: string;
     remaining_balance: unknown;
   };
   facility: {
+    id: string;
     name: string;
   };
 };
@@ -41,7 +54,18 @@ export default async function TransactionsPage({
   const PAGE_SIZE = 50;
   const page = Math.max(1, parseInt(pageParam ?? "1", 10) || 1);
 
-  const ALLOWED_STATUS = ["all", "active", "cancelled", "cancellation"] as const;
+  const facilities: Array<{ id: string; name: string }> = canAccessAdmin(session)
+    ? await prisma.facility.findMany({ where: { deleted_at: null }, select: { id: true, name: true }, orderBy: { name: "asc" } })
+    : [{ id: session.id, name: session.name }];
+
+  const rawFacilityFilter = (facility_id ?? "").trim();
+  const selectedFacility = facilities.find((f) => f.id === rawFacilityFilter || f.name === rawFacilityFilter);
+  const resolvedFacilityId = canAccessAdmin(session) ? selectedFacility?.id : session.id;
+  const facilityFilterInputValue = canAccessAdmin(session)
+    ? (selectedFacility?.name ?? rawFacilityFilter)
+    : session.name;
+
+  const ALLOWED_STATUS = ["all", "active", "cancelled", "cancellation", "deleted"] as const;
   type TxStatus = typeof ALLOWED_STATUS[number];
   const statusFilter: TxStatus = (ALLOWED_STATUS as ReadonlyArray<string>).includes(status ?? "") ? status as TxStatus : "all";
 
@@ -73,7 +97,7 @@ export default async function TransactionsPage({
 
   // كل مرفق يرى حركاته فقط — المشرف يرى الكل ويمكنه الفلترة
   const where: Prisma.TransactionWhereInput = canAccessAdmin(session)
-    ? (facility_id ? { facility_id } : {})
+    ? (resolvedFacilityId ? { facility_id: resolvedFacilityId } : {})
     : { facility_id: session.id };
 
   // فلتر الحالة
@@ -82,17 +106,38 @@ export default async function TransactionsPage({
     where.type = { not: "CANCELLATION" };
   } else if (statusFilter === "cancelled") {
     where.is_cancelled = true;
+    where.corrections = { some: { type: "CANCELLATION", is_cancelled: false } };
   } else if (statusFilter === "cancellation") {
+    where.is_cancelled = false;
     where.type = "CANCELLATION";
+  } else if (statusFilter === "deleted") {
+    where.is_cancelled = true;
+    where.corrections = { none: { type: "CANCELLATION", is_cancelled: false } };
+  } else {
+    where.OR = [
+      { is_cancelled: false },
+      {
+        is_cancelled: true,
+        corrections: { some: { type: "CANCELLATION", is_cancelled: false } },
+      },
+    ];
   }
 
   // فلترة بالبحث (اسم أو رقم بطاقة)
   const searchQuery = q?.trim().slice(0, 100) ?? "";
   if (searchQuery !== "") {
-    where.OR = getArabicSearchTerms(searchQuery).flatMap(t => [
+    const searchOr = getArabicSearchTerms(searchQuery).flatMap(t => [
       { beneficiary: { name: { contains: t, mode: "insensitive" as const } } },
       { beneficiary: { card_number: { contains: t, mode: "insensitive" as const } } },
     ]);
+
+    const existingAnd = Array.isArray(where.AND)
+      ? where.AND
+      : where.AND
+      ? [where.AND]
+      : [];
+
+    where.AND = [...existingAnd, { OR: searchOr }];
   }
 
   // فلترة بالتاريخ (من - إلى)
@@ -129,28 +174,38 @@ export default async function TransactionsPage({
         type: true,
         is_cancelled: true,
         created_at: true,
+        corrections: {
+          where: { type: "CANCELLATION", is_cancelled: false },
+          select: { id: true, amount: true, is_cancelled: true },
+          take: 1,
+        },
+        original_transaction: {
+          select: { id: true, amount: true, is_cancelled: true },
+        },
         beneficiary: { select: { name: true, card_number: true, remaining_balance: true } },
-        facility: { select: { name: true } },
+        facility: { select: { id: true, name: true } },
       },
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
     }),
     prisma.transaction.count({ where }),
-    prisma.transaction.aggregate({
-      where,
-      _sum: {
-        amount: true,
-      },
-    }),
+    hasDateFilter
+      ? prisma.transaction.aggregate({ where, _sum: { amount: true } })
+      : Promise.resolve({ _sum: { amount: 0 } }),
   ]);
 
   const totalAmount = aggregate._sum.amount ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
-  // المشرف يرى قائمة كل المرافق في الفلتر
-  const facilities: Array<{ id: string; name: string }> = canAccessAdmin(session)
-    ? await prisma.facility.findMany({ where: { deleted_at: null }, select: { id: true, name: true }, orderBy: { name: "asc" } })
-    : [{ id: session.id, name: session.name }];
+  // Use a shared datalist for all modals to save DOM memory
+  const globalDatalistId = "facilities-datalist-global";
+  const sharedDatalist = (
+    <datalist id={globalDatalistId}>
+      {facilities.map((f: { id: string; name: string }) => (
+        <option key={f.id} value={f.name} />
+      ))}
+    </datalist>
+  );
 
   return (
     <Shell facilityName={session.name} isAdmin={session.is_admin} isManager={session.is_manager}>
@@ -163,7 +218,7 @@ export default async function TransactionsPage({
            <h1 className="text-xl font-black text-black">Waha Health Care</h1>
            <h2 className="text-lg font-bold text-black mt-1">سجل الحركات (المراجعة الطبية)</h2>
            <p className="text-sm text-black mt-1 opacity-75">تاريخ استخراج التقرير: {new Date().toLocaleDateString("ar-LY")}</p>
-           {session.is_admin && facility_id && <p className="text-sm font-bold mt-1 text-black">خاص بالمرفق: {facilities.find((f: { id: string; name: string }) => f.id === facility_id)?.name}</p>}
+            {session.is_admin && resolvedFacilityId && <p className="text-sm font-bold mt-1 text-black">خاص بالمرفق: {selectedFacility?.name}</p>}
         </div>
         
         <div className="print:hidden">
@@ -176,24 +231,32 @@ export default async function TransactionsPage({
             </div>
             {/* أزرار الرأس — أيقونات فقط على الجوال، نص كامل على الشاشات الكبيرة */}
             <div className="no-print flex shrink-0 items-center gap-1.5 sm:gap-2">
+              <Link
+                href="/add-transaction"
+                title="إضافة حركة يدوية"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700 sm:w-auto sm:gap-1.5 sm:px-3"
+              >
+                <PlusCircle className="h-4 w-4 shrink-0" />
+                <span className="hidden text-sm font-bold sm:inline">إضافة حركة يدوية</span>
+              </Link>
               {session.is_admin && (
                 <Link
                   href="/import-transactions"
-                  title="استيراد الحركات"
+                  title="استيراد الحركات المجمعة"
                   className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700 sm:w-auto sm:gap-1.5 sm:px-3"
                 >
                   <FileInput className="h-4 w-4 shrink-0" />
-                  <span className="hidden text-sm font-bold sm:inline">استيراد الحركات</span>
+                  <span className="hidden text-sm font-bold sm:inline">استيراد الحركات المجمعة</span>
                 </Link>
               )}
               {session.is_admin && (
                 <Link
-                  href="/admin/backup"
-                  title="النسخ الاحتياطي"
+                  href="/import-report"
+                  title="استيراد حركات قديمة"
                   className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700 sm:w-auto sm:gap-1.5 sm:px-3"
                 >
-                  <DatabaseBackup className="h-4 w-4 shrink-0" />
-                  <span className="hidden text-sm font-bold sm:inline">النسخ الاحتياطي</span>
+                  <FileInput className="h-4 w-4 shrink-0" />
+                  <span className="hidden text-sm font-bold sm:inline">استيراد حركات قديمة</span>
                 </Link>
               )}
               <ExportButton searchParams={{ start_date, end_date, facility_id, q }} />
@@ -271,22 +334,25 @@ export default async function TransactionsPage({
                   <option value="active">منفذة فعلياً</option>
                   <option value="cancelled">ملغاة</option>
                   <option value="cancellation">إلغاء حركة (تصحيح)</option>
+                  <option value="deleted">محذوفة (حذف ناعم)</option>
                 </select>
               </div>
               
               {session.is_admin && (
                 <div className="space-y-1">
                   <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">المرفق</label>
-                  <select
+                  <Input
                     name="facility_id"
-                    defaultValue={facility_id}
-                    className="flex h-10 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
-                  >
-                    <option value="">كل المرافق</option>
+                    defaultValue={facilityFilterInputValue}
+                    placeholder="كل المرافق"
+                    list="facilities-list"
+                    autoComplete="off"
+                  />
+                  <datalist id="facilities-list">
                     {facilities.map((f: { id: string; name: string }) => (
-                      <option key={f.id} value={f.id}>{f.name}</option>
+                      <option key={f.id} value={f.name} />
                     ))}
-                  </select>
+                  </datalist>
                 </div>
               )}
               
@@ -337,11 +403,19 @@ export default async function TransactionsPage({
         </div>
 
         {/* ══ عرض الجدول — شاشة كبيرة فقط ══ */}
-        <Card className="hidden overflow-hidden pb-0 sm:block">
+        <form action={bulkTransactionSelectionAction} className="hidden sm:block">
+        <Card className="overflow-hidden pb-0">
+          {session.is_admin && (
+            <div className="flex items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/40 px-4 py-3 sm:px-6">
+              <p className="text-xs font-bold text-slate-500 dark:text-slate-400">يمكنك تحديد أكثر من حركة ثم تنفيذ الإلغاء الجماعي للحركات القابلة للإلغاء.</p>
+              <BulkTransactionActionButton statusFilter={statusFilter} />
+            </div>
+          )}
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
                 <tr>
+                  {session.is_admin && <th className="px-4 py-4 text-xs font-black text-slate-400 dark:text-slate-500">تحديد</th>}
                   <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500">#</th>
                   <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500">المستفيد</th>
                   {session.is_admin && <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500">المرفق</th>}
@@ -358,17 +432,37 @@ export default async function TransactionsPage({
                     </Link>
                   </th>
                   <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 text-center">الحالة</th>
-                  {session.is_admin && <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 no-print">إلغاء</th>}
+                  {session.is_admin && <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 no-print">تعديل</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
                 {transactions.length === 0 ? (
                   <tr>
-                    <td colSpan={session.is_admin ? 9 : 8} className="px-6 py-10 text-center italic text-slate-500 dark:text-slate-400">لا توجد نتائج مطابقة للفلاتر الحالية.</td>
+                    <td colSpan={session.is_admin ? 10 : 8} className="px-6 py-10 text-center italic text-slate-500 dark:text-slate-400">لا توجد نتائج مطابقة للفلاتر الحالية.</td>
                   </tr>
                 ) : (
                   transactions.map((tx: TransactionRow, idx: number) => (
                     <tr key={tx.id} className={`transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50 ${tx.is_cancelled ? "bg-red-50/50 dark:bg-red-900/10 hover:bg-red-50 dark:hover:bg-red-900/20" : ""} ${tx.type === "CANCELLATION" ? "bg-green-50/50 dark:bg-green-900/10 hover:bg-green-50 dark:hover:bg-green-900/20" : ""}`}>
+                      {session.is_admin && (
+                        <td className="px-4 py-4">
+                          <input
+                            type="checkbox"
+                            name="ids"
+                            value={tx.id}
+                            data-bulk-tx-checkbox="1"
+                            data-tx-type={tx.type}
+                            disabled={
+                              tx.is_cancelled && (tx.corrections.length > 0 || statusFilter !== "deleted")
+                            }
+                            title={
+                              tx.is_cancelled && (tx.corrections.length > 0 || statusFilter !== "deleted")
+                                ? "هذه الحركة غير قابلة للإجراء الجماعي"
+                                : "تحديد الحركة"
+                            }
+                            className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-40"
+                          />
+                        </td>
+                      )}
                       <td className="px-6 py-4 font-mono text-xs text-slate-500 dark:text-slate-400 font-bold">{(page - 1) * PAGE_SIZE + idx + 1}</td>
                       <td className="px-6 py-4">
                         <p className="font-bold text-slate-900 dark:text-white">{tx.beneficiary.name}</p>
@@ -389,21 +483,77 @@ export default async function TransactionsPage({
                         )}
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <span className={`font-black ${tx.type === "CANCELLATION" ? "text-green-700 dark:text-green-400" : (tx.is_cancelled ? "text-slate-400 dark:text-slate-600 line-through" : "text-slate-900 dark:text-white")}`}>
-                          {Number(tx.amount).toLocaleString("ar-LY")}
-                        </span>
+                        {(() => {
+                          const currentBalance = Number(tx.beneficiary.remaining_balance);
+                          const linkedRefund = tx.type === "CANCELLATION"
+                            ? Math.abs(Number(tx.amount))
+                            : (tx.corrections[0] ? Math.abs(Number(tx.corrections[0].amount)) : 0);
+                          const balanceAtExecution = Math.max(0, currentBalance - linkedRefund);
+
+                          if (tx.type === "CANCELLATION") {
+                            return (
+                              <div className="inline-flex flex-col items-end">
+                                <span className="font-black text-green-700 dark:text-green-400">
+                                  +{Math.abs(Number(tx.amount)).toLocaleString("ar-LY")}
+                                </span>
+                              </div>
+                            );
+                          }
+
+                          if (tx.is_cancelled) {
+                            return (
+                              <div className="inline-flex flex-col items-end">
+                                <span className="font-black text-slate-600 dark:text-slate-300">
+                                  {Number(tx.amount).toLocaleString("ar-LY")}
+                                </span>
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <span className="font-black text-slate-900 dark:text-white">{Number(tx.amount).toLocaleString("ar-LY")}</span>
+                          );
+                        })()}
                         <span className="mr-3 text-[10px] text-slate-400 dark:text-slate-500">د.ل</span>
                       </td>
                       <td className="px-6 py-4 text-right">
-                         <span className="font-medium text-slate-700 dark:text-slate-300">{Number(tx.beneficiary.remaining_balance).toLocaleString("ar-LY")}</span>
-                         <span className="mr-3 text-[10px] text-slate-400 dark:text-slate-500">د.ل</span>
+                        {(() => {
+                          const currentBalance = Number(tx.beneficiary.remaining_balance);
+                          const linkedRefund = tx.type === "CANCELLATION"
+                            ? Math.abs(Number(tx.amount))
+                            : (tx.corrections[0] ? Math.abs(Number(tx.corrections[0].amount)) : 0);
+                          const balanceAtExecution = Math.max(0, currentBalance - linkedRefund);
+
+                          if (tx.type === "CANCELLATION") {
+                            return (
+                              <div className="inline-flex flex-col items-end">
+                                <span className="font-medium text-emerald-700 dark:text-emerald-400">{currentBalance.toLocaleString("ar-LY")}</span>
+                              </div>
+                            );
+                          }
+
+                          if (tx.is_cancelled && linkedRefund > 0) {
+                            return (
+                              <div className="inline-flex flex-col items-end">
+                                <span className="font-medium text-slate-700 dark:text-slate-300">{balanceAtExecution.toLocaleString("ar-LY")}</span>
+                              </div>
+                            );
+                          }
+
+                          return <span className="font-medium text-slate-700 dark:text-slate-300">{currentBalance.toLocaleString("ar-LY")}</span>;
+                        })()}
+                        <span className="mr-3 text-[10px] text-slate-400 dark:text-slate-500">د.ل</span>
                       </td>
                       <td className="px-6 py-4 text-right">
                         <p className="text-sm text-slate-900 dark:text-slate-300">{new Date(tx.created_at).toLocaleDateString("ar-LY")}</p>
                       </td>
                       <td className="px-6 py-4 text-center">
                         {tx.is_cancelled ? (
-                          <span className="font-bold text-red-600 dark:text-red-400 text-xs text-nowrap">ملغاة</span>
+                          tx.corrections.length > 0 ? (
+                            <span className="font-bold text-red-600 dark:text-red-400 text-xs text-nowrap">ملغاة</span>
+                          ) : (
+                            <span className="font-bold text-slate-500 dark:text-slate-400 text-xs text-nowrap">محذوفة</span>
+                          )
                         ) : tx.type === "CANCELLATION" ? (
                           <span className="font-bold text-green-600 dark:text-green-400 text-xs text-nowrap">حركة مصححة</span>
                         ) : (
@@ -412,7 +562,19 @@ export default async function TransactionsPage({
                       </td>
                       {session.is_admin && (
                         <td className="px-6 py-4 text-center no-print">
-                          <TransactionCancelButton transactionId={tx.id} isCancelled={tx.is_cancelled} type={tx.type} />
+                          <TransactionEditModal
+                            transaction={{
+                              id: tx.id,
+                              amount: Number(tx.amount),
+                              type: tx.type,
+                              created_at: tx.created_at.toISOString(),
+                              facility_id: tx.facility.id,
+                              facility_name: tx.facility.name,
+                              is_cancelled: tx.is_cancelled,
+                            }}
+                            facilities={facilities}
+                            datalistId={globalDatalistId}
+                          />
                         </td>
                       )}
                     </tr>
@@ -422,7 +584,7 @@ export default async function TransactionsPage({
               {transactions.length > 0 && (
                 <tfoot className="bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-800 font-black">
                   <tr>
-                    <td colSpan={session.is_admin ? 4 : 3} className="px-6 py-4 text-left text-slate-900 dark:text-white">الإجمالي الكلي</td>
+                    <td colSpan={session.is_admin ? 5 : 3} className="px-6 py-4 text-left text-slate-900 dark:text-white">الإجمالي الكلي</td>
                     <td className="px-6 py-4 text-right">
                       <span className="text-slate-900 dark:text-white">{Number(totalAmount).toLocaleString("ar-LY")}</span>
                       <span className="mr-3 text-[10px] text-slate-400 dark:text-slate-500">د.ل</span>
@@ -434,6 +596,7 @@ export default async function TransactionsPage({
             </table>
           </div>
         </Card>
+        </form>
       </div>
 
       {/* ══ شريط الإحصائيات الثابت في أسفل الشاشة دائماً ══ */}
@@ -464,6 +627,7 @@ export default async function TransactionsPage({
           </div>
         </div>
       </div>
+      {sharedDatalist}
     </Shell>
   );
 }
