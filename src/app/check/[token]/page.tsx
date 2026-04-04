@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { verifyBeneficiaryToken } from "@/lib/beneficiary-token";
+import { getLedgerRemainingByBeneficiaryId } from "@/lib/ledger-balance";
 import { Wallet, CalendarDays, ShieldX } from "lucide-react";
 
 const TYPE_LABELS: Record<string, string> = {
@@ -64,7 +65,7 @@ export default async function CheckTokenPage({
   if (!beneficiary) notFound();
 
   const totalBalance     = Number(beneficiary.total_balance);
-  const remainingBalance = Number(beneficiary.remaining_balance);
+  const remainingBalance = await getLedgerRemainingByBeneficiaryId(beneficiaryId, totalBalance);
   const usedBalance      = totalBalance - remainingBalance;
   const statusInfo       = STATUS_MAP[beneficiary.status] ?? STATUS_MAP.ACTIVE;
 

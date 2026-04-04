@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { getBeneficiarySession } from "@/lib/beneficiary-auth";
+import { getLedgerRemainingByBeneficiaryId } from "@/lib/ledger-balance";
 import { BeneficiaryDashboardClient } from "./client";
 
 export default async function BeneficiaryDashboardPage() {
@@ -39,13 +40,16 @@ export default async function BeneficiaryDashboardPage() {
 
   if (!beneficiary) redirect("/beneficiary/login");
 
+  const totalBalance = Number(beneficiary.total_balance);
+  const remainingBalance = await getLedgerRemainingByBeneficiaryId(beneficiary.id, totalBalance);
+
   const data = {
     id: beneficiary.id,
     name: beneficiary.name,
     card_number: beneficiary.card_number,
     birth_date: beneficiary.birth_date?.toISOString() ?? null,
-    total_balance: Number(beneficiary.total_balance),
-    remaining_balance: Number(beneficiary.remaining_balance),
+    total_balance: totalBalance,
+    remaining_balance: remainingBalance,
     status: beneficiary.status,
     transactions: beneficiary.transactions.map((t) => ({
       id: t.id,

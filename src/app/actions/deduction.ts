@@ -86,12 +86,12 @@ export async function deductBalance(formData: {
         throw new Error(`المبلغ أكبر من الرصيد المتاح (${Number(beneficiary.remaining_balance).toLocaleString("ar-LY")} د.ل)`);
       }
 
+      const balanceBefore = Number(beneficiary.remaining_balance);
       const newBalance = beneficiary.remaining_balance - amount;
       const newStatus = newBalance <= 0 ? "FINISHED" : "ACTIVE";
 
       // 2. Update beneficiary
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (tx.beneficiary.update as any)({
+      await tx.beneficiary.update({
         where: { id: beneficiary.id },
         data: {
           remaining_balance: newBalance,
@@ -132,6 +132,8 @@ export async function deductBalance(formData: {
             card_number,
             amount,
             type,
+            balance_before: balanceBefore,
+            balance_after: newBalance,
             transaction_id: transaction.id,
             facility_id: effectiveFacilityId,
             facility_name: effectiveFacilityName,

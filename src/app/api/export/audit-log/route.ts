@@ -19,6 +19,11 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "DEDUCT_BALANCE",
     "CANCEL_TRANSACTION",
     "REVERT_CANCELLATION",
+    "SOFT_DELETE_TRANSACTION",
+    "RESTORE_SOFT_DELETED_TRANSACTION",
+    "PERMANENT_DELETE_TRANSACTION",
+    "BULK_CANCEL_TRANSACTION",
+    "BULK_REDEDUCT_TRANSACTION",
     "IMPORT_TRANSACTIONS",
     "CREATE_FACILITY",
     "IMPORT_FACILITIES",
@@ -31,7 +36,17 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "PERMANENT_DELETE_BENEFICIARY",
     "RESTORE_BENEFICIARY",
   ],
-  transactions: ["DEDUCT_BALANCE", "CANCEL_TRANSACTION", "REVERT_CANCELLATION", "IMPORT_TRANSACTIONS"],
+  transactions: [
+    "DEDUCT_BALANCE",
+    "CANCEL_TRANSACTION",
+    "REVERT_CANCELLATION",
+    "SOFT_DELETE_TRANSACTION",
+    "RESTORE_SOFT_DELETED_TRANSACTION",
+    "PERMANENT_DELETE_TRANSACTION",
+    "BULK_CANCEL_TRANSACTION",
+    "BULK_REDEDUCT_TRANSACTION",
+    "IMPORT_TRANSACTIONS",
+  ],
   facilities: ["CREATE_FACILITY", "IMPORT_FACILITIES", "DELETE_FACILITY"],
 };
 
@@ -53,6 +68,16 @@ function actionLabel(action: string) {
       return "حذف/إلغاء حركة";
     case "REVERT_CANCELLATION":
       return "استرجاع حركة ملغاة";
+    case "SOFT_DELETE_TRANSACTION":
+      return "حذف ناعم لحركة";
+    case "RESTORE_SOFT_DELETED_TRANSACTION":
+      return "استرجاع حركة محذوفة ناعماً";
+    case "PERMANENT_DELETE_TRANSACTION":
+      return "حذف نهائي لحركات";
+    case "BULK_CANCEL_TRANSACTION":
+      return "إلغاء جماعي لحركات";
+    case "BULK_REDEDUCT_TRANSACTION":
+      return "إعادة خصم جماعي";
     case "IMPORT_TRANSACTIONS":
       return "استيراد حركات";
     case "CREATE_FACILITY":
@@ -79,7 +104,7 @@ function summarizeMetadata(action: string, metadata: unknown): string {
   }
 
   if (action === "DEDUCT_BALANCE") {
-    return `بطاقة: ${String(m.card_number ?? "-")} · مبلغ: ${String(m.amount ?? "-")}`;
+    return `بطاقة: ${String(m.card_number ?? "-")} · مبلغ: ${String(m.amount ?? "-")} · قبل: ${String(m.balance_before ?? "-")} · بعد: ${String(m.balance_after ?? "-")}`;
   }
 
   if (action === "IMPORT_BENEFICIARIES_BACKGROUND") {
@@ -87,11 +112,27 @@ function summarizeMetadata(action: string, metadata: unknown): string {
   }
 
   if (action === "CANCEL_TRANSACTION") {
-    return `حركة: ${String(m.original_transaction_id ?? "-")} · مبلغ مرتجع: ${String(m.refunded_amount ?? "-")}`;
+    return `حركة: ${String(m.original_transaction_id ?? "-")} · مبلغ مرتجع: ${String(m.refunded_amount ?? "-")} · قبل: ${String(m.balance_before ?? "-")} · بعد: ${String(m.balance_after ?? "-")}`;
   }
 
   if (action === "REVERT_CANCELLATION") {
-    return `إلغاء: ${String(m.cancellation_transaction_id ?? "-")} · حركة أصلية: ${String(m.original_transaction_id ?? "-")}`;
+    return `إلغاء: ${String(m.cancellation_transaction_id ?? "-")} · حركة أصلية: ${String(m.original_transaction_id ?? "-")} · قبل: ${String(m.balance_before ?? "-")} · بعد: ${String(m.balance_after ?? "-")}`;
+  }
+
+  if (action === "SOFT_DELETE_TRANSACTION") {
+    return `حركة: ${String(m.transaction_id ?? "-")} · مبلغ مرتجع: ${String(m.refunded_amount ?? "-")} · قبل: ${String(m.balance_before ?? "-")} · بعد: ${String(m.balance_after ?? "-")}`;
+  }
+
+  if (action === "RESTORE_SOFT_DELETED_TRANSACTION") {
+    return `حركة: ${String(m.transaction_id ?? "-")} · مبلغ مخصوم: ${String(m.deducted_amount ?? "-")} · قبل: ${String(m.balance_before ?? "-")} · بعد: ${String(m.balance_after ?? "-")}`;
+  }
+
+  if (action === "PERMANENT_DELETE_TRANSACTION") {
+    return `محذوف نهائي: ${String(m.deleted_count ?? "-")} · تأثير الرصيد: ${String(m.balance_impact ?? 0)}`;
+  }
+
+  if (action === "BULK_CANCEL_TRANSACTION" || action === "BULK_REDEDUCT_TRANSACTION") {
+    return `محدد: ${String(m.selected_count ?? "-")} · منفذ: ${String(m.processed_count ?? "-")} · ناجح: ${String(m.cancelled_count ?? m.rededucted_count ?? "-")} · متخطى: ${String(m.skipped_count ?? "-")}`;
   }
 
   if (action === "IMPORT_TRANSACTIONS") {

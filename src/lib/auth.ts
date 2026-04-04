@@ -93,18 +93,23 @@ export async function updateSession(request: NextRequest) {
   const session = request.cookies.get("session")?.value;
   if (!session) return;
 
-  // Refresh the session so it doesn't expire
-  const parsed = await decrypt(session);
-  parsed.expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
-  const res = NextResponse.next();
-  res.cookies.set({
-    name: "session",
-    value: await encrypt(parsed as Record<string, unknown>),
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
-    path: "/",
-    expires: parsed.expires as Date,
-  });
-  return res;
+  // FIX SEC-03: JWT فاسد (تلاعب أو انتهاء المفتاح) يجب ألا يُسقط الـ middleware
+  try {
+    const parsed = await decrypt(session);
+    parsed.expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const res = NextResponse.next();
+    res.cookies.set({
+      name: "session",
+      value: await encrypt(parsed as Record<string, unknown>),
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      path: "/",
+      expires: parsed.expires as Date,
+    });
+    return res;
+  } catch {
+    // JWT فاسد أو منتهي — نتجاهل تجديده بصمت (المستخدم سيُعاد توجيهه عند الطلب التالي)
+    return;
+  }
 }

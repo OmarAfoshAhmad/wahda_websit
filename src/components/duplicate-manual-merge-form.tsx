@@ -76,7 +76,7 @@ export function DuplicateManualMergeForm({
         {members.map((m) => (
           <input key={`mid-${m.id}`} type="hidden" name="member_ids" value={m.id} />
         ))}
-        <Button type="submit" variant="outline" className="h-7 px-2 text-xs">تطبيق الدمج المخصص</Button>
+        <Button type="submit" className="h-8 px-3 text-xs">تطبيق الدمج المخصص</Button>
       </div>
 
       <div className="overflow-x-auto">
@@ -92,6 +92,7 @@ export function DuplicateManualMergeForm({
               <th className="py-1 px-2">الحالة</th>
               <th className="py-1 px-2">تاريخ الميلاد</th>
               <th className="py-1 px-2">المعاملات</th>
+              <th className="py-1 px-2">إجراءات</th>
               <th className="py-1 px-2">القرار</th>
             </tr>
           </thead>
@@ -123,23 +124,25 @@ export function DuplicateManualMergeForm({
                   <td className="py-1 px-2 text-slate-600 dark:text-slate-400 text-xs">{birthDateStr}</td>
                   <td className="py-1 px-2 text-slate-700 dark:text-slate-300">{m.transactionsCount}</td>
                   <td className="py-1 px-2">
+                    <BeneficiaryEditModal
+                      beneficiary={{
+                        id: m.id,
+                        name: m.name,
+                        card_number: m.card_number,
+                        birth_date: m.birth_date ? new Date(m.birth_date).toISOString().slice(0, 10) : "",
+                        status: m.status as any,
+                        total_balance: m.total_balance,
+                        remaining_balance: m.remaining_balance,
+                      }}
+                    />
+                  </td>
+                  <td className="py-1 px-2">
                     <div className="flex items-center gap-2">
                       {isKeep ? (
                         <span className="text-emerald-700 dark:text-emerald-400 text-xs font-black">إبقاء</span>
                       ) : (
                         <span className="text-red-600 dark:text-red-400 text-xs font-black">حذف ناعم</span>
                       )}
-                      <BeneficiaryEditModal
-                        beneficiary={{
-                          id: m.id,
-                          name: m.name,
-                          card_number: m.card_number,
-                          birth_date: m.birth_date ? new Date(m.birth_date).toISOString().slice(0, 10) : "",
-                          status: m.status as any,
-                          total_balance: m.total_balance,
-                          remaining_balance: m.remaining_balance,
-                        }}
-                      />
                     </div>
                   </td>
                 </tr>

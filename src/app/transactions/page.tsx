@@ -11,12 +11,14 @@ import { ExportButton } from "@/components/export-button";
 import { PaginationButtons } from "@/components/pagination-buttons";
 import { bulkTransactionSelectionAction } from "@/app/actions/cancel-transaction";
 import { BulkTransactionActionButton } from "@/components/bulk-transaction-action-button";
+import { SelectAllTransactionsCheckbox } from "@/components/select-all-transactions-checkbox";
 import { TransactionEditModal } from "../../components/transaction-edit-modal";
 import Link from "next/link";
 import { FileInput, PlusCircle } from "lucide-react";
 
 type TransactionRow = {
   id: string;
+  beneficiary_id: string;
   amount: unknown;
   type: string;
   is_cancelled: boolean;
@@ -170,6 +172,7 @@ export default async function TransactionsPage({
       orderBy: { [sortCol]: sortDir },
       select: {
         id: true,
+        beneficiary_id: true,
         amount: true,
         type: true,
         is_cancelled: true,
@@ -193,6 +196,71 @@ export default async function TransactionsPage({
       ? prisma.transaction.aggregate({ where, _sum: { amount: true } })
       : Promise.resolve({ _sum: { amount: 0 } }),
   ]);
+
+  const transactionRows = transactions as TransactionRow[];
+  const displayedBeneficiaryIds = [...new Set(transactionRows.map((tx) => tx.beneficiary_id))];
+  const maxDisplayedCreatedAt = transactionRows.reduce<Date | null>((acc, tx) => {
+    if (!acc || tx.created_at > acc) return tx.created_at;
+    return acc;
+  }, null);
+
+  const historicalBalanceByTxId = new Map<string, number>();
+  if (displayedBeneficiaryIds.length > 0 && maxDisplayedCreatedAt) {
+    const [beneficiaryTotals, historyRows] = await Promise.all([
+      prisma.beneficiary.findMany({
+        where: { id: { in: displayedBeneficiaryIds } },
+        select: { id: true, total_balance: true },
+      }),
+      prisma.transaction.findMany({
+        where: {
+          beneficiary_id: { in: displayedBeneficiaryIds },
+          created_at: { lte: maxDisplayedCreatedAt },
+        },
+        select: {
+          id: true,
+          beneficiary_id: true,
+          amount: true,
+          type: true,
+          is_cancelled: true,
+          original_transaction_id: true,
+          created_at: true,
+        },
+        orderBy: [{ created_at: "asc" }, { id: "asc" }],
+      }),
+    ]);
+
+    const runningByBeneficiary = new Map<string, number>(
+      beneficiaryTotals.map((b) => [b.id, Number(b.total_balance)])
+    );
+
+    const correctedOriginalIds = new Set(
+      historyRows
+        .filter((tx) => tx.type === "CANCELLATION" && !tx.is_cancelled && tx.original_transaction_id)
+        .map((tx) => tx.original_transaction_id as string)
+    );
+
+    for (const tx of historyRows) {
+      const isActiveCancellation = tx.type === "CANCELLATION" && !tx.is_cancelled;
+      const isOriginalWithCorrection = tx.type !== "CANCELLATION" && correctedOriginalIds.has(tx.id);
+      const isActiveDeduction = tx.type !== "CANCELLATION" && !tx.is_cancelled;
+
+      if (!isActiveCancellation && !isOriginalWithCorrection && !isActiveDeduction) {
+        continue;
+      }
+
+      const current = runningByBeneficiary.get(tx.beneficiary_id) ?? 0;
+      let next = current;
+
+      if (tx.type === "CANCELLATION") {
+        next = current + Math.abs(Number(tx.amount));
+      } else {
+        next = current - Number(tx.amount);
+      }
+
+      runningByBeneficiary.set(tx.beneficiary_id, next);
+      historicalBalanceByTxId.set(tx.id, Math.max(0, next));
+    }
+  }
 
   const totalAmount = aggregate._sum.amount ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
@@ -415,7 +483,11 @@ export default async function TransactionsPage({
             <table className="w-full text-left border-collapse">
               <thead className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
                 <tr>
-                  {session.is_admin && <th className="px-4 py-4 text-xs font-black text-slate-400 dark:text-slate-500">تحديد</th>}
+                  {session.is_admin && (
+                    <th className="px-4 py-4 text-xs font-black text-slate-400 dark:text-slate-500">
+                      <SelectAllTransactionsCheckbox />
+                    </th>
+                  )}
                   <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500">#</th>
                   <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500">المستفيد</th>
                   {session.is_admin && <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500">المرفق</th>}
@@ -436,12 +508,12 @@ export default async function TransactionsPage({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                {transactions.length === 0 ? (
+                {transactionRows.length === 0 ? (
                   <tr>
                     <td colSpan={session.is_admin ? 10 : 8} className="px-6 py-10 text-center italic text-slate-500 dark:text-slate-400">لا توجد نتائج مطابقة للفلاتر الحالية.</td>
                   </tr>
                 ) : (
-                  transactions.map((tx: TransactionRow, idx: number) => (
+                  transactionRows.map((tx: TransactionRow, idx: number) => (
                     <tr key={tx.id} className={`transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50 ${tx.is_cancelled ? "bg-red-50/50 dark:bg-red-900/10 hover:bg-red-50 dark:hover:bg-red-900/20" : ""} ${tx.type === "CANCELLATION" ? "bg-green-50/50 dark:bg-green-900/10 hover:bg-green-50 dark:hover:bg-green-900/20" : ""}`}>
                       {session.is_admin && (
                         <td className="px-4 py-4">
@@ -484,12 +556,6 @@ export default async function TransactionsPage({
                       </td>
                       <td className="px-6 py-4 text-right">
                         {(() => {
-                          const currentBalance = Number(tx.beneficiary.remaining_balance);
-                          const linkedRefund = tx.type === "CANCELLATION"
-                            ? Math.abs(Number(tx.amount))
-                            : (tx.corrections[0] ? Math.abs(Number(tx.corrections[0].amount)) : 0);
-                          const balanceAtExecution = Math.max(0, currentBalance - linkedRefund);
-
                           if (tx.type === "CANCELLATION") {
                             return (
                               <div className="inline-flex flex-col items-end">
@@ -518,29 +584,27 @@ export default async function TransactionsPage({
                       </td>
                       <td className="px-6 py-4 text-right">
                         {(() => {
+                          const historicalBalance = historicalBalanceByTxId.get(tx.id);
                           const currentBalance = Number(tx.beneficiary.remaining_balance);
-                          const linkedRefund = tx.type === "CANCELLATION"
-                            ? Math.abs(Number(tx.amount))
-                            : (tx.corrections[0] ? Math.abs(Number(tx.corrections[0].amount)) : 0);
-                          const balanceAtExecution = Math.max(0, currentBalance - linkedRefund);
+                          const shownBalance = typeof historicalBalance === "number" ? historicalBalance : currentBalance;
 
                           if (tx.type === "CANCELLATION") {
                             return (
                               <div className="inline-flex flex-col items-end">
-                                <span className="font-medium text-emerald-700 dark:text-emerald-400">{currentBalance.toLocaleString("ar-LY")}</span>
+                                <span className="font-medium text-emerald-700 dark:text-emerald-400">{shownBalance.toLocaleString("ar-LY")}</span>
                               </div>
                             );
                           }
 
-                          if (tx.is_cancelled && linkedRefund > 0) {
+                          if (tx.is_cancelled && (tx.corrections.length > 0)) {
                             return (
                               <div className="inline-flex flex-col items-end">
-                                <span className="font-medium text-slate-700 dark:text-slate-300">{balanceAtExecution.toLocaleString("ar-LY")}</span>
+                                <span className="font-medium text-slate-700 dark:text-slate-300 line-through opacity-70">{shownBalance.toLocaleString("ar-LY")}</span>
                               </div>
                             );
                           }
 
-                          return <span className="font-medium text-slate-700 dark:text-slate-300">{currentBalance.toLocaleString("ar-LY")}</span>;
+                          return <span className="font-medium text-slate-700 dark:text-slate-300">{shownBalance.toLocaleString("ar-LY")}</span>;
                         })()}
                         <span className="mr-3 text-[10px] text-slate-400 dark:text-slate-500">د.ل</span>
                       </td>
@@ -581,7 +645,7 @@ export default async function TransactionsPage({
                   ))
                 )}
               </tbody>
-              {transactions.length > 0 && (
+              {transactionRows.length > 0 && (
                 <tfoot className="bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-800 font-black">
                   <tr>
                     <td colSpan={session.is_admin ? 5 : 3} className="px-6 py-4 text-left text-slate-900 dark:text-white">الإجمالي الكلي</td>

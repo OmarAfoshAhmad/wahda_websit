@@ -35,28 +35,29 @@ const getCachedAdminStats = unstable_cache(
 );
 
 // ─── كاش حركات اليوم للحساب الحالي: تتحدث كل 30 ثانية ───
-const getCachedTodayStats = unstable_cache(
-  async (facilityId: string) => {
-    // startOfDay string key is constant for today
-    const startOfDay = new Date(new Date().setHours(0, 0, 0, 0));
-    const result = await prisma.transaction.aggregate({
-      where: {
-        ...(facilityId !== "admin" ? { facility_id: facilityId } : {}),
-        created_at: { gte: startOfDay },
-        is_cancelled: false,
-      },
-      _sum: { amount: true },
-      _count: true,
-    });
-    return {
-      amount: Number(result._sum.amount ?? 0),
-      count: result._count,
-    };
-  },
-  // تضمين facilityId في مفتاح الكاش لمنع تصادم البيانات بين المرافق
-  ["today-transactions-stats-v2"],
-  { revalidate: 30 }
-);
+// FIX: تضمين facilityId في مفتاح الكاش فعلياً لمنع تصادم البيانات بين المرافق
+function getCachedTodayStats(facilityId: string) {
+  return unstable_cache(
+    async () => {
+      const startOfDay = new Date(new Date().setHours(0, 0, 0, 0));
+      const result = await prisma.transaction.aggregate({
+        where: {
+          ...(facilityId !== "admin" ? { facility_id: facilityId } : {}),
+          created_at: { gte: startOfDay },
+          is_cancelled: false,
+        },
+        _sum: { amount: true },
+        _count: true,
+      });
+      return {
+        amount: Number(result._sum.amount ?? 0),
+        count: result._count,
+      };
+    },
+    [`today-transactions-stats-v3-${facilityId}`],
+    { revalidate: 30 }
+  )();
+}
 
 export default async function Dashboard() {
   const session = await getSession();

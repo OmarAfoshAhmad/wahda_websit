@@ -24,8 +24,8 @@ export function BeneficiaryEditModal({ beneficiary }: BeneficiaryEditModalProps)
   const [cardNumber, setCardNumber] = useState(beneficiary.card_number);
   const [birthDate, setBirthDate] = useState(beneficiary.birth_date);
   const [status, setStatus] = useState<"ACTIVE" | "FINISHED" | "SUSPENDED">(beneficiary.status);
-  const [totalBalance, setTotalBalance] = useState(beneficiary.total_balance ?? 600);
-  const [remainingBalance, setRemainingBalance] = useState(beneficiary.remaining_balance ?? 600);
+  const [totalBalance, setTotalBalance] = useState(beneficiary.total_balance ?? 0);
+  const [remainingBalance, setRemainingBalance] = useState(beneficiary.remaining_balance ?? 0);
   const [error, setError] = useState<string | null>(null);
 
   // إغلاق بمفتاح Escape
@@ -48,8 +48,8 @@ export function BeneficiaryEditModal({ beneficiary }: BeneficiaryEditModalProps)
           card_number: cardNumber,
           birth_date: birthDate,
           status,
-          total_balance: Number(totalBalance),
-          remaining_balance: Number(remainingBalance),
+          total_balance: totalBalance,
+          remaining_balance: remainingBalance,
         });
 
         if (result.error) {
@@ -76,13 +76,14 @@ export function BeneficiaryEditModal({ beneficiary }: BeneficiaryEditModalProps)
       </Button>
 
       {open && (
+        // FIX CODE-04: إضافة dark mode لجميع العناصر
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-lg border border-slate-200 bg-white p-4 shadow-xl">
+          <div className="w-full max-w-lg rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 shadow-xl">
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-base font-black text-slate-900">تعديل بيانات المستفيد</h3>
+              <h3 className="text-base font-black text-slate-900 dark:text-white">تعديل بيانات المستفيد</h3>
               <button
                 type="button"
-                className="rounded-md px-2 py-1 text-sm text-slate-500 hover:bg-slate-100"
+                className="rounded-md px-2 py-1 text-sm text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
                 onClick={() => setOpen(false)}
                 disabled={isPending}
               >
@@ -90,38 +91,38 @@ export function BeneficiaryEditModal({ beneficiary }: BeneficiaryEditModalProps)
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="md:col-span-2">
-                <label className="mb-1 block text-xs font-black text-slate-500">الاسم</label>
-                <Input value={name} onChange={(e) => setName(e.target.value)} className="h-10" />
+            <div className="grid grid-cols-2 gap-3 space-y-0 text-right">
+              <div className="col-span-2">
+                <label className="mb-1 block text-xs font-black text-slate-500 dark:text-slate-400">الاسم</label>
+                <Input value={name} onChange={(e) => setName(e.target.value)} className="h-10 text-right" />
               </div>
 
               <div>
-                <label className="mb-1 block text-xs font-black text-slate-500">رقم البطاقة</label>
-                <Input value={cardNumber} onChange={(e) => setCardNumber(e.target.value)} className="h-10" />
+                <label className="mb-1 block text-xs font-black text-slate-500 dark:text-slate-400">رقم البطاقة</label>
+                <Input value={cardNumber} onChange={(e) => setCardNumber(e.target.value)} className="h-10 text-right" />
               </div>
 
               <div>
-                <label className="mb-1 block text-xs font-black text-slate-500">تاريخ الميلاد</label>
-                <Input type="date" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} className="h-10" />
+                <label className="mb-1 block text-xs font-black text-slate-500 dark:text-slate-400">تاريخ الميلاد</label>
+                <Input type="date" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} className="h-10 text-right" />
               </div>
 
               <div>
-                <label className="mb-1 block text-xs font-black text-slate-500">الرصيد الكلي</label>
-                <Input type="number" value={totalBalance} onChange={(e) => setTotalBalance(Number(e.target.value))} className="h-10 font-mono" />
+                <label className="mb-1 block text-xs font-black text-slate-500 dark:text-slate-400">الرصيد المتاح (المتبقي)</label>
+                <Input type="number" step="0.01" value={remainingBalance} onChange={(e) => setRemainingBalance(Number(e.target.value))} className="h-10 text-right" />
               </div>
 
               <div>
-                <label className="mb-1 block text-xs font-black text-slate-500">الرصيد المتبقي</label>
-                <Input type="number" value={remainingBalance} onChange={(e) => setRemainingBalance(Number(e.target.value))} className="h-10 font-mono bg-slate-50" />
+                <label className="mb-1 block text-xs font-black text-slate-500 dark:text-slate-400">الرصيد الكلي</label>
+                <Input type="number" step="0.01" value={totalBalance} onChange={(e) => setTotalBalance(Number(e.target.value))} className="h-10 text-right" />
               </div>
 
-              <div className="md:col-span-2">
-                <label className="mb-1 block text-xs font-black text-slate-500">الحالة</label>
+              <div className="col-span-2">
+                <label className="mb-1 block text-xs font-black text-slate-500 dark:text-slate-400">الحالة</label>
                 <select
                   value={status}
                   onChange={(e) => setStatus(e.target.value as "ACTIVE" | "FINISHED" | "SUSPENDED")}
-                  className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                  className="flex h-10 w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 text-right"
                 >
                   <option value="ACTIVE">نشط</option>
                   <option value="FINISHED">مكتمل</option>
@@ -129,10 +130,7 @@ export function BeneficiaryEditModal({ beneficiary }: BeneficiaryEditModalProps)
                 </select>
               </div>
 
-              {error && <p className="md:col-span-2 text-sm font-bold text-red-600">{error}</p>}
-              <p className="md:col-span-2 text-[10px] text-slate-500 leading-tight">
-                * ملاحظة: سيتم إعادة حساب الرصيد المتبقي تلقائياً بمجرد دمج البطاقات أو إجراء معاملة جديدة بناءً على الحركات المالية المسجلة.
-              </p>
+              {error && <p className="col-span-2 text-sm font-bold text-red-600 dark:text-red-400">{error}</p>}
             </div>
 
             <div className="mt-4 flex gap-2">

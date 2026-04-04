@@ -3,6 +3,7 @@ import { Search, Users, CalendarDays, CreditCard, Trash2, RotateCcw, Upload, Dow
 import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { getLedgerRemainingByBeneficiaryIds } from "@/lib/ledger-balance";
 import { canAccessAdmin } from "@/lib/session-guard";
 import { getArabicSearchTerms } from "@/lib/search";
 import { Shell } from "@/components/shell";
@@ -15,7 +16,7 @@ import { BeneficiaryRestoreActions } from "@/components/beneficiary-restore-acti
 import { BeneficiaryResetPinButton } from "@/components/beneficiary-reset-pin-button";
 import { BeneficiaryMergeDuplicatesButton } from "@/components/beneficiary-merge-duplicates-button";
 import { PaginationButtons } from "@/components/pagination-buttons";
-import { BeneficiariesBulkActionButton } from "@/components/beneficiaries-bulk-action-button";
+import { BeneficiariesBulkActionButton, SelectAllCheckbox, EmptyRecycleBinButton } from "@/components/beneficiaries-bulk-action-button";
 import { unstable_cache } from "next/cache";
 
 function normalizeCardKey(value: string) {
@@ -129,12 +130,14 @@ export default async function BeneficiariesPage({
     getCachedStatusCounts(),
   ]);
 
+  const beneficiaryIds = rawBeneficiaries.map((b) => b.id);
+  const remainingById = await getLedgerRemainingByBeneficiaryIds(beneficiaryIds);
+
   // تحويل Decimal إلى Number لتجنب أخطاء التسلسل
   const beneficiaries = rawBeneficiaries.map((b) => ({
     ...b,
     total_balance: Number(b.total_balance),
-    remaining_balance: Number(b.remaining_balance),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    remaining_balance: remainingById.get(b.id) ?? 0,
     completed_via: (b as unknown as Record<string, unknown>).completed_via as string | null,
   }));
 
@@ -330,8 +333,8 @@ export default async function BeneficiariesPage({
                 );
               })}
             </>
-          )}        </div>
-
+          )}
+        </div>
         <Card className="overflow-hidden">
           <form id="beneficiaries-bulk-form">
           {session.is_admin && (
@@ -341,7 +344,10 @@ export default async function BeneficiariesPage({
                   ? "يمكنك تحديد أكثر من مستفيد محذوف ثم تنفيذ الحذف النهائي الجماعي للسجلات القابلة."
                   : "يمكنك تحديد أكثر من مستفيد ثم تنفيذ الحذف الناعم الجماعي."}
               </p>
-              <BeneficiariesBulkActionButton formId="beneficiaries-bulk-form" mode={isDeletedView ? "permanent" : "soft"} />
+              <div className="flex items-center gap-2">
+                {isDeletedView && <EmptyRecycleBinButton disabled={deletedCount === 0} />}
+                <BeneficiariesBulkActionButton formId="beneficiaries-bulk-form" mode={isDeletedView ? "permanent" : "soft"} />
+              </div>
             </div>
           )}
           <div className="overflow-x-auto">
@@ -349,7 +355,12 @@ export default async function BeneficiariesPage({
               <thead className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
                 <tr>
                   {session.is_admin && (
-                    <th className="px-4 py-4 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">تحديد</th>
+                    <th className="px-4 py-4 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">
+                      <div className="flex items-center gap-2">
+                        <SelectAllCheckbox formId="beneficiaries-bulk-form" />
+                        <span>تحديد</span>
+                      </div>
+                    </th>
                   )}
                   <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">
                     <Link href={sortHref("name")} className="inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">

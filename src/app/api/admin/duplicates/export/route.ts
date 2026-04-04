@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import prisma from "@/lib/prisma";
 import { requireActiveFacilitySession } from "@/lib/session-guard";
+import { getLedgerRemainingByBeneficiaryIds } from "@/lib/ledger-balance";
 import { buildDuplicateGroups } from "@/lib/duplicate-groups";
 
 export async function GET(request: Request) {
@@ -22,14 +23,22 @@ export async function GET(request: Request) {
       id: true,
       name: true,
       card_number: true,
+      birth_date: true,
       status: true,
+      total_balance: true,
       remaining_balance: true,
       _count: { select: { transactions: true } },
     },
     orderBy: { card_number: "asc" },
   });
 
-  const { zeroVariantGroups, sameNameGroups } = buildDuplicateGroups(rows, q);
+  const remainingById = await getLedgerRemainingByBeneficiaryIds(rows.map((row) => row.id));
+  const enrichedRows = rows.map((row) => ({
+    ...row,
+    remaining_balance: remainingById.get(row.id) ?? 0,
+  }));
+
+  const { zeroVariantGroups, sameNameGroups } = buildDuplicateGroups(enrichedRows, q);
 
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "WAAD";

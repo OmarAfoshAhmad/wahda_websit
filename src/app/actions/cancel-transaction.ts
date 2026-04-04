@@ -37,8 +37,8 @@ export async function cancelTransaction(transactionId: string) {
 
     await prisma.$transaction(async (tx) => {
       // 1. قفل صف المستفيد لمنع race condition
-      const locked = await tx.$queryRaw<Array<{ id: string; remaining_balance: number }>>`
-        SELECT id, remaining_balance FROM "Beneficiary"
+      const locked = await tx.$queryRaw<Array<{ id: string; remaining_balance: number; status: string }>>`
+        SELECT id, remaining_balance, status FROM "Beneficiary"
         WHERE id = ${transaction.beneficiary_id}
         FOR UPDATE
       `;
@@ -48,7 +48,10 @@ export async function cancelTransaction(transactionId: string) {
       }
 
       const currentBalance = Number(locked[0].remaining_balance);
+      const lockedStatus = locked[0].status;
       const newBalance = currentBalance + amount;
+      // FIX: احترام حالة الإيقاف — لا نغير SUSPENDED إلى ACTIVE
+      const newStatus = lockedStatus === "SUSPENDED" ? "SUSPENDED" : "ACTIVE";
 
       // 2. Mark original transaction as cancelled
       await tx.transaction.update({
@@ -61,7 +64,7 @@ export async function cancelTransaction(transactionId: string) {
         where: { id: transaction.beneficiary_id },
         data: {
           remaining_balance: newBalance,
-          status: "ACTIVE",
+          status: newStatus,
         },
       });
 
@@ -78,7 +81,7 @@ export async function cancelTransaction(transactionId: string) {
       });
       createdCancellationId = cancellationTx.id;
 
-      // 5. Audit Log
+      // 5. Audit Log — مع تسجيل الرصيد قبل وبعد
       await tx.auditLog.create({
         data: {
           facility_id: session.id,
@@ -87,7 +90,9 @@ export async function cancelTransaction(transactionId: string) {
           metadata: {
             original_transaction_id: transactionId,
             refunded_amount: amount,
-            beneficiary_card: transaction.beneficiary.card_number,
+            balance_before: currentBalance,
+            balance_after: newBalance,
+            card_number: transaction.beneficiary.card_number,
           },
         },
       });
@@ -103,56 +108,6 @@ export async function cancelTransaction(transactionId: string) {
   }
 }
 
-export async function bulkCancelTransactions(formData: FormData): Promise<void> {
-  const session = await requireActiveFacilitySession();
-  if (!session || !hasPermission(session, "cancel_transactions")) {
-    return;
-  }
-
-  const ids = [...new Set(
-    formData
-      .getAll("ids")
-      .map((value) => String(value))
-      .filter((value) => value.length > 0)
-  )];
-
-  if (ids.length === 0) {
-    return;
-  }
-
-  try {
-    let successCount = 0;
-    let skippedCount = 0;
-
-    for (const id of ids) {
-      const result = await cancelTransaction(id);
-      if (result.success) {
-        successCount += 1;
-      } else {
-        skippedCount += 1;
-      }
-    }
-
-    await prisma.auditLog.create({
-      data: {
-        facility_id: session.id,
-        user: session.username,
-        action: "BULK_CANCEL_TRANSACTION",
-        metadata: {
-          selected_count: ids.length,
-          cancelled_count: successCount,
-          skipped_count: skippedCount,
-          transaction_ids: ids,
-        },
-      },
-    });
-
-    revalidatePath("/transactions");
-    revalidatePath("/beneficiaries");
-  } catch (error) {
-    logger.error("Bulk cancellation error", { error: String(error) });
-  }
-}
 
 export async function bulkTransactionSelectionAction(formData: FormData): Promise<void> {
   const session = await requireActiveFacilitySession();
@@ -194,61 +149,61 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
       const deletable = selected.filter((tx) => !tx.is_cancelled && tx.type !== "CANCELLATION");
       if (deletable.length === 0) return;
 
-      const validIds = deletable.map((tx) => tx.id);
+      const deletableIds = deletable.map((tx) => tx.id);
 
-      // إعادة حساب الأرصدة ضمن transaction واحدة لضمان الذرية
       await prisma.$transaction(async (tx) => {
-        await tx.transaction.updateMany({
-          where: { id: { in: validIds } },
-          data: { is_cancelled: true },
-        });
-
-        // جلب beneficiary_id لكل حركة مُلغاة
-        const affectedTxs = await tx.transaction.findMany({
-          where: { id: { in: validIds } },
-          select: { beneficiary_id: true },
-        });
-        const affectedBeneficiaryIds = [...new Set(affectedTxs.map((t) => t.beneficiary_id))];
-
-        // إعادة حساب رصيد كل مستفيد متأثر
-        for (const beneficiaryId of affectedBeneficiaryIds) {
-          const beneficiary = await tx.beneficiary.findUnique({
-            where: { id: beneficiaryId },
-            select: { id: true, total_balance: true, status: true, completed_via: true },
+        for (const transactionId of deletableIds) {
+          const transactionRecord = await tx.transaction.findUnique({
+            where: { id: transactionId },
           });
-          if (!beneficiary) continue;
+          if (!transactionRecord) continue;
 
-          const activeSum = await tx.transaction.aggregate({
-            where: { beneficiary_id: beneficiaryId, is_cancelled: false, type: { not: "CANCELLATION" } },
-            _sum: { amount: true },
+          // جلب المستفيد مع قفل لمنع التعديل المتزامن
+          const lockedBen = await tx.$queryRaw<Array<{ id: string; remaining_balance: number; status: string; completed_via: string | null }>>`
+            SELECT id, remaining_balance, status, completed_via FROM "Beneficiary"
+            WHERE id = ${transactionRecord.beneficiary_id}
+            FOR UPDATE
+          `;
+          if (lockedBen.length === 0) continue;
+
+          const beneficiary = lockedBen[0];
+          const remainingBefore = Number(beneficiary.remaining_balance);
+          const refundedAmount = Number(transactionRecord.amount);
+          const remainingAfter = remainingBefore + refundedAmount;
+
+          // تحديث الحركة كأنه محذوف ناعم
+          await tx.transaction.update({
+            where: { id: transactionId },
+            data: { is_cancelled: true },
           });
-          const spent = Number(activeSum._sum.amount ?? 0);
-          const remaining = Math.max(0, Number(beneficiary.total_balance) - spent);
-          const nextStatus = beneficiary.status === "SUSPENDED" ? "SUSPENDED" : remaining <= 0 ? "FINISHED" : "ACTIVE";
 
+          // تحديث الرصيد الجديد للمستفيد بناءً على الرصيد القديم
+          const nextStatus = beneficiary.status === "SUSPENDED" ? "SUSPENDED" : remainingAfter <= 0 ? "FINISHED" : "ACTIVE";
           await tx.beneficiary.update({
-            where: { id: beneficiaryId },
+            where: { id: beneficiary.id },
             data: {
-              remaining_balance: remaining,
+              remaining_balance: remainingAfter,
               status: nextStatus,
               completed_via: nextStatus === "FINISHED" ? (beneficiary.completed_via ?? "MANUAL") : null,
             },
           });
-        }
-      });
 
-      await prisma.auditLog.create({
-        data: {
-          facility_id: session.id,
-          user: session.username,
-          action: "BULK_SOFT_DELETE_TRANSACTION",
-          metadata: {
-            selected_count: ids.length,
-            deleted_count: deletable.length,
-            skipped_count: ids.length - deletable.length,
-            transaction_ids: deletable.map((item) => item.id),
-          },
-        },
+          // تسجيل في سجل المراقبة لتوضيح رد المبلغ بالضبط
+          await tx.auditLog.create({
+            data: {
+              facility_id: session.id,
+              user: session.username,
+              action: "SOFT_DELETE_TRANSACTION",
+              metadata: {
+                transaction_id: transactionId,
+                refunded_amount: refundedAmount,
+                balance_before: remainingBefore,
+                balance_after: remainingAfter,
+                message: `تم إلغاء الخصم/حذف الحركة وإرجاع المبلغ (${refundedAmount}) للرصيد المتبقي.`,
+              },
+            },
+          });
+        }
       });
 
       revalidatePath("/transactions");
@@ -260,61 +215,99 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
       const restorable = selected.filter((tx) => tx.is_cancelled && tx.corrections.length === 0);
       if (restorable.length === 0) return;
 
-      const validIds = restorable.map((tx) => tx.id);
+      const restorableIds = restorable.map((tx) => tx.id);
 
-      // إعادة حساب الأرصدة ضمن transaction واحدة لضمان الذرية
       await prisma.$transaction(async (tx) => {
-        await tx.transaction.updateMany({
-          where: { id: { in: validIds } },
-          data: { is_cancelled: false },
-        });
-
-        // جلب beneficiary_id لكل حركة مسترجعة
-        const affectedTxs = await tx.transaction.findMany({
-          where: { id: { in: validIds } },
-          select: { beneficiary_id: true },
-        });
-        const affectedBeneficiaryIds = [...new Set(affectedTxs.map((t) => t.beneficiary_id))];
-
-        // إعادة حساب رصيد كل مستفيد متأثر
-        for (const beneficiaryId of affectedBeneficiaryIds) {
-          const beneficiary = await tx.beneficiary.findUnique({
-            where: { id: beneficiaryId },
-            select: { id: true, total_balance: true, status: true, completed_via: true },
+        for (const transactionId of restorableIds) {
+          const transactionRecord = await tx.transaction.findUnique({
+            where: { id: transactionId },
           });
-          if (!beneficiary) continue;
+          if (!transactionRecord) continue;
 
-          const activeSum = await tx.transaction.aggregate({
-            where: { beneficiary_id: beneficiaryId, is_cancelled: false, type: { not: "CANCELLATION" } },
-            _sum: { amount: true },
+          // جلب المستفيد مع قفل لمنع التعديل المتزامن
+          const lockedBen = await tx.$queryRaw<Array<{ id: string; remaining_balance: number; status: string; completed_via: string | null }>>`
+            SELECT id, remaining_balance, status, completed_via FROM "Beneficiary"
+            WHERE id = ${transactionRecord.beneficiary_id}
+            FOR UPDATE
+          `;
+          if (lockedBen.length === 0) continue;
+
+          const beneficiary = lockedBen[0];
+          const remainingBefore = Number(beneficiary.remaining_balance);
+          const deductedAmount = Number(transactionRecord.amount);
+          const remainingAfter = remainingBefore - deductedAmount;
+
+          // استرجاع الحركة المحذوفة وإعادتها منشطة
+          await tx.transaction.update({
+            where: { id: transactionId },
+            data: { is_cancelled: false },
           });
-          const spent = Number(activeSum._sum.amount ?? 0);
-          const remaining = Math.max(0, Number(beneficiary.total_balance) - spent);
-          const nextStatus = beneficiary.status === "SUSPENDED" ? "SUSPENDED" : remaining <= 0 ? "FINISHED" : "ACTIVE";
 
+          const nextStatus = beneficiary.status === "SUSPENDED" ? "SUSPENDED" : remainingAfter <= 0 ? "FINISHED" : "ACTIVE";
           await tx.beneficiary.update({
-            where: { id: beneficiaryId },
+            where: { id: beneficiary.id },
             data: {
-              remaining_balance: remaining,
+              remaining_balance: remainingAfter,
               status: nextStatus,
               completed_via: nextStatus === "FINISHED" ? (beneficiary.completed_via ?? "MANUAL") : null,
+            },
+          });
+
+          // تسجيل التفاصيل للعمية العكسية (الاسترجاع وخصم الرصيد مرة أخرى)
+          await tx.auditLog.create({
+            data: {
+              facility_id: session.id,
+              user: session.username,
+              action: "RESTORE_SOFT_DELETED_TRANSACTION",
+              metadata: {
+                transaction_id: transactionId,
+                deducted_amount: deductedAmount,
+                balance_before: remainingBefore,
+                balance_after: remainingAfter,
+                message: `تم استرجاع الحركة المحذوفة وخصم المبلغ (${deductedAmount}) من الرصيد المتبقي مرة أخرى.`,
+              },
             },
           });
         }
       });
 
-      await prisma.auditLog.create({
-        data: {
-          facility_id: session.id,
-          user: session.username,
-          action: "BULK_RESTORE_SOFT_DELETED_TRANSACTION",
-          metadata: {
-            selected_count: ids.length,
-            restored_count: restorable.length,
-            skipped_count: ids.length - restorable.length,
-            transaction_ids: validIds,
+      revalidatePath("/transactions");
+      revalidatePath("/beneficiaries");
+      return;
+    }
+
+    if (op === "permanent_delete") {
+      const deletable = selected.filter((tx) => tx.is_cancelled && tx.type !== "CANCELLATION");
+      if (deletable.length === 0) return;
+
+      const validIds = deletable.map((tx) => tx.id);
+
+      await prisma.$transaction(async (tx) => {
+        // حركات الإلغاء المرتبطة
+        await tx.transaction.deleteMany({
+          where: { original_transaction_id: { in: validIds } },
+        });
+
+        // الحركات نفسها
+        await tx.transaction.deleteMany({
+          where: { id: { in: validIds } },
+        });
+
+        // تسجيل في سجل المراقبة
+        await tx.auditLog.create({
+          data: {
+            facility_id: session.id,
+            user: session.username,
+            action: "PERMANENT_DELETE_TRANSACTION",
+            metadata: {
+              selected_count: ids.length,
+              deleted_count: deletable.length,
+              transaction_ids: validIds,
+              balance_impact: 0,
+              message: "تم حذف الحركات نهائياً من قاعدة البيانات بعد إلغائها سابقاً.",
+            },
           },
-        },
+        });
       });
 
       revalidatePath("/transactions");

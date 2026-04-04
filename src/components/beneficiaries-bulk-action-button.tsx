@@ -33,8 +33,12 @@ export function BeneficiariesBulkActionButton({ formId, mode }: Props) {
     };
 
     collect();
-    document.addEventListener("change", collect);
-    return () => document.removeEventListener("change", collect);
+
+    // FIX PERF-04: تقييد المستمع بالنموذج فقط بدلاً من document لتجنب الإطلاق على كل تغيير في الصفحة
+    const form = document.getElementById(formId);
+    if (!form) return;
+    form.addEventListener("change", collect);
+    return () => form.removeEventListener("change", collect);
   }, [formId]);
 
   const handleClick = () => {
@@ -122,6 +126,119 @@ export function BeneficiariesBulkActionButton({ formId, mode }: Props) {
         title="تأكيد العملية"
         description={confirmText}
         confirmLabel={mode === "soft" ? "نعم، حذف" : "نعم، حذف نهائي"}
+        variant="danger"
+        isLoading={isPending}
+      />
+    </>
+  );
+}
+
+export function SelectAllCheckbox({ formId }: { formId: string }) {
+  const [isChecked, setIsChecked] = useState(false);
+
+  useEffect(() => {
+    const updateState = () => {
+      const form = document.getElementById(formId) as HTMLFormElement | null;
+      if (!form) return;
+      const allEnabled = Array.from(form.querySelectorAll<HTMLInputElement>('input[name="ids"]:not(:disabled)'));
+      const allChecked = allEnabled.length > 0 && allEnabled.every(cb => cb.checked);
+      setIsChecked(allChecked);
+    };
+
+    updateState();
+
+    const form = document.getElementById(formId);
+    if (!form) return;
+
+    // Listen to changes
+    form.addEventListener("change", updateState);
+    
+    // Listen to DOM mutations (when rows are deleted/refreshed)
+    const observer = new MutationObserver(() => updateState());
+    observer.observe(form, { childList: true, subtree: true });
+
+    return () => {
+      form.removeEventListener("change", updateState);
+      observer.disconnect();
+    };
+  }, [formId]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const checked = e.target.checked;
+    setIsChecked(checked);
+    const form = document.getElementById(formId) as HTMLFormElement | null;
+    if (!form) return;
+    const checkboxes = form.querySelectorAll<HTMLInputElement>('input[name="ids"]:not(:disabled)');
+    checkboxes.forEach((cb) => {
+      cb.checked = checked;
+    });
+    // Trigger external change for bulk action button
+    const event = new Event("change", { bubbles: true });
+    form.dispatchEvent(event);
+  };
+
+  return (
+    <input
+      type="checkbox"
+      checked={isChecked}
+      onChange={handleChange}
+      title="تحديد الكل"
+      className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30"
+    />
+  );
+}
+
+export function EmptyRecycleBinButton({ disabled }: { disabled?: boolean }) {
+  const [isPending, startTransition] = useTransition();
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const router = useRouter();
+
+  const handleConfirm = () => {
+    startTransition(async () => {
+      try {
+        const res = await fetch("/api/admin/empty-recycle-bin", { method: "POST" });
+        const data = await res.json();
+        setConfirmOpen(false);
+        if (res.ok) {
+          // FIX UX-01: استبدال alert() بـ feedback banner مدمج
+          setFeedback({ type: "success", message: `تم تفريغ المحذوفات بنجاح (${data.count ?? 0} سجل)` });
+          router.refresh();
+        } else {
+          setFeedback({ type: "error", message: data.error ?? "حدث خطأ أثناء تفريغ المحذوفات" });
+        }
+      } catch {
+        setConfirmOpen(false);
+        setFeedback({ type: "error", message: "فشل الاتصال بالخادم" });
+      }
+    });
+  };
+
+  return (
+    <>
+      <div className="flex flex-col gap-1">
+        <button
+          type="button"
+          onClick={() => { setFeedback(null); setConfirmOpen(true); }}
+          disabled={isPending || disabled}
+          className="inline-flex h-8 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-xs font-black text-rose-700 transition-colors hover:bg-rose-50 disabled:opacity-60"
+        >
+          {isPending ? "جارٍ التفريغ..." : "إفراغ المحذوفات بالكامل"}
+        </button>
+        {feedback && (
+          <p className={`text-xs font-bold px-1 ${feedback.type === "success" ? "text-emerald-700" : "text-red-600"}`}>
+            {feedback.message}
+          </p>
+        )}
+      </div>
+
+      <ConfirmationModal
+        isOpen={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={handleConfirm}
+        title="تأكيد تفريغ سلة المحذوفات"
+        description="سيتم حذف جميع السجلات الموجودة في المحذوفات (والتي لا تحتوي على معاملات) حذفاً نهائياً لا رجعة فيه. هل أنت متأكد من رغبتك في المتابعة؟"
+        confirmLabel="نعم، إفراغ المحذوفات"
         variant="danger"
         isLoading={isPending}
       />

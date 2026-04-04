@@ -13,29 +13,37 @@ export async function deleteCancellationTransaction(cancellationId: string) {
       return { error: "غير مصرح لك بإجراء هذه العملية" };
     }
 
-    const cancellationTransaction = await prisma.transaction.findUnique({
-      where: { id: cancellationId },
-      include: { beneficiary: true },
-    });
-
-    if (!cancellationTransaction) {
-      return { error: "معاملة الإلغاء غير موجودة" };
-    }
-
-    if (cancellationTransaction.type !== "CANCELLATION") {
-      return { error: "هذه المعاملة ليست معاملة إلغاء" };
-    }
-
-    if (!cancellationTransaction.original_transaction_id) {
-      return { error: "لا يوجد معرف للمعاملة الأصلية" };
-    }
-
-    const refundAmountReversed = Math.abs(Number(cancellationTransaction.amount));
-
+    // FIX TOCTOU: نقرأ الحركة داخل الـ Transaction لمنع تغير البيانات بين القراءة والقفل
     await prisma.$transaction(async (tx) => {
+      const cancellationTransaction = await tx.transaction.findUnique({
+        where: { id: cancellationId },
+        select: {
+          id: true,
+          type: true,
+          beneficiary_id: true,
+          original_transaction_id: true,
+          amount: true,
+          beneficiary: { select: { card_number: true } },
+        },
+      });
+
+      if (!cancellationTransaction) {
+        throw new Error("CANCELLATION_NOT_FOUND");
+      }
+
+      if (cancellationTransaction.type !== "CANCELLATION") {
+        throw new Error("NOT_CANCELLATION");
+      }
+
+      if (!cancellationTransaction.original_transaction_id) {
+        throw new Error("NO_ORIGINAL_TRANSACTION");
+      }
+
+      const refundAmountReversed = Math.abs(Number(cancellationTransaction.amount));
+
       // 1. قفل صف المستفيد لمنع race condition
-      const locked = await tx.$queryRaw<Array<{ id: string; remaining_balance: number }>>`
-        SELECT id, remaining_balance FROM "Beneficiary"
+      const locked = await tx.$queryRaw<Array<{ id: string; remaining_balance: number; status: string }>>`
+        SELECT id, remaining_balance, status FROM "Beneficiary"
         WHERE id = ${cancellationTransaction.beneficiary_id}
         FOR UPDATE
       `;
@@ -45,8 +53,10 @@ export async function deleteCancellationTransaction(cancellationId: string) {
       }
 
       const currentBalance = Number(locked[0].remaining_balance);
+      const lockedStatus = locked[0].status;
       const newBalance = currentBalance - refundAmountReversed;
-      const newStatus = newBalance <= 0 ? "FINISHED" : "ACTIVE";
+      // FIX: احترام حالة الإيقاف — لا نغير SUSPENDED إلى ACTIVE أو FINISHED
+      const newStatus = lockedStatus === "SUSPENDED" ? "SUSPENDED" : (newBalance <= 0 ? "FINISHED" : "ACTIVE");
 
       // 2. Mark original transaction as valid (not cancelled)
       await tx.transaction.update({
@@ -68,7 +78,7 @@ export async function deleteCancellationTransaction(cancellationId: string) {
         where: { id: cancellationId },
       });
 
-      // 5. Audit Log
+      // 5. Audit Log — مع تسجيل الرصيد قبل وبعد
       await tx.auditLog.create({
         data: {
           facility_id: session.id,
@@ -78,6 +88,9 @@ export async function deleteCancellationTransaction(cancellationId: string) {
             cancellation_transaction_id: cancellationId,
             original_transaction_id: cancellationTransaction.original_transaction_id,
             re_deducted_amount: refundAmountReversed,
+            card_number: cancellationTransaction.beneficiary.card_number,
+            balance_before: currentBalance,
+            balance_after: newBalance,
           },
         },
       });
@@ -89,6 +102,10 @@ export async function deleteCancellationTransaction(cancellationId: string) {
     return { success: true };
 
   } catch (error) {
+    const msg = error instanceof Error ? error.message : "";
+    if (msg === "CANCELLATION_NOT_FOUND") return { error: "معاملة الإلغاء غير موجودة" };
+    if (msg === "NOT_CANCELLATION") return { error: "هذه المعاملة ليست معاملة إلغاء" };
+    if (msg === "NO_ORIGINAL_TRANSACTION") return { error: "لا يوجد معرف للمعاملة الأصلية" };
     logger.error("Revert cancellation error", { error: String(error) });
     return { error: "فشل في التراجع عن الإلغاء" };
   }

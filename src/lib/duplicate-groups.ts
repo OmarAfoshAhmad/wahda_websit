@@ -18,8 +18,9 @@ type BeneficiaryRow = {
   relationship?: string | null;
   head_of_household?: string | null;
   status: string;
-  total_balance: unknown;
-  remaining_balance: unknown;
+  // FIX DATA-05: تغيير unknown إلى نوع صريح يضمن سلامة التحويلات العددية
+  total_balance: number | string | { toString(): string };
+  remaining_balance: number | string | { toString(): string };
   _count?: { transactions: number };
 };
 
@@ -42,20 +43,13 @@ export type SameNameGroup = {
   hasMissingBirthDate: boolean;
 };
 
-/** تطبيع الاسم: مسافات + أحرف كبيرة. مُفوَّض للمكتبة الموحدة */
-export function normalizeName(value: string): string {
-  return normalizePersonName(value);
-}
+// الدوال المستوردة مباشرة من المكتبة الموحدة — aliases للاستخدام الداخلي
+const normalizeName = normalizePersonName;
+const canonicalCard = canonicalizeCardNumber;
+const zeroScoreAfterPrefix = leadingZeroScoreAfterPrefix;
 
-/** توحيد رقم البطاقة: إزالة الأصفار الزائدة بعد WAB2025 */
-export function canonicalCard(value: string): string {
-  return canonicalizeCardNumber(value);
-}
-
-/** عدد الأصفار بعد WAB2025 للترتيح (أكثر أصفاراً = أولوية إبقاء أعلى) */
-export function zeroScoreAfterPrefix(value: string): number {
-  return leadingZeroScoreAfterPrefix(value);
-}
+// تصدير Aliases للمستوردين الخارجيين
+export { normalizePersonName as normalizeName, canonicalizeCardNumber as canonicalCard, leadingZeroScoreAfterPrefix as zeroScoreAfterPrefix } from "@/lib/normalize";
 
 function cardShapeScore(value: string): number {
   const v = value.trim().toUpperCase();

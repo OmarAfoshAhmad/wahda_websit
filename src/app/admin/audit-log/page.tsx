@@ -4,7 +4,6 @@ import { redirect } from "next/navigation";
 import { Badge, Card, Input, Button } from "@/components/ui";
 import { Shell } from "@/components/shell";
 import { getSession } from "@/lib/auth";
-import { canAccessAdmin } from "@/lib/session-guard";
 import prisma from "@/lib/prisma";
 import { Activity, Download } from "lucide-react";
 import { AuditLogClearButton } from "../../../components/audit-log-clear-button";
@@ -23,6 +22,11 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "DEDUCT_BALANCE",
     "CANCEL_TRANSACTION",
     "REVERT_CANCELLATION",
+    "SOFT_DELETE_TRANSACTION",
+    "RESTORE_SOFT_DELETED_TRANSACTION",
+    "PERMANENT_DELETE_TRANSACTION",
+    "BULK_CANCEL_TRANSACTION",
+    "BULK_REDEDUCT_TRANSACTION",
     "IMPORT_TRANSACTIONS",
     "CREATE_FACILITY",
     "IMPORT_FACILITIES",
@@ -35,7 +39,17 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "PERMANENT_DELETE_BENEFICIARY",
     "RESTORE_BENEFICIARY",
   ],
-  transactions: ["DEDUCT_BALANCE", "CANCEL_TRANSACTION", "REVERT_CANCELLATION", "IMPORT_TRANSACTIONS"],
+  transactions: [
+    "DEDUCT_BALANCE",
+    "CANCEL_TRANSACTION",
+    "REVERT_CANCELLATION",
+    "SOFT_DELETE_TRANSACTION",
+    "RESTORE_SOFT_DELETED_TRANSACTION",
+    "PERMANENT_DELETE_TRANSACTION",
+    "BULK_CANCEL_TRANSACTION",
+    "BULK_REDEDUCT_TRANSACTION",
+    "IMPORT_TRANSACTIONS",
+  ],
   facilities: ["CREATE_FACILITY", "IMPORT_FACILITIES", "DELETE_FACILITY"],
   completed: ["DEDUCT_BALANCE", "IMPORT_TRANSACTIONS"],
 };
@@ -58,6 +72,16 @@ function actionLabel(action: string) {
       return "حذف/إلغاء حركة";
     case "REVERT_CANCELLATION":
       return "استرجاع حركة ملغاة";
+    case "SOFT_DELETE_TRANSACTION":
+      return "حذف ناعم لحركة";
+    case "RESTORE_SOFT_DELETED_TRANSACTION":
+      return "استرجاع حركة محذوفة ناعماً";
+    case "PERMANENT_DELETE_TRANSACTION":
+      return "حذف نهائي لحركات";
+    case "BULK_CANCEL_TRANSACTION":
+      return "إلغاء جماعي لحركات";
+    case "BULK_REDEDUCT_TRANSACTION":
+      return "إعادة خصم جماعي";
     case "IMPORT_TRANSACTIONS":
       return "استيراد حركات";
     case "CREATE_FACILITY":
@@ -114,6 +138,8 @@ function summarizeMetadata(action: string, metadata: unknown): React.ReactNode {
         {name && <span className="font-bold text-slate-800 dark:text-slate-200">{name}</span>}
         <span className="text-slate-500 dark:text-slate-400">بطاقة: {String(m.card_number ?? "-")}</span>
         <span className="text-slate-500 dark:text-slate-400">مبلغ: {String(m.amount ?? "-")} د.ل</span>
+        <span className="text-slate-500 dark:text-slate-400">قبل: {String(m.balance_before ?? "-")} د.ل</span>
+        <span className="text-slate-500 dark:text-slate-400">بعد: {String(m.balance_after ?? "-")} د.ل</span>
         <span className="text-xs text-slate-400 dark:text-slate-500">({String(m.type === "MEDICINE" ? "دواء" : m.type === "SUPPLIES" ? "مستلزمات" : String(m.type ?? "-"))})</span>
         {completed && (
           <span className="inline-flex items-center rounded-md border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/30 px-1.5 py-0.5 text-xs font-bold text-emerald-700 dark:text-emerald-400">
@@ -150,6 +176,8 @@ function summarizeMetadata(action: string, metadata: unknown): React.ReactNode {
       <span className="text-slate-500 dark:text-slate-400">
         مبلغ مرتجع: <strong className="text-slate-700 dark:text-slate-300">{String(m.refunded_amount ?? "-")} د.ل</strong>
         {m.card_number ? <span className="mr-1.5">· بطاقة: {String(m.card_number)}</span> : null}
+        <span className="mr-1.5">· قبل: {String(m.balance_before ?? "-")} د.ل</span>
+        <span className="mr-1.5">· بعد: {String(m.balance_after ?? "-")} د.ل</span>
       </span>
     );
   }
@@ -159,6 +187,48 @@ function summarizeMetadata(action: string, metadata: unknown): React.ReactNode {
       <span className="text-slate-500 dark:text-slate-400">
         {m.card_number ? <span>بطاقة: {String(m.card_number)} · </span> : null}
         <span>إلغاء الإلغاء</span>
+        <span className="mr-1.5">· قبل: {String(m.balance_before ?? "-")} د.ل</span>
+        <span className="mr-1.5">· بعد: {String(m.balance_after ?? "-")} د.ل</span>
+      </span>
+    );
+  }
+
+  if (action === "SOFT_DELETE_TRANSACTION") {
+    return (
+      <span className="text-slate-500 dark:text-slate-400">
+        مبلغ مرتجع: <strong className="text-slate-700 dark:text-slate-300">{String(m.refunded_amount ?? "-")} د.ل</strong>
+        <span className="mr-1.5">· قبل: {String(m.balance_before ?? "-")} د.ل</span>
+        <span className="mr-1.5">· بعد: {String(m.balance_after ?? "-")} د.ل</span>
+      </span>
+    );
+  }
+
+  if (action === "RESTORE_SOFT_DELETED_TRANSACTION") {
+    return (
+      <span className="text-slate-500 dark:text-slate-400">
+        مبلغ مخصوم: <strong className="text-slate-700 dark:text-slate-300">{String(m.deducted_amount ?? "-")} د.ل</strong>
+        <span className="mr-1.5">· قبل: {String(m.balance_before ?? "-")} د.ل</span>
+        <span className="mr-1.5">· بعد: {String(m.balance_after ?? "-")} د.ل</span>
+      </span>
+    );
+  }
+
+  if (action === "PERMANENT_DELETE_TRANSACTION") {
+    return (
+      <span className="text-slate-500 dark:text-slate-400">
+        تم حذف نهائي: <strong className="text-slate-700 dark:text-slate-300">{String(m.deleted_count ?? "-")}</strong>
+        <span className="mr-1.5">· تأثير الرصيد: {String(m.balance_impact ?? 0)} د.ل</span>
+      </span>
+    );
+  }
+
+  if (action === "BULK_CANCEL_TRANSACTION" || action === "BULK_REDEDUCT_TRANSACTION") {
+    return (
+      <span className="text-slate-500 dark:text-slate-400">
+        مختارة: <strong className="text-slate-700 dark:text-slate-300">{String(m.selected_count ?? "-")}</strong>
+        <span className="mr-1.5">· منفذة: {String(m.processed_count ?? "-")}</span>
+        <span className="mr-1.5">· ناجحة: {String(m.cancelled_count ?? m.rededucted_count ?? "-")}</span>
+        <span className="mr-1.5">· متخطاة: {String(m.skipped_count ?? "-")}</span>
       </span>
     );
   }

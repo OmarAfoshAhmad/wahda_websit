@@ -132,8 +132,8 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
         throw new Error("لا يمكن تعديل حركة مصححة مباشرة");
       }
 
-      const locked = await tx.$queryRaw<Array<{ id: string; remaining_balance: number }>>`
-        SELECT id, remaining_balance FROM "Beneficiary"
+      const locked = await tx.$queryRaw<Array<{ id: string; remaining_balance: number; status: string }>>`
+        SELECT id, remaining_balance, status FROM "Beneficiary"
         WHERE id = ${transaction.beneficiary_id}
         FOR UPDATE
       `;
@@ -144,6 +144,7 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
 
       const oldAmount = Number(transaction.amount);
       const currentBalance = Number(locked[0].remaining_balance);
+      const lockedStatus = locked[0].status;
       const balanceBeforeThisTransaction = currentBalance + oldAmount;
 
       if (input.amount > balanceBeforeThisTransaction) {
@@ -151,7 +152,8 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
       }
 
       const newBalance = balanceBeforeThisTransaction - input.amount;
-      const newStatus = newBalance <= 0 ? "FINISHED" : "ACTIVE";
+      // FIX: احترام حالة الإيقاف — لا نغير SUSPENDED إلى ACTIVE أو FINISHED
+      const newStatus = lockedStatus === "SUSPENDED" ? "SUSPENDED" : (newBalance <= 0 ? "FINISHED" : "ACTIVE");
 
       await tx.beneficiary.update({
         where: { id: transaction.beneficiary_id },
@@ -182,6 +184,8 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
             new_amount: input.amount,
             new_type: input.type,
             new_date: parsedDate.toISOString(),
+            balance_before: currentBalance,
+            balance_after: newBalance,
           },
         },
       });

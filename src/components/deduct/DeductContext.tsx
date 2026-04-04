@@ -108,24 +108,35 @@ export function DeductProvider({ children }: { children: React.ReactNode }) {
   const [type, setType] = useState<DeductType>("MEDICINE");
   const [showConfirm, setShowConfirm] = useState(false);
   const [deducting, setDeducting] = useState(false);
-  const [recentBeneficiaries, setRecentBeneficiaries] = useState<BeneficiarySuggestion[]>(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const raw = localStorage.getItem(RECENT_KEY);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw) as BeneficiarySuggestion[];
-      return Array.isArray(parsed) ? parsed.slice(0, 5) : [];
-    } catch { return []; }
-  });
+  const [recentBeneficiaries, setRecentBeneficiaries] = useState<BeneficiarySuggestion[]>([]);
+  const [recentHydrated, setRecentHydrated] = useState(false);
 
   const searchBoxRef = useRef<HTMLDivElement | null>(null);
   const amountRef = useRef<HTMLInputElement | null>(null);
 
+  // Load recent beneficiaries after mount to keep SSR/client markup identical.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(RECENT_KEY);
+      if (!raw) {
+        setRecentHydrated(true);
+        return;
+      }
+      const parsed = JSON.parse(raw) as BeneficiarySuggestion[];
+      setRecentBeneficiaries(Array.isArray(parsed) ? parsed.slice(0, 5) : []);
+    } catch {
+      setRecentBeneficiaries([]);
+    } finally {
+      setRecentHydrated(true);
+    }
+  }, []);
+
   // Persist recent beneficiaries to localStorage
   useEffect(() => {
+    if (!recentHydrated) return;
     try { localStorage.setItem(RECENT_KEY, JSON.stringify(recentBeneficiaries.slice(0, 5))); }
     catch { /* quota exceeded */ }
-  }, [recentBeneficiaries]);
+  }, [recentBeneficiaries, recentHydrated]);
 
   const saveRecentBeneficiary = useCallback((item: BeneficiarySuggestion) => {
     setRecentBeneficiaries((prev) =>

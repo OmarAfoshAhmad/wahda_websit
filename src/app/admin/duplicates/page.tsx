@@ -3,10 +3,9 @@ import { revalidatePath } from "next/cache";
 import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { getLedgerRemainingByBeneficiaryIds } from "@/lib/ledger-balance";
 import { Shell } from "@/components/shell";
 import { Card, Badge, Input, Button } from "@/components/ui";
-import { DuplicateSameNameGroup } from "@/components/duplicate-same-name-group";
-import { deriveRelationshipFromCard, extractBaseCard, isBaseCard, normalizeCardNumber } from "@/lib/normalize";
 import {
   mergeDuplicateGroupByCanonicalAction,
   mergeDuplicateManualSelectionAction,
@@ -213,20 +212,9 @@ export default async function DuplicatesAdminPage({
       name: true,
       card_number: true,
       birth_date: true,
-      remaining_balance: true,
-      total_balance: true,
-      status: true,
     },
     orderBy: { card_number: "asc" },
   });
-
-  // بناء خريطة: البطاقة الأساسية → اسم رب الأسرة (لاستنتاج head_of_household)
-  const baseCardNameMap = new Map<string, string>();
-  for (const r of rows) {
-    if (isBaseCard(r.card_number)) {
-      baseCardNameMap.set(normalizeCardNumber(r.card_number), r.name);
-    }
-  }
 
   // Fetch ignored pairs
   const ignoreLogs = await prisma.auditLog.findMany({
@@ -236,9 +224,12 @@ export default async function DuplicatesAdminPage({
 
   const ignoredPairKeys = new Set<string>();
   for (const log of ignoreLogs) {
-    const meta = (log.metadata ?? {}) as any;
-    if (Array.isArray(meta.ignore_ids)) {
-      const sortedIds = [...meta.ignore_ids].sort();
+    const meta = (log.metadata ?? {}) as Record<string, unknown>;
+    const ignoreIds = Array.isArray(meta.ignore_ids)
+      ? meta.ignore_ids.filter((id): id is string => typeof id === "string")
+      : [];
+    if (ignoreIds.length > 0) {
+      const sortedIds = [...ignoreIds].sort();
       ignoredPairKeys.add(sortedIds.join("-"));
     }
   }
@@ -247,7 +238,14 @@ export default async function DuplicatesAdminPage({
   // Actually, it's easier to filter the GROUPS after building them, or just exclude them from the grouping initial phase.
   // Let's filter the groups after building them for better precision.
   
-  const { zeroVariantGroups, sameNameGroups: rawSameNameGroups } = buildDuplicateGroups(rows as any, q);
+  const groupingRows = rows.map((row) => ({
+    ...row,
+    status: "ACTIVE",
+    total_balance: 0,
+    remaining_balance: 0,
+  }));
+
+  const { zeroVariantGroups, sameNameGroups: rawSameNameGroups } = buildDuplicateGroups(groupingRows, q);
   
   const sameNameGroups = rawSameNameGroups.filter(g => {
     if (g.members.length < 2) return true;
@@ -270,23 +268,17 @@ export default async function DuplicatesAdminPage({
     select: {
       id: true,
       status: true,
-      remaining_balance: true,
     }
   });
 
+  const visibleRemainingById = await getLedgerRemainingByBeneficiaryIds(visibleIds);
+
   const detailsMap = new Map(fullDetails.map(d => [d.id, d]));
-  const enrich = (m: any) => {
-    const baseCard = extractBaseCard(m.card_number);
-    const derivedRelationship = deriveRelationshipFromCard(m.card_number);
-    const headName = baseCardNameMap.get(normalizeCardNumber(baseCard)) ?? null;
-    return {
-      ...m,
-      status: detailsMap.get(m.id)?.status ?? "ACTIVE",
-      remaining_balance: detailsMap.get(m.id)?.remaining_balance ?? 0,
-      relationship: derivedRelationship ?? (isBaseCard(m.card_number) ? "رب الأسرة" : null),
-      head_of_household: isBaseCard(m.card_number) ? null : headName,
-    };
-  };
+  const enrich = (m: (typeof groupingRows)[number]) => ({
+    ...m,
+    status: detailsMap.get(m.id)?.status ?? "ACTIVE",
+    remaining_balance: visibleRemainingById.get(m.id) ?? 0,
+  });
 
   zeroPage.items.forEach(g => g.members = g.members.map(enrich));
   namePage.items.forEach(g => g.members = g.members.map(enrich));
@@ -383,7 +375,7 @@ export default async function DuplicatesAdminPage({
   const keepNames = keepIdsFromLogs.length > 0
     ? await prisma.beneficiary.findMany({
         where: { id: { in: keepIdsFromLogs } },
-        select: { id: true, name: true, remaining_balance: true },
+        select: { id: true, name: true },
       })
     : [];
 
@@ -394,7 +386,10 @@ export default async function DuplicatesAdminPage({
       })
     : [];
 
-  const keepInfoById = new Map(keepNames.map((r) => [r.id, { name: r.name, remaining_balance: Number(r.remaining_balance) }]));
+  const keepRemainingById = await getLedgerRemainingByBeneficiaryIds(keepNames.map((row) => row.id));
+  const keepInfoById = new Map(
+    keepNames.map((r) => [r.id, { name: r.name, remaining_balance: keepRemainingById.get(r.id) ?? 0 }])
+  );
   const mergedNameById = new Map(mergedNames.map((r) => [r.id, r.name]));
 
   return (
@@ -676,9 +671,7 @@ export default async function DuplicatesAdminPage({
                       name: m.name,
                       card_number: m.card_number,
                       birth_date: m.birth_date,
-                      relationship: deriveRelationshipFromCard(m.card_number),
-                      head_of_household: baseCardNameMap.get(normalizeCardNumber(m.card_number)),
-                      total_balance: Number(m.total_balance),
+                      total_balance: Number(m.total_balance ?? 0),
                       remaining_balance: Number(m.remaining_balance),
                       status: m.status,
                       transactionsCount: m._count?.transactions ?? 0,
@@ -755,24 +748,45 @@ export default async function DuplicatesAdminPage({
               <p className="text-sm text-slate-500 dark:text-slate-400">لا توجد حالات مطابقة.</p>
             ) : (
               namePage.items.map((g) => (
-                <DuplicateSameNameGroup
-                  key={g.nameKey}
-                  nameKey={g.nameKey}
-                  name={g.members[0].name}
-                  membersCount={g.members.length}
-                  hasBirthDateConflict={g.hasBirthDateConflict}
-                  hasMissingBirthDate={g.hasMissingBirthDate}
-                  memberIds={g.members.map((m) => m.id)}
-                >
+                <div
+                    key={g.nameKey}
+                    className={`rounded-md border p-3 ${
+                      g.hasBirthDateConflict
+                        ? "border-amber-300 dark:border-amber-700 bg-amber-50/40 dark:bg-amber-950/10"
+                        : "border-slate-200 dark:border-slate-700"
+                    }`}
+                  >
+                  <div className="mb-2 flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge variant={g.hasBirthDateConflict ? "danger" : (g.hasMissingBirthDate ? "warning" : "default")}>
+                        {g.members.length} سجلات
+                      </Badge>
+                      <span className="text-sm font-bold text-slate-900 dark:text-white">{g.members[0].name}</span>
+                      {g.hasBirthDateConflict && (
+                        <span className="text-xs font-black text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900 rounded px-1.5 py-0.5">
+                          ⚠ تعارض مواليد — أشخاص مختلفون غالباً
+                        </span>
+                      )}
+                      {g.hasMissingBirthDate && (
+                        <span className="text-xs font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 rounded px-1.5 py-0.5">
+                          ⚠️ مواليد غير متوفرة لبعض السجلات
+                        </span>
+                      )}
+                    </div>
+                    <form action={ignoreAction} className="shrink-0">
+                      {g.members.map(m => <input key={m.id} type="hidden" name="ids" value={m.id} />)}
+                      <Button type="submit" variant="outline" className="h-8 text-xs border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-800 dark:text-amber-400">
+                         شخصين مختلفين (استبعاد)
+                      </Button>
+                    </form>
+                  </div>
                   <DuplicateManualMergeForm
                     members={g.members.map((m) => ({
                       id: m.id,
                       name: m.name,
                       card_number: m.card_number,
                       birth_date: m.birth_date,
-                      relationship: deriveRelationshipFromCard(m.card_number),
-                      head_of_household: baseCardNameMap.get(normalizeCardNumber(m.card_number)),
-                      total_balance: Number(m.total_balance),
+                      total_balance: Number(m.total_balance ?? 0),
                       remaining_balance: Number(m.remaining_balance),
                       status: m.status,
                       transactionsCount: m._count?.transactions ?? 0,
@@ -785,7 +799,7 @@ export default async function DuplicatesAdminPage({
                     hasBirthDateConflict={g.hasBirthDateConflict}
                     action={mergeAuditGroupAction}
                   />
-                </DuplicateSameNameGroup>
+                </div>
               ))
             )}
             {sameNameGroups.length > 0 && (

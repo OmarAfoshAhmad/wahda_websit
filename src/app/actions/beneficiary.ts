@@ -3,12 +3,34 @@
 import prisma from "@/lib/prisma";
 import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { getArabicSearchTerms } from "@/lib/search";
 import { updateBeneficiarySchema, createBeneficiarySchema } from "@/lib/validation";
 import { getCurrentInitialBalance } from "@/lib/initial-balance";
+import { getLedgerRemainingByBeneficiaryId, getLedgerRemainingByBeneficiaryIds } from "@/lib/ledger-balance";
 import { revalidatePath } from "next/cache";
 import { logger } from "@/lib/logger";
-import { normalizePersonName, normalizeCardNumber, canonicalizeCardNumber, leadingZeroScoreAfterPrefix } from "@/lib/normalize";
+import { normalizePersonName } from "@/lib/normalize";
+
+function normalizeCardNumber(value: string) {
+  return value.trim().toUpperCase();
+}
+
+function canonicalizeCardNumber(value: string) {
+  const c = normalizeCardNumber(value);
+  const m = c.match(/^WAB2025(\d+)([A-Z0-9]*)$/);
+  if (!m) return c;
+
+  const normalizedDigits = m[1].replace(/^0+/, "") || "0";
+  const suffix = m[2] ?? "";
+  return `WAB2025${normalizedDigits}${suffix}`;
+}
+
+function leadingZeroScoreAfterPrefix(value: string) {
+  const c = normalizeCardNumber(value);
+  const m = c.match(/^WAB2025(\d+)([A-Z0-9]*)$/);
+  if (!m) return 0;
+  const z = m[1].match(/^0+/);
+  return z ? z[0].length : 0;
+}
 
 // FIX #findCanonicalDuplicate: يستخدم SQL مباشرةً بدلاً من جلب كل بطاقات WAB2025 في الذاكرة.
 // يعتمد على الـ unique index الموجود على UPPER(BTRIM(card_number)) في قاعدة البيانات.
@@ -44,7 +66,7 @@ async function findCanonicalDuplicate(
           regexp_replace(
             UPPER(BTRIM(card_number)),
             E'^WAB2025(0*)([0-9])',
-            'WAB2025\\2'
+            'WAB2025\2'
           ) = ${canonicalInput}
           OR UPPER(BTRIM(card_number)) = ${canonicalInput}
         )
@@ -61,7 +83,7 @@ async function findCanonicalDuplicate(
         regexp_replace(
           UPPER(BTRIM(card_number)),
           E'^WAB2025(0*)([0-9])',
-          'WAB2025\\2'
+          'WAB2025\2'
         ) = ${canonicalInput}
         OR UPPER(BTRIM(card_number)) = ${canonicalInput}
       )
@@ -94,7 +116,7 @@ function groupIdsBySource(rows: Array<{ id: string; beneficiary_id: string }>) {
 type MergeStrategy = "ZERO_PRIORITY" | "LOWEST_BALANCE" | "HIGHEST_TRANSACTIONS";
 
 function pickKeepByStrategy(
-  matches: Array<{ id: string; card_number: string; remaining_balance: number; total_balance: number; tx_count?: number }>,
+  matches: Array<{ id: string; card_number: string; remaining_balance: number; tx_count?: number }>,
   strategy: MergeStrategy,
   fallbackKeepId?: string,
 ) {
@@ -188,11 +210,16 @@ export async function getBeneficiaryByCard(card_number: string) {
       return { error: "المستفيد غير موجود" };
     }
 
+    const derivedRemaining = await getLedgerRemainingByBeneficiaryId(
+      beneficiary.id,
+      Number(beneficiary.total_balance)
+    );
+
     return {
       beneficiary: {
         ...beneficiary,
         total_balance: Number(beneficiary.total_balance),
-        remaining_balance: Number(beneficiary.remaining_balance),
+        remaining_balance: derivedRemaining,
       },
     };
   } catch (error: unknown) {
@@ -244,7 +271,19 @@ export async function searchBeneficiaries(query: string) {
       LIMIT 20
     `;
 
-    return { items: rows };
+    const ids = rows.map((r) => r.id);
+    if (ids.length === 0) return { items: [] as Array<{ id: string; name: string; card_number: string; remaining_balance: number; status: string }> };
+
+    const remainingById = await getLedgerRemainingByBeneficiaryIds(ids);
+
+    const items = rows.map((row) => {
+      return {
+        ...row,
+        remaining_balance: remainingById.get(row.id) ?? 0,
+      };
+    });
+
+    return { items };
   } catch (error: unknown) {
     logger.error("Search beneficiaries error", { error: String(error) });
     return { error: "تعذر تنفيذ البحث", items: [] as Array<{ id: string; name: string; card_number: string; remaining_balance: number; status: string }> };
@@ -274,8 +313,8 @@ export async function createBeneficiary(data: {
 
   try {
     await prisma.$transaction(async (tx) => {
-      // قفل استشاري لمنع إدخال بطاقات مكررة في نفس اللحظة
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('BeneficiaryCard'), hashtext(${normalizedCardNumber}))`;
+      // قفل استشاري لمنع الإنشاء المتزامن بنفس رقم البطاقة
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${normalizedCardNumber}))`;
 
       const existing = await findCanonicalDuplicate(tx, normalizedCardNumber);
 
@@ -341,11 +380,9 @@ export async function updateBeneficiary(data: {
   card_number: string;
   birth_date?: string;
   status: "ACTIVE" | "FINISHED" | "SUSPENDED";
-  total_balance?: number;
-  remaining_balance?: number;
 }) {
   const session = await requireActiveFacilitySession();
-  if (!session || (!session.is_admin && !session.is_manager)) {
+  if (!session || !session.is_admin && !session.is_manager) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -362,7 +399,7 @@ export async function updateBeneficiary(data: {
   try {
     await prisma.$transaction(async (tx) => {
       // قفل استشاري لمنع التحديث المتزامن بنفس رقم البطاقة
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('BeneficiaryCard'), hashtext(${normalizedCardNumber}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${normalizedCardNumber}))`;
 
       const existing = await findCanonicalDuplicate(tx, normalizedCardNumber, payload.id);
 
@@ -393,8 +430,6 @@ export async function updateBeneficiary(data: {
           card_number: normalizedCardNumber,
           birth_date: parsedBirthDate,
           status: payload.status,
-          ...(payload.total_balance !== undefined ? { total_balance: payload.total_balance } : {}),
-          ...(payload.remaining_balance !== undefined ? { remaining_balance: payload.remaining_balance } : {}),
         },
       });
 
@@ -810,7 +845,6 @@ export async function mergeDuplicateBeneficiaries(
             id: m.id,
             card_number: m.card_number,
             remaining_balance: Number(m.remaining_balance),
-            total_balance: Number(m.total_balance),
           })),
           strategy,
           keepId,
@@ -833,13 +867,8 @@ export async function mergeDuplicateBeneficiaries(
     }
 
     const allRows = matches;
-    const mergedRemaining = options?.forceKeep && preferredKeep
-      ? Number(preferredKeep.remaining_balance)
-      : Math.max(...allRows.map((r) => Number(r.remaining_balance)));
-
-    const mergedTotal = options?.forceKeep && preferredKeep
-      ? Number(preferredKeep.total_balance)
-      : Math.max(...allRows.map((r) => Number(r.total_balance)));
+    const mergedRemaining = Math.max(...allRows.map((r) => Number(r.remaining_balance)));
+    const mergedTotal = Math.max(...allRows.map((r) => Number(r.total_balance)));
     const mergedStatus = allRows.some((r) => r.status === "ACTIVE")
       ? "ACTIVE"
       : allRows.some((r) => r.status === "SUSPENDED")
@@ -1024,35 +1053,20 @@ export async function mergeDuplicateGroupByCanonicalAction(formData: FormData) {
   }
 
   try {
-    const matchedRows = await prisma.$queryRaw<Array<{
-      id: string;
-      card_number: string;
-      remaining_balance: any;
-      total_balance: any;
-      transactions_count: bigint;
-    }>>`
-      SELECT 
-        b.id, 
-        b.card_number, 
-        b.remaining_balance,
-        b.total_balance,
-        (SELECT COUNT(*) FROM "Transaction" t WHERE t.beneficiary_id = b.id) as transactions_count
-      FROM "Beneficiary" b
-      WHERE b.deleted_at IS NULL
-        AND regexp_replace(
-          UPPER(BTRIM(b.card_number)),
-          E'^WAB2025(0*)([0-9])',
-          'WAB2025\\2'
-        ) = ${canonicalCard}
-    `;
+    const candidates = await prisma.beneficiary.findMany({
+      where: { 
+        deleted_at: null,
+        card_number: { startsWith: "WAB2025", mode: "insensitive" } 
+      },
+      select: {
+        id: true,
+        card_number: true,
+        remaining_balance: true,
+        _count: { select: { transactions: true } },
+      },
+    });
 
-    const matched = matchedRows.map(r => ({
-      id: r.id,
-      card_number: r.card_number,
-      remaining_balance: r.remaining_balance,
-      total_balance: r.total_balance,
-      _count: { transactions: Number(r.transactions_count) }
-    }));
+    const matched = candidates.filter((c) => canonicalizeCardNumber(c.card_number) === canonicalCard);
     if (matched.length <= 1) {
       return { error: "لا توجد مجموعة مكررة قابلة للدمج" };
     }
@@ -1062,7 +1076,6 @@ export async function mergeDuplicateGroupByCanonicalAction(formData: FormData) {
         id: m.id,
         card_number: m.card_number,
         remaining_balance: Number(m.remaining_balance),
-        total_balance: Number(m.total_balance),
         tx_count: m._count.transactions,
       })),
       strategy,
@@ -1390,7 +1403,8 @@ export async function ignoreDuplicatePairAction(formData: FormData) {
     });
     revalidatePath("/admin/duplicates");
     return { success: true };
-  } catch (error: any) {
-    return { error: "فشل تسجيل الاستبعاد: " + error.message };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "خطأ غير معروف";
+    return { error: "فشل تسجيل الاستبعاد: " + message };
   }
 }

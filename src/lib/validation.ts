@@ -1,8 +1,8 @@
 import { z } from "zod";
 
 export const loginSchema = z.object({
-  username: z.string().min(1, "Username is required").max(50, "اسم المستخدم طويل جداً"),
-  password: z.string().min(1, "Password is required").max(128, "كلمة المرور طويلة جداً"),
+  username: z.string().min(1, "اسم المستخدم مطلوب").max(50, "اسم المستخدم طويل جداً"),
+  password: z.string().min(1, "كلمة المرور مطلوبة").max(128, "كلمة المرور طويلة جداً"),
 });
 
 export const deductionSchema = z.object({
@@ -72,9 +72,18 @@ export const updateBeneficiarySchema = z.object({
   status: z.enum(["ACTIVE", "FINISHED", "SUSPENDED"], {
     message: "حالة المستفيد غير صحيحة",
   }),
-  total_balance: z.coerce.number().min(0, "الرصيد لا يمكن أن يكون سالباً").optional(),
-  remaining_balance: z.coerce.number().min(0, "الرصيد لا يمكن أن يكون سالباً").optional(),
-});
+  total_balance: z.coerce.number().min(0, "الرصيد الكلي لا يمكن أن يكون سالباً").optional(),
+  remaining_balance: z.coerce.number().min(0, "الرصيد المتبقي لا يمكن أن يكون سالباً").optional(),
+}).refine(
+  (data) => {
+    if (data.remaining_balance !== undefined && data.total_balance !== undefined) {
+      // FIX: منع الرصيد المتبقي من تجاوز الرصيد الكلي
+      return data.remaining_balance <= data.total_balance;
+    }
+    return true;
+  },
+  { message: "الرصيد المتبقي لا يمكن أن يتجاوز الرصيد الكلي", path: ["remaining_balance"] }
+);
 
 export const createBeneficiarySchema = z.object({
   name: z.string().min(2, "الاسم يجب أن يكون حرفين على الأقل").max(100, "الاسم طويل جداً"),
