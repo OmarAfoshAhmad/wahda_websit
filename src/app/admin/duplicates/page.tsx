@@ -274,7 +274,7 @@ export default async function DuplicatesAdminPage({
   const visibleRemainingById = await getLedgerRemainingByBeneficiaryIds(visibleIds);
 
   const detailsMap = new Map(fullDetails.map(d => [d.id, d]));
-  const enrich = (m: (typeof groupingRows)[number]) => ({
+  const enrich = (m: (typeof zeroPage.items)[number]["members"][number]) => ({
     ...m,
     status: detailsMap.get(m.id)?.status ?? "ACTIVE",
     remaining_balance: visibleRemainingById.get(m.id) ?? 0,

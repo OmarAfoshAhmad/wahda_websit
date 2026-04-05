@@ -63,7 +63,7 @@ export async function GET(request: Request) {
         card_number: member.card_number,
         keep: member.id === group.preferredId ? "YES" : "NO",
         status: member.status,
-        transactions: member._count.transactions,
+        transactions: member._count?.transactions ?? 0,
         balance: Number(member.remaining_balance),
       });
     }
@@ -86,7 +86,7 @@ export async function GET(request: Request) {
         name: member.name,
         card_number: member.card_number,
         status: member.status,
-        transactions: member._count.transactions,
+        transactions: member._count?.transactions ?? 0,
         balance: Number(member.remaining_balance),
       });
     }
