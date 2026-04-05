@@ -1099,38 +1099,62 @@ export async function mergeDuplicateManualSelectionAction(formData: FormData) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
-  const keepId = String(formData.get("keep_id") ?? "").trim();
+  const memberIds = [...new Set(formData.getAll("member_ids").map((v) => String(v).trim()).filter(Boolean))];
+  if (memberIds.length === 0) return { error: "لم يتم العثور على سجلات" };
 
-  if (!keepId) return { error: "يجب تحديد السجل المراد الإبقاء عليه" };
+  // خريطة لتجميع السجلات المراد دمجها حسب السجل المستهدف (المرجع)
+  const targetMap = new Map<string, string[]>();
 
-  return mergeDuplicateBeneficiaries(keepId, {
-    forceKeep: true,
-    strategy: "ZERO_PRIORITY",
-  });
-}
-
-export async function mergeNeedsReviewGroupAction(formData: FormData) {
-  const session = await requireActiveFacilitySession();
-  if (!session || !hasPermission(session, "delete_beneficiary")) {
-    return { error: "غير مصرح بهذه العملية" };
+  for (const memberId of memberIds) {
+    const targetId = String(formData.get(`action_${memberId}`) ?? "").trim();
+    if (!targetId || !memberIds.includes(targetId)) return { error: "إجراء غير صحيح لأحد السجلات" };
+    
+    if (targetId !== memberId) {
+      if (!targetMap.has(targetId)) targetMap.set(targetId, []);
+      targetMap.get(targetId)!.push(memberId);
+    }
   }
 
-  const keepId = String(formData.get("keep_id") ?? "").trim();
-  const memberIds = [...new Set(formData.getAll("member_ids").map((v) => String(v).trim()).filter(Boolean))];
+  let totalMerged = 0;
 
-  if (!keepId) return { error: "يجب تحديد السجل المراد الإبقاء عليه" };
-  if (memberIds.length <= 1) return { error: "المجموعة لا تحتوي على سجلات كافية للمعالجة" };
+  for (const [keepId, explicitMergeIds] of targetMap.entries()) {
+    if (explicitMergeIds.length > 0) {
+      const res = await mergeDuplicateBeneficiaries(keepId, {
+        forceKeep: true,
+        explicitMergeIds,
+        candidateIds: [keepId, ...explicitMergeIds],
+        strategy: "ZERO_PRIORITY",
+      });
+      if (res.error) return res;
+      totalMerged += (res.mergedCount ?? 0);
+    }
+  }
 
-  const mergeIds = memberIds.filter((id) => id !== keepId);
-  if (mergeIds.length === 0) return { error: "لا توجد سجلات فرعية للدمج" };
+  // إذا قام المستخدم بتحديد إبقاء أكثر من سجل كأشخاص مستقلين، نعتبرهم غير متطابقين ونستبعدهم من بعض.
+  const independentIds = memberIds.filter(m => String(formData.get(`action_${m}`) ?? "").trim() === m);
+  if (independentIds.length > 1) {
+    try {
+      await prisma.auditLog.create({
+        data: {
+          action: "IGNORE_DUPLICATE_PAIR",
+          user: session.username,
+          facility_id: session.id,
+          metadata: {
+            ignore_ids: independentIds,
+            timestamp: new Date().toISOString(),
+            reason: "Manual exclusion via advanced merge (kept independent)",
+          },
+        },
+      });
+    } catch(err) {
+      console.error("Failed to append IGNORE_DUPLICATE_PAIR:", err);
+    }
+  }
 
-  return mergeDuplicateBeneficiaries(keepId, {
-    forceKeep: true,
-    explicitMergeIds: mergeIds,
-    candidateIds: memberIds,
-    strategy: "ZERO_PRIORITY",
-  });
+  return { mergedCount: totalMerged };
 }
+
+export const mergeNeedsReviewGroupAction = mergeDuplicateManualSelectionAction;
 
 export async function mergeNeedsReviewBatchAction(formData: FormData) {
   const session = await requireActiveFacilitySession();

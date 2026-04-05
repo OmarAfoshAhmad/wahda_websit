@@ -62,9 +62,9 @@ export default async function DuplicatesAdminPage({
   async function mergeManualAction(formData: FormData) {
     "use server";
     const result = await mergeDuplicateManualSelectionAction(formData);
-    if (result.error) return { error: result.error };
+    if ("error" in result && result.error) return { error: result.error };
     const sr = result as { mergedCount?: number; mergeAuditId?: string };
-    return { ok: `تم الدمج اليدوي بنجاح (${sr.mergedCount ?? 0} سجلات)` };
+    return { ok: `تم الدمج المخصص بنجاح (${sr.mergedCount ?? 0} سجلات)` };
   }
 
   async function mergeAllZeroVariantsUIAction(formData: FormData) {
@@ -109,8 +109,9 @@ export default async function DuplicatesAdminPage({
   async function mergeAuditGroupAction(formData: FormData) {
     "use server";
     const result = await mergeNeedsReviewGroupAction(formData);
-    if (result.error) return { error: result.error };
-    return { ok: `تمت معالجة السجل بنجاح (${result.mergedCount ?? 0} سجلات)` };
+    if ("error" in result && result.error) return { error: result.error };
+    const sr = result as { mergedCount?: number; mergeAuditId?: string };
+    return { ok: `تمت معالجة السجل بنجاح (${sr.mergedCount ?? 0} سجلات)` };
   }
 
   async function mergeAuditBatchAction(formData: FormData) {
@@ -253,12 +254,35 @@ export default async function DuplicatesAdminPage({
 
   const visibleRemainingById = await getLedgerRemainingByBeneficiaryIds(visibleIds);
 
+  const visibleBaseCards = new Set<string>();
+  const allVisibleMembers = [...zeroPage.items.flatMap(g => g.members), ...namePage.items.flatMap(g => g.members)];
+  for (const m of allVisibleMembers) {
+    const match = m.card_number.match(/^(.*?)([WSDMFHV])(\d+)$/i);
+    if (match) visibleBaseCards.add(match[1]);
+  }
+
+  const heads = visibleBaseCards.size > 0 ? await prisma.beneficiary.findMany({
+    where: { card_number: { in: Array.from(visibleBaseCards) }, deleted_at: null },
+    select: { card_number: true, name: true },
+  }) : [];
+  const headNameMap = new Map(heads.map(h => [h.card_number, h.name]));
+
   const detailsMap = new Map(fullDetails.map(d => [d.id, d]));
-  const enrich = (m: (typeof zeroPage.items)[number]["members"][number]) => ({
-    ...m,
-    status: detailsMap.get(m.id)?.status ?? "ACTIVE",
-    remaining_balance: visibleRemainingById.get(m.id) ?? 0,
-  });
+  const enrich = (m: (typeof zeroPage.items)[number]["members"][number]) => {
+    let headName = null;
+    const match = m.card_number.match(/^(.*?)([WSDMFHV])(\d+)$/i);
+    if (match) {
+      headName = headNameMap.get(match[1]) ?? match[1];
+    } else {
+      headName = m.name; // If no match, they are the head
+    }
+    return {
+      ...m,
+      head_of_household: headName,
+      status: detailsMap.get(m.id)?.status ?? "ACTIVE",
+      remaining_balance: visibleRemainingById.get(m.id) ?? 0,
+    };
+  };
 
   zeroPage.items.forEach(g => g.members = g.members.map(enrich));
   namePage.items.forEach(g => g.members = g.members.map(enrich));
@@ -656,6 +680,7 @@ export default async function DuplicatesAdminPage({
                       name: m.name,
                       card_number: m.card_number,
                       birth_date: m.birth_date,
+                      head_of_household: (m as any).head_of_household,
                       total_balance: Number(m.total_balance ?? 0),
                       remaining_balance: Number(m.remaining_balance),
                       status: m.status,
@@ -739,7 +764,7 @@ export default async function DuplicatesAdminPage({
                   name={g.members[0].name}
                   membersCount={g.members.length}
                   hasBirthDateConflict={g.hasBirthDateConflict}
-                  hasMissingBirthDate={g.hasMissingBirthDate}
+
                   memberIds={g.members.map(m => m.id)}
                 >
                   <DuplicateManualMergeForm
@@ -748,6 +773,7 @@ export default async function DuplicatesAdminPage({
                       name: m.name,
                       card_number: m.card_number,
                       birth_date: m.birth_date,
+                      head_of_household: (m as any).head_of_household,
                       total_balance: Number(m.total_balance ?? 0),
                       remaining_balance: Number(m.remaining_balance),
                       status: m.status,
@@ -760,6 +786,7 @@ export default async function DuplicatesAdminPage({
                     helperText="افتراضيًا يتم اختيار البطاقة ذات الشكل الصحيح؛ يمكنك تغيير الإبقاء يدويًا"
                     hasBirthDateConflict={g.hasBirthDateConflict}
                     action={mergeAuditGroupAction}
+                    formId={`form-${g.members[0].id}`}
                   />
                 </DuplicateSameNameGroup>
               ))

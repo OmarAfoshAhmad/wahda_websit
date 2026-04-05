@@ -39,8 +39,6 @@ export type SameNameGroup = {
   preferredCard: string;
   /** true إذا كان الأعضاء لديهم تواريخ ميلاد مختلفة صريحة — قد يكونون أشخاصاً مختلفين */
   hasBirthDateConflict: boolean;
-  /** true إذا كان بعض أو كل الأعضاء يفتقرون لتاريخ الميلاد */
-  hasMissingBirthDate: boolean;
 };
 
 // الدوال المستوردة مباشرة من المكتبة الموحدة — aliases للاستخدام الداخلي
@@ -132,7 +130,6 @@ export function buildDuplicateGroups(rows: BeneficiaryRow[], rawQuery?: string) 
       const uniqueBirthDates = new Set(knownBirthDates);
       const hasBirthDateConflict =
         knownBirthDates.length > 1 && uniqueBirthDates.size > 1;
-      const hasMissingBirthDate = knownBirthDates.length < members.length;
 
       const preferred = [...members].sort((a, b) => {
         const s = cardShapeScore(b.card_number) - cardShapeScore(a.card_number);
@@ -147,7 +144,6 @@ export function buildDuplicateGroups(rows: BeneficiaryRow[], rawQuery?: string) 
         preferredId: preferred.id,
         preferredCard: preferred.card_number,
         hasBirthDateConflict,
-        hasMissingBirthDate,
       };
     })
     .filter((g): g is SameNameGroup => !!g)
