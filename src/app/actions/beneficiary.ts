@@ -1184,6 +1184,60 @@ export async function mergeNeedsReviewBatchAction(formData: FormData) {
   return { success: true, mergedGroups, mergedRows, firstAuditId };
 }
 
+export async function mergeAllGlobalZeroVariantsAction() {
+  const session = await requireActiveFacilitySession();
+  if (!session || !hasPermission(session, "delete_beneficiary")) {
+    return { error: "غير مصرح بهذه العملية" };
+  }
+
+  const rows = await prisma.beneficiary.findMany({
+    where: { 
+      deleted_at: null,
+      card_number: { startsWith: "WAB2025", mode: "insensitive" } 
+    },
+    select: {
+      id: true,
+      name: true,
+      card_number: true,
+      birth_date: true,
+      status: true,
+      total_balance: true,
+      remaining_balance: true,
+      _count: { select: { transactions: true } },
+    },
+  });
+
+  const { buildDuplicateGroups } = await import("@/lib/duplicate-groups");
+  const { zeroVariantGroups } = buildDuplicateGroups(rows as Parameters<typeof buildDuplicateGroups>[0]);
+
+  let mergedGroups = 0;
+  let mergedRows = 0;
+  let firstAuditId: string | null = null;
+  
+  for (const group of zeroVariantGroups) {
+    try {
+      const res = await mergeDuplicateBeneficiaries(group.preferredId, {
+        forceKeep: true,
+        candidateIds: group.members.map((m) => m.id),
+        strategy: "ZERO_PRIORITY",
+      });
+      if (res && !res.error) {
+        mergedGroups += 1;
+        mergedRows += Number(res.mergedCount ?? 0);
+        if (!firstAuditId && res.mergeAuditId) firstAuditId = res.mergeAuditId;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  if (mergedGroups === 0) {
+    return { error: "لا توجد تكرارات صفرية آمنة متبقية للدمج الشامل" };
+  }
+
+  return { success: true, mergedGroups, mergedRows, firstAuditId };
+}
+
 export async function mergeDuplicateBatchByConditionAction(formData: FormData) {
   const session = await requireActiveFacilitySession();
   if (!session || !hasPermission(session, "delete_beneficiary")) {

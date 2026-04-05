@@ -14,10 +14,12 @@ import {
   mergeNeedsReviewBatchAction,
   undoMergeDuplicateBeneficiariesByAuditId,
   ignoreDuplicatePairAction,
+  mergeAllGlobalZeroVariantsAction,
 } from "@/app/actions/beneficiary";
 import { buildDuplicateGroups, paginate } from "@/lib/duplicate-groups";
 import { RotateCcw, CheckCircle2, AlertCircle, AlertTriangle, UserMinus } from "lucide-react";
 import { DuplicateManualMergeForm } from "@/components/duplicate-manual-merge-form";
+import { DuplicateSameNameGroup } from "@/components/duplicate-same-name-group";
 import { BatchMergeButton } from "@/components/batch-merge-button";
 
 export default async function DuplicatesAdminPage({
@@ -59,28 +61,22 @@ export default async function DuplicatesAdminPage({
 
   async function mergeManualAction(formData: FormData) {
     "use server";
-
-    const q = String(formData.get("q") ?? "");
-    const pz = String(formData.get("pz") ?? "1");
-    const pn = String(formData.get("pn") ?? "1");
-    const tab = String(formData.get("tab") ?? "review");
-
-    const params = new URLSearchParams();
-    if (q) params.set("q", q);
-    params.set("pz", pz);
-    params.set("pn", pn);
-    params.set("tab", tab);
-
     const result = await mergeDuplicateManualSelectionAction(formData);
-    if (result.error) {
-      params.set("err", result.error);
-      redirect(`/admin/duplicates?${params.toString()}`);
-    }
-
+    if (result.error) return { error: result.error };
     const sr = result as { mergedCount?: number; mergeAuditId?: string };
-    params.set("ok", `تم الدمج اليدوي بنجاح (${sr.mergedCount ?? 0} سجلات)`);
-    if (sr.mergeAuditId) params.set("audit", sr.mergeAuditId);
-    redirect(`/admin/duplicates?${params.toString()}`);
+    return { ok: `تم الدمج اليدوي بنجاح (${sr.mergedCount ?? 0} سجلات)` };
+  }
+
+  async function mergeAllZeroVariantsUIAction(formData: FormData) {
+    "use server";
+    const res = await mergeAllGlobalZeroVariantsAction();
+    if (res.error) {
+      redirect(`/admin/duplicates?tab=review&err=${encodeURIComponent(res.error)}`);
+    } else {
+      let params = `?tab=review&ok=تم الدمج الشامل بنجاح (${res.mergedGroups} مجموعات)`;
+      if (res.firstAuditId) params += `&audit=${res.firstAuditId}`;
+      redirect(`/admin/duplicates${params}`);
+    }
   }
 
   async function mergeBatchAction(formData: FormData) {
@@ -112,25 +108,9 @@ export default async function DuplicatesAdminPage({
 
   async function mergeAuditGroupAction(formData: FormData) {
     "use server";
-
-    const q = String(formData.get("q") ?? "");
-    const pz = String(formData.get("pz") ?? "1");
-    const pn = String(formData.get("pn") ?? "1");
-
-    const params = new URLSearchParams();
-    if (q) params.set("q", q);
-    params.set("pz", pz);
-    params.set("pn", pn);
-    params.set("tab", "audit");
-
     const result = await mergeNeedsReviewGroupAction(formData);
-    if (result.error) {
-      params.set("err", result.error);
-      redirect(`/admin/duplicates?${params.toString()}`);
-    }
-
-    params.set("ok", `تمت معالجة السجل بنجاح (${result.mergedCount ?? 0} سجلات)`);
-    redirect(`/admin/duplicates?${params.toString()}`);
+    if (result.error) return { error: result.error };
+    return { ok: `تمت معالجة السجل بنجاح (${result.mergedCount ?? 0} سجلات)` };
   }
 
   async function mergeAuditBatchAction(formData: FormData) {
@@ -182,8 +162,8 @@ export default async function DuplicatesAdminPage({
   async function ignoreAction(formData: FormData) {
     "use server";
     const res = await ignoreDuplicatePairAction(formData);
-    if (res.error) redirect(`/admin/duplicates?err=${encodeURIComponent(res.error)}`);
-    redirect(`/admin/duplicates?ok=marked_as_different`);
+    if (res.error) return { error: res.error };
+    return { ok: "تم تعليم السجلين كأشخاص مختلفين" };
   }
 
   const session = await getSession();
@@ -610,8 +590,13 @@ export default async function DuplicatesAdminPage({
         </div>
 
         <Card className="overflow-hidden">
-          <div className="border-b border-slate-200 dark:border-slate-800 px-4 py-3 sm:px-6">
-            <h2 className="text-sm font-black text-slate-900 dark:text-white">حالات اختلاف الأصفار (جاهزة للدمج)</h2>
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 px-4 py-3 sm:px-6">
+              <h2 className="text-sm font-black text-slate-900 dark:text-white">حالات اختلاف الأصفار (جاهزة للدمج)</h2>
+              {zeroVariantGroups.length > 0 && (
+                <form action={mergeAllZeroVariantsUIAction}>
+                  <BatchMergeButton label="دمج آمن لجميع التكرارات" />
+                </form>
+              )}
           </div>
           <div className="space-y-4 p-4 sm:p-6">
             {zeroPage.items.length > 0 && (
@@ -748,38 +733,15 @@ export default async function DuplicatesAdminPage({
               <p className="text-sm text-slate-500 dark:text-slate-400">لا توجد حالات مطابقة.</p>
             ) : (
               namePage.items.map((g) => (
-                <div
-                    key={g.nameKey}
-                    className={`rounded-md border p-3 ${
-                      g.hasBirthDateConflict
-                        ? "border-amber-300 dark:border-amber-700 bg-amber-50/40 dark:bg-amber-950/10"
-                        : "border-slate-200 dark:border-slate-700"
-                    }`}
-                  >
-                  <div className="mb-2 flex items-center justify-between gap-2 flex-wrap">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Badge variant={g.hasBirthDateConflict ? "danger" : (g.hasMissingBirthDate ? "warning" : "default")}>
-                        {g.members.length} سجلات
-                      </Badge>
-                      <span className="text-sm font-bold text-slate-900 dark:text-white">{g.members[0].name}</span>
-                      {g.hasBirthDateConflict && (
-                        <span className="text-xs font-black text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900 rounded px-1.5 py-0.5">
-                          ⚠ تعارض مواليد — أشخاص مختلفون غالباً
-                        </span>
-                      )}
-                      {g.hasMissingBirthDate && (
-                        <span className="text-xs font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 rounded px-1.5 py-0.5">
-                          ⚠️ مواليد غير متوفرة لبعض السجلات
-                        </span>
-                      )}
-                    </div>
-                    <form action={ignoreAction} className="shrink-0">
-                      {g.members.map(m => <input key={m.id} type="hidden" name="ids" value={m.id} />)}
-                      <Button type="submit" variant="outline" className="h-8 text-xs border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-800 dark:text-amber-400">
-                         شخصين مختلفين (استبعاد)
-                      </Button>
-                    </form>
-                  </div>
+                <DuplicateSameNameGroup
+                  key={g.nameKey}
+                  nameKey={g.nameKey}
+                  name={g.members[0].name}
+                  membersCount={g.members.length}
+                  hasBirthDateConflict={g.hasBirthDateConflict}
+                  hasMissingBirthDate={g.hasMissingBirthDate}
+                  memberIds={g.members.map(m => m.id)}
+                >
                   <DuplicateManualMergeForm
                     members={g.members.map((m) => ({
                       id: m.id,
@@ -799,7 +761,7 @@ export default async function DuplicatesAdminPage({
                     hasBirthDateConflict={g.hasBirthDateConflict}
                     action={mergeAuditGroupAction}
                   />
-                </div>
+                </DuplicateSameNameGroup>
               ))
             )}
             {sameNameGroups.length > 0 && (

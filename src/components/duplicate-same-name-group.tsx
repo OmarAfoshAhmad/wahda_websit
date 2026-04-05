@@ -3,6 +3,7 @@
 import { useState, useTransition, ReactNode } from "react";
 import { Badge, Button } from "@/components/ui";
 import { ignoreDuplicatePairAction } from "@/app/actions/beneficiary";
+import { useToast } from "@/components/toast";
 
 type DuplicateSameNameGroupProps = {
   nameKey: string;
@@ -24,6 +25,7 @@ export function DuplicateSameNameGroup({
 }: DuplicateSameNameGroupProps) {
   const [hidden, setHidden] = useState(false);
   const [isPending, startTransition] = useTransition();
+  const { toast, success, error } = useToast();
 
   if (hidden) return null;
 
@@ -35,9 +37,10 @@ export function DuplicateSameNameGroup({
       }
       const res = await ignoreDuplicatePairAction(fd);
       if (!res?.error) {
+        success("تم تعليم السجلين كأشخاص مختلفين بنجاح");
         setHidden(true);
       } else {
-        alert(res.error);
+        error(res.error);
       }
     });
   }
@@ -52,10 +55,20 @@ export function DuplicateSameNameGroup({
     >
       <div className="mb-2 flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2 flex-wrap">
-          <Badge variant="warning">
+          <Badge variant={hasBirthDateConflict ? "danger" : (hasMissingBirthDate ? "warning" : "default")}>
             {membersCount} سجلات
           </Badge>
           <span className="text-sm font-bold text-slate-900 dark:text-white">{name}</span>
+          {hasBirthDateConflict && (
+            <span className="text-xs font-black text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900 rounded px-1.5 py-0.5">
+              ⚠ تعارض مواليد — أشخاص مختلفون غالباً
+            </span>
+          )}
+          {hasMissingBirthDate && (
+            <span className="text-xs font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 rounded px-1.5 py-0.5">
+              ⚠️ مواليد غير متوفرة لبعض السجلات
+            </span>
+          )}
         </div>
         <Button
           onClick={handleIgnore}

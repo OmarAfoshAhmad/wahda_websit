@@ -48,8 +48,6 @@ export function BeneficiaryEditModal({ beneficiary }: BeneficiaryEditModalProps)
           card_number: cardNumber,
           birth_date: birthDate,
           status,
-          total_balance: totalBalance,
-          remaining_balance: remainingBalance,
         });
 
         if (result.error) {

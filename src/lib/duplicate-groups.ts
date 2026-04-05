@@ -116,7 +116,13 @@ export function buildDuplicateGroups(rows: BeneficiaryRow[], rawQuery?: string) 
   const sameNameGroups = [...byName.entries()]
     .map(([nameKey, members]) => {
       const uniqueCards = new Set(members.map((m) => m.card_number.trim().toUpperCase()));
+      const uniqueCanonicalCards = new Set(members.map((m) => canonicalCard(m.card_number)));
+      
       if (members.length <= 1 || uniqueCards.size <= 1) return null;
+      
+      // إذا كانت جميع البطاقات في هذه المجموعة تختلف فقط في الأصفار، 
+      // فقد تمت إضافتها بالفعل في "حالات اختلاف الأصفار" (Zero Variants) ولا داعي لتكرار عرضها هنا.
+      if (uniqueCanonicalCards.size === 1) return null;
 
       // FIX #sameNameGroups: كشف تعارض تاريخ الميلاد.
       // إذا كان جميع الأعضاء لديهم تواريخ ميلاد صريحة ومختلفة → أشخاص مختلفون.

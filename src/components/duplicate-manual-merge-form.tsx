@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { Button } from "@/components/ui";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import { BeneficiaryEditModal } from "@/components/beneficiary-edit-modal";
+import { useToast } from "@/components/toast";
 
 type Member = {
   id: string;
@@ -47,16 +48,40 @@ export function DuplicateManualMergeForm({
   q: string;
   pz: number;
   pn: number;
-  action: (formData: FormData) => void | Promise<void>;
+  action: (formData: FormData) => Promise<{ error?: string; ok?: string } | void>;
   helperText?: string;
   /** عند true: الأعضاء لديهم تواريخ ميلاد مختلفة — قد يكونون أشخاصاً مختلفين فعلاً */
   hasBirthDateConflict?: boolean;
 }) {
   const initialKeep = members.some((m) => m.id === preferredId) ? preferredId : members[0]?.id ?? "";
   const [keepId, setKeepId] = useState(initialKeep);
+  const [isMerged, setIsMerged] = useState(false);
+  const [isPending, startTransition] = useTransition();
+  const { toast, success, error } = useToast();
+
+  if (isMerged) return null;
+
+  function handleSubmit(formData: FormData) {
+    startTransition(async () => {
+      try {
+        const res = await action(formData);
+        if (res && res.error) {
+          error(res.error);
+        } else if (res && res.ok) {
+          success(res.ok);
+          setIsMerged(true);
+        } else {
+          setIsMerged(true); // Fallback
+          success("تمت العملية بنجاح");
+        }
+      } catch (err) {
+        error("حدث خطأ غير متوقع. يرجى المحاولة لاحقا.");
+      }
+    });
+  }
 
   return (
-    <form action={action} className="mb-3 rounded-md border border-dashed border-slate-300 dark:border-slate-700 p-2">
+    <form action={handleSubmit} className="mb-3 rounded-md border border-dashed border-slate-300 dark:border-slate-700 p-2">
       {/* تحذير تعارض تاريخ الميلاد */}
       {hasBirthDateConflict && (
         <div className="mb-2 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-2 dark:border-amber-800 dark:bg-amber-950/30">
@@ -76,7 +101,10 @@ export function DuplicateManualMergeForm({
         {members.map((m) => (
           <input key={`mid-${m.id}`} type="hidden" name="member_ids" value={m.id} />
         ))}
-        <Button type="submit" className="h-8 px-3 text-xs">تطبيق الدمج المخصص</Button>
+        <Button type="submit" disabled={isPending} className="h-8 px-3 text-xs flex items-center gap-2">
+          {isPending && <Loader2 className="h-3 w-3 animate-spin" />}
+          {isPending ? "جاري التطبيق..." : "تطبيق الدمج المخصص"}
+        </Button>
       </div>
 
       <div className="overflow-x-auto">
