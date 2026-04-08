@@ -19,12 +19,12 @@ export default async function ImportTransactionsPage() {
   const defaultFacilityId = facilities.find((f) => f.id === companyFacilityId)?.id ?? session.id;
 
   return (
-    <Shell facilityName={session.name} isAdmin={session.is_admin}>
+    <Shell facilityName={session.name} session={session}>
       <div className="space-y-5">
         <div className="mb-8 text-center">
-          <Badge className="mb-4">للمشرف فقط</Badge>
-          <h1 className="section-title text-2xl font-black text-slate-950 sm:text-3xl">استيراد الحركات المجمعة</h1>
-          <p className="mx-auto mt-2 max-w-2xl text-sm leading-7 text-slate-600 sm:text-base">
+          <Badge className="mb-4">للمبرمج فقط</Badge>
+          <h1 className="section-title text-2xl font-black text-slate-950 dark:text-white sm:text-3xl">استيراد الحركات المجمعة</h1>
+          <p className="mx-auto mt-2 max-w-2xl text-sm leading-7 text-slate-600 dark:text-slate-400 sm:text-base">
             ارفع ملف Excel للمنطقة لاستيراد حركات الخصم. يتم توزيع المبلغ المستخدم بالتساوي على كل أفراد الأسرة.
             الأسر الغير موجودة لن تُستورد وستظهر في تقرير منفصل.
           </p>

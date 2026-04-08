@@ -1,9 +1,11 @@
 "use client";
 
-import { useActionState, useEffect } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { addTransactionFromForm } from "@/app/actions/transaction";
 import { Button, Card, Input } from "@/components/ui";
+import { formatCurrency } from "@/lib/money";
+import { DateTimeInput } from "@/components/date-input";
 
 type FacilityOption = {
   id: string;
@@ -21,9 +23,11 @@ export function AddTransactionForm({
 }) {
   const [state, action, pending] = useActionState(addTransactionFromForm, null);
   const router = useRouter();
-  const nowLocal = new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
-    .toISOString()
-    .slice(0, 16);
+  const [nowLocal] = useState(() =>
+    new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 16)
+  );
 
   useEffect(() => {
     if (state?.success) {
@@ -80,9 +84,8 @@ export function AddTransactionForm({
 
         <div>
           <label className="mb-1 block text-xs font-bold text-slate-500 dark:text-slate-400">تاريخ ووقت الحركة</label>
-          <Input
+          <DateTimeInput
             name="transaction_date"
-            type="datetime-local"
             defaultValue={nowLocal}
             max={nowLocal}
             required
@@ -99,7 +102,7 @@ export function AddTransactionForm({
         {state?.success && (
           <div className="rounded-md border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-900/20 px-4 py-3 text-sm font-bold text-emerald-700 dark:text-emerald-400">
             {state.success}
-            {typeof state.newBalance === "number" ? ` - الرصيد المتبقي: ${state.newBalance.toLocaleString("ar-LY")} د.ل` : ""}
+            {typeof state.newBalance === "number" ? ` - الرصيد المتبقي: ${formatCurrency(state.newBalance)} د.ل` : ""}
           </div>
         )}
 

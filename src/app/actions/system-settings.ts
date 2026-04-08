@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { getSession } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { updateInitialBalanceSchema } from "@/lib/validation";
@@ -35,6 +35,7 @@ export async function updateInitialBalance(prevState: unknown, formData: FormDat
 
   revalidatePath("/settings");
   revalidatePath("/beneficiaries");
+  revalidateTag("beneficiary-counts", "max");
   revalidatePath("/import");
 
   return { success: `تم تحديث الرصيد الابتدائي إلى ${value} د.ل`, value };

@@ -10,6 +10,7 @@
 import React from "react";
 import { Search, Loader2, X } from "lucide-react";
 import { Button, Input, Card } from "@/components/ui";
+import { formatCurrency } from "@/lib/money";
 import { useDeductContext } from "./DeductContext";
 
 export function SearchEngine() {
@@ -81,7 +82,7 @@ export function SearchEngine() {
                         <p className="text-xs text-slate-500 dark:text-slate-400">{item.card_number}</p>
                       </div>
                       <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
-                        {item.remaining_balance.toLocaleString("ar-LY")} د.ل
+                        {formatCurrency(item.remaining_balance)} د.ل
                       </span>
                     </button>
                   ))

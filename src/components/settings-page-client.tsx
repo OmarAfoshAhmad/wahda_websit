@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useActionState, useEffect, useState } from "react";
+import React, { useActionState, useState } from "react";
 import Link from "next/link";
 import { KeyRound, Loader2, CheckCircle2, Eye, EyeOff, Wallet } from "lucide-react";
 import { voluntaryChangePassword } from "@/app/actions/auth";
 import { updateInitialBalance } from "@/app/actions/system-settings";
 import { Button, Input, Card } from "@/components/ui";
+import { formatCurrency } from "@/lib/money";
 
 type SettingsPageClientProps = {
   initialBalance: number;
@@ -19,13 +20,7 @@ export function SettingsPageClient({ initialBalance, canManageInitialBalance }: 
   const [showCurrent, setShowCurrent] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
-  const [currentBalance, setCurrentBalance] = useState(initialBalance);
-
-  useEffect(() => {
-    if (typeof balanceState?.value === "number") {
-      setCurrentBalance(balanceState.value);
-    }
-  }, [balanceState]);
+  const currentBalance = typeof balanceState?.value === "number" ? balanceState.value : initialBalance;
 
   return (
     <div className="flex min-h-screen items-center justify-center px-4 py-10 sm:px-6">
@@ -51,7 +46,7 @@ export function SettingsPageClient({ initialBalance, canManageInitialBalance }: 
             </div>
 
             <p className="mb-4 text-sm text-slate-600">
-              القيمة الحالية: <span className="font-black text-slate-900">{currentBalance.toLocaleString("ar-LY")} د.ل</span>
+              القيمة الحالية: <span className="font-black text-slate-900">{formatCurrency(currentBalance)} د.ل</span>
             </p>
             <p className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">
               تنبيه: أي تغيير هنا يطبق على السجلات الجديدة فقط، ولا يغير أرصدة المستفيدين المضافين سابقاً.

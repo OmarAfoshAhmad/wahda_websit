@@ -3,7 +3,8 @@
 import { deductBalance } from "@/app/actions/deduction";
 import prisma from "@/lib/prisma";
 import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
+import { formatCurrency, roundCurrency } from "@/lib/money";
 
 export type AddTransactionState = {
   success?: string;
@@ -145,13 +146,13 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
       const oldAmount = Number(transaction.amount);
       const currentBalance = Number(locked[0].remaining_balance);
       const lockedStatus = locked[0].status;
-      const balanceBeforeThisTransaction = currentBalance + oldAmount;
+      const balanceBeforeThisTransaction = roundCurrency(currentBalance + oldAmount);
 
       if (input.amount > balanceBeforeThisTransaction) {
-        throw new Error(`المبلغ أكبر من الرصيد المتاح قبل الحركة (${balanceBeforeThisTransaction.toLocaleString("ar-LY")} د.ل)`);
+        throw new Error(`المبلغ أكبر من الرصيد المتاح قبل الحركة (${formatCurrency(balanceBeforeThisTransaction)} د.ل)`);
       }
 
-      const newBalance = balanceBeforeThisTransaction - input.amount;
+      const newBalance = roundCurrency(balanceBeforeThisTransaction - input.amount);
       // FIX: احترام حالة الإيقاف — لا نغير SUSPENDED إلى ACTIVE أو FINISHED
       const newStatus = lockedStatus === "SUSPENDED" ? "SUSPENDED" : (newBalance <= 0 ? "FINISHED" : "ACTIVE");
 
@@ -193,6 +194,7 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
 
     revalidatePath("/transactions");
     revalidatePath("/beneficiaries");
+    revalidateTag("beneficiary-counts", "max");
     return { success: "تم تعديل الحركة بنجاح" };
   } catch (error) {
     const message = error instanceof Error ? error.message : "فشل تعديل الحركة";

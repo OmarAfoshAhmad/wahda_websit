@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import { randomBytes } from "crypto";
+import { revalidateTag } from "next/cache";
 import { Prisma, RestoreJobStatus } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { logger } from "@/lib/logger";
@@ -24,7 +25,7 @@ type RestoreJobSnapshot = {
   startedAt: string | null;
   completedAt: string | null;
   summary: {
-    users: { added: number; updated: number };
+    users: { added: number; updated: number; addedAdmins: number; updatedAdmins: number };
     providers: { added: number; updated: number };
     transactions: { added: number; skipped: number };
     audit_logs: { added: number };
@@ -48,6 +49,8 @@ function chunkRows<T>(rows: T[], size: number): T[][] {
 function buildSummary(job: {
   added_facilities: number;
   updated_facilities: number;
+  added_admins: number;
+  updated_admins: number;
   added_beneficiaries: number;
   updated_beneficiaries: number;
   added_transactions: number;
@@ -57,7 +60,7 @@ function buildSummary(job: {
   skipped_notifications: number;
 }) {
   return {
-    users: { added: job.added_facilities, updated: job.updated_facilities },
+    users: { added: job.added_facilities, updated: job.updated_facilities, addedAdmins: job.added_admins, updatedAdmins: job.updated_admins },
     providers: { added: job.added_beneficiaries, updated: job.updated_beneficiaries },
     transactions: { added: job.added_transactions, skipped: job.skipped_transactions },
     audit_logs: { added: job.added_audit_logs },
@@ -77,6 +80,8 @@ function toSnapshot(job: {
   completed_at: Date | null;
   added_facilities: number;
   updated_facilities: number;
+  added_admins: number;
+  updated_admins: number;
   added_beneficiaries: number;
   updated_beneficiaries: number;
   added_transactions: number;
@@ -115,6 +120,8 @@ async function updateProgress(jobId: string, input: {
   currentPhase?: string;
   addedFacilities?: number;
   updatedFacilities?: number;
+  addedAdmins?: number;
+  updatedAdmins?: number;
   addedBeneficiaries?: number;
   updatedBeneficiaries?: number;
   addedTransactions?: number;
@@ -129,6 +136,8 @@ async function updateProgress(jobId: string, input: {
   if (input.currentPhase !== undefined) updates.current_phase = input.currentPhase;
   if (input.addedFacilities !== undefined) updates.added_facilities = input.addedFacilities;
   if (input.updatedFacilities !== undefined) updates.updated_facilities = input.updatedFacilities;
+  if (input.addedAdmins !== undefined) updates.added_admins = input.addedAdmins;
+  if (input.updatedAdmins !== undefined) updates.updated_admins = input.updatedAdmins;
   if (input.addedBeneficiaries !== undefined) updates.added_beneficiaries = input.addedBeneficiaries;
   if (input.updatedBeneficiaries !== undefined) updates.updated_beneficiaries = input.updatedBeneficiaries;
   if (input.addedTransactions !== undefined) updates.added_transactions = input.addedTransactions;
@@ -294,6 +303,8 @@ export async function processRestoreJob(jobId: string, username: string) {
       total_steps: 0,
       added_facilities: 0,
       updated_facilities: 0,
+      added_admins: 0,
+      updated_admins: 0,
       added_beneficiaries: 0,
       updated_beneficiaries: 0,
       added_transactions: 0,
@@ -368,6 +379,8 @@ export async function processRestoreJob(jobId: string, username: string) {
     let completedSteps = 0;
     let restoredFacilities = 0;
     let updatedFacilities = 0;
+    let restoredAdmins = 0;
+    let updatedAdmins = 0;
     let restoredBeneficiaries = 0;
     let updatedBeneficiaries = 0;
     let restoredTransactions = 0;
@@ -393,11 +406,13 @@ export async function processRestoreJob(jobId: string, username: string) {
               name: user.name,
               ...(user.password_hash ? { password_hash: user.password_hash } : {}),
               is_admin: user.is_admin,
+              is_manager: user.is_manager,
+              ...(user.manager_permissions ? { manager_permissions: user.manager_permissions } : {}),
               must_change_password: user.password_hash ? user.must_change_password : true,
               deleted_at: user.deleted_at ? new Date(user.deleted_at) : null,
             },
           });
-          updatedFacilities++;
+          if (user.is_admin || user.is_manager) updatedAdmins++; else updatedFacilities++;
         } else {
           userIdMap.set(user.id, user.id);
           await prisma.facility.create({
@@ -407,12 +422,14 @@ export async function processRestoreJob(jobId: string, username: string) {
               username: user.username,
               password_hash: user.password_hash ?? defaultPasswordHash,
               is_admin: user.is_admin,
+              is_manager: user.is_manager,
+              manager_permissions: user.manager_permissions ?? null,
               must_change_password: user.password_hash ? user.must_change_password : true,
               deleted_at: user.deleted_at ? new Date(user.deleted_at) : null,
               created_at: new Date(user.created_at),
             },
           });
-          restoredFacilities++;
+          if (user.is_admin || user.is_manager) restoredAdmins++; else restoredFacilities++;
         }
       }
 
@@ -422,6 +439,8 @@ export async function processRestoreJob(jobId: string, username: string) {
         completedSteps,
         addedFacilities: restoredFacilities,
         updatedFacilities,
+        addedAdmins: restoredAdmins,
+        updatedAdmins,
       });
     }
 
@@ -448,12 +467,12 @@ export async function processRestoreJob(jobId: string, username: string) {
         }),
         chunkBirthDates.length > 0
           ? prisma.beneficiary.findMany({
-              where: {
-                deleted_at: null,
-                birth_date: { in: chunkBirthDates },
-              },
-              select: { id: true, name: true, birth_date: true, pin_hash: true },
-            })
+            where: {
+              deleted_at: null,
+              birth_date: { in: chunkBirthDates },
+            },
+            select: { id: true, name: true, birth_date: true, pin_hash: true },
+          })
           : Promise.resolve([]),
       ]);
 
@@ -704,6 +723,8 @@ export async function processRestoreJob(jobId: string, username: string) {
         completed_steps: completedSteps,
         added_facilities: restoredFacilities,
         updated_facilities: updatedFacilities,
+        added_admins: restoredAdmins,
+        updated_admins: updatedAdmins,
         added_beneficiaries: restoredBeneficiaries,
         updated_beneficiaries: updatedBeneficiaries,
         added_transactions: restoredTransactions,
@@ -740,6 +761,10 @@ export async function processRestoreJob(jobId: string, username: string) {
       where: { id: currentJob.id },
       data: { encrypted_payload: Buffer.alloc(0) },
     });
+
+    try {
+      revalidateTag("beneficiary-counts", "max");
+    } catch { }
 
     return { job: toSnapshot(completedJob) };
   } catch (error) {

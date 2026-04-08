@@ -6,7 +6,7 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { updateBeneficiarySchema, createBeneficiarySchema } from "@/lib/validation";
 import { getCurrentInitialBalance } from "@/lib/initial-balance";
 import { getLedgerRemainingByBeneficiaryId, getLedgerRemainingByBeneficiaryIds } from "@/lib/ledger-balance";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
 import { normalizePersonName } from "@/lib/normalize";
 
@@ -362,6 +362,7 @@ export async function createBeneficiary(data: {
     });
 
     revalidatePath("/beneficiaries");
+    revalidateTag("beneficiary-counts", "max");
     revalidatePath("/deduct");
     return { success: true };
   } catch (error: unknown) {
@@ -382,7 +383,7 @@ export async function updateBeneficiary(data: {
   status: "ACTIVE" | "FINISHED" | "SUSPENDED";
 }) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin && !session.is_manager) {
+  if (!session || !hasPermission(session, "edit_beneficiary")) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -447,6 +448,7 @@ export async function updateBeneficiary(data: {
     });
 
     revalidatePath("/beneficiaries");
+    revalidateTag("beneficiary-counts", "max");
     revalidatePath("/deduct");
     return { success: true };
   } catch (error: unknown) {
@@ -461,7 +463,7 @@ export async function updateBeneficiary(data: {
 
 export async function deleteBeneficiary(id: string) {
   const session = await requireActiveFacilitySession();
-  if (!session || !hasPermission(session, 'delete_beneficiary')) {
+  if (!session || !hasPermission(session, "delete_beneficiary")) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -501,6 +503,7 @@ export async function deleteBeneficiary(id: string) {
     });
 
     revalidatePath("/beneficiaries");
+    revalidateTag("beneficiary-counts", "max");
     return { success: true };
   } catch (error: unknown) {
     logger.error("Delete beneficiary error", { error: String(error) });
@@ -510,7 +513,7 @@ export async function deleteBeneficiary(id: string) {
 
 export async function restoreBeneficiary(id: string) {
   const session = await requireActiveFacilitySession();
-  if (!session || !hasPermission(session, 'delete_beneficiary')) {
+  if (!session || !hasPermission(session, "manage_recycle_bin")) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -562,6 +565,7 @@ export async function restoreBeneficiary(id: string) {
     });
 
     revalidatePath("/beneficiaries");
+    revalidateTag("beneficiary-counts", "max");
     return { success: true };
   } catch (error: unknown) {
     logger.error("Restore beneficiary error", { error: String(error) });
@@ -571,7 +575,7 @@ export async function restoreBeneficiary(id: string) {
 
 export async function permanentDeleteBeneficiary(id: string) {
   const session = await requireActiveFacilitySession();
-  if (!session || !hasPermission(session, 'delete_beneficiary')) {
+  if (!session || !hasPermission(session, "manage_recycle_bin")) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -608,6 +612,7 @@ export async function permanentDeleteBeneficiary(id: string) {
     });
 
     revalidatePath("/beneficiaries");
+    revalidateTag("beneficiary-counts", "max");
     return { success: true };
   } catch (error: unknown) {
     logger.error("Permanent delete beneficiary error", { error: String(error) });
@@ -678,6 +683,7 @@ export async function bulkDeleteBeneficiaries(formData: FormData) {
     });
 
     revalidatePath("/beneficiaries");
+    revalidateTag("beneficiary-counts", "max");
     return { success: true, deletedCount: deletableIds.length, skippedCount };
   } catch (error: unknown) {
     logger.error("Bulk delete beneficiaries error", { error: String(error) });
@@ -687,7 +693,7 @@ export async function bulkDeleteBeneficiaries(formData: FormData) {
 
 export async function bulkPermanentDeleteBeneficiaries(formData: FormData) {
   const session = await requireActiveFacilitySession();
-  if (!session || !hasPermission(session, "delete_beneficiary")) {
+  if (!session || !hasPermission(session, "manage_recycle_bin")) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -741,10 +747,95 @@ export async function bulkPermanentDeleteBeneficiaries(formData: FormData) {
     });
 
     revalidatePath("/beneficiaries");
+    revalidateTag("beneficiary-counts", "max");
     return { success: true, deletedCount: deletableIds.length, skippedCount };
   } catch (error: unknown) {
     logger.error("Bulk permanent delete beneficiaries error", { error: String(error) });
     return { error: "تعذر تنفيذ الحذف النهائي الجماعي" };
+  }
+}
+
+export async function bulkRenewBalance(formData: FormData) {
+  const session = await requireActiveFacilitySession();
+  if (!session || !session.is_admin) {
+    return { error: "غير مصرح بهذه العملية" };
+  }
+
+  const ids = [...new Set(
+    formData
+      .getAll("ids")
+      .map((value) => String(value))
+      .filter((value) => value.length > 0)
+  )];
+
+  if (ids.length === 0) {
+    return { error: "لم يتم تحديد أي مستفيد" };
+  }
+
+  try {
+    const initialBalance = await getCurrentInitialBalance();
+
+    const beneficiaries = await prisma.beneficiary.findMany({
+      where: { id: { in: ids }, deleted_at: null },
+      select: { id: true, name: true, card_number: true, total_balance: true, remaining_balance: true, status: true },
+    });
+
+    if (beneficiaries.length === 0) {
+      return { error: "لا توجد سجلات صالحة للتجديد" };
+    }
+
+    const remainingById = await getLedgerRemainingByBeneficiaryIds(beneficiaries.map((b) => b.id));
+
+    const renewalDetails = beneficiaries.map((b) => {
+      const ledgerRemaining = remainingById.get(b.id) ?? 0;
+      return {
+        id: b.id,
+        name: b.name,
+        card_number: b.card_number,
+        total_before: Number(b.total_balance),
+        total_after: Number(b.total_balance) + initialBalance,
+        remaining_before: ledgerRemaining,
+        remaining_after: ledgerRemaining + initialBalance,
+        status_before: b.status,
+      };
+    });
+
+    const renewableIds = beneficiaries.map((b) => b.id);
+
+    await prisma.$transaction(async (tx) => {
+      // تحديث كل مستفيد بشكل فردي لحساب remaining_balance بدقة
+      for (const detail of renewalDetails) {
+        await tx.beneficiary.update({
+          where: { id: detail.id },
+          data: {
+            total_balance: detail.total_after,
+            remaining_balance: detail.remaining_after,
+            status: "ACTIVE",
+            completed_via: null,
+          },
+        });
+      }
+
+      await tx.auditLog.create({
+        data: {
+          facility_id: session.id,
+          user: session.username,
+          action: "BULK_RENEW_BALANCE",
+          metadata: {
+            beneficiary_count: renewableIds.length,
+            renewal_amount: initialBalance,
+            details: renewalDetails,
+          },
+        },
+      });
+    });
+
+    revalidatePath("/beneficiaries");
+    revalidateTag("beneficiary-counts", "max");
+    return { success: true, renewedCount: renewableIds.length };
+  } catch (error: unknown) {
+    logger.error("Bulk renew balance error", { error: String(error) });
+    return { error: "تعذر تنفيذ التجديد الجماعي" };
   }
 }
 
@@ -758,7 +849,7 @@ export async function mergeDuplicateBeneficiaries(
   },
 ) {
   const session = await requireActiveFacilitySession();
-  if (!session || !hasPermission(session, "delete_beneficiary")) {
+  if (!session || !session.is_admin) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -792,33 +883,33 @@ export async function mergeDuplicateBeneficiaries(
 
     const matches = candidateIds.length > 0
       ? await prisma.beneficiary.findMany({
-          where: {
-            deleted_at: null,
-            id: { in: [...new Set([keepId, ...candidateIds])] },
-          },
-          select: {
-            id: true,
-            name: true,
-            card_number: true,
-            remaining_balance: true,
-            total_balance: true,
-            status: true,
-            completed_via: true,
-          },
-        }).then((rows) => rows.map((r) => ({
-          ...r,
-          remaining_balance: Number(r.remaining_balance),
-          total_balance: Number(r.total_balance),
-        })))
+        where: {
+          deleted_at: null,
+          id: { in: [...new Set([keepId, ...candidateIds])] },
+        },
+        select: {
+          id: true,
+          name: true,
+          card_number: true,
+          remaining_balance: true,
+          total_balance: true,
+          status: true,
+          completed_via: true,
+        },
+      }).then((rows) => rows.map((r) => ({
+        ...r,
+        remaining_balance: Number(r.remaining_balance),
+        total_balance: Number(r.total_balance),
+      })))
       : await prisma.$queryRaw<Array<{
-          id: string;
-          name: string;
-          card_number: string;
-          remaining_balance: number;
-          total_balance: number;
-          status: "ACTIVE" | "SUSPENDED" | "FINISHED";
-          completed_via: string | null;
-        }>>`
+        id: string;
+        name: string;
+        card_number: string;
+        remaining_balance: number;
+        total_balance: number;
+        status: "ACTIVE" | "SUSPENDED" | "FINISHED";
+        completed_via: string | null;
+      }>>`
           SELECT
             id,
             name,
@@ -831,7 +922,7 @@ export async function mergeDuplicateBeneficiaries(
           WHERE deleted_at IS NULL
             AND UPPER(BTRIM(card_number)) LIKE 'WAB2025%'
         `
-          .then((rows) => rows.filter((row) => canonicalizeCardNumber(row.card_number) === canonicalCardKey));
+        .then((rows) => rows.filter((row) => canonicalizeCardNumber(row.card_number) === canonicalCardKey));
 
     if (matches.length <= 1) {
       return { error: "لا توجد سجلات مكررة قابلة للدمج لهذا المستفيد" };
@@ -841,14 +932,14 @@ export async function mergeDuplicateBeneficiaries(
     const preferredKeep = options?.forceKeep
       ? matches.find((m) => m.id === keepId) ?? null
       : pickKeepByStrategy(
-          matches.map((m) => ({
-            id: m.id,
-            card_number: m.card_number,
-            remaining_balance: Number(m.remaining_balance),
-          })),
-          strategy,
-          keepId,
-        );
+        matches.map((m) => ({
+          id: m.id,
+          card_number: m.card_number,
+          remaining_balance: Number(m.remaining_balance),
+        })),
+        strategy,
+        keepId,
+      );
 
     if (!preferredKeep) {
       return { error: "تعذر تحديد السجل الأساسي للدمج" };
@@ -872,8 +963,8 @@ export async function mergeDuplicateBeneficiaries(
     const mergedStatus = allRows.some((r) => r.status === "ACTIVE")
       ? "ACTIVE"
       : allRows.some((r) => r.status === "SUSPENDED")
-      ? "SUSPENDED"
-      : "FINISHED";
+        ? "SUSPENDED"
+        : "FINISHED";
     const mergedCompletedVia = keepBeneficiary.completed_via ?? allRows.find((r) => r.completed_via)?.completed_via ?? null;
 
     let mergeAuditId = "";
@@ -982,14 +1073,14 @@ export async function mergeDuplicateBeneficiaries(
         undo_snapshot: {
           keep_before: keepBefore
             ? {
-                id: keepBefore.id,
-                card_number: keepBefore.card_number,
-                total_balance: Number(keepBefore.total_balance),
-                remaining_balance: Number(keepBefore.remaining_balance),
-                status: keepBefore.status,
-                completed_via: keepBefore.completed_via,
-                deleted_at: keepBefore.deleted_at ? keepBefore.deleted_at.toISOString() : null,
-              }
+              id: keepBefore.id,
+              card_number: keepBefore.card_number,
+              total_balance: Number(keepBefore.total_balance),
+              remaining_balance: Number(keepBefore.remaining_balance),
+              status: keepBefore.status,
+              completed_via: keepBefore.completed_via,
+              deleted_at: keepBefore.deleted_at ? keepBefore.deleted_at.toISOString() : null,
+            }
             : null,
           merged_before: mergedBefore.map((row) => ({
             id: row.id,
@@ -1029,6 +1120,7 @@ export async function mergeDuplicateBeneficiaries(
     });
 
     revalidatePath("/beneficiaries");
+    revalidateTag("beneficiary-counts", "max");
     revalidatePath("/transactions");
     revalidatePath("/admin/duplicates");
     return { success: true, mergedCount: mergeIds.length, keepId: chosenKeepId, keepCard: chosenKeepCard, mergeAuditId };
@@ -1048,15 +1140,15 @@ export async function mergeDuplicateGroupByCanonicalAction(formData: FormData) {
   const strategy = String(formData.get("strategy") ?? "ZERO_PRIORITY") as MergeStrategy;
 
   const session = await requireActiveFacilitySession();
-  if (!session || !hasPermission(session, "delete_beneficiary")) {
+  if (!session || !session.is_admin) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
   try {
     const candidates = await prisma.beneficiary.findMany({
-      where: { 
+      where: {
         deleted_at: null,
-        card_number: { startsWith: "WAB2025", mode: "insensitive" } 
+        card_number: { startsWith: "WAB2025", mode: "insensitive" }
       },
       select: {
         id: true,
@@ -1095,7 +1187,7 @@ export async function mergeDuplicateGroupByCanonicalAction(formData: FormData) {
 
 export async function mergeDuplicateManualSelectionAction(formData: FormData) {
   const session = await requireActiveFacilitySession();
-  if (!session || !hasPermission(session, "delete_beneficiary")) {
+  if (!session || !session.is_admin) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -1108,7 +1200,7 @@ export async function mergeDuplicateManualSelectionAction(formData: FormData) {
   for (const memberId of memberIds) {
     const targetId = String(formData.get(`action_${memberId}`) ?? "").trim();
     if (!targetId || !memberIds.includes(targetId)) return { error: "إجراء غير صحيح لأحد السجلات" };
-    
+
     if (targetId !== memberId) {
       if (!targetMap.has(targetId)) targetMap.set(targetId, []);
       targetMap.get(targetId)!.push(memberId);
@@ -1146,7 +1238,7 @@ export async function mergeDuplicateManualSelectionAction(formData: FormData) {
           },
         },
       });
-    } catch(err) {
+    } catch (err) {
       console.error("Failed to append IGNORE_DUPLICATE_PAIR:", err);
     }
   }
@@ -1158,7 +1250,7 @@ export const mergeNeedsReviewGroupAction = mergeDuplicateManualSelectionAction;
 
 export async function mergeNeedsReviewBatchAction(formData: FormData) {
   const session = await requireActiveFacilitySession();
-  if (!session || !hasPermission(session, "delete_beneficiary")) {
+  if (!session || !session.is_admin) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -1210,14 +1302,14 @@ export async function mergeNeedsReviewBatchAction(formData: FormData) {
 
 export async function mergeAllGlobalZeroVariantsAction() {
   const session = await requireActiveFacilitySession();
-  if (!session || !hasPermission(session, "delete_beneficiary")) {
+  if (!session || !session.is_admin) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
   const rows = await prisma.beneficiary.findMany({
-    where: { 
+    where: {
       deleted_at: null,
-      card_number: { startsWith: "WAB2025", mode: "insensitive" } 
+      card_number: { startsWith: "WAB2025", mode: "insensitive" }
     },
     select: {
       id: true,
@@ -1237,7 +1329,7 @@ export async function mergeAllGlobalZeroVariantsAction() {
   let mergedGroups = 0;
   let mergedRows = 0;
   let firstAuditId: string | null = null;
-  
+
   for (const group of zeroVariantGroups) {
     try {
       const res = await mergeDuplicateBeneficiaries(group.preferredId, {
@@ -1264,7 +1356,7 @@ export async function mergeAllGlobalZeroVariantsAction() {
 
 export async function mergeDuplicateBatchByConditionAction(formData: FormData) {
   const session = await requireActiveFacilitySession();
-  if (!session || !hasPermission(session, "delete_beneficiary")) {
+  if (!session || !session.is_admin) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -1329,7 +1421,7 @@ export async function mergeDuplicateBatchByConditionAction(formData: FormData) {
 
 export async function undoMergeDuplicateBeneficiariesByAuditId(formData: FormData) {
   const session = await requireActiveFacilitySession();
-  if (!session || !hasPermission(session, "delete_beneficiary")) {
+  if (!session || !session.is_admin) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -1348,27 +1440,27 @@ export async function undoMergeDuplicateBeneficiariesByAuditId(formData: FormDat
       const metadata = (mergeLog.metadata ?? {}) as Record<string, unknown>;
       const undoSnapshot = (metadata.undo_snapshot ?? null) as
         | {
-            keep_before?: {
-              id: string;
-              card_number: string;
-              total_balance: number;
-              remaining_balance: number;
-              status: "ACTIVE" | "SUSPENDED" | "FINISHED";
-              completed_via: string | null;
-              deleted_at: string | null;
-            } | null;
-            merged_before?: Array<{
-              id: string;
-              card_number: string;
-              total_balance: number;
-              remaining_balance: number;
-              status: "ACTIVE" | "SUSPENDED" | "FINISHED";
-              completed_via: string | null;
-              deleted_at: string | null;
-            }>;
-            moved_transactions?: Array<{ from_beneficiary_id: string; ids: string[] }>;
-            moved_notifications?: Array<{ from_beneficiary_id: string; ids: string[] }>;
-          }
+          keep_before?: {
+            id: string;
+            card_number: string;
+            total_balance: number;
+            remaining_balance: number;
+            status: "ACTIVE" | "SUSPENDED" | "FINISHED";
+            completed_via: string | null;
+            deleted_at: string | null;
+          } | null;
+          merged_before?: Array<{
+            id: string;
+            card_number: string;
+            total_balance: number;
+            remaining_balance: number;
+            status: "ACTIVE" | "SUSPENDED" | "FINISHED";
+            completed_via: string | null;
+            deleted_at: string | null;
+          }>;
+          moved_transactions?: Array<{ from_beneficiary_id: string; ids: string[] }>;
+          moved_notifications?: Array<{ from_beneficiary_id: string; ids: string[] }>;
+        }
         | null;
 
       if (!undoSnapshot || !undoSnapshot.keep_before) {
@@ -1443,6 +1535,7 @@ export async function undoMergeDuplicateBeneficiariesByAuditId(formData: FormDat
     });
 
     revalidatePath("/beneficiaries");
+    revalidateTag("beneficiary-counts", "max");
     revalidatePath("/transactions");
     revalidatePath("/admin/duplicates");
     return { success: true };
@@ -1459,7 +1552,7 @@ export async function undoMergeDuplicateBeneficiariesByAuditId(formData: FormDat
 
 export async function ignoreDuplicatePairAction(formData: FormData) {
   const session = await requireActiveFacilitySession();
-  if (!session || !hasPermission(session, "delete_beneficiary")) {
+  if (!session || !session.is_admin) {
     return { error: "غير مصرح بهذه العملية" };
   }
 

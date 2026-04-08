@@ -8,7 +8,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
   }
   if (!session.is_admin) {
-    return NextResponse.json({ error: "ممنوع — المشرفون فقط" }, { status: 403 });
+    return NextResponse.json({ error: "ممنوع — المبرمجون فقط" }, { status: 403 });
   }
 
   try {

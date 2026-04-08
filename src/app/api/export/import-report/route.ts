@@ -85,7 +85,7 @@ export async function GET(request: NextRequest) {
     summarySheet.addRow({ label: "معرّف المهمة", value: job.id });
     summarySheet.addRow({ label: "المنفذ", value: job.created_by });
     summarySheet.addRow({ label: "الحالة", value: job.status === "COMPLETED" ? "مكتملة" : job.status });
-    summarySheet.addRow({ label: "تاريخ الاستيراد", value: created.toLocaleDateString("ar-LY") });
+    summarySheet.addRow({ label: "تاريخ الاستيراد", value: created.toLocaleDateString("en-GB") });
     summarySheet.addRow({ label: "وقت الاستيراد", value: created.toLocaleTimeString("ar-LY") });
     summarySheet.addRow({ label: "وقت الانتهاء", value: completed ? completed.toLocaleTimeString("ar-LY") : "-" });
     summarySheet.addRow({ label: "إجمالي الصفوف", value: job.total_rows ?? 0 });
@@ -117,7 +117,7 @@ export async function GET(request: NextRequest) {
         card_number: row.card_number ?? "-",
         name: row.name ?? "-",
         birth_date: row.birth_date
-          ? new Date(row.birth_date).toLocaleDateString("ar-LY")
+          ? new Date(row.birth_date).toLocaleDateString("en-GB")
           : "-",
         reason: reasonLabel,
       });

@@ -54,7 +54,7 @@ export async function GET() {
         index: idx + 1,
         name: f.name,
         username: f.username,
-        role: f.is_admin ? "مشرف" : "مرفق",
+        role: f.is_admin ? "المبرمج" : "مرفق",
         transactions: f._count.transactions,
         created_at: new Date(f.created_at).toLocaleDateString("en-GB"),
       });

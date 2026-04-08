@@ -1,15 +1,14 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireActiveFacilitySession } from "@/lib/session-guard";
-import { hasPermission } from "@/lib/session-guard";
 import { logger } from "@/lib/logger";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 
 export async function POST() {
   // FIX SEC-02: استخدام requireActiveFacilitySession بدلاً من getSession
   // يضمن رفض المرافق المحذوفة ناعمياً حتى لو لا تزال تحمل JWT صالح
   const session = await requireActiveFacilitySession();
-  if (!session || !hasPermission(session, "delete_beneficiary")) {
+  if (!session || !session.is_admin) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -41,6 +40,7 @@ export async function POST() {
       });
 
       revalidatePath("/beneficiaries");
+      revalidateTag("beneficiary-counts", "max");
     }
 
     return NextResponse.json({ success: true, count: deletedCount });

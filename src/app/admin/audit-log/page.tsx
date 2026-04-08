@@ -2,6 +2,7 @@ import React from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Badge, Card, Input, Button } from "@/components/ui";
+import { DateInput } from "@/components/date-input";
 import { Shell } from "@/components/shell";
 import { getSession } from "@/lib/auth";
 import prisma from "@/lib/prisma";
@@ -250,7 +251,7 @@ function summarizeMetadata(action: string, metadata: unknown): React.ReactNode {
       <span>
         <span className="font-bold text-slate-800 dark:text-slate-200">{String(m.name ?? "-")}</span>
         <span className="mr-1.5 text-slate-400 dark:text-slate-500 font-mono text-xs">{String(m.new_facility_username ?? "-")}</span>
-        {m.is_admin ? <span className="mr-1 inline-flex items-center rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/30 px-1.5 py-0.5 text-xs font-bold text-amber-700 dark:text-amber-400">مشرف</span> : null}
+        {m.is_admin ? <span className="mr-1 inline-flex items-center rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/30 px-1.5 py-0.5 text-xs font-bold text-amber-700 dark:text-amber-400">المبرمج</span> : null}
       </span>
     );
   }
@@ -299,7 +300,9 @@ export default async function AuditLogPage({
 }) {
   const session = await getSession();
   if (!session) redirect("/login");
-  if (!session.is_admin) redirect("/dashboard");
+
+  const canView = session.is_admin || (session.is_manager && session.manager_permissions?.view_audit_log);
+  if (!canView) redirect("/dashboard");
 
   const { page: pageParam, target: targetParam, actor, start_date, end_date } = await searchParams;
 
@@ -373,7 +376,7 @@ export default async function AuditLogPage({
   const exportHref = `/api/export/audit-log?${exportParams.toString()}`;
 
   return (
-    <Shell facilityName={session.name} isAdmin={session.is_admin} isManager={session.is_manager}>
+    <Shell facilityName={session.name} session={session}>
       <div className="space-y-6 pb-24">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
@@ -430,12 +433,12 @@ export default async function AuditLogPage({
 
             <div className="space-y-1">
               <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">من تاريخ</label>
-              <Input type="date" name="start_date" defaultValue={start_date ?? ""} className="h-10" />
+              <DateInput name="start_date" defaultValue={start_date ?? ""} className="h-10" />
             </div>
 
             <div className="space-y-1">
               <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">إلى تاريخ</label>
-              <Input type="date" name="end_date" defaultValue={end_date ?? ""} className="h-10" />
+              <DateInput name="end_date" defaultValue={end_date ?? ""} className="h-10" />
             </div>
 
             <div className="sm:col-span-2 md:col-span-1">

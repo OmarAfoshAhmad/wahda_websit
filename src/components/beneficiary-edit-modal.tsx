@@ -4,6 +4,7 @@ import { useState, useTransition, useEffect } from "react";
 import { Button, Input } from "@/components/ui";
 import { Loader2 } from "lucide-react";
 import { updateBeneficiary } from "@/app/actions/beneficiary";
+import { DateInput } from "@/components/date-input";
 
 interface BeneficiaryEditModalProps {
   beneficiary: {
@@ -102,7 +103,7 @@ export function BeneficiaryEditModal({ beneficiary }: BeneficiaryEditModalProps)
 
               <div>
                 <label className="mb-1 block text-xs font-black text-slate-500 dark:text-slate-400">تاريخ الميلاد</label>
-                <Input type="date" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} className="h-10 text-right" />
+                <DateInput value={birthDate} onChange={setBirthDate} className="h-10 text-right" />
               </div>
 
               <div>

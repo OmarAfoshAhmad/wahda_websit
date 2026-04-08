@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation";
-import { revalidatePath } from "next/cache";
 import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
@@ -17,7 +16,7 @@ import {
   mergeAllGlobalZeroVariantsAction,
 } from "@/app/actions/beneficiary";
 import { buildDuplicateGroups, paginate } from "@/lib/duplicate-groups";
-import { RotateCcw, CheckCircle2, AlertCircle, AlertTriangle, UserMinus } from "lucide-react";
+import { RotateCcw, CheckCircle2, AlertCircle } from "lucide-react";
 import { DuplicateManualMergeForm } from "@/components/duplicate-manual-merge-form";
 import { DuplicateSameNameGroup } from "@/components/duplicate-same-name-group";
 import { BatchMergeButton } from "@/components/batch-merge-button";
@@ -25,8 +24,8 @@ import { BatchMergeButton } from "@/components/batch-merge-button";
 export default async function DuplicatesAdminPage({
   searchParams,
 }: {
-  searchParams: Promise<{ 
-    q?: string; pz?: string; pn?: string; ok?: string; err?: string; 
+  searchParams: Promise<{
+    q?: string; pz?: string; pn?: string; pr?: string; ok?: string; err?: string;
     audit?: string; undone?: string; tab?: string;
     merged?: string; before?: string; after?: string;
   }>;
@@ -67,7 +66,7 @@ export default async function DuplicatesAdminPage({
     return { ok: `تم الدمج المخصص بنجاح (${sr.mergedCount ?? 0} سجلات)` };
   }
 
-  async function mergeAllZeroVariantsUIAction(formData: FormData) {
+  async function mergeAllZeroVariantsUIAction(_formData: FormData) {
     "use server";
     const res = await mergeAllGlobalZeroVariantsAction();
     if (res.error) {
@@ -160,7 +159,7 @@ export default async function DuplicatesAdminPage({
     redirect(`/admin/duplicates?${params.toString()}`);
   }
 
-  async function ignoreAction(formData: FormData) {
+  async function _ignoreAction(formData: FormData) {
     "use server";
     const res = await ignoreDuplicatePairAction(formData);
     if (res.error) return { error: res.error };
@@ -171,7 +170,7 @@ export default async function DuplicatesAdminPage({
   if (!session) redirect("/login");
   if (!session.is_admin) redirect("/dashboard");
 
-  const { q, pz, pn, ok, err, audit, undone, tab, merged, before, after } = await searchParams;
+  const { q, pz, pn, pr, ok, err, audit: _audit, undone: _undone, tab, merged, before, after } = await searchParams;
   const activeTab = tab === "merged" || tab === "audit" ? tab : "review";
   const pageZero = Number.parseInt(pz ?? "1", 10) || 1;
   const pageName = Number.parseInt(pn ?? "1", 10) || 1;
@@ -179,9 +178,9 @@ export default async function DuplicatesAdminPage({
 
   // High-performance lean fetch: only fields needed for grouping
   const rows = await prisma.beneficiary.findMany({
-    where: { 
+    where: {
       deleted_at: null,
-      ...(q?.trim() ? { 
+      ...(q?.trim() ? {
         OR: [
           { name: { contains: q, mode: "insensitive" } },
           { card_number: { contains: q, mode: "insensitive" } }
@@ -218,7 +217,7 @@ export default async function DuplicatesAdminPage({
   // Filter rows if they are part of an ignored pair with another row in the same potential group
   // Actually, it's easier to filter the GROUPS after building them, or just exclude them from the grouping initial phase.
   // Let's filter the groups after building them for better precision.
-  
+
   const groupingRows = rows.map((row) => ({
     ...row,
     status: "ACTIVE",
@@ -226,8 +225,8 @@ export default async function DuplicatesAdminPage({
     remaining_balance: 0,
   }));
 
-  const { zeroVariantGroups, sameNameGroups: rawSameNameGroups } = buildDuplicateGroups(groupingRows, q);
-  
+  const { zeroVariantGroups, sameNameGroups: rawSameNameGroups, needsReviewZeroVariants } = buildDuplicateGroups(groupingRows, q);
+
   const sameNameGroups = rawSameNameGroups.filter(g => {
     if (g.members.length < 2) return true;
     const ids = g.members.map(m => m.id).sort();
@@ -237,13 +236,15 @@ export default async function DuplicatesAdminPage({
   });
   const zeroPage = paginate(zeroVariantGroups, pageZero, pageSize);
   const namePage = paginate(sameNameGroups, pageName, pageSize);
+  const reviewPage = paginate(needsReviewZeroVariants, Number.parseInt(pr ?? "1", 10) || 1, pageSize);
 
   // Fetch full details ONLY for current page items to ensure performance & data accuracy
   const visibleIds = [
     ...zeroPage.items.flatMap(g => g.members.map(m => m.id)),
-    ...namePage.items.flatMap(g => g.members.map(m => m.id))
+    ...namePage.items.flatMap(g => g.members.map(m => m.id)),
+    ...reviewPage.items.flatMap(g => g.members.map(m => m.id)),
   ];
-  
+
   const fullDetails = await prisma.beneficiary.findMany({
     where: { id: { in: visibleIds } },
     select: {
@@ -255,7 +256,7 @@ export default async function DuplicatesAdminPage({
   const visibleRemainingById = await getLedgerRemainingByBeneficiaryIds(visibleIds);
 
   const visibleBaseCards = new Set<string>();
-  const allVisibleMembers = [...zeroPage.items.flatMap(g => g.members), ...namePage.items.flatMap(g => g.members)];
+  const allVisibleMembers = [...zeroPage.items.flatMap(g => g.members), ...namePage.items.flatMap(g => g.members), ...reviewPage.items.flatMap(g => g.members)];
   for (const m of allVisibleMembers) {
     const match = m.card_number.match(/^(.*?)([WSDMFHV])(\d+)$/i);
     if (match) visibleBaseCards.add(match[1]);
@@ -286,6 +287,7 @@ export default async function DuplicatesAdminPage({
 
   zeroPage.items.forEach(g => g.members = g.members.map(enrich));
   namePage.items.forEach(g => g.members = g.members.map(enrich));
+  reviewPage.items.forEach(g => g.members = g.members.map(enrich));
 
   const buildHref = (nextPz: number, nextPn: number) => {
     const params = new URLSearchParams();
@@ -378,16 +380,16 @@ export default async function DuplicatesAdminPage({
 
   const keepNames = keepIdsFromLogs.length > 0
     ? await prisma.beneficiary.findMany({
-        where: { id: { in: keepIdsFromLogs } },
-        select: { id: true, name: true },
-      })
+      where: { id: { in: keepIdsFromLogs } },
+      select: { id: true, name: true },
+    })
     : [];
 
   const mergedNames = mergedIdsFromLogs.length > 0
     ? await prisma.beneficiary.findMany({
-        where: { id: { in: mergedIdsFromLogs } },
-        select: { id: true, name: true },
-      })
+      where: { id: { in: mergedIdsFromLogs } },
+      select: { id: true, name: true },
+    })
     : [];
 
   const keepRemainingById = await getLedgerRemainingByBeneficiaryIds(keepNames.map((row) => row.id));
@@ -397,7 +399,7 @@ export default async function DuplicatesAdminPage({
   const mergedNameById = new Map(mergedNames.map((r) => [r.id, r.name]));
 
   return (
-    <Shell facilityName={session.name} isAdmin={session.is_admin} isManager={session.is_manager}>
+    <Shell facilityName={session.name} session={session}>
       <div className="space-y-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
@@ -421,9 +423,9 @@ export default async function DuplicatesAdminPage({
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-3">
                 {err ? (
-                   <AlertCircle className="h-5 w-5 text-red-600" />
+                  <AlertCircle className="h-5 w-5 text-red-600" />
                 ) : (
-                   <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                  <CheckCircle2 className="h-5 w-5 text-emerald-600" />
                 )}
                 <div>
                   <p className={`text-sm font-bold ${err ? "text-red-700 dark:text-red-400" : "text-emerald-700 dark:text-emerald-400"}`}>
@@ -473,90 +475,90 @@ export default async function DuplicatesAdminPage({
         </Card>
 
         {activeTab === "merged" && (
-        <Card className="overflow-hidden">
-          <div className="border-b border-slate-200 dark:border-slate-800 px-4 py-3 sm:px-6">
-            <h2 className="text-sm font-black text-slate-900 dark:text-white">سجل نتائج الدمج (مع التراجع لكل سجل)</h2>
-          </div>
-          <div className="space-y-3 p-4 sm:p-6">
-            {caseLogs.length === 0 ? (
-              <p className="text-sm text-slate-500 dark:text-slate-400">لا يوجد دمج مسجل بعد.</p>
-            ) : (
-              caseLogs.map((log) => {
-                const m = (log.metadata ?? {}) as Record<string, unknown>;
-                const mergedIds = Array.isArray(m.merged_beneficiary_ids) ? m.merged_beneficiary_ids : [];
-                const revertedAt = typeof m.undo_reverted_at === "string" ? m.undo_reverted_at : null;
-                const keepNameFromMeta = typeof m.keep_beneficiary_name === "string" ? m.keep_beneficiary_name : "";
-                const keepId = typeof m.keep_beneficiary_id === "string" ? m.keep_beneficiary_id : "";
-                const keepName = keepNameFromMeta || keepInfoById.get(keepId)?.name || "-";
-                const caseStatusLabel =
-                  typeof m.case_status_label === "string"
-                    ? m.case_status_label
-                    : revertedAt
-                    ? "تم التراجع"
-                    : "تمت معالجة الدمج واعتمد";
-                const snapshot = (m.undo_snapshot ?? null) as Record<string, unknown> | null;
-                const mergedBefore = Array.isArray(snapshot?.merged_before)
-                  ? snapshot!.merged_before
-                  : [];
-                const keepBefore =
-                  snapshot && typeof snapshot.keep_before === "object" && snapshot.keep_before
-                    ? (snapshot.keep_before as Record<string, unknown>)
-                    : null;
-                const keepBeforeBalance = keepBefore ? Number(keepBefore.remaining_balance ?? 0) : null;
-                const keepCurrentBalance = keepId ? keepInfoById.get(keepId)?.remaining_balance ?? null : null;
-                const approvedBalanceFromMeta =
-                  typeof m.approved_remaining_balance === "number" ? m.approved_remaining_balance : null;
-                const approvedBalance = approvedBalanceFromMeta ?? (revertedAt
-                  ? (keepBeforeBalance ?? keepCurrentBalance)
-                  : (keepCurrentBalance ?? keepBeforeBalance));
-                const keepCard = typeof m.chosen_keep_card_number === "string" ? m.chosen_keep_card_number : "-";
+          <Card className="overflow-hidden">
+            <div className="border-b border-slate-200 dark:border-slate-800 px-4 py-3 sm:px-6">
+              <h2 className="text-sm font-black text-slate-900 dark:text-white">سجل نتائج الدمج (مع التراجع لكل سجل)</h2>
+            </div>
+            <div className="space-y-3 p-4 sm:p-6">
+              {caseLogs.length === 0 ? (
+                <p className="text-sm text-slate-500 dark:text-slate-400">لا يوجد دمج مسجل بعد.</p>
+              ) : (
+                caseLogs.map((log) => {
+                  const m = (log.metadata ?? {}) as Record<string, unknown>;
+                  const _mergedIds = Array.isArray(m.merged_beneficiary_ids) ? m.merged_beneficiary_ids : [];
+                  const revertedAt = typeof m.undo_reverted_at === "string" ? m.undo_reverted_at : null;
+                  const keepNameFromMeta = typeof m.keep_beneficiary_name === "string" ? m.keep_beneficiary_name : "";
+                  const keepId = typeof m.keep_beneficiary_id === "string" ? m.keep_beneficiary_id : "";
+                  const keepName = keepNameFromMeta || keepInfoById.get(keepId)?.name || "-";
+                  const _caseStatusLabel =
+                    typeof m.case_status_label === "string"
+                      ? m.case_status_label
+                      : revertedAt
+                        ? "تم التراجع"
+                        : "تمت معالجة الدمج واعتمد";
+                  const snapshot = (m.undo_snapshot ?? null) as Record<string, unknown> | null;
+                  const mergedBefore = Array.isArray(snapshot?.merged_before)
+                    ? snapshot!.merged_before
+                    : [];
+                  const keepBefore =
+                    snapshot && typeof snapshot.keep_before === "object" && snapshot.keep_before
+                      ? (snapshot.keep_before as Record<string, unknown>)
+                      : null;
+                  const keepBeforeBalance = keepBefore ? Number(keepBefore.remaining_balance ?? 0) : null;
+                  const keepCurrentBalance = keepId ? keepInfoById.get(keepId)?.remaining_balance ?? null : null;
+                  const approvedBalanceFromMeta =
+                    typeof m.approved_remaining_balance === "number" ? m.approved_remaining_balance : null;
+                  const approvedBalance = approvedBalanceFromMeta ?? (revertedAt
+                    ? (keepBeforeBalance ?? keepCurrentBalance)
+                    : (keepCurrentBalance ?? keepBeforeBalance));
+                  const keepCard = typeof m.chosen_keep_card_number === "string" ? m.chosen_keep_card_number : "-";
 
-                const mergedPeopleDetails = mergedBefore
-                  .map((row) => {
-                    if (!row || typeof row !== "object") return null;
-                    const item = row as Record<string, unknown>;
-                    const id = typeof item.id === "string" ? item.id : "";
-                    const nameFromSnapshot = typeof item.name === "string" ? item.name : "";
-                    const name = nameFromSnapshot || mergedNameById.get(id) || "غير معروف";
-                    const card = typeof item.card_number === "string" ? item.card_number : "-";
-                    const balance = Number(item.remaining_balance ?? 0);
-                    return { id, name, card, balance };
-                  })
-                  .filter((x): x is { id: string; name: string; card: string; balance: number } => !!x);
+                  const mergedPeopleDetails = mergedBefore
+                    .map((row) => {
+                      if (!row || typeof row !== "object") return null;
+                      const item = row as Record<string, unknown>;
+                      const id = typeof item.id === "string" ? item.id : "";
+                      const nameFromSnapshot = typeof item.name === "string" ? item.name : "";
+                      const name = nameFromSnapshot || mergedNameById.get(id) || "غير معروف";
+                      const card = typeof item.card_number === "string" ? item.card_number : "-";
+                      const balance = Number(item.remaining_balance ?? 0);
+                      return { id, name, card, balance };
+                    })
+                    .filter((x): x is { id: string; name: string; card: string; balance: number } => !!x);
 
-                const statusTone = revertedAt
-                  ? "border-amber-300 bg-amber-50/40 dark:border-amber-800 dark:bg-amber-950/20"
-                  : "border-emerald-300 bg-emerald-50/40 dark:border-emerald-800 dark:bg-emerald-950/20";
-                return (
-                  <div key={log.id} className={`rounded-md border p-3 ${statusTone}`}>
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                      <Badge variant="success" className="text-base px-3 py-2 min-w-22 justify-center">
-                        {approvedBalance == null ? "غير متاح" : `${approvedBalance.toLocaleString("ar-LY")} د.ل`}
-                      </Badge>
+                  const statusTone = revertedAt
+                    ? "border-amber-300 bg-amber-50/40 dark:border-amber-800 dark:bg-amber-950/20"
+                    : "border-emerald-300 bg-emerald-50/40 dark:border-emerald-800 dark:bg-emerald-950/20";
+                  return (
+                    <div key={log.id} className={`rounded-md border p-3 ${statusTone}`}>
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="success" className="text-base px-3 py-2 min-w-22 justify-center">
+                            {approvedBalance == null ? "غير متاح" : `${approvedBalance.toLocaleString("ar-LY")} د.ل`}
+                          </Badge>
 
-                      {revertedAt ? (
-                        <Badge variant="warning">تم التراجع</Badge>
-                      ) : (
-                        <form action={undoMergeAction}>
-                          <input type="hidden" name="audit_id" value={log.id} />
-                          <input type="hidden" name="q" value={q ?? ""} />
-                          <input type="hidden" name="pz" value={String(zeroPage.page)} />
-                          <input type="hidden" name="pn" value={String(namePage.page)} />
-                          <Button type="submit" variant="outline" className="h-9 w-9 p-0" title="تراجع عن هذا الدمج" aria-label="تراجع عن هذا الدمج">
-                            <RotateCcw className="h-4 w-4" />
-                          </Button>
-                        </form>
-                      )}
+                          {revertedAt ? (
+                            <Badge variant="warning">تم التراجع</Badge>
+                          ) : (
+                            <form action={undoMergeAction}>
+                              <input type="hidden" name="audit_id" value={log.id} />
+                              <input type="hidden" name="q" value={q ?? ""} />
+                              <input type="hidden" name="pz" value={String(zeroPage.page)} />
+                              <input type="hidden" name="pn" value={String(namePage.page)} />
+                              <Button type="submit" variant="outline" className="h-9 w-9 p-0" title="تراجع عن هذا الدمج" aria-label="تراجع عن هذا الدمج">
+                                <RotateCcw className="h-4 w-4" />
+                              </Button>
+                            </form>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-bold text-slate-900 dark:text-white">{String(m.card_number ?? "-")}</p>
+                          {!revertedAt && <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-label="مدمج" />}
+                        </div>
                       </div>
 
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-bold text-slate-900 dark:text-white">{String(m.card_number ?? "-")}</p>
-                        {!revertedAt && <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-label="مدمج" />}
-                      </div>
-                    </div>
-
-                    <div className="space-y-2 w-full">
+                      <div className="space-y-2 w-full">
 
                         <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                           <div className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-1.5 dark:border-emerald-800 dark:bg-emerald-950/30 flex flex-col justify-between">
@@ -585,228 +587,298 @@ export default async function DuplicatesAdminPage({
                             )}
                           </div>
                         </div>
+                      </div>
                     </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </Card>
+                  );
+                })
+              )}
+            </div>
+          </Card>
         )}
 
         {activeTab === "review" && (
-        <>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3" suppressHydrationWarning={true}>
-          <Card className="p-4">
-            <p className="text-sm font-bold text-slate-500 dark:text-slate-400" suppressHydrationWarning={true}>تكرار الأصفار (جاهز للدمج)</p>
-            <p className="mt-1 text-2xl font-black text-slate-900 dark:text-white" suppressHydrationWarning={true}>{zeroVariantGroups.length}</p>
-          </Card>
-          <Card className="p-4">
-            <p className="text-sm font-bold text-slate-500 dark:text-slate-400" suppressHydrationWarning={true}>نفس الاسم — تحتاج تدقيق</p>
-            <p className="mt-1 text-2xl font-black text-slate-900 dark:text-white" suppressHydrationWarning={true}>{sameNameGroups.length}</p>
-          </Card>
-          <Card className="p-4">
-            <p className="text-sm font-bold text-slate-500 dark:text-slate-400" suppressHydrationWarning={true}>تعارض تاريخ الميلاد (أشخاص مختلفون محتملون)</p>
-            <p className="mt-1 text-2xl font-black text-amber-600 dark:text-amber-400" suppressHydrationWarning={true}>
-              {sameNameGroups.filter((g) => g.hasBirthDateConflict).length}
-            </p>
-          </Card>
-        </div>
+          <>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3" suppressHydrationWarning={true}>
+              <Card className="p-4">
+                <p className="text-sm font-bold text-slate-500 dark:text-slate-400" suppressHydrationWarning={true}>تكرار الأصفار (جاهز للدمج)</p>
+                <p className="mt-1 text-2xl font-black text-slate-900 dark:text-white" suppressHydrationWarning={true}>{zeroVariantGroups.length}</p>
+              </Card>
+              <Card className="p-4">
+                <p className="text-sm font-bold text-slate-500 dark:text-slate-400" suppressHydrationWarning={true}>نفس الاسم — تحتاج تدقيق</p>
+                <p className="mt-1 text-2xl font-black text-slate-900 dark:text-white" suppressHydrationWarning={true}>{sameNameGroups.length}</p>
+              </Card>
+              <Card className="p-4">
+                <p className="text-sm font-bold text-slate-500 dark:text-slate-400" suppressHydrationWarning={true}>تعارض تاريخ الميلاد (أشخاص مختلفون محتملون)</p>
+                <p className="mt-1 text-2xl font-black text-amber-600 dark:text-amber-400" suppressHydrationWarning={true}>
+                  {sameNameGroups.filter((g) => g.hasBirthDateConflict).length}
+                </p>
+              </Card>
+            </div>
 
-        <Card className="overflow-hidden">
-            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 px-4 py-3 sm:px-6">
-              <h2 className="text-sm font-black text-slate-900 dark:text-white">حالات اختلاف الأصفار (جاهزة للدمج)</h2>
-              {zeroVariantGroups.length > 0 && (
-                <form action={mergeAllZeroVariantsUIAction}>
-                  <BatchMergeButton label="دمج آمن لجميع التكرارات" />
-                </form>
-              )}
-          </div>
-          <div className="space-y-4 p-4 sm:p-6">
-            {zeroPage.items.length > 0 && (
-              <form action={mergeBatchAction} className="rounded-md border border-slate-200 dark:border-slate-700 p-3">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-xs text-slate-600 dark:text-slate-400">دمج دفعة الصفحة الحالية حسب شرط موحد</p>
+            <Card className="overflow-hidden">
+              <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 px-4 py-3 sm:px-6">
+                <h2 className="text-sm font-black text-slate-900 dark:text-white">حالات اختلاف الأصفار (جاهزة للدمج)</h2>
+                {zeroVariantGroups.length > 0 && (
+                  <form action={mergeAllZeroVariantsUIAction}>
+                    <BatchMergeButton label="دمج آمن لجميع التكرارات" />
+                  </form>
+                )}
+              </div>
+              <div className="space-y-4 p-4 sm:p-6">
+                {zeroPage.items.length > 0 && (
+                  <form action={mergeBatchAction} className="rounded-md border border-slate-200 dark:border-slate-700 p-3">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-xs text-slate-600 dark:text-slate-400">دمج دفعة الصفحة الحالية حسب شرط موحد</p>
+                      <div className="flex items-center gap-2">
+                        <select name="strategy" defaultValue="ZERO_PRIORITY" className="h-9 rounded-md border border-slate-300 bg-white px-2 text-xs dark:border-slate-700 dark:bg-slate-900">
+                          <option value="ZERO_PRIORITY">أولوية البطاقة ذات الأصفار</option>
+                          <option value="LOWEST_BALANCE">أقل رصيد</option>
+                          <option value="HIGHEST_TRANSACTIONS">أعلى عدد معاملات</option>
+                        </select>
+                        <input type="hidden" name="q" value={q ?? ""} />
+                        <input type="hidden" name="pz" value={String(zeroPage.page)} />
+                        <input type="hidden" name="pn" value={String(namePage.page)} />
+                        {zeroPage.items.map((g) => (
+                          <input
+                            key={`batch-${g.canonical}`}
+                            type="hidden"
+                            name="group_payload"
+                            value={JSON.stringify({
+                              keepId: g.preferredId,
+                              memberIds: g.members.map(m => m.id)
+                            })}
+                          />
+                        ))}
+                        <BatchMergeButton label="دمج دفعة" />
+                      </div>
+                    </div>
+                  </form>
+                )}
+
+                {zeroVariantGroups.length === 0 ? (
+                  <p className="text-sm text-slate-500 dark:text-slate-400">لا توجد حالات مطابقة.</p>
+                ) : (
+                  zeroPage.items.map((group) => (
+                    <div key={group.canonical} className="rounded-md border border-slate-200 dark:border-slate-700 p-3">
+                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="warning">{group.members.length} سجلات</Badge>
+                          <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{group.canonical}</span>
+                        </div>
+                        <form action={mergeGroupAction}>
+                          <input type="hidden" name="canonical_card" value={group.canonical} />
+                          <input type="hidden" name="strategy" value="ZERO_PRIORITY" />
+                          <input type="hidden" name="q" value={q ?? ""} />
+                          <input type="hidden" name="pz" value={String(zeroPage.page)} />
+                          <input type="hidden" name="pn" value={String(namePage.page)} />
+                          <input type="hidden" name="tab" value="review" />
+                          <Button type="submit" className="h-8 text-xs">دمج المجموعة</Button>
+                        </form>
+                      </div>
+
+                      <DuplicateManualMergeForm
+                        members={group.members.map((m) => ({
+                          id: m.id,
+                          name: m.name,
+                          card_number: m.card_number,
+                          birth_date: m.birth_date,
+                          head_of_household: (m as { head_of_household?: string | null }).head_of_household,
+                          total_balance: Number(m.total_balance ?? 0),
+                          remaining_balance: Number(m.remaining_balance),
+                          status: m.status,
+                          transactionsCount: m._count?.transactions ?? 0,
+                        }))}
+                        preferredId={group.preferredId}
+                        q={q ?? ""}
+                        pz={zeroPage.page}
+                        pn={namePage.page}
+                        helperText="اختر سجلًا واحدًا للإبقاء، والباقي حذف ناعم تلقائي"
+                        action={mergeManualAction}
+                      />
+                    </div>
+                  ))
+                )}
+                {zeroVariantGroups.length > 0 && (
+                  <div className="flex items-center justify-between pt-1">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">صفحة {zeroPage.page} من {zeroPage.pages} • {zeroPage.total} مجموعة</p>
+                    <div className="flex items-center gap-2">
+                      <Link href={buildHref(Math.max(1, zeroPage.page - 1), namePage.page)}>
+                        <Button type="button" variant="outline" className="h-8 px-3 text-xs" disabled={zeroPage.page <= 1}>السابق</Button>
+                      </Link>
+                      <Link href={buildHref(Math.min(zeroPage.pages, zeroPage.page + 1), namePage.page)}>
+                        <Button type="button" variant="outline" className="h-8 px-3 text-xs" disabled={zeroPage.page >= zeroPage.pages}>التالي</Button>
+                      </Link>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Card>
+
+          </>
+        )}
+
+        {activeTab === "audit" && (
+          <>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <Card className="p-4">
+                <p className="text-sm font-bold text-slate-500 dark:text-slate-400">تكرار أصفار بأسماء مختلفة</p>
+                <p className="mt-1 text-2xl font-black text-amber-600 dark:text-amber-400">{needsReviewZeroVariants.length}</p>
+              </Card>
+              <Card className="p-4">
+                <p className="text-sm font-bold text-slate-500 dark:text-slate-400">نفس الاسم ببطاقات متعددة</p>
+                <p className="mt-1 text-2xl font-black text-slate-900 dark:text-white">{sameNameGroups.length}</p>
+              </Card>
+              <Card className="p-4">
+                <p className="text-sm font-bold text-slate-500 dark:text-slate-400">تعارض تاريخ الميلاد</p>
+                <p className="mt-1 text-2xl font-black text-red-600 dark:text-red-400">
+                  {sameNameGroups.filter((g) => g.hasBirthDateConflict).length}
+                </p>
+              </Card>
+            </div>
+
+            <Card className="p-4">
+              <p className="text-sm font-black text-slate-900 dark:text-white">كيفية معالجة هذه الحالات</p>
+              <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">
+                هذه الحالات ليست دمجًا تلقائيًا. راجع كل بطاقة يدويًا:
+                1) تأكد أن السجلين لنفس الشخص فعلاً.
+                2) افتح المستفيدين ووحّد الاسم/البيانات أولًا إن لزم.
+                3) بعد تصحيح البيانات ستنتقل الحالة تلقائيًا إلى تبويب الحالات الجاهزة للدمج.
+              </p>
+            </Card>
+
+            {/* ── تكرار أصفار بأسماء مختلفة ────────────────────── */}
+            <Card className="overflow-hidden">
+              <div className="border-b border-slate-200 dark:border-slate-800 px-4 py-3 sm:px-6">
+                <h2 className="text-sm font-black text-amber-700 dark:text-amber-400">تكرار أصفار بأسماء مختلفة (يحتاج تدقيق)</h2>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  يوجد أرقام بطاقات متطابقة canonically (اختلاف أصفار بعد WAB2025) لكن الأسماء مختلفة. راجع يدويًا إن كانا نفس الشخص أم لا.
+                </p>
+              </div>
+              <div className="space-y-3 p-4 sm:p-6">
+                {needsReviewZeroVariants.length === 0 ? (
+                  <p className="text-sm text-slate-500 dark:text-slate-400">لا توجد حالات مطابقة.</p>
+                ) : (
+                  reviewPage.items.map((group) => (
+                    <div key={group.canonical} className="rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50/30 dark:bg-amber-950/10 p-3">
+                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="warning">{group.members.length} سجلات — أسماء مختلفة</Badge>
+                          <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{group.canonical}</span>
+                        </div>
+                      </div>
+
+                      <DuplicateManualMergeForm
+                        members={group.members.map((m) => ({
+                          id: m.id,
+                          name: m.name,
+                          card_number: m.card_number,
+                          birth_date: m.birth_date,
+                          head_of_household: (m as { head_of_household?: string | null }).head_of_household,
+                          total_balance: Number(m.total_balance ?? 0),
+                          remaining_balance: Number(m.remaining_balance),
+                          status: m.status,
+                          transactionsCount: m._count?.transactions ?? 0,
+                        }))}
+                        preferredId={group.preferredId}
+                        q={q ?? ""}
+                        pz={reviewPage.page}
+                        pn={namePage.page}
+                        helperText="الأسماء مختلفة — تأكد أنهما نفس الشخص قبل الدمج"
+                        action={mergeAuditGroupAction}
+                        formId={`review-${group.canonical}`}
+                      />
+                    </div>
+                  ))
+                )}
+                {needsReviewZeroVariants.length > 0 && (
+                  <div className="flex items-center justify-between pt-1">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">صفحة {reviewPage.page} من {reviewPage.pages} • {reviewPage.total} مجموعة</p>
+                  </div>
+                )}
+              </div>
+            </Card>
+
+            {/* ── نفس الاسم ببطاقات متعددة ────────────────────── */}
+            {namePage.items.length > 0 && (
+              <form action={mergeAuditBatchAction} className="rounded-md border border-slate-200 dark:border-slate-700 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs text-slate-600 dark:text-slate-400">معالجة دفعة: سيتم اعتماد السجل الافتراضي في كل مجموعة</p>
                   <div className="flex items-center gap-2">
-                    <select name="strategy" defaultValue="ZERO_PRIORITY" className="h-9 rounded-md border border-slate-300 bg-white px-2 text-xs dark:border-slate-700 dark:bg-slate-900">
-                      <option value="ZERO_PRIORITY">أولوية البطاقة ذات الأصفار</option>
-                      <option value="LOWEST_BALANCE">أقل رصيد</option>
-                      <option value="HIGHEST_TRANSACTIONS">أعلى عدد معاملات</option>
-                    </select>
                     <input type="hidden" name="q" value={q ?? ""} />
-                    <input type="hidden" name="pz" value={String(zeroPage.page)} />
+                    <input type="hidden" name="pz" value={String(namePage.page)} />
                     <input type="hidden" name="pn" value={String(namePage.page)} />
-                    {zeroPage.items.map((g) => (
-                      <input 
-                        key={`batch-${g.canonical}`} 
-                        type="hidden" 
-                        name="group_payload" 
-                        value={JSON.stringify({ 
-                          keepId: g.preferredId, 
-                          memberIds: g.members.map(m => m.id) 
-                        })} 
+                    {namePage.items.map((g) => (
+                      <input
+                        key={`audit-payload-${g.nameKey}`}
+                        type="hidden"
+                        name="group_payload"
+                        value={JSON.stringify({ keepId: g.preferredId, memberIds: g.members.map((m) => m.id) })}
                       />
                     ))}
-                    <BatchMergeButton label="دمج دفعة" />
+                    <Button type="submit" className="h-9 text-xs">معالجة دفعة</Button>
                   </div>
                 </div>
               </form>
             )}
 
-            {zeroVariantGroups.length === 0 ? (
-              <p className="text-sm text-slate-500 dark:text-slate-400">لا توجد حالات مطابقة.</p>
-            ) : (
-              zeroPage.items.map((group) => (
-                <div key={group.canonical} className="rounded-md border border-slate-200 dark:border-slate-700 p-3">
-                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <Card className="overflow-hidden">
+              <div className="border-b border-slate-200 dark:border-slate-800 px-4 py-3 sm:px-6">
+                <h2 className="text-sm font-black text-slate-900 dark:text-white">نفس الاسم ببطاقات متعددة (للمراجعة)</h2>
+              </div>
+              <div className="space-y-3 p-4 sm:p-6">
+                {sameNameGroups.length === 0 ? (
+                  <p className="text-sm text-slate-500 dark:text-slate-400">لا توجد حالات مطابقة.</p>
+                ) : (
+                  namePage.items.map((g) => (
+                    <DuplicateSameNameGroup
+                      key={g.nameKey}
+                      nameKey={g.nameKey}
+                      name={g.members[0].name}
+                      membersCount={g.members.length}
+                      hasBirthDateConflict={g.hasBirthDateConflict}
+
+                      memberIds={g.members.map(m => m.id)}
+                    >
+                      <DuplicateManualMergeForm
+                        members={g.members.map((m) => ({
+                          id: m.id,
+                          name: m.name,
+                          card_number: m.card_number,
+                          birth_date: m.birth_date,
+                          head_of_household: (m as { head_of_household?: string | null }).head_of_household,
+                          total_balance: Number(m.total_balance ?? 0),
+                          remaining_balance: Number(m.remaining_balance),
+                          status: m.status,
+                          transactionsCount: m._count?.transactions ?? 0,
+                        }))}
+                        preferredId={g.preferredId}
+                        q={q ?? ""}
+                        pz={namePage.page}
+                        pn={namePage.page}
+                        helperText="افتراضيًا يتم اختيار البطاقة ذات الشكل الصحيح؛ يمكنك تغيير الإبقاء يدويًا"
+                        hasBirthDateConflict={g.hasBirthDateConflict}
+                        action={mergeAuditGroupAction}
+                        formId={`form-${g.members[0].id}`}
+                      />
+                    </DuplicateSameNameGroup>
+                  ))
+                )}
+                {sameNameGroups.length > 0 && (
+                  <div className="flex items-center justify-between pt-1">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">صفحة {namePage.page} من {namePage.pages} • {namePage.total} مجموعة</p>
                     <div className="flex items-center gap-2">
-                      <Badge variant="warning">{group.members.length} سجلات</Badge>
-                      <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{group.canonical}</span>
+                      <Link href={buildHref(zeroPage.page, Math.max(1, namePage.page - 1))}>
+                        <Button type="button" variant="outline" className="h-8 px-3 text-xs" disabled={namePage.page <= 1}>السابق</Button>
+                      </Link>
+                      <Link href={buildHref(zeroPage.page, Math.min(namePage.pages, namePage.page + 1))}>
+                        <Button type="button" variant="outline" className="h-8 px-3 text-xs" disabled={namePage.page >= namePage.pages}>التالي</Button>
+                      </Link>
                     </div>
-                    <form action={mergeGroupAction}>
-                      <input type="hidden" name="canonical_card" value={group.canonical} />
-                      <input type="hidden" name="strategy" value="ZERO_PRIORITY" />
-                      <input type="hidden" name="q" value={q ?? ""} />
-                      <input type="hidden" name="pz" value={String(zeroPage.page)} />
-                      <input type="hidden" name="pn" value={String(namePage.page)} />
-                      <input type="hidden" name="tab" value="review" />
-                      <Button type="submit" className="h-8 text-xs">دمج المجموعة</Button>
-                    </form>
                   </div>
-
-                  <DuplicateManualMergeForm
-                    members={group.members.map((m) => ({
-                      id: m.id,
-                      name: m.name,
-                      card_number: m.card_number,
-                      birth_date: m.birth_date,
-                      head_of_household: (m as any).head_of_household,
-                      total_balance: Number(m.total_balance ?? 0),
-                      remaining_balance: Number(m.remaining_balance),
-                      status: m.status,
-                      transactionsCount: m._count?.transactions ?? 0,
-                    }))}
-                    preferredId={group.preferredId}
-                    q={q ?? ""}
-                    pz={zeroPage.page}
-                    pn={namePage.page}
-                    helperText="اختر سجلًا واحدًا للإبقاء، والباقي حذف ناعم تلقائي"
-                    action={mergeManualAction}
-                  />
-                </div>
-              ))
-            )}
-            {zeroVariantGroups.length > 0 && (
-              <div className="flex items-center justify-between pt-1">
-                <p className="text-xs text-slate-500 dark:text-slate-400">صفحة {zeroPage.page} من {zeroPage.pages} • {zeroPage.total} مجموعة</p>
-                <div className="flex items-center gap-2">
-                  <Link href={buildHref(Math.max(1, zeroPage.page - 1), namePage.page)}>
-                    <Button type="button" variant="outline" className="h-8 px-3 text-xs" disabled={zeroPage.page <= 1}>السابق</Button>
-                  </Link>
-                  <Link href={buildHref(Math.min(zeroPage.pages, zeroPage.page + 1), namePage.page)}>
-                    <Button type="button" variant="outline" className="h-8 px-3 text-xs" disabled={zeroPage.page >= zeroPage.pages}>التالي</Button>
-                  </Link>
-                </div>
+                )}
               </div>
-            )}
-          </div>
-        </Card>
-
-        </>
-        )}
-
-        {activeTab === "audit" && (
-        <>
-        <Card className="p-4">
-          <p className="text-sm font-black text-slate-900 dark:text-white">كيفية معالجة هذه الحالات</p>
-          <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">
-            هذه الحالات ليست دمجًا تلقائيًا. راجع كل بطاقة يدويًا: 
-            1) تأكد أن السجلين لنفس الشخص فعلاً. 
-            2) افتح المستفيدين ووحّد الاسم/البيانات أولًا إن لزم. 
-            3) بعد تصحيح البيانات ستنتقل الحالة تلقائيًا إلى تبويب الحالات الجاهزة للدمج.
-          </p>
-        </Card>
-
-        {namePage.items.length > 0 && (
-          <form action={mergeAuditBatchAction} className="rounded-md border border-slate-200 dark:border-slate-700 p-3">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-xs text-slate-600 dark:text-slate-400">معالجة دفعة: سيتم اعتماد السجل الافتراضي في كل مجموعة</p>
-              <div className="flex items-center gap-2">
-                <input type="hidden" name="q" value={q ?? ""} />
-                <input type="hidden" name="pz" value={String(namePage.page)} />
-                <input type="hidden" name="pn" value={String(namePage.page)} />
-                {namePage.items.map((g) => (
-                  <input
-                    key={`audit-payload-${g.nameKey}`}
-                    type="hidden"
-                    name="group_payload"
-                    value={JSON.stringify({ keepId: g.preferredId, memberIds: g.members.map((m) => m.id) })}
-                  />
-                ))}
-                <Button type="submit" className="h-9 text-xs">معالجة دفعة</Button>
-              </div>
-            </div>
-          </form>
-        )}
-
-        <Card className="overflow-hidden">
-          <div className="border-b border-slate-200 dark:border-slate-800 px-4 py-3 sm:px-6">
-            <h2 className="text-sm font-black text-slate-900 dark:text-white">نفس الاسم ببطاقات متعددة (للمراجعة)</h2>
-          </div>
-          <div className="space-y-3 p-4 sm:p-6">
-            {sameNameGroups.length === 0 ? (
-              <p className="text-sm text-slate-500 dark:text-slate-400">لا توجد حالات مطابقة.</p>
-            ) : (
-              namePage.items.map((g) => (
-                <DuplicateSameNameGroup
-                  key={g.nameKey}
-                  nameKey={g.nameKey}
-                  name={g.members[0].name}
-                  membersCount={g.members.length}
-                  hasBirthDateConflict={g.hasBirthDateConflict}
-
-                  memberIds={g.members.map(m => m.id)}
-                >
-                  <DuplicateManualMergeForm
-                    members={g.members.map((m) => ({
-                      id: m.id,
-                      name: m.name,
-                      card_number: m.card_number,
-                      birth_date: m.birth_date,
-                      head_of_household: (m as any).head_of_household,
-                      total_balance: Number(m.total_balance ?? 0),
-                      remaining_balance: Number(m.remaining_balance),
-                      status: m.status,
-                      transactionsCount: m._count?.transactions ?? 0,
-                    }))}
-                    preferredId={g.preferredId}
-                    q={q ?? ""}
-                    pz={namePage.page}
-                    pn={namePage.page}
-                    helperText="افتراضيًا يتم اختيار البطاقة ذات الشكل الصحيح؛ يمكنك تغيير الإبقاء يدويًا"
-                    hasBirthDateConflict={g.hasBirthDateConflict}
-                    action={mergeAuditGroupAction}
-                    formId={`form-${g.members[0].id}`}
-                  />
-                </DuplicateSameNameGroup>
-              ))
-            )}
-            {sameNameGroups.length > 0 && (
-              <div className="flex items-center justify-between pt-1">
-                <p className="text-xs text-slate-500 dark:text-slate-400">صفحة {namePage.page} من {namePage.pages} • {namePage.total} مجموعة</p>
-                <div className="flex items-center gap-2">
-                  <Link href={buildHref(zeroPage.page, Math.max(1, namePage.page - 1))}>
-                    <Button type="button" variant="outline" className="h-8 px-3 text-xs" disabled={namePage.page <= 1}>السابق</Button>
-                  </Link>
-                  <Link href={buildHref(zeroPage.page, Math.min(namePage.pages, namePage.page + 1))}>
-                    <Button type="button" variant="outline" className="h-8 px-3 text-xs" disabled={namePage.page >= namePage.pages}>التالي</Button>
-                  </Link>
-                </div>
-              </div>
-            )}
-          </div>
-        </Card>
-        </>
+            </Card>
+          </>
         )}
       </div>
     </Shell>

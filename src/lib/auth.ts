@@ -29,12 +29,23 @@ export async function decrypt(input: string): Promise<Record<string, unknown>> {
 
 export type ManagerPermissions = {
   import_beneficiaries: boolean;
-  import_facilities: boolean;
+  add_beneficiary: boolean;
+  edit_beneficiary: boolean;
+  delete_beneficiary: boolean;
+  add_facility: boolean;
+  edit_facility: boolean;
+  delete_facility: boolean;
   cancel_transactions: boolean;
   correct_transactions: boolean;
-  delete_beneficiary: boolean;
-  add_beneficiary: boolean;
-  add_facility: boolean;
+  manage_recycle_bin: boolean;
+  export_data: boolean;
+  print_cards: boolean;
+  view_audit_log: boolean;
+  view_reports: boolean;
+  view_facilities: boolean;
+  view_beneficiaries: boolean;
+  deduct_balance: boolean;
+  delete_transaction: boolean;
 };
 
 export async function login(user: {

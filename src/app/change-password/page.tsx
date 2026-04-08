@@ -44,10 +44,10 @@ export default function ChangePasswordPage() {
                   name="newPassword"
                   type={showNew ? "text" : "password"}
                   autoComplete="new-password"
-                  placeholder="6 أحرف على الأقل"
+                  placeholder="8 خانات على الأقل فيها حرف كبير واحد "
                   className="h-12 pl-12 text-sm"
                   required
-                  minLength={6}
+                  minLength={8}
                 />
                 <button type="button" onClick={() => setShowNew(!showNew)} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" tabIndex={-1}>
                   {showNew ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
@@ -67,7 +67,7 @@ export default function ChangePasswordPage() {
                   placeholder="أعد كتابة كلمة المرور"
                   className="h-12 pl-12 text-sm"
                   required
-                  minLength={6}
+                  minLength={8}
                 />
                 <button type="button" onClick={() => setShowConfirm(!showConfirm)} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" tabIndex={-1}>
                   {showConfirm ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}

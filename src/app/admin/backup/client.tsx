@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button, Card } from "@/components/ui";
 import { Download, Upload, Loader2, CheckCircle2, AlertTriangle, Database, Shield } from "lucide-react";
 import { ConfirmationModal } from "@/components/confirmation-modal";
 
 type RestoreSummary = {
-  users: { added: number; updated: number };
+  users: { added: number; updated: number; addedAdmins: number; updatedAdmins: number };
   providers: { added: number; updated: number };
   transactions: { added: number; skipped: number };
   audit_logs: { added: number };
@@ -53,6 +54,8 @@ function buildSuccessMessage(summary: RestoreSummary) {
   const parts: string[] = [];
   if (summary.users.added > 0) parts.push(`${summary.users.added} مرفق صحي جديد`);
   if (summary.users.updated > 0) parts.push(`${summary.users.updated} مرفق صحي محدّث`);
+  if (summary.users.addedAdmins > 0) parts.push(`${summary.users.addedAdmins} حساب إداري جديد`);
+  if (summary.users.updatedAdmins > 0) parts.push(`${summary.users.updatedAdmins} حساب إداري محدّث`);
   if (summary.providers.added > 0) parts.push(`${summary.providers.added} مستفيد جديد`);
   if (summary.providers.updated > 0) parts.push(`${summary.providers.updated} مستفيد محدّث`);
   if (summary.transactions.added > 0) parts.push(`${summary.transactions.added} حركة`);
@@ -62,6 +65,8 @@ function buildSuccessMessage(summary: RestoreSummary) {
   const total =
     summary.users.added +
     summary.users.updated +
+    summary.users.addedAdmins +
+    summary.users.updatedAdmins +
     summary.providers.added +
     summary.providers.updated +
     summary.transactions.added +
@@ -80,10 +85,10 @@ function isCancelMessage(message: string | null | undefined) {
 }
 
 export function BackupClient() {
+  const router = useRouter();
   const [exportLoading, setExportLoading] = useState(false);
   const [importLoading, setImportLoading] = useState(false);
   const [cancelLoading, setCancelLoading] = useState(false);
-  const [includeSensitive, setIncludeSensitive] = useState(true);
   const [result, setResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [confirmRestore, setConfirmRestore] = useState(false);
   const [restoreText, setRestoreText] = useState("");
@@ -106,14 +111,14 @@ export function BackupClient() {
     setExportLoading(true);
     setResult(null);
     try {
-      const res = await fetch(`/api/backup/export?sensitive=${includeSensitive ? "true" : "false"}`);
+      const res = await fetch(`/api/backup/export`);
       if (!res.ok) {
         const message = await parseErrorFromResponse(res, "تعذر تحميل النسخة الاحتياطية");
         throw new Error(message);
       }
 
       const blob = await res.blob();
-      let filename = `wahda-backup-${new Date().toISOString().slice(0, 10)}.wbk`;
+      const filename = `wahda-backup-${new Date().toISOString().slice(0, 10)}.wbk`;
 
       const safeBlob = new Blob([blob], { type: "application/octet-stream" });
       const url = URL.createObjectURL(safeBlob);
@@ -260,6 +265,7 @@ export function BackupClient() {
         if (nextJob.status === "COMPLETED") {
           setImportLoading(false);
           setResult({ type: "success", message: buildSuccessMessage(nextJob.summary) });
+          router.refresh();
           return;
         }
 
@@ -286,7 +292,7 @@ export function BackupClient() {
     return () => {
       if (timer) clearTimeout(timer);
     };
-  }, [restoreJob]);
+  }, [restoreJob, router]);
 
   useEffect(() => {
     let cancelled = false;
@@ -307,6 +313,7 @@ export function BackupClient() {
           setResult({ type: "success", message: "توجد عملية استعادة قيد التنفيذ بالخلفية." });
         } else if (latest.status === "COMPLETED") {
           setResult({ type: "success", message: buildSuccessMessage(latest.summary) });
+          router.refresh();
         } else if (latest.status === "FAILED") {
           if (isCancelMessage(latest.errorMessage)) {
             setResult({ type: "success", message: latest.errorMessage || "تم إلغاء مهمة الاستعادة." });
@@ -324,7 +331,7 @@ export function BackupClient() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [router]);
 
   return (
     <div className="space-y-5">
@@ -350,19 +357,9 @@ export function BackupClient() {
             <p className="text-xs font-bold text-sky-700 dark:text-sky-400">
               الملف الناتج مشفّر بصيغة WBK (AES-256 + GZIP).
               يشمل users, providers, transactions, notifications, audit_logs.
-              لا يتم تصدير كلمات المرور ويمكنك اختيار تضمين PIN hash.
+              يتم تصدير كلمات المرور والرموز السرية (PIN) بشكل آمن ومشفر.
             </p>
           </div>
-
-          <label className="mb-4 flex items-center gap-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3 text-sm font-bold text-slate-700 dark:text-slate-300">
-            <input
-              type="checkbox"
-              checked={includeSensitive}
-              onChange={(e) => setIncludeSensitive(e.target.checked)}
-              className="h-4 w-4"
-            />
-            تضمين PIN hash (بيانات حساسة)
-          </label>
 
           <Button onClick={handleExport} disabled={exportLoading} className="w-full gap-2">
             {exportLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
@@ -385,7 +382,7 @@ export function BackupClient() {
           <div className="mb-4 rounded-md border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-900/20 p-3">
             <p className="text-xs font-bold text-amber-700 dark:text-amber-400">
               الاستعادة تعمل بالخلفية وتضيف البيانات غير الموجودة فقط — لا تحذف أو تستبدل أي بيانات حالية.
-              المرافق المُستعادة ستحتاج لإعادة تعيين كلمة المرور.
+              يتم استعادة كلمات المرور بحيث يمكن تسجيل الدخول بنفس البيانات السابقة.
             </p>
           </div>
 
@@ -447,6 +444,12 @@ export function BackupClient() {
             </div>
             <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1 flex items-center justify-between">
               <span>مرافق محدثة:</span> <span>{restoreJob.summary.users.updated}</span>
+            </div>
+            <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1 flex items-center justify-between">
+              <span>حسابات إدارية مضافة:</span> <span>{restoreJob.summary.users.addedAdmins}</span>
+            </div>
+            <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1 flex items-center justify-between">
+              <span>حسابات إدارية محدّثة:</span> <span>{restoreJob.summary.users.updatedAdmins}</span>
             </div>
             <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1 flex items-center justify-between">
               <span>مستفيدون مضافون:</span> <span>{restoreJob.summary.providers.added}</span>

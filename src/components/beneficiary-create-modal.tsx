@@ -4,6 +4,7 @@ import { useState, useTransition, useEffect } from "react";
 import { Button, Input } from "@/components/ui";
 import { Loader2, UserPlus } from "lucide-react";
 import { createBeneficiary } from "@/app/actions/beneficiary";
+import { DateInput } from "@/components/date-input";
 
 export function BeneficiaryCreateModal() {
   const [open, setOpen] = useState(false);
@@ -104,12 +105,7 @@ export function BeneficiaryCreateModal() {
 
               <div>
                 <label className="mb-1 block text-xs font-black text-slate-500">تاريخ الميلاد</label>
-                <Input
-                  type="date"
-                  value={birthDate}
-                  onChange={(e) => setBirthDate(e.target.value)}
-                  className="h-10"
-                />
+                <DateInput value={birthDate} onChange={setBirthDate} className="h-10" />
               </div>
 
               {error && <p className="text-sm font-bold text-red-600">{error}</p>}

@@ -119,7 +119,7 @@ export function ImportUploader() {
             اختر ملف Excel يحتوي على الحقول <b>card_number</b> و <b>name</b> ويمكنه أن يتضمن <b>birth_date</b> أو <b>date_of_birth</b>.
           </p>
           <a
-            href="/قالب_استيراد_المستفيدين.csv"
+            href="/قالب_استيراد_المستفيدين.xlsx"
             download
             className="mx-auto mt-3 inline-flex items-center gap-1 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
           >

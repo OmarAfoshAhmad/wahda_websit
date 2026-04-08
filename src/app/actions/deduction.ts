@@ -4,9 +4,10 @@ import prisma from "@/lib/prisma";
 import { deductionSchema } from "@/lib/validation";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { revalidatePath } from "next/cache";
-import { requireActiveFacilitySession } from "@/lib/session-guard";
+import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 import { logger } from "@/lib/logger";
 import { emitNotification } from "@/lib/sse-notifications";
+import { formatCurrency, roundCurrency } from "@/lib/money";
 
 export async function deductBalance(formData: {
   card_number: string;
@@ -16,8 +17,8 @@ export async function deductBalance(formData: {
   facilityId?: string;
 }) {
   const session = await requireActiveFacilitySession();
-  if (!session) {
-    return { error: "غير مصرح لك بهذه العملية" };
+  if (!session || !hasPermission(session, "deduct_balance")) {
+    return { error: "غير مصرح لك بهذه العملية (خصم الرصيد)" };
   }
 
   let effectiveFacilityId = session.id;
@@ -25,7 +26,7 @@ export async function deductBalance(formData: {
   const requestedFacilityId = typeof formData.facilityId === "string" ? formData.facilityId.trim() : "";
 
   if (requestedFacilityId) {
-    if (!session.is_admin && requestedFacilityId !== session.id) {
+    if (!session.is_admin && !session.is_manager && requestedFacilityId !== session.id) {
       return { error: "غير مصرح لك باختيار هذا المرفق" };
     }
 
@@ -83,11 +84,11 @@ export async function deductBalance(formData: {
       }
 
       if (amount > beneficiary.remaining_balance) {
-        throw new Error(`المبلغ أكبر من الرصيد المتاح (${Number(beneficiary.remaining_balance).toLocaleString("ar-LY")} د.ل)`);
+        throw new Error(`المبلغ أكبر من الرصيد المتاح (${formatCurrency(Number(beneficiary.remaining_balance))} د.ل)`);
       }
 
       const balanceBefore = Number(beneficiary.remaining_balance);
-      const newBalance = beneficiary.remaining_balance - amount;
+      const newBalance = roundCurrency(balanceBefore - amount);
       const newStatus = newBalance <= 0 ? "FINISHED" : "ACTIVE";
 
       // 2. Update beneficiary
@@ -116,7 +117,7 @@ export async function deductBalance(formData: {
         data: {
           beneficiary_id: beneficiary.id,
           title: "تم خصم من رصيدك",
-          message: `تم خصم ${Number(amount).toLocaleString("ar-LY")} د.ل من رصيدك لدى ${effectiveFacilityName}`,
+          message: `تم خصم ${formatCurrency(Number(amount))} د.ل من رصيدك لدى ${effectiveFacilityName}`,
           amount,
         },
       });
@@ -161,7 +162,7 @@ export async function deductBalance(formData: {
     emitNotification(result.beneficiaryId, {
       id: result.notificationId,
       title: "تم خصم من رصيدك",
-      message: `تم خصم ${Number(amount).toLocaleString("ar-LY")} د.ل من رصيدك لدى ${effectiveFacilityName}`,
+      message: `تم خصم ${formatCurrency(Number(amount))} د.ل من رصيدك لدى ${effectiveFacilityName}`,
       amount,
       remaining_balance: result.newBalance,
       created_at: new Date().toISOString(),

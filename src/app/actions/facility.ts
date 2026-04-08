@@ -1,7 +1,6 @@
 "use server";
 
 import bcrypt from "bcryptjs";
-import { randomBytes } from "crypto";
 import prisma from "@/lib/prisma";
 import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 import { createFacilitySchema, updateFacilitySchema } from "@/lib/validation";
@@ -60,7 +59,7 @@ export async function updateFacility(data: {
   resetPassword?: boolean;
 }) {
   const session = await requireActiveFacilitySession();
-  if (!session?.is_admin) {
+  if (!session || !hasPermission(session, "edit_facility")) {
     return { error: "غير مصرح لك بهذه العملية" };
   }
 
@@ -188,7 +187,7 @@ export async function importFacilitiesFromExcel(formData: FormData): Promise<{
   const file = formData.get("file") as File | null;
   if (!file) return { error: "لم يتم اختيار ملف" };
 
-  if (!hasPermission(session, 'import_facilities')) {
+  if (!hasPermission(session, "add_facility")) {
     return { error: "غير مصرح لك باستيراد المرافق" };
   }
 

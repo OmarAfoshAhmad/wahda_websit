@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Bell, CalendarDays, Wallet, LogOut, CheckCheck, Volume2, VolumeX } from "lucide-react";
 import { ThemeSwitcher } from "@/components/theme-switcher";
+import { formatCurrency } from "@/lib/money";
 
 type Notification = {
   id: string;
@@ -214,7 +215,7 @@ export function BeneficiaryDashboardClient({ initialData }: { initialData: Dashb
                       <div key={n.id} className={`rounded-xl border p-2.5 ${n.is_read ? "border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-600 dark:text-slate-300" : "border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-900/20 text-slate-800 dark:text-slate-200"}`}>
                         <p className="text-xs font-black">{n.title}</p>
                         <p className="mt-0.5 text-xs opacity-90">{n.message}</p>
-                        <p className="mt-1 text-[11px] opacity-70">{new Date(n.created_at).toLocaleString("ar-LY")}</p>
+                        <p className="mt-1 text-[11px] opacity-70">{new Date(n.created_at).toLocaleString("en-GB")}</p>
                       </div>
                     ))
                   )}
@@ -240,17 +241,17 @@ export function BeneficiaryDashboardClient({ initialData }: { initialData: Dashb
           <Wallet className="h-4 w-4" />
           <p className="text-xs font-bold uppercase tracking-wider text-blue-100">الرصيد الحالي</p>
         </div>
-        <p className="text-4xl font-black leading-none">{data.remaining_balance.toLocaleString("ar-LY")}</p>
+        <p className="text-4xl font-black leading-none">{formatCurrency(data.remaining_balance)}</p>
         <p className="mt-1 text-sm text-blue-100">دينار ليبي</p>
 
         <div className="mt-5 grid grid-cols-2 gap-2 rounded-xl bg-white/10 p-2 text-center">
           <div className="rounded-lg bg-white/10 py-2">
             <p className="text-[11px] font-bold text-blue-100">المستخدم</p>
-            <p className="text-base font-black">{usedBalance.toLocaleString("ar-LY")}</p>
+            <p className="text-base font-black">{formatCurrency(usedBalance)}</p>
           </div>
           <div className="rounded-lg bg-white/10 py-2">
             <p className="text-[11px] font-bold text-blue-100">الكلي</p>
-            <p className="text-base font-black">{data.total_balance.toLocaleString("ar-LY")}</p>
+            <p className="text-base font-black">{formatCurrency(data.total_balance)}</p>
           </div>
         </div>
       </div>
@@ -261,7 +262,7 @@ export function BeneficiaryDashboardClient({ initialData }: { initialData: Dashb
         {data.birth_date && (
           <p className="mt-1.5 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
             <CalendarDays className="h-4 w-4" />
-            تاريخ الميلاد: {new Date(data.birth_date).toLocaleDateString("ar-LY")}
+            تاريخ الميلاد: {new Date(data.birth_date).toLocaleDateString("en-GB")}
           </p>
         )}
       </div>
@@ -281,9 +282,9 @@ export function BeneficiaryDashboardClient({ initialData }: { initialData: Dashb
                 <div>
                   <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{TYPE_LABELS[tx.type] ?? tx.type}</p>
                   <p className="text-xs text-slate-500 dark:text-slate-400">{tx.facility_name}</p>
-                  <p className="text-[11px] text-slate-400 dark:text-slate-500">{new Date(tx.created_at).toLocaleDateString("ar-LY")}</p>
+                  <p className="text-[11px] text-slate-400 dark:text-slate-500">{new Date(tx.created_at).toLocaleDateString("en-GB")}</p>
                 </div>
-                <span className="text-base font-black text-red-600 dark:text-red-400">-{tx.amount.toLocaleString("ar-LY")} د.ل</span>
+                <span className="text-base font-black text-red-600 dark:text-red-400">-{formatCurrency(tx.amount)} د.ل</span>
               </li>
             ))}
           </ul>

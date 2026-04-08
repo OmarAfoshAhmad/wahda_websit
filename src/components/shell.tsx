@@ -4,9 +4,17 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { cn } from "./ui";
-import { LayoutDashboard, ListOrdered, LogOut, Users, Building2, KeyRound, DatabaseBackup, ClipboardList, UserCog, FileSpreadsheet, GitMerge } from "lucide-react";
+import { LayoutDashboard, ListOrdered, LogOut, Users, Building2, KeyRound, DatabaseBackup, ClipboardList, UserCog } from "lucide-react";
 import { logout } from "@/app/actions/auth";
 import { ThemeSwitcher } from "./theme-switcher";
+import type { ManagerPermissions, Session } from "@/lib/auth";
+
+// تابع مساعد للتحقق من الصلاحيات (يُحاكي lib/session-guard)
+function checkClientPerm(session: Session, key: keyof ManagerPermissions) {
+  if (session.is_admin) return true;
+  if (!session.is_manager) return false;
+  return session.manager_permissions?.[key] === true;
+}
 
 const safeLogout = async () => {
   try { await logout(); } catch { window.location.href = "/login"; }
@@ -17,38 +25,41 @@ const baseNavigation = [
   { name: "الحركات", href: "/transactions", icon: ListOrdered },
 ];
 
-const managerNavigation = [
-  { name: "المستفيدون", href: "/beneficiaries", icon: Users },
-  { name: "المرافق الصحية", href: "/admin/facilities", icon: Building2 },
-  { name: "سجل المراقبة", href: "/admin/audit-log", icon: ClipboardList },
+const managerNavigation: Array<{ name: string; href: string; icon: typeof LayoutDashboard; perm: keyof ManagerPermissions }> = [
+  { name: "المستفيدون", href: "/beneficiaries", icon: Users, perm: "view_beneficiaries" },
+  { name: "المرافق الصحية", href: "/admin/facilities", icon: Building2, perm: "view_facilities" },
+  { name: "سجل المراقبة", href: "/admin/audit-log", icon: ClipboardList, perm: "view_audit_log" },
 ];
 
 const superAdminNavigation = [
   { name: "النسخ الاحتياطي", href: "/admin/backup", icon: DatabaseBackup },
-  { name: "إدارة التكرارات", href: "/admin/duplicates", icon: GitMerge },
   { name: "المديرون", href: "/admin/managers", icon: UserCog },
 ];
 
 export function Shell({
   children,
   facilityName,
-  isAdmin = false,
-  isManager = false,
+  session,
 }: {
   children: React.ReactNode;
   facilityName: string;
-  isAdmin?: boolean;
-  isManager?: boolean;
+  session: Session;
 }) {
+  const isAdmin = session.is_admin;
+  const isManager = session.is_manager;
   const pathname = usePathname();
+
+  const filteredManagerNav = managerNavigation.filter(item => {
+    return checkClientPerm(session, item.perm);
+  });
 
   const allNav = isAdmin
     ? [...baseNavigation, ...managerNavigation, ...superAdminNavigation]
     : isManager
-    ? [...baseNavigation, ...managerNavigation]
-    : baseNavigation;
+      ? [...baseNavigation, ...filteredManagerNav]
+      : baseNavigation;
 
-  const roleLabel = isAdmin ? "مشرف" : isManager ? "مدير" : "مرفق";
+  const roleLabel = isAdmin ? "المبرمج" : isManager ? "مدير" : "مرفق";
 
   return (
     <div className="page-shell min-h-screen pb-5 bg-slate-50 dark:bg-[#0b1120] text-slate-900 dark:text-slate-100 transition-colors">
@@ -79,7 +90,7 @@ export function Shell({
               <div className="flex gap-1 overflow-x-auto pb-1 lg:pb-0 scrollbar-hide">
                 {allNav.map((item) => (
                   <Link
-                    key={item.href}
+                    key={item.name}
                     href={item.href}
                     className={cn(
                       "inline-flex min-w-fit items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-bold transition-colors",

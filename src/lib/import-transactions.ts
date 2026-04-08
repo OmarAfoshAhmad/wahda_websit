@@ -227,7 +227,7 @@ export async function processTransactionImport(
     // 4b. Process imports
     let importedFamilies = 0;
     let importedTransactions = 0;
-    let skippedAlreadyImported = 0;
+    const skippedAlreadyImported = 0;
     let updatedFamilies = 0;
     let updatedTransactions = 0;
 
@@ -344,12 +344,11 @@ async function importFamilyTransactions(
       // Update balance
       await tx.beneficiary.update({
         where: { id: member.id },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         data: {
           remaining_balance: newBalance,
           status: newStatus as "ACTIVE" | "FINISHED",
-          ...(newStatus === "FINISHED" ? { completed_via: "IMPORT" } : {}),
-        } as any,
+          completed_via: newStatus === "FINISHED" ? "IMPORT" : undefined,
+        },
       });
 
       if (deductAmount <= 0) {
@@ -417,16 +416,15 @@ async function suspendFamily(
 
   await prisma.$transaction(
     familyMembers.map((member) =>
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       prisma.beneficiary.update({
         where: { id: member.id },
         data: {
           total_balance: 0,
           remaining_balance: 0,
           // FIX: SUSPENDED وليس FINISHED — الإيقاف قرار خارجي وليس استنفاداً للرصيد
-          status: "SUSPENDED",
+          status: "SUSPENDED" as const,
           completed_via: null,
-        } as any,
+        },
       }),
     ),
   );

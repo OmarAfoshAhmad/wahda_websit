@@ -192,7 +192,7 @@ function buildBeneficiarySnapshots(rows: ImportedRow[]) {
 
 async function readRowsFromWorkbook(buffer: Buffer) {
   const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(buffer as any);
+  await workbook.xlsx.load(buffer as unknown as Parameters<typeof workbook.xlsx.load>[0]);
 
   const ws = workbook.worksheets[0];
   if (!ws) throw new Error("Excel workbook has no worksheets");

@@ -7,13 +7,24 @@ import { Button } from "@/components/ui";
 import type { ManagerPermissions } from "@/lib/auth";
 
 const PERMISSION_LABELS: Record<keyof ManagerPermissions, string> = {
-  add_beneficiary: "إضافة مستفيد",
-  delete_beneficiary: "حذف مستفيد واسترجاعه",
   import_beneficiaries: "استيراد مستفيدين",
-  add_facility: "إضافة مرفق",
-  import_facilities: "استيراد مرافق",
-  cancel_transactions: "إلغاء الحركات",
-  correct_transactions: "تصحيح الحركات (إلغاء الإلغاء)",
+  add_beneficiary: "إضافة مستفيد جديد",
+  edit_beneficiary: "تعديل بيانات المستفيدين",
+  delete_beneficiary: "حذف المستفيدين (نهائياً أو مؤقتاً)",
+  add_facility: "إضافة مرفق جديد",
+  edit_facility: "تعديل بيانات المرافق",
+  delete_facility: "حذف المرافق من النظام",
+  cancel_transactions: "إلغاء الحركات المالية",
+  correct_transactions: "إعادة خصم الرصيد / تصحيح حركات",
+  manage_recycle_bin: "إدارة سلة المحذوفات",
+  export_data: "تصدير التقارير والبيانات (Excel/PDF)",
+  print_cards: "طباعة الكروت والبطاقات",
+  view_audit_log: "عرض سجل المراقبة (Audit Log)",
+  view_reports: "عرض التقارير الإحصائية (المفصلة)",
+  view_facilities: "عرض المرافق الصحية",
+  view_beneficiaries: "عرض قائمة المستفيدين",
+  deduct_balance: "إمكانية خصم الرصيد (نقطة بيع)",
+  delete_transaction: "حذف الحركات المالية (نهائياً أو مؤقتاً)",
 };
 
 interface Props {
@@ -62,7 +73,7 @@ export function ManagerPermissionsModal({ managerId, managerName, permissions }:
         title="ضبط الصلاحيات"
       >
         <Settings2 className="h-3.5 w-3.5" />
-        الصلاحيات
+        مدير الصلاحيات
       </button>
 
       {open && (
@@ -71,49 +82,47 @@ export function ManagerPermissionsModal({ managerId, managerName, permissions }:
             className="absolute inset-0 bg-black/40 backdrop-blur-sm"
             onClick={() => setOpen(false)}
           />
-          <div className="relative z-10 w-full max-w-md rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl">
+          <div className="relative z-10 w-full max-w-md rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0F172A] shadow-2xl overflow-hidden">
             {/* رأس الـ modal */}
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 px-5 py-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 px-6 py-5 bg-slate-50/50 dark:bg-slate-800/30">
               <div>
-                <h2 className="text-sm font-black text-slate-900 dark:text-white">صلاحيات المدير</h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400">{managerName}</p>
+                <h2 className="text-base font-black text-slate-900 dark:text-white">صلاحيات المدير</h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-bold">{managerName}</p>
               </div>
               <button
                 onClick={() => setOpen(false)}
-                className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-600"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-600 transition-all"
               >
-                <X className="h-4 w-4" />
+                <X className="h-5 w-5" />
               </button>
             </div>
 
-            {/* قائمة الصلاحيات */}
-            <div className="px-5 py-4 space-y-2">
+            {/* قائمة الصلاحيات — مع تمرير في حال كثرت */}
+            <div className="px-5 py-4 max-h-[60vh] overflow-y-auto space-y-1.5 custom-scrollbar">
               {(Object.keys(PERMISSION_LABELS) as Array<keyof ManagerPermissions>).map((key) => (
-                <label
+                <div
                   key={key}
-                  className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-slate-100 dark:border-slate-800 px-3 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                  className="flex items-center justify-between gap-3 rounded-xl border border-transparent dark:border-slate-800/40 px-4 py-3 bg-slate-50/50 dark:bg-slate-800/20 hover:bg-slate-100/50 dark:hover:bg-slate-800/40 transition-all group"
+                  onClick={() => toggle(key)}
                 >
-                  <span className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                  <span className="text-[13px] font-bold text-slate-700 dark:text-slate-300 group-hover:text-slate-900 dark:group-hover:text-white cursor-pointer select-none">
                     {PERMISSION_LABELS[key]}
                   </span>
                   <button
                     type="button"
                     role="switch"
                     aria-checked={current[key]}
-                    onClick={() => toggle(key)}
-                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
-                      current[key]
-                        ? "bg-primary dark:bg-blue-500"
-                        : "bg-slate-300 dark:bg-slate-600"
-                    }`}
+                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-all duration-300 focus:outline-none ${current[key]
+                      ? "bg-blue-600 dark:bg-blue-500"
+                      : "bg-slate-300 dark:bg-slate-700"
+                      }`}
                   >
                     <span
-                      className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform ${
-                        current[key] ? "translate-x-5" : "translate-x-0.5"
-                      }`}
+                      className={`absolute h-4.5 w-4.5 rounded-full bg-white shadow-md transition-transform duration-300 right-1 ${current[key] ? "-translate-x-[22px]" : "translate-x-0"
+                        }`}
                     />
                   </button>
-                </label>
+                </div>
               ))}
             </div>
 

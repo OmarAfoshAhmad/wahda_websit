@@ -4,8 +4,9 @@ import prisma from "@/lib/prisma";
 import { Shell } from "@/components/shell";
 import { DeductForm } from "@/components/deduct-form";
 import { Card } from "@/components/ui";
-import { Users, CreditCard, TrendingDown, Building2 } from "lucide-react";
+import { Users, CreditCard, TrendingDown, Building2, AlertTriangle } from "lucide-react";
 import { unstable_cache } from "next/cache";
+import { hasPermission } from "@/lib/session-guard";
 
 // ─── كاش إحصائيات المشرف: تتحدث كل 60 ثانية ───
 const getCachedAdminStats = unstable_cache(
@@ -63,35 +64,36 @@ export default async function Dashboard() {
   const session = await getSession();
   if (!session) redirect("/login");
 
+  const canViewStats = session.is_admin || session.is_manager;
   const isAdmin = session.is_admin || session.is_manager;
   const cacheTag = isAdmin ? "admin" : session.id;
 
   const [adminStats, todayStats] = await Promise.all([
-    isAdmin ? getCachedAdminStats() : Promise.resolve({ total_beneficiaries: 0, active_beneficiaries: 0, facilityCount: 0 }),
+    canViewStats ? getCachedAdminStats() : Promise.resolve({ total_beneficiaries: 0, active_beneficiaries: 0, facilityCount: 0 }),
     getCachedTodayStats(cacheTag)
   ]);
 
   const totalBeneficiaries = adminStats.total_beneficiaries;
   const activeBeneficiaries = adminStats.active_beneficiaries;
   const facilityCount = adminStats.facilityCount;
-  
+
   const todayAmount = todayStats.amount;
   const todayCount = todayStats.count;
 
   return (
-    <Shell facilityName={session.name} isAdmin={session.is_admin} isManager={session.is_manager}>
+    <Shell facilityName={session.name} session={session}>
       <div className="space-y-5">
         {/* عنوان الصفحة */}
         <div>
           <h1 className="text-2xl font-black text-slate-900 dark:text-white">مرحباً، {session.name}</h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            {isAdmin ? "لوحة تحكم المشرف" : "نافذة الخصم والمتابعة"}
+            {session.is_admin ? "لوحة تحكم المشرف (المبرمج)" : session.is_manager ? "لوحة تحكم المدير" : "نافذة الخصم والمتابعة"}
           </p>
         </div>
 
         {/* بطاقات الإحصائيات */}
-        <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${isAdmin ? "lg:grid-cols-4" : "lg:grid-cols-2"}`}>
-          {isAdmin && (
+        <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${canViewStats ? "lg:grid-cols-4" : "lg:grid-cols-2"}`}>
+          {canViewStats && (
             <>
               <Card className="p-4">
                 <div className="flex items-center justify-between">
@@ -147,10 +149,18 @@ export default async function Dashboard() {
         </div>
 
         {/* نموذج الخصم */}
-        <div>
-          <h2 className="mb-3 text-lg font-black text-slate-900 dark:text-white">خصم الأرصدة</h2>
-          <DeductForm />
-        </div>
+        {(!session.is_manager || hasPermission(session, "deduct_balance")) ? (
+          <div>
+            <h2 className="mb-3 text-lg font-black text-slate-900 dark:text-white">خصم الأرصدة</h2>
+            <DeductForm />
+          </div>
+        ) : (
+          <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-6 text-center dark:border-amber-900/30 dark:bg-amber-900/10">
+            <AlertTriangle className="mx-auto mb-3 h-10 w-10 text-amber-500" />
+            <h2 className="text-lg font-black text-amber-800 dark:text-amber-400">غير مصرح لك بالخصم</h2>
+            <p className="mt-1 text-sm text-amber-600 dark:text-amber-500">لا تملك صلاحية &quot;إمكانية خصم الرصيد&quot;. يرجى مراجعة مبرمج النظام.</p>
+          </div>
+        )}
       </div>
     </Shell>
   );

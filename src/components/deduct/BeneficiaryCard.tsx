@@ -10,6 +10,7 @@
 import React from "react";
 import { AlertCircle } from "lucide-react";
 import { Card, Badge, cn } from "@/components/ui";
+import { formatCurrency } from "@/lib/money";
 import { useDeductContext } from "./DeductContext";
 import { DeductionAction } from "./DeductionAction";
 
@@ -44,7 +45,7 @@ export function BeneficiaryCard() {
       <div className="mb-4 grid grid-cols-1 gap-2 md:grid-cols-2">
         <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
           <p className="mb-1 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">إجمالي الرصيد</p>
-          <p className="text-base font-black text-slate-700 dark:text-slate-200">{beneficiary.total_balance} د.ل</p>
+          <p className="text-base font-black text-slate-700 dark:text-slate-200">{formatCurrency(beneficiary.total_balance)} د.ل</p>
         </div>
         <div className={cn(
           "rounded-md p-3",
@@ -57,7 +58,7 @@ export function BeneficiaryCard() {
             "text-xl font-black",
             beneficiary.remaining_balance < 50 ? "text-amber-600 dark:text-amber-400" : "text-primary dark:text-blue-400"
           )}>
-            {beneficiary.remaining_balance} د.ل
+            {formatCurrency(beneficiary.remaining_balance)} د.ل
           </p>
           {beneficiary.remaining_balance < 50 && beneficiary.remaining_balance > 0 && (
             <p className="mt-1 text-[10px] font-black uppercase tracking-[0.18em] text-amber-700 dark:text-amber-500">

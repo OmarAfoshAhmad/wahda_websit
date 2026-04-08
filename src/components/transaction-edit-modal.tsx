@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { Button, Input } from "@/components/ui";
 import { Loader2 } from "lucide-react";
 import { updateTransactionEntry } from "@/app/actions/transaction";
+import { DateTimeInput } from "@/components/date-input";
 
 type FacilityOption = {
   id: string;
@@ -33,9 +34,11 @@ export function TransactionEditModal({
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  const nowLocal = new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
-    .toISOString()
-    .slice(0, 16);
+  const [nowLocal] = useState(() =>
+    new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 16)
+  );
   const defaultDate = useMemo(() => {
     const parsed = new Date(transaction.created_at);
     if (Number.isNaN(parsed.getTime())) return nowLocal;
@@ -160,7 +163,7 @@ export function TransactionEditModal({
 
               <div>
                 <label className="mb-1 block text-xs font-black text-slate-500 dark:text-slate-400">تاريخ ووقت الحركة</label>
-                <Input type="datetime-local" value={transactionDate} onChange={(e) => setTransactionDate(e.target.value)} max={nowLocal} />
+                <DateTimeInput value={transactionDate} onChange={setTransactionDate} max={nowLocal} />
               </div>
 
               {error && <p className="text-sm font-bold text-red-600 dark:text-red-400">{error}</p>}

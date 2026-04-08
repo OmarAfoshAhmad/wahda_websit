@@ -5,15 +5,15 @@ import { getLedgerRemainingByBeneficiaryId } from "@/lib/ledger-balance";
 import { Wallet, CalendarDays, ShieldX } from "lucide-react";
 
 const TYPE_LABELS: Record<string, string> = {
-  MEDICINE:     "دواء",
-  SUPPLIES:     "مستلزمات",
+  MEDICINE: "دواء",
+  SUPPLIES: "مستلزمات",
   CANCELLATION: "إلغاء",
-  IMPORT:       "رصيد مستخدم",
+  IMPORT: "رصيد مستخدم",
 };
 
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
-  ACTIVE:    { label: "نشط",    color: "bg-emerald-100 text-emerald-700" },
-  FINISHED:  { label: "مكتمل", color: "bg-slate-100 text-slate-600" },
+  ACTIVE: { label: "نشط", color: "bg-emerald-100 text-emerald-700" },
+  FINISHED: { label: "مكتمل", color: "bg-slate-100 text-slate-600" },
   SUSPENDED: { label: "موقوف", color: "bg-amber-100 text-amber-700" },
 };
 
@@ -64,10 +64,10 @@ export default async function CheckTokenPage({
 
   if (!beneficiary) notFound();
 
-  const totalBalance     = Number(beneficiary.total_balance);
+  const totalBalance = Number(beneficiary.total_balance);
   const remainingBalance = await getLedgerRemainingByBeneficiaryId(beneficiaryId, totalBalance);
-  const usedBalance      = totalBalance - remainingBalance;
-  const statusInfo       = STATUS_MAP[beneficiary.status] ?? STATUS_MAP.ACTIVE;
+  const usedBalance = totalBalance - remainingBalance;
+  const statusInfo = STATUS_MAP[beneficiary.status] ?? STATUS_MAP.ACTIVE;
 
   return (
     <div className="min-h-screen bg-slate-50 px-4 py-8" dir="rtl">
@@ -88,7 +88,7 @@ export default async function CheckTokenPage({
               {beneficiary.birth_date && (
                 <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-400">
                   <CalendarDays className="h-3.5 w-3.5" />
-                  {new Date(beneficiary.birth_date).toLocaleDateString("ar-LY")}
+                  {new Date(beneficiary.birth_date).toLocaleDateString("en-GB")}
                 </p>
               )}
             </div>
@@ -138,7 +138,7 @@ export default async function CheckTokenPage({
                       {TYPE_LABELS[tx.type] ?? tx.type}
                     </p>
                     <p className="mt-0.5 text-xs text-slate-400">
-                      {tx.facility.name} · {new Date(tx.created_at).toLocaleDateString("ar-LY")}
+                      {tx.facility.name} · {new Date(tx.created_at).toLocaleDateString("en-GB")}
                     </p>
                   </div>
                   <span className="font-black text-red-600">

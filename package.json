@@ -15,7 +15,9 @@
     "load-test": "node scripts/load-test.mjs",
     "backup:drive": "bash scripts/backup-drive.sh",
     "backup:drive:install-cron": "bash scripts/install-backup-drive-cron.sh",
-    "report:duplicates": "node scripts/export-duplicate-beneficiaries-report.js"
+    "report:duplicates": "node scripts/export-duplicate-beneficiaries-report.js",
+    "db:reset": "node scripts/reset-dev-db.js --apply",
+    "db:reset:dry": "node scripts/reset-dev-db.js"
   },
   "dependencies": {
     "@prisma/client": "^6.0.0",
@@ -34,6 +36,7 @@
     "react-dom": "19.2.3",
     "redis": "^5.11.0",
     "tailwind-merge": "^3.5.0",
+    "xlsx": "^0.18.5",
     "zod": "^4.3.6"
   },
   "devDependencies": {

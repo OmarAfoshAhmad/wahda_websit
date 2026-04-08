@@ -1,8 +1,9 @@
 "use server";
 
 import prisma from "@/lib/prisma";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
+import { roundCurrency } from "@/lib/money";
 
 import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 
@@ -54,7 +55,7 @@ export async function deleteCancellationTransaction(cancellationId: string) {
 
       const currentBalance = Number(locked[0].remaining_balance);
       const lockedStatus = locked[0].status;
-      const newBalance = currentBalance - refundAmountReversed;
+      const newBalance = roundCurrency(currentBalance - refundAmountReversed);
       // FIX: احترام حالة الإيقاف — لا نغير SUSPENDED إلى ACTIVE أو FINISHED
       const newStatus = lockedStatus === "SUSPENDED" ? "SUSPENDED" : (newBalance <= 0 ? "FINISHED" : "ACTIVE");
 
@@ -98,7 +99,8 @@ export async function deleteCancellationTransaction(cancellationId: string) {
 
     revalidatePath("/transactions");
     revalidatePath("/beneficiaries");
-    
+    revalidateTag("beneficiary-counts", "max");
+
     return { success: true };
 
   } catch (error) {

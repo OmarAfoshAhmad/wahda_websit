@@ -10,10 +10,10 @@ export default async function ImportReportPage() {
   if (!session.is_admin) redirect("/dashboard");
 
   return (
-    <Shell facilityName={session.name} isAdmin={session.is_admin}>
+    <Shell facilityName={session.name} session={session}>
       <div className="space-y-5">
         <div className="mb-8 text-center">
-          <Badge className="mb-4">للمشرف فقط</Badge>
+          <Badge className="mb-4">للمبرمج فقط</Badge>
           <h1 className="section-title text-2xl font-black text-slate-950 sm:text-3xl dark:text-white">
             استيراد الحركات القديمة
           </h1>

@@ -15,8 +15,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "يجب استخدام HTTPS" }, { status: 400 });
   }
 
-  const { searchParams } = new URL(request.url);
-  const includeSensitive = searchParams.get("sensitive") !== "false";
+  const includeSensitive = true;
 
   try {
     const [facilities, beneficiaries, transactions, auditLogs, notifications] = await Promise.all([
@@ -39,6 +38,8 @@ export async function GET(request: NextRequest) {
           username: f.username,
           password_hash: includeSensitive ? f.password_hash : null,
           is_admin: f.is_admin,
+          is_manager: f.is_manager,
+          manager_permissions: f.manager_permissions,
           must_change_password: f.must_change_password,
           deleted_at: f.deleted_at?.toISOString() ?? null,
           created_at: f.created_at.toISOString(),

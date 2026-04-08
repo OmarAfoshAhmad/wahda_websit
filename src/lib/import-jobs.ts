@@ -1,10 +1,10 @@
 import { Prisma, ImportJobStatus } from "@prisma/client";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { z } from "zod";
 import ExcelJS from "exceljs";
 import prisma from "@/lib/prisma";
 import { getCurrentInitialBalance } from "@/lib/initial-balance";
-import { normalizePersonName, personKey } from "@/lib/normalize";
+import { personKey } from "@/lib/normalize";
 
 const rawImportRowSchema = z.record(z.string(), z.unknown());
 
@@ -218,7 +218,7 @@ function normalizeImportRow(row: unknown): { data?: NormalizedImportRow; error?:
 
   const cardNumber = normalizeString(getField(parsed.data, "card_number", "رقم البطاقة", "رقم_البطاقة", "الرقم", "insurance profile", "Insurance Profile")).toUpperCase();
   const name = normalizeString(getField(parsed.data, "name", "الاسم", "اسم المستفيد", "اسم_المستفيد", "employee name", "Employee Name"));
-  
+
   if (!cardNumber || !name) {
     return { error: "missing_required_fields" };
   }
@@ -294,7 +294,7 @@ export async function createImportJob(data: unknown[], username: string) {
     data: {
       created_by: username,
       payload: toJsonValue(data),
-    total_rows: data.length,
+      total_rows: data.length,
     },
   });
 
@@ -447,26 +447,26 @@ export async function processImportJob(jobId: string, username: string) {
 
       const existingPersons = birthDates.length > 0
         ? await prisma.beneficiary.findMany({
-            where: {
-              deleted_at: null,
-              birth_date: { in: birthDates },
-            },
-            select: {
-              name: true,
-              birth_date: true,
-            },
-          })
+          where: {
+            deleted_at: null,
+            birth_date: { in: birthDates },
+          },
+          select: {
+            name: true,
+            birth_date: true,
+          },
+        })
         : [];
 
       const existingCards = new Set(existing.map((item) => item.normalized_card_number));
       // نجلب id + card_number للسجلات الموجودة لتنفيذ التحديث عليها
       const existingCardRows = existing.length > 0
         ? await prisma.beneficiary.findMany({
-            where: {
-              card_number: { in: [...existingCards], mode: "insensitive" },
-            },
-            select: { id: true, card_number: true },
-          })
+          where: {
+            card_number: { in: [...existingCards], mode: "insensitive" },
+          },
+          select: { id: true, card_number: true },
+        })
         : [];
       const cardToId = new Map(
         existingCardRows.map((r) => [r.card_number.trim().toUpperCase(), r.id])
@@ -609,6 +609,7 @@ export async function processImportJob(jobId: string, username: string) {
       revalidatePath("/dashboard");
       revalidatePath("/import");
       revalidatePath("/beneficiaries");
+      revalidateTag("beneficiary-counts", "max");
     } catch {
       // revalidatePath غير متاح عند التشغيل من BullMQ Worker (خارج سياق الطلب)
     }

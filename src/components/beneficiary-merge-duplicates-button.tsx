@@ -8,7 +8,7 @@ import { ConfirmationModal } from "@/components/confirmation-modal";
 
 export function BeneficiaryMergeDuplicatesButton({
   beneficiaryId,
-  beneficiaryName,
+  beneficiaryName: _beneficiaryName,
   cardNumber,
 }: {
   beneficiaryId: string;

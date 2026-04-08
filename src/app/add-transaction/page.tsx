@@ -17,7 +17,7 @@ export default async function AddTransactionPage() {
   });
 
   return (
-    <Shell facilityName={session.name} isAdmin={session.is_admin} isManager={session.is_manager}>
+    <Shell facilityName={session.name} session={session}>
       <div className="space-y-4">
         <div>
           <h1 className="text-2xl font-black text-slate-900 dark:text-white">إضافة حركة يدوية</h1>

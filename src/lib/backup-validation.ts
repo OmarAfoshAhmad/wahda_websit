@@ -83,6 +83,8 @@ const userSchema = z.object({
   username: z.string(),
   password_hash: z.string().nullable().optional(),
   is_admin: z.boolean().optional().default(false),
+  is_manager: z.boolean().optional().default(false),
+  manager_permissions: z.any().optional(),
   must_change_password: z.boolean().optional().default(false),
   deleted_at: z.string().nullable().optional(),
   created_at: z.string(),

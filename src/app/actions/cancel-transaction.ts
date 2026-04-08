@@ -1,9 +1,10 @@
 "use server";
 
 import prisma from "@/lib/prisma";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
 import { deleteCancellationTransaction } from "@/app/actions/restore-transaction";
+import { roundCurrency } from "@/lib/money";
 
 import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 
@@ -49,7 +50,7 @@ export async function cancelTransaction(transactionId: string) {
 
       const currentBalance = Number(locked[0].remaining_balance);
       const lockedStatus = locked[0].status;
-      const newBalance = currentBalance + amount;
+      const newBalance = roundCurrency(currentBalance + amount);
       // FIX: احترام حالة الإيقاف — لا نغير SUSPENDED إلى ACTIVE
       const newStatus = lockedStatus === "SUSPENDED" ? "SUSPENDED" : "ACTIVE";
 
@@ -100,7 +101,8 @@ export async function cancelTransaction(transactionId: string) {
 
     revalidatePath("/transactions");
     revalidatePath("/beneficiaries");
-    
+    revalidateTag("beneficiary-counts", "max");
+
     return { success: true, cancellationId: createdCancellationId };
   } catch (error) {
     logger.error("Cancellation error", { error: String(error) });
@@ -111,9 +113,7 @@ export async function cancelTransaction(transactionId: string) {
 
 export async function bulkTransactionSelectionAction(formData: FormData): Promise<void> {
   const session = await requireActiveFacilitySession();
-  if (!session || !hasPermission(session, "cancel_transactions")) {
-    return;
-  }
+  if (!session) return;
 
   const op = String(formData.get("op") ?? "cancel_or_rededuct");
 
@@ -145,6 +145,14 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
 
     if (selected.length === 0) return;
 
+    // التمييز بين عمليات الحذف (Soft/Permanent) وبين عمليات الإلغاء القياسية
+    const isDeleteOp = ["soft_delete", "restore_delete", "permanent_delete"].includes(op);
+    const requiredPermission = isDeleteOp ? "delete_transaction" : "cancel_transactions";
+
+    if (!hasPermission(session, requiredPermission)) {
+      return;
+    }
+
     if (op === "soft_delete") {
       const deletable = selected.filter((tx) => !tx.is_cancelled && tx.type !== "CANCELLATION");
       if (deletable.length === 0) return;
@@ -169,7 +177,7 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
           const beneficiary = lockedBen[0];
           const remainingBefore = Number(beneficiary.remaining_balance);
           const refundedAmount = Number(transactionRecord.amount);
-          const remainingAfter = remainingBefore + refundedAmount;
+          const remainingAfter = roundCurrency(remainingBefore + refundedAmount);
 
           // تحديث الحركة كأنه محذوف ناعم
           await tx.transaction.update({
@@ -208,6 +216,7 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
 
       revalidatePath("/transactions");
       revalidatePath("/beneficiaries");
+      revalidateTag("beneficiary-counts", "max");
       return;
     }
 
@@ -235,7 +244,7 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
           const beneficiary = lockedBen[0];
           const remainingBefore = Number(beneficiary.remaining_balance);
           const deductedAmount = Number(transactionRecord.amount);
-          const remainingAfter = remainingBefore - deductedAmount;
+          const remainingAfter = roundCurrency(remainingBefore - deductedAmount);
 
           // استرجاع الحركة المحذوفة وإعادتها منشطة
           await tx.transaction.update({
@@ -273,6 +282,7 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
 
       revalidatePath("/transactions");
       revalidatePath("/beneficiaries");
+      revalidateTag("beneficiary-counts", "max");
       return;
     }
 
@@ -312,6 +322,7 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
 
       revalidatePath("/transactions");
       revalidatePath("/beneficiaries");
+      revalidateTag("beneficiary-counts", "max");
       return;
     }
 
@@ -375,6 +386,7 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
 
     revalidatePath("/transactions");
     revalidatePath("/beneficiaries");
+    revalidateTag("beneficiary-counts", "max");
   } catch (error) {
     logger.error("Bulk mixed transaction action error", { error: String(error) });
   }

@@ -31,6 +31,13 @@ export type ZeroVariantGroup = {
   preferredCard: string;
 };
 
+export type NeedsReviewZeroVariantGroup = {
+  canonical: string;
+  members: BeneficiaryRow[];
+  preferredId: string;
+  preferredCard: string;
+};
+
 export type SameNameGroup = {
   nameKey: string;
   members: BeneficiaryRow[];
@@ -65,7 +72,7 @@ function cardShapeScore(value: string): number {
 export function buildDuplicateGroups(rows: BeneficiaryRow[], rawQuery?: string) {
   const query = (rawQuery ?? "").trim().toUpperCase();
 
-  // ── تجميع 1: اختلاف الأصفار (نفس البطاقة المعيارية، نفس الاسم) ──
+  // ── تجميع 1: اختلاف الأصفار (نفس البطاقة المعيارية) ──
   const byCanonical = new Map<string, BeneficiaryRow[]>();
   for (const r of rows) {
     const key = canonicalCard(r.card_number);
@@ -74,33 +81,43 @@ export function buildDuplicateGroups(rows: BeneficiaryRow[], rawQuery?: string) 
     byCanonical.set(key, arr);
   }
 
-  const zeroVariantGroups = [...byCanonical.entries()]
-    .map(([canonical, members]) => {
-      const uniqueCards = new Set(members.map((m) => m.card_number.trim().toUpperCase()));
-      const uniqueNames = new Set(members.map((m) => normalizeName(m.name)));
-      if (members.length <= 1 || uniqueCards.size <= 1) return null;
-      // اختلاف الاسم يعني أنها ليست حالة تكرار جاهزة للدمج التلقائي
-      if (uniqueNames.size > 1) return null;
+  const zeroVariantGroupsRaw: (ZeroVariantGroup & { _nameMismatch: boolean })[] = [];
 
-      const preferred = [...members].sort((a, b) => {
-        const z = zeroScoreAfterPrefix(b.card_number) - zeroScoreAfterPrefix(a.card_number);
-        if (z !== 0) return z;
-        return a.card_number.localeCompare(b.card_number);
-      })[0];
+  for (const [canonical, members] of byCanonical.entries()) {
+    const uniqueCards = new Set(members.map((m) => m.card_number.trim().toUpperCase()));
+    const uniqueNames = new Set(members.map((m) => normalizeName(m.name)));
+    if (members.length <= 1 || uniqueCards.size <= 1) continue;
 
-      return {
-        canonical,
-        members,
-        preferredId: preferred.id,
-        preferredCard: preferred.card_number,
-      };
-    })
-    .filter((g): g is ZeroVariantGroup => !!g)
-    .filter((g) => {
-      if (!query) return true;
-      if (g.canonical.includes(query) || g.preferredCard.toUpperCase().includes(query)) return true;
-      return g.members.some((m) => m.name.toUpperCase().includes(query) || m.card_number.toUpperCase().includes(query));
+    const preferred = [...members].sort((a, b) => {
+      const z = zeroScoreAfterPrefix(b.card_number) - zeroScoreAfterPrefix(a.card_number);
+      if (z !== 0) return z;
+      return a.card_number.localeCompare(b.card_number);
+    })[0];
+
+    zeroVariantGroupsRaw.push({
+      canonical,
+      members,
+      preferredId: preferred.id,
+      preferredCard: preferred.card_number,
+      _nameMismatch: uniqueNames.size > 1,
     });
+  }
+
+  const filterByQuery = (g: ZeroVariantGroup) => {
+    if (!query) return true;
+    if (g.canonical.includes(query) || g.preferredCard.toUpperCase().includes(query)) return true;
+    return g.members.some((m) => m.name.toUpperCase().includes(query) || m.card_number.toUpperCase().includes(query));
+  };
+
+  // اختلاف الأصفار + نفس الاسم → جاهز للدمج التلقائي
+  const zeroVariantGroups: ZeroVariantGroup[] = zeroVariantGroupsRaw
+    .filter((g) => !g._nameMismatch)
+    .filter(filterByQuery);
+
+  // اختلاف الأصفار + اختلاف الاسم → يحتاج تدقيق يدوي
+  const needsReviewZeroVariants: NeedsReviewZeroVariantGroup[] = zeroVariantGroupsRaw
+    .filter((g) => g._nameMismatch)
+    .filter(filterByQuery);
 
   // ── تجميع 2: نفس الاسم ببطاقات مختلفة (يحتاج مراجعة) ──
   const byName = new Map<string, BeneficiaryRow[]>();
@@ -153,7 +170,7 @@ export function buildDuplicateGroups(rows: BeneficiaryRow[], rawQuery?: string) 
       return g.members.some((m) => m.card_number.toUpperCase().includes(query));
     });
 
-  return { zeroVariantGroups, sameNameGroups };
+  return { zeroVariantGroups, sameNameGroups, needsReviewZeroVariants };
 }
 
 export function paginate<T>(items: T[], page: number, pageSize: number) {

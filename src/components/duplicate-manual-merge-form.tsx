@@ -5,6 +5,7 @@ import { Button } from "@/components/ui";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { BeneficiaryEditModal } from "@/components/beneficiary-edit-modal";
 import { useToast } from "@/components/toast";
+import { formatCurrency } from "@/lib/money";
 
 type Member = {
   id: string;
@@ -59,7 +60,7 @@ export function DuplicateManualMergeForm({
   pz,
   pn,
   action,
-  helperText,
+  helperText: _helperText,
   hasBirthDateConflict,
   formId,
 }: {
@@ -93,7 +94,7 @@ export function DuplicateManualMergeForm({
   });
   const [isMerged, setIsMerged] = useState(false);
   const [isPending, startTransition] = useTransition();
-  const { toast, success, error } = useToast();
+  const { success, error } = useToast();
 
   if (isMerged) return null;
 
@@ -110,7 +111,7 @@ export function DuplicateManualMergeForm({
           setIsMerged(true); // Fallback
           success("تمت العملية بنجاح");
         }
-      } catch (err) {
+      } catch (_err) {
         error("حدث خطأ غير متوقع. يرجى المحاولة لاحقا.");
       }
     });
@@ -160,7 +161,7 @@ export function DuplicateManualMergeForm({
           <tbody>
             {members.map((m) => {
               const { label: statusLabel, color: statusColor } = translateStatus(m.status);
-              const { headCard, relation } = getRelationshipInfo(m.card_number);
+              const { headCard } = getRelationshipInfo(m.card_number);
 
               return (
                 <tr key={m.id} className="border-t border-slate-100 dark:border-slate-800">
@@ -195,7 +196,7 @@ export function DuplicateManualMergeForm({
                       <span className="font-mono">{headCard}</span>
                     )}
                   </td>
-                  <td className="py-1 px-2 text-slate-700 dark:text-slate-300">{Number(m.remaining_balance).toLocaleString("ar-LY")} د.ل</td>
+                  <td className="py-1 px-2 text-slate-700 dark:text-slate-300">{formatCurrency(Number(m.remaining_balance))} د.ل</td>
                   <td className={`py-1 px-2 font-medium ${statusColor}`}>{statusLabel}</td>
                   <td className="py-1 px-2 text-slate-700 dark:text-slate-300 text-center">{m.transactionsCount}</td>
                   <td className="py-1 px-2">
@@ -205,7 +206,7 @@ export function DuplicateManualMergeForm({
                         name: m.name,
                         card_number: m.card_number,
                         birth_date: m.birth_date ? new Date(m.birth_date).toISOString().slice(0, 10) : "",
-                        status: m.status as any,
+                        status: m.status as "ACTIVE" | "FINISHED" | "SUSPENDED",
                         total_balance: m.total_balance,
                         remaining_balance: m.remaining_balance,
                       }}

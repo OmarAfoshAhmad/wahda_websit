@@ -149,6 +149,8 @@ model RestoreJob {
   current_phase       String?
   added_facilities    Int              @default(0)
   updated_facilities  Int              @default(0)
+  added_admins        Int              @default(0)
+  updated_admins      Int              @default(0)
   added_beneficiaries Int              @default(0)
   updated_beneficiaries Int            @default(0)
   added_transactions  Int              @default(0)

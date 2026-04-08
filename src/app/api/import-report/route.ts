@@ -31,7 +31,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
   }
   if (!session.is_admin) {
-    return NextResponse.json({ error: "ممنوع — المشرفون فقط" }, { status: 403 });
+    return NextResponse.json({ error: "ممنوع — المبرمجون فقط" }, { status: 403 });
   }
 
   try {
@@ -62,7 +62,7 @@ export async function POST(request: Request) {
     const buffer = Buffer.from(arrayBuffer);
 
     const testWb = new ExcelJS.Workbook();
-    await testWb.xlsx.load(buffer as any);
+    await testWb.xlsx.load(buffer as unknown as Parameters<typeof testWb.xlsx.load>[0]);
     if (!testWb.worksheets[0]) {
       return NextResponse.json({ error: "ملف Excel لا يحتوي على أي ورقة عمل." }, { status: 400 });
     }

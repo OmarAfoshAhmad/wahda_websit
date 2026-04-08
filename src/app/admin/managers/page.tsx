@@ -9,13 +9,24 @@ import { ManagerDeleteButton } from "@/components/manager-delete-button";
 import type { ManagerPermissions } from "@/lib/auth";
 
 const PERMISSION_LABELS: Record<keyof ManagerPermissions, string> = {
-  add_beneficiary: "إضافة مستفيد",
-  delete_beneficiary: "حذف مستفيد",
   import_beneficiaries: "استيراد مستفيدين",
+  add_beneficiary: "إضافة مستفيد",
+  edit_beneficiary: "تعديل مستفيد",
+  delete_beneficiary: "حذف مستفيد",
   add_facility: "إضافة مرفق",
-  import_facilities: "استيراد مرافق",
-  cancel_transactions: "إلغاء الحركات",
-  correct_transactions: "تصحيح الحركات",
+  edit_facility: "تعديل مرفق",
+  delete_facility: "حذف مرفق",
+  cancel_transactions: "إلغاء حركات",
+  correct_transactions: "تصحيح حركات",
+  manage_recycle_bin: "سلة المحذوفات",
+  export_data: "تصدير بيانات",
+  print_cards: "طباعة كروت",
+  view_audit_log: "سجل المراقبة",
+  view_reports: "التقارير",
+  view_facilities: "المرافق",
+  view_beneficiaries: "المستفيدون",
+  deduct_balance: "نقطة بيع",
+  delete_transaction: "حذف حركات",
 };
 
 export default async function ManagersPage() {
@@ -42,11 +53,7 @@ export default async function ManagersPage() {
   });
 
   return (
-    <Shell
-      facilityName={session.name}
-      isAdmin={session.is_admin}
-      isManager={session.is_manager}
-    >
+    <Shell facilityName={session.name} session={session}>
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         {/* رأس الصفحة */}
         <div className="mb-6 flex items-center gap-3">
@@ -78,19 +85,26 @@ export default async function ManagersPage() {
               <div className="space-y-3">
                 {managers.map((mgr) => {
                   const perms = (mgr.manager_permissions ?? {}) as Partial<ManagerPermissions>;
-                  const enabledKeys = (Object.keys(PERMISSION_LABELS) as Array<keyof ManagerPermissions>)
-                    .filter((k) => perms[k] === true);
-                  const disabledKeys = (Object.keys(PERMISSION_LABELS) as Array<keyof ManagerPermissions>)
-                    .filter((k) => perms[k] !== true);
 
                   const fullPerms: ManagerPermissions = {
-                    add_beneficiary: perms.add_beneficiary ?? false,
-                    delete_beneficiary: perms.delete_beneficiary ?? false,
                     import_beneficiaries: perms.import_beneficiaries ?? false,
+                    add_beneficiary: perms.add_beneficiary ?? false,
+                    edit_beneficiary: perms.edit_beneficiary ?? false,
+                    delete_beneficiary: perms.delete_beneficiary ?? false,
                     add_facility: perms.add_facility ?? false,
-                    import_facilities: perms.import_facilities ?? false,
+                    edit_facility: perms.edit_facility ?? false,
+                    delete_facility: perms.delete_facility ?? false,
                     cancel_transactions: perms.cancel_transactions ?? false,
                     correct_transactions: perms.correct_transactions ?? false,
+                    manage_recycle_bin: perms.manage_recycle_bin ?? false,
+                    export_data: perms.export_data ?? false,
+                    print_cards: perms.print_cards ?? false,
+                    view_audit_log: perms.view_audit_log ?? false,
+                    view_reports: perms.view_reports ?? false,
+                    view_facilities: perms.view_facilities ?? false,
+                    view_beneficiaries: perms.view_beneficiaries ?? true,
+                    deduct_balance: perms.deduct_balance ?? false,
+                    delete_transaction: perms.delete_transaction ?? false,
                   };
 
                   return (
@@ -107,7 +121,7 @@ export default async function ManagersPage() {
                             </p>
                             {mgr.is_admin ? (
                               <span className="inline-flex items-center rounded-full bg-violet-100 dark:bg-violet-900/30 px-2 py-0.5 text-xs font-bold text-violet-700 dark:text-violet-400">
-                                مشرف عام
+                                المبرمج
                               </span>
                             ) : (
                               <span className="inline-flex items-center rounded-full bg-blue-100 dark:bg-blue-900/30 px-2 py-0.5 text-xs font-bold text-blue-700 dark:text-blue-400">
@@ -139,51 +153,52 @@ export default async function ManagersPage() {
                       </div>
 
                       {/* الصلاحيات الممنوحة */}
-                      {mgr.is_admin ? (
-                         <div className="mb-2 flex flex-wrap gap-1.5">
-                            <span className="inline-flex items-center rounded-full bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 text-xs font-bold text-emerald-700 dark:text-emerald-400">
-                              ✓ جميع صلاحيات النظام مفعلة
+                      {/* الصلاحيات */}
+                      <div className="mb-2 flex flex-wrap gap-1.5">
+                        {mgr.is_admin ? (
+                          /* المبرمج: كل الصلاحيات مفعلة + صلاحيات حصرية */
+                          <>
+                            {(Object.keys(PERMISSION_LABELS) as Array<keyof ManagerPermissions>).map((k) => (
+                              <span
+                                key={k}
+                                className="inline-flex items-center rounded-full bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 text-xs font-bold text-emerald-700 dark:text-emerald-400"
+                              >
+                                ✓ {PERMISSION_LABELS[k]}
+                              </span>
+                            ))}
+                            <span className="inline-flex items-center rounded-full bg-violet-100 dark:bg-violet-900/30 px-2 py-0.5 text-xs font-bold text-violet-700 dark:text-violet-400">
+                              ✓ نسخ احتياطي
                             </span>
-                         </div>
-                      ) : (
-                        <>
-                          {enabledKeys.length > 0 && (
-                            <div className="mb-2 flex flex-wrap gap-1.5">
-                              {enabledKeys.map((k) => (
-                                <span
-                                  key={k}
-                                  className="inline-flex items-center rounded-full bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 text-xs font-bold text-emerald-700 dark:text-emerald-400"
-                                >
-                                  ✓ {PERMISSION_LABELS[k]}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-
-                          {/* الصلاحيات المحجوبة */}
-                          {disabledKeys.length > 0 && (
-                            <div className="flex flex-wrap gap-1.5">
-                              {disabledKeys.map((k) => (
-                                <span
-                                  key={k}
-                                  className="inline-flex items-center rounded-full bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-xs font-bold text-slate-400 dark:text-slate-500"
-                                >
-                                  {PERMISSION_LABELS[k]}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </>
-                      )}
+                            <span className="inline-flex items-center rounded-full bg-violet-100 dark:bg-violet-900/30 px-2 py-0.5 text-xs font-bold text-violet-700 dark:text-violet-400">
+                              ✓ استعادة احتياطي
+                            </span>
+                            <span className="inline-flex items-center rounded-full bg-violet-100 dark:bg-violet-900/30 px-2 py-0.5 text-xs font-bold text-violet-700 dark:text-violet-400">
+                              ✓ استيراد حركات
+                            </span>
+                            <span className="inline-flex items-center rounded-full bg-violet-100 dark:bg-violet-900/30 px-2 py-0.5 text-xs font-bold text-violet-700 dark:text-violet-400">
+                              ✓ إدارة المديرين
+                            </span>
+                          </>
+                        ) : (
+                          /* المدير: صلاحيات حسب التفعيل */
+                          (Object.keys(PERMISSION_LABELS) as Array<keyof ManagerPermissions>).map((k) => (
+                            <span
+                              key={k}
+                              className={
+                                perms[k] === true
+                                  ? "inline-flex items-center rounded-full bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 text-xs font-bold text-emerald-700 dark:text-emerald-400"
+                                  : "inline-flex items-center rounded-full bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-xs font-bold text-slate-400 dark:text-slate-500 line-through"
+                              }
+                            >
+                              {perms[k] === true ? "✓" : "✗"} {PERMISSION_LABELS[k]}
+                            </span>
+                          ))
+                        )}
+                      </div>
 
                       {/* تاريخ الإنشاء */}
                       <p className="mt-3 text-xs text-slate-400 dark:text-slate-600 text-end">
-                        أُنشئ في{" "}
-                        {new Date(mgr.created_at).toLocaleDateString("ar-SA", {
-                          year: "numeric",
-                          month: "long",
-                          day: "numeric",
-                        })}
+                        أُنشئ في {new Date(mgr.created_at).toLocaleDateString("en-GB")}
                       </p>
                     </div>
                   );

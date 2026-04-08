@@ -13,7 +13,7 @@ type DuplicateSameNameGroupProps = {
 };
 
 export function DuplicateSameNameGroup({
-  nameKey,
+  nameKey: _nameKey,
   name,
   membersCount,
   hasBirthDateConflict,

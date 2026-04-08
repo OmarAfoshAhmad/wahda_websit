@@ -8,19 +8,30 @@ import type { ManagerPermissions } from "@/lib/auth";
 
 const DEFAULT_PERMISSIONS: ManagerPermissions = {
   import_beneficiaries: false,
-  import_facilities: false,
+  add_beneficiary: false,
+  edit_beneficiary: false,
+  delete_beneficiary: false,
+  add_facility: false,
+  edit_facility: false,
+  delete_facility: false,
   cancel_transactions: false,
   correct_transactions: false,
-  delete_beneficiary: false,
-  add_beneficiary: false,
-  add_facility: false,
+  manage_recycle_bin: false,
+  export_data: false,
+  print_cards: false,
+  view_audit_log: false,
+  view_reports: false,
+  view_facilities: false,
+  view_beneficiaries: true,
+  deduct_balance: true,
+  delete_transaction: false,
 };
 
-// ── إنشاء حساب مدير جديد (مشرف النظام فقط) ──────────────────────────────
+// ── إنشاء حساب مدير جديد (المبرمج فقط) ──────────────────────────────
 export async function createManager(prevState: unknown, formData: FormData) {
   const session = await requireActiveFacilitySession();
   if (!session?.is_admin) {
-    return { error: "غير مصرح بهذه العملية — مشرف النظام فقط" };
+    return { error: "غير مصرح بهذه العملية — المبرمج فقط" };
   }
 
   const name = formData.get("name")?.toString().trim() ?? "";
@@ -45,16 +56,15 @@ export async function createManager(prevState: unknown, formData: FormData) {
   const tempPassword = "123456";
   const password_hash = await bcrypt.hash(tempPassword, 10);
 
-  const isAdmin = formData.get("is_admin") === "true";
-
+  // دائماً ينشئ حساب مدير — حساب المبرمج واحد فقط (admin) منشأ تلقائياً
   await prisma.facility.create({
     data: {
       name,
       username,
       password_hash,
-      is_admin: isAdmin,
-      is_manager: !isAdmin,
-      manager_permissions: (isAdmin ? null : DEFAULT_PERMISSIONS) as unknown as Record<string, boolean>,
+      is_admin: false,
+      is_manager: true,
+      manager_permissions: DEFAULT_PERMISSIONS as unknown as Record<string, boolean>,
       must_change_password: true,
     },
   });
@@ -72,14 +82,14 @@ export async function createManager(prevState: unknown, formData: FormData) {
   return { success: true, tempPassword };
 }
 
-// ── تحديث صلاحيات مدير (مشرف النظام فقط) ───────────────────────────────
+// ── تحديث صلاحيات مدير (المبرمج فقط) ───────────────────────────────
 export async function updateManagerPermissions(
   managerId: string,
   permissions: ManagerPermissions
 ): Promise<{ error?: string; success?: boolean }> {
   const session = await requireActiveFacilitySession();
   if (!session?.is_admin) {
-    return { error: "غير مصرح بهذه العملية — مشرف النظام فقط" };
+    return { error: "غير مصرح بهذه العملية — المبرمج فقط" };
   }
 
   const manager = await prisma.facility.findUnique({
@@ -91,15 +101,25 @@ export async function updateManagerPermissions(
     return { error: "الحساب غير موجود أو ليس حساب مدير" };
   }
 
-  // التحقق من أن القيم منطقية فقط
   const safePermissions: ManagerPermissions = {
     import_beneficiaries: permissions.import_beneficiaries === true,
-    import_facilities: permissions.import_facilities === true,
+    add_beneficiary: permissions.add_beneficiary === true,
+    edit_beneficiary: permissions.edit_beneficiary === true,
+    delete_beneficiary: permissions.delete_beneficiary === true,
+    add_facility: permissions.add_facility === true,
+    edit_facility: permissions.edit_facility === true,
+    delete_facility: permissions.delete_facility === true,
     cancel_transactions: permissions.cancel_transactions === true,
     correct_transactions: permissions.correct_transactions === true,
-    delete_beneficiary: permissions.delete_beneficiary === true,
-    add_beneficiary: permissions.add_beneficiary === true,
-    add_facility: permissions.add_facility === true,
+    manage_recycle_bin: permissions.manage_recycle_bin === true,
+    export_data: permissions.export_data === true,
+    print_cards: permissions.print_cards === true,
+    view_audit_log: permissions.view_audit_log === true,
+    view_reports: permissions.view_reports === true,
+    view_facilities: permissions.view_facilities === true,
+    view_beneficiaries: permissions.view_beneficiaries === true,
+    deduct_balance: permissions.deduct_balance === true,
+    delete_transaction: permissions.delete_transaction === true,
   };
 
   await prisma.facility.update({
@@ -120,13 +140,13 @@ export async function updateManagerPermissions(
   return { success: true };
 }
 
-// ── حذف حساب مدير (مشرف النظام فقط) ────────────────────────────────────
+// ── حذف حساب مدير (المبرمج فقط) ────────────────────────────────────
 export async function deleteManager(
   managerId: string
 ): Promise<{ error?: string; success?: boolean }> {
   const session = await requireActiveFacilitySession();
   if (!session?.is_admin) {
-    return { error: "غير مصرح بهذه العملية — مشرف النظام فقط" };
+    return { error: "غير مصرح بهذه العملية — المبرمج فقط" };
   }
 
   if (managerId === session.id) {
@@ -135,17 +155,26 @@ export async function deleteManager(
 
   const manager = await prisma.facility.findUnique({
     where: { id: managerId },
-    select: { id: true, is_manager: true, is_admin: true, deleted_at: true, name: true },
+    select: { id: true, is_manager: true, is_admin: true, deleted_at: true, name: true, _count: { select: { transactions: true } } },
   });
 
-  if (!manager || (!manager.is_manager && !manager.is_admin) || manager.deleted_at) {
+  if (!manager || (!manager.is_manager && !manager.is_admin)) {
     return { error: "الحساب غير موجود أو ليس حساب إدارة" };
   }
 
-  await prisma.facility.update({
-    where: { id: managerId },
-    data: { deleted_at: new Date() },
-  });
+  // Smart Deletion: Hard delete if safe, otherwise soft delete
+  if (manager._count.transactions > 0) {
+    if (manager.deleted_at) return { error: "حساب المدير معطل مسبقاً (يمتلك حركات مالية لا يمكن مسحها جيذرياً)" };
+
+    await prisma.facility.update({
+      where: { id: managerId },
+      data: { deleted_at: new Date() },
+    });
+  } else {
+    await prisma.facility.delete({
+      where: { id: managerId },
+    });
+  }
 
   await prisma.auditLog.create({
     data: {

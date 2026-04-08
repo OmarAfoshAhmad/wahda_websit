@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { requireActiveFacilitySession } from "@/lib/session-guard";
 import { cancelRestoreJob, resumeRestoreJobIfNeeded } from "@/lib/restore-jobs";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ jobId: string }> }

@@ -9,7 +9,10 @@ export default async function BackupPage() {
   if (!session.is_admin) redirect("/dashboard");
 
   return (
-    <Shell facilityName={session.name} isAdmin={session.is_admin}>
+    <Shell
+      facilityName={session.name}
+      session={session}
+    >
       <BackupClient />
     </Shell>
   );
