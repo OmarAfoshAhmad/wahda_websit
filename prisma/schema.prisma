@@ -49,6 +49,7 @@ model Beneficiary {
   @@index([deleted_at])
   @@index([status])
   @@index([completed_via])
+  @@index([name])
 }
 
 model Notification {
@@ -84,6 +85,7 @@ model Transaction {
   @@index([facility_id, created_at])
   @@index([created_at])
   @@index([original_transaction_id])
+  @@index([beneficiary_id, is_cancelled, type])
 }
 
 model AuditLog {

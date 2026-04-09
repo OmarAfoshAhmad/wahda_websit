@@ -331,6 +331,9 @@ export async function processLegacyTransactionsImport(
     if (rows.length === 0) {
       return { error: "الملف لا يحتوي على حركات صالحة." };
     }
+    if (rows.length > 10_000) {
+      return { error: `عدد الصفوف (${rows.length}) يتجاوز الحد الأقصى المسموح به (10,000). يرجى تقسيم الملف.` };
+    }
 
     const importFacilityId = await resolveImportFacilityId(username);
     const initialSnapshots = buildBeneficiarySnapshots(rows);
@@ -340,10 +343,10 @@ export async function processLegacyTransactionsImport(
 
     const [existingFacilities, existingBeneficiaries, existingTransactions, allBeneficiaries] = await Promise.all([
       prisma.facility.findMany({ where: { name: { in: facilityNames } }, select: { id: true, name: true } }),
-      prisma.beneficiary.findMany({ where: { card_number: { in: initialCardNumbers } }, select: { id: true, card_number: true } }),
+      prisma.beneficiary.findMany({ where: { card_number: { in: initialCardNumbers }, deleted_at: null }, select: { id: true, card_number: true } }),
       prisma.transaction.findMany({ where: { id: { in: txIds } }, select: { id: true } }),
       prisma.beneficiary.findMany({
-        where: { card_number: { startsWith: "WAB2025" } },
+        where: { card_number: { startsWith: "WAB2025" }, deleted_at: null },
         select: { id: true, card_number: true },
       }),
     ]);
@@ -391,11 +394,16 @@ export async function processLegacyTransactionsImport(
         if (!snapshot) continue;
 
         const remaining = Number(snapshot.remaining);
+        // حساب total_balance الفعلي: مجموع الحركات غير الملغاة + الرصيد المتبقي
+        const txsForCard = normalizedRows.filter((r) => r.cardNumber === card && r.txType !== TransactionType.CANCELLATION);
+        const totalSpent = txsForCard.reduce((sum, r) => sum + Math.abs(r.amount), 0);
+        const computedTotal = Math.max(initialBalance, totalSpent + remaining);
+
         const created = await tx.beneficiary.create({
           data: {
             card_number: card,
             name: snapshot.name,
-            total_balance: initialBalance,
+            total_balance: computedTotal,
             remaining_balance: remaining,
             status: remaining <= 0 ? "FINISHED" : "ACTIVE",
             ...(remaining <= 0 ? { completed_via: "IMPORT" } : {}),
@@ -427,12 +435,12 @@ export async function processLegacyTransactionsImport(
       }
     });
 
-    const insertedBeneficiaryIds = [...new Set(insertableRows
+    const affectedBeneficiaryIds = [...new Set(insertableRows
       .map((row) => beneficiaryByCard.get(row.cardNumber)?.id)
       .filter((value): value is string => Boolean(value)))];
 
     const linkedCandidates = await prisma.transaction.findMany({
-      where: { beneficiary_id: { in: insertedBeneficiaryIds } },
+      where: { beneficiary_id: { in: affectedBeneficiaryIds } },
       select: {
         id: true,
         beneficiary_id: true,
@@ -461,7 +469,10 @@ export async function processLegacyTransactionsImport(
           Math.abs(Number(item.amount) - targetAmount) < 0.0001,
         );
 
-      if (!original) continue;
+      if (!original) {
+        warnings.push(`حركة إلغاء يتيمة (${cancelTx.id}) بمبلغ ${targetAmount} — لم يُعثر على الحركة الأصلية`);
+        continue;
+      }
 
       await prisma.$transaction([
         prisma.transaction.update({ where: { id: original.id }, data: { is_cancelled: true } }),
@@ -470,7 +481,7 @@ export async function processLegacyTransactionsImport(
       linkedCancellations++;
     }
 
-    const recalculatedBeneficiaries = await recalculateBalancesForBeneficiaries(insertedBeneficiaryIds);
+    const recalculatedBeneficiaries = await recalculateBalancesForBeneficiaries(affectedBeneficiaryIds);
 
     await prisma.auditLog.create({
       data: {
@@ -496,7 +507,7 @@ export async function processLegacyTransactionsImport(
         importedRows: insertableRows.length,
         existingRows: rows.length - insertableRows.length,
         warnings,
-        balanceUpdatedBeneficiaries: insertedBeneficiaryIds.length,
+        balanceUpdatedBeneficiaries: affectedBeneficiaryIds.length,
         linkedCancellations,
         createdFacilities,
         createdBeneficiaries,

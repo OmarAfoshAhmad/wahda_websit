@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Button, Input } from "@/components/ui";
 import { Loader2 } from "lucide-react";
 import { updateTransactionEntry } from "@/app/actions/transaction";
@@ -32,6 +33,7 @@ export function TransactionEditModal({
 }) {
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
+  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
 
   const [nowLocal] = useState(() =>
@@ -96,7 +98,7 @@ export function TransactionEditModal({
       }
 
       setOpen(false);
-      window.location.reload();
+      router.refresh();
     });
   };
 

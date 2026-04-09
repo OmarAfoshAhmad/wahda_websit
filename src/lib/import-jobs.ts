@@ -285,9 +285,15 @@ function toSnapshot(job: {
   };
 }
 
+const MAX_IMPORT_ROWS = 10_000;
+
 export async function createImportJob(data: unknown[], username: string) {
   if (!Array.isArray(data) || data.length === 0) {
     return { error: "الملف لا يحتوي على صفوف قابلة للاستيراد." };
+  }
+
+  if (data.length > MAX_IMPORT_ROWS) {
+    return { error: `عدد الصفوف (${data.length}) يتجاوز الحد الأقصى المسموح به (${MAX_IMPORT_ROWS}). يرجى تقسيم الملف.` };
   }
 
   const job = await prisma.importJob.create({
@@ -435,6 +441,7 @@ export async function processImportJob(jobId: string, username: string) {
         SELECT UPPER(BTRIM("card_number")) AS normalized_card_number
         FROM "Beneficiary"
         WHERE UPPER(BTRIM("card_number")) IN (${Prisma.join(normalizedCardNumbers)})
+          AND "deleted_at" IS NULL
       `;
 
       const birthDateByTime = new Map<number, Date>();

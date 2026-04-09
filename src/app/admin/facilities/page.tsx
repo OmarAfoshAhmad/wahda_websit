@@ -30,7 +30,7 @@ export default async function FacilitiesPage({
   const { q, page: pageParam, sort, order } = await searchParams;
   const page = Math.max(1, parseInt(pageParam ?? "1", 10) || 1);
 
-  const ALLOWED_SORT = ["name", "username", "created_at"] as const;
+  const ALLOWED_SORT = ["name", "username", "created_at", "transactions"] as const;
   type SortCol = typeof ALLOWED_SORT[number];
   const sortCol: SortCol = (ALLOWED_SORT as ReadonlyArray<string>).includes(sort ?? "") ? sort as SortCol : "created_at";
   const sortDir: "asc" | "desc" = order === "desc" ? "desc" : "asc";
@@ -58,7 +58,9 @@ export default async function FacilitiesPage({
   const [facilities, totalCount, allFacilities] = await Promise.all([
     prisma.facility.findMany({
       where,
-      orderBy: { [sortCol]: sortDir },
+      orderBy: sortCol === "transactions"
+        ? { transactions: { _count: sortDir } }
+        : { [sortCol]: sortDir },
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
       select: {
@@ -102,7 +104,7 @@ export default async function FacilitiesPage({
     return `/admin/facilities?${params.toString()}`;
   };
 
-  const sortHref = (col: string) => {
+  const sortHref = (col: SortCol) => {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
     params.set("sort", col);
@@ -178,7 +180,11 @@ export default async function FacilitiesPage({
                           اسم المستخدم {sortCol === "username" ? (sortDir === "asc" ? "↑" : "↓") : ""}
                         </Link>
                       </th>
-                      <th className="px-5 py-3 text-center text-xs font-black text-slate-500 dark:text-slate-400 uppercase">القيمة المصروفة</th>
+                      <th className="px-5 py-3 text-center text-xs font-black text-slate-500 dark:text-slate-400 uppercase">
+                        <Link href={sortHref("transactions")} className="inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
+                          عدد المعاملات {sortCol === "transactions" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                        </Link>
+                      </th>
                       <th className="px-5 py-3 text-center text-xs font-black text-slate-500 dark:text-slate-400 uppercase">الحالة</th>
                       {(canEdit || canDelete || session.is_admin) && <th className="px-5 py-3 text-center text-xs font-black text-slate-500 dark:text-slate-400 uppercase no-print">إجراءات</th>}
                     </tr>

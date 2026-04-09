@@ -25,8 +25,6 @@ export function BeneficiaryEditModal({ beneficiary }: BeneficiaryEditModalProps)
   const [cardNumber, setCardNumber] = useState(beneficiary.card_number);
   const [birthDate, setBirthDate] = useState(beneficiary.birth_date);
   const [status, setStatus] = useState<"ACTIVE" | "FINISHED" | "SUSPENDED">(beneficiary.status);
-  const [totalBalance, setTotalBalance] = useState(beneficiary.total_balance ?? 0);
-  const [remainingBalance, setRemainingBalance] = useState(beneficiary.remaining_balance ?? 0);
   const [error, setError] = useState<string | null>(null);
 
   // إغلاق بمفتاح Escape
@@ -108,12 +106,12 @@ export function BeneficiaryEditModal({ beneficiary }: BeneficiaryEditModalProps)
 
               <div>
                 <label className="mb-1 block text-xs font-black text-slate-500 dark:text-slate-400">الرصيد المتاح (المتبقي)</label>
-                <Input type="number" step="0.01" value={remainingBalance} onChange={(e) => setRemainingBalance(Number(e.target.value))} className="h-10 text-right" />
+                <div className="flex h-10 items-center rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-3 text-sm text-slate-600 dark:text-slate-400">{beneficiary.remaining_balance ?? 0} د.ل</div>
               </div>
 
               <div>
                 <label className="mb-1 block text-xs font-black text-slate-500 dark:text-slate-400">الرصيد الكلي</label>
-                <Input type="number" step="0.01" value={totalBalance} onChange={(e) => setTotalBalance(Number(e.target.value))} className="h-10 text-right" />
+                <div className="flex h-10 items-center rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-3 text-sm text-slate-600 dark:text-slate-400">{beneficiary.total_balance ?? 0} د.ل</div>
               </div>
 
               <div className="col-span-2">

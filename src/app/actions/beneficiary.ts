@@ -775,35 +775,53 @@ export async function bulkRenewBalance(formData: FormData) {
   try {
     const initialBalance = await getCurrentInitialBalance();
 
-    const beneficiaries = await prisma.beneficiary.findMany({
-      where: { id: { in: ids }, deleted_at: null },
-      select: { id: true, name: true, card_number: true, total_balance: true, remaining_balance: true, status: true },
-    });
+    const result = await prisma.$transaction(async (tx) => {
+      // قفل الصفوف أولاً باستخدام FOR UPDATE لمنع سباق التزامن
+      const beneficiaries = await tx.$queryRaw<
+        Array<{ id: string; name: string; card_number: string; total_balance: number; remaining_balance: number; status: string }>
+      >`
+        SELECT id, name, card_number, total_balance, remaining_balance, status
+        FROM "Beneficiary"
+        WHERE id = ANY(${ids}::text[]) AND "deleted_at" IS NULL
+        FOR UPDATE
+      `;
 
-    if (beneficiaries.length === 0) {
-      return { error: "لا توجد سجلات صالحة للتجديد" };
-    }
+      if (beneficiaries.length === 0) {
+        throw new Error("NO_VALID_RECORDS");
+      }
 
-    const remainingById = await getLedgerRemainingByBeneficiaryIds(beneficiaries.map((b) => b.id));
+      const beneficiaryIds = beneficiaries.map((b) => b.id);
 
-    const renewalDetails = beneficiaries.map((b) => {
-      const ledgerRemaining = remainingById.get(b.id) ?? 0;
-      return {
-        id: b.id,
-        name: b.name,
-        card_number: b.card_number,
-        total_before: Number(b.total_balance),
-        total_after: Number(b.total_balance) + initialBalance,
-        remaining_before: ledgerRemaining,
-        remaining_after: ledgerRemaining + initialBalance,
-        status_before: b.status,
-      };
-    });
+      // حساب الرصيد الفعلي من السجلات داخل نفس الـ transaction
+      const spentRows = await tx.transaction.groupBy({
+        by: ["beneficiary_id"],
+        where: {
+          beneficiary_id: { in: beneficiaryIds },
+          is_cancelled: false,
+          type: { not: "CANCELLATION" },
+        },
+        _sum: { amount: true },
+      });
+      const spentById = new Map(spentRows.map((row) => [row.beneficiary_id, Number(row._sum.amount ?? 0)]));
 
-    const renewableIds = beneficiaries.map((b) => b.id);
+      const renewalDetails = beneficiaries.map((b) => {
+        const total = Number(b.total_balance);
+        const spent = spentById.get(b.id) ?? 0;
+        const ledgerRemaining = Math.max(0, total - spent);
+        const total_after = total + initialBalance;
+        const remaining_after = Math.min(ledgerRemaining + initialBalance, total_after);
+        return {
+          id: b.id,
+          name: b.name,
+          card_number: b.card_number,
+          total_before: total,
+          total_after,
+          remaining_before: ledgerRemaining,
+          remaining_after,
+          status_before: b.status,
+        };
+      });
 
-    await prisma.$transaction(async (tx) => {
-      // تحديث كل مستفيد بشكل فردي لحساب remaining_balance بدقة
       for (const detail of renewalDetails) {
         await tx.beneficiary.update({
           where: { id: detail.id },
@@ -822,18 +840,23 @@ export async function bulkRenewBalance(formData: FormData) {
           user: session.username,
           action: "BULK_RENEW_BALANCE",
           metadata: {
-            beneficiary_count: renewableIds.length,
+            beneficiary_count: beneficiaryIds.length,
             renewal_amount: initialBalance,
             details: renewalDetails,
           },
         },
       });
+
+      return { renewedCount: beneficiaryIds.length };
     });
 
     revalidatePath("/beneficiaries");
     revalidateTag("beneficiary-counts", "max");
-    return { success: true, renewedCount: renewableIds.length };
+    return { success: true, renewedCount: result.renewedCount };
   } catch (error: unknown) {
+    if (error instanceof Error && error.message === "NO_VALID_RECORDS") {
+      return { error: "لا توجد سجلات صالحة للتجديد" };
+    }
     logger.error("Bulk renew balance error", { error: String(error) });
     return { error: "تعذر تنفيذ التجديد الجماعي" };
   }
@@ -958,8 +981,11 @@ export async function mergeDuplicateBeneficiaries(
     }
 
     const allRows = matches;
-    const mergedRemaining = Math.max(...allRows.map((r) => Number(r.remaining_balance)));
     const mergedTotal = Math.max(...allRows.map((r) => Number(r.total_balance)));
+    const mergedRemaining = Math.min(
+      Math.max(...allRows.map((r) => Number(r.remaining_balance))),
+      mergedTotal,
+    );
     const mergedStatus = allRows.some((r) => r.status === "ACTIVE")
       ? "ACTIVE"
       : allRows.some((r) => r.status === "SUSPENDED")
@@ -970,6 +996,8 @@ export async function mergeDuplicateBeneficiaries(
     let mergeAuditId = "";
 
     await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${canonicalCardKey}))`;
+
       const keepBefore = await tx.beneficiary.findUnique({
         where: { id: chosenKeepId },
         select: {
