@@ -25,10 +25,24 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const q = searchParams.get("q")?.trim() ?? "";
   const view = searchParams.get("view");
+  const statusParam = searchParams.get("status");
+  const completedViaParam = searchParams.get("completed_via");
   const isDeletedView = view === "deleted";
+
+  const ALLOWED_STATUS = ["ACTIVE", "SUSPENDED", "FINISHED"] as const;
+  const statusFilter = ALLOWED_STATUS.includes((statusParam ?? "") as (typeof ALLOWED_STATUS)[number])
+    ? (statusParam as (typeof ALLOWED_STATUS)[number])
+    : null;
+
+  const ALLOWED_COMPLETED_VIA = ["MANUAL", "IMPORT"] as const;
+  const completedViaFilter = ALLOWED_COMPLETED_VIA.includes((completedViaParam ?? "") as (typeof ALLOWED_COMPLETED_VIA)[number])
+    ? (completedViaParam as (typeof ALLOWED_COMPLETED_VIA)[number])
+    : null;
 
   const where = {
     ...(isDeletedView ? { deleted_at: { not: null } } : { deleted_at: null }),
+    ...(!isDeletedView && statusFilter ? { status: statusFilter } : {}),
+    ...(!isDeletedView && completedViaFilter ? { completed_via: completedViaFilter } : {}),
     ...(q
       ? {
           OR: getArabicSearchTerms(q).flatMap(t => [

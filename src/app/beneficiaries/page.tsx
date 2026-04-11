@@ -174,6 +174,8 @@ export default async function BeneficiariesPage({
   const exportParams = new URLSearchParams();
   if (query) exportParams.set("q", query);
   if (isDeletedView) exportParams.set("view", "deleted");
+  if (statusFilter !== "all") exportParams.set("status", statusFilter);
+  if (completedViaFilter !== "all") exportParams.set("completed_via", completedViaFilter);
   const exportHref = `/api/export/beneficiaries?${exportParams.toString()}`;
 
   return (
