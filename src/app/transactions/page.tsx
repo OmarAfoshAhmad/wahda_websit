@@ -681,9 +681,13 @@ export default async function TransactionsPage({
                           </td>
                         )}
                         <td className="px-6 py-4">
-                          <span className="font-bold text-slate-700 dark:text-slate-300 text-xs text-nowrap">
-                            {getMovementTypeLabel(tx.type)}
-                          </span>
+                          {tx.type === "CANCELLATION" ? (
+                            <Badge variant="success">—</Badge>
+                          ) : (
+                            <Badge variant={tx.type === "SUPPLIES" ? "warning" : "default"}>
+                              {getMovementTypeLabel(tx.type)}
+                            </Badge>
+                          )}
                         </td>
                         <td className="px-6 py-4 text-right">
                           {(() => {
