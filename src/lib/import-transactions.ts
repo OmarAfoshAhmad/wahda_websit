@@ -68,6 +68,18 @@ export type NotFoundRow = {
   usedBalance: number;
 };
 
+type ImportAppliedRow = {
+  beneficiaryId: string;
+  beneficiaryName: string;
+  cardNumber: string;
+  familyBaseCard: string;
+  familySize: number;
+  balanceBefore: number;
+  deductedAmount: number;
+  familyTotalDeduction: number;
+  balanceAfter: number;
+};
+
 type ParsedRow = {
   rowNumber: number;
   cardNumber: string;
@@ -230,9 +242,11 @@ export async function processTransactionImport(
     const skippedAlreadyImported = 0;
     let updatedFamilies = 0;
     let updatedTransactions = 0;
+    const appliedRows: ImportAppliedRow[] = [];
 
     for (const { row, baseCard } of toImport) {
       const familyResult = await importFamilyTransactions(baseCard, row.usedBalance, importFacilityId);
+      appliedRows.push(...familyResult.appliedRows);
 
       if (familyResult.mode === "updated") {
         updatedFamilies++;
@@ -259,6 +273,7 @@ export async function processTransactionImport(
           skippedAlreadyImported,
           updatedFamilies,
           updatedTransactions,
+          appliedRows,
         },
       },
     });
@@ -291,19 +306,19 @@ async function importFamilyTransactions(
   baseCard: string,
   totalUsedAmount: number,
   facilityId: string,
-): Promise<{ count: number; mode: "created" | "updated" }> {
+): Promise<{ count: number; mode: "created" | "updated"; appliedRows: ImportAppliedRow[] }> {
   // Find ALL family members (base card + suffixes like W1, S1, D1, etc.)
   const familyMembers = await prisma.beneficiary.findMany({
     where: {
       card_number: { startsWith: baseCard },
       deleted_at: null,
     },
-    select: { id: true, card_number: true, remaining_balance: true, total_balance: true, status: true },
+    select: { id: true, name: true, card_number: true, remaining_balance: true, total_balance: true, status: true },
     orderBy: { card_number: "asc" },
   });
 
   if (familyMembers.length === 0) {
-    return { count: 0, mode: "updated" }; // shouldn't happen since we checked lookup
+    return { count: 0, mode: "updated", appliedRows: [] }; // shouldn't happen since we checked lookup
   }
 
   const existingImports = await prisma.transaction.findMany({
@@ -321,6 +336,7 @@ async function importFamilyTransactions(
   // Distribute amount equally among family members
   const perMember = Math.round((totalUsedAmount / familyMembers.length) * 100) / 100;
   let transactionCount = 0;
+  const appliedRows: ImportAppliedRow[] = [];
 
   const importsByMember = new Map<string, Array<{ id: string; amount: number }>>();
   for (const tx of existingImports) {
@@ -340,6 +356,18 @@ async function importFamilyTransactions(
       const deductAmount = Math.min(perMember, balanceBeforeImport);
       const newBalance = Math.max(0, balanceBeforeImport - deductAmount);
       const newStatus = newBalance <= 0 ? "FINISHED" : "ACTIVE";
+
+      appliedRows.push({
+        beneficiaryId: member.id,
+        beneficiaryName: member.name,
+        cardNumber: member.card_number,
+        familyBaseCard: baseCard,
+        familySize: familyMembers.length,
+        balanceBefore: balanceBeforeImport,
+        deductedAmount: deductAmount,
+        familyTotalDeduction: totalUsedAmount,
+        balanceAfter: newBalance,
+      });
 
       // Update balance
       await tx.beneficiary.update({
@@ -386,7 +414,7 @@ async function importFamilyTransactions(
     }
   });
 
-  return { count: transactionCount, mode: hasExistingImport ? "updated" : "created" };
+  return { count: transactionCount, mode: hasExistingImport ? "updated" : "created", appliedRows };
 }
 
 // ─── Suspend Family ──────────────────────────────────────────────

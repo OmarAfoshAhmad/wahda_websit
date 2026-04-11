@@ -7,6 +7,17 @@ import { logger } from "@/lib/logger";
 
 type TargetFilter = "all" | "beneficiaries" | "transactions" | "facilities";
 
+type ImportAppliedRow = {
+  beneficiaryName: string;
+  cardNumber: string;
+  familyBaseCard: string;
+  familySize: number;
+  balanceBefore: number;
+  deductedAmount: number;
+  familyTotalDeduction: number;
+  balanceAfter: number;
+};
+
 const EXPORT_LIMIT = 50_000;
 
 const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
@@ -154,6 +165,32 @@ function summarizeMetadata(action: string, metadata: unknown): string {
   return "-";
 }
 
+function getImportAppliedRows(action: string, metadata: unknown): ImportAppliedRow[] {
+  if (action !== "IMPORT_TRANSACTIONS") return [];
+  if (!metadata || typeof metadata !== "object") return [];
+
+  const rawRows = (metadata as Record<string, unknown>).appliedRows;
+  if (!Array.isArray(rawRows)) return [];
+
+  return rawRows
+    .map((row) => {
+      if (!row || typeof row !== "object") return null;
+      const item = row as Record<string, unknown>;
+
+      return {
+        beneficiaryName: String(item.beneficiaryName ?? "-"),
+        cardNumber: String(item.cardNumber ?? "-"),
+        familyBaseCard: String(item.familyBaseCard ?? "-"),
+        familySize: Number(item.familySize ?? 0),
+        balanceBefore: Number(item.balanceBefore ?? 0),
+        deductedAmount: Number(item.deductedAmount ?? 0),
+        familyTotalDeduction: Number(item.familyTotalDeduction ?? 0),
+        balanceAfter: Number(item.balanceAfter ?? 0),
+      } satisfies ImportAppliedRow;
+    })
+    .filter((row): row is ImportAppliedRow => row !== null);
+}
+
 export async function GET(request: NextRequest) {
   const session = await requireActiveFacilitySession();
   if (!session) {
@@ -241,6 +278,46 @@ export async function GET(request: NextRequest) {
         id: row.id,
       });
     });
+
+    const importDetails = rows.flatMap((row) => {
+      const created = new Date(row.created_at);
+      return getImportAppliedRows(row.action, row.metadata).map((detail) => ({
+        user: row.user,
+        date: created.toLocaleDateString("en-GB"),
+        time: created.toLocaleTimeString("en-GB"),
+        ...detail,
+      }));
+    });
+
+    if (importDetails.length > 0) {
+      const detailsSheet = workbook.addWorksheet("تفاصيل استيراد الحركات");
+      detailsSheet.views = [{ rightToLeft: true }];
+
+      detailsSheet.columns = [
+        { header: "#", key: "index", width: 8 },
+        { header: "المنفذ", key: "user", width: 20 },
+        { header: "التاريخ", key: "date", width: 14 },
+        { header: "الوقت", key: "time", width: 12 },
+        { header: "اسم الشخص", key: "beneficiaryName", width: 28 },
+        { header: "رقم البطاقة", key: "cardNumber", width: 24 },
+        { header: "بطاقة العائلة الأساسية", key: "familyBaseCard", width: 24 },
+        { header: "عدد أفراد العائلة", key: "familySize", width: 16 },
+        { header: "الرصيد قبل الاستيراد", key: "balanceBefore", width: 20 },
+        { header: "مقدار الخصم للفرد", key: "deductedAmount", width: 18 },
+        { header: "الخصم المجمع للعائلة", key: "familyTotalDeduction", width: 20 },
+        { header: "المتبقي بعد الاستيراد", key: "balanceAfter", width: 20 },
+      ];
+
+      detailsSheet.getRow(1).font = { bold: true, size: 12 };
+      detailsSheet.getRow(1).alignment = { vertical: "middle", horizontal: "center" };
+
+      importDetails.forEach((row, idx) => {
+        detailsSheet.addRow({
+          index: idx + 1,
+          ...row,
+        });
+      });
+    }
 
     const buffer = await workbook.xlsx.writeBuffer();
 
