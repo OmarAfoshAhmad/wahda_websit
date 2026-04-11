@@ -267,10 +267,32 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  const actorMatchedFacilityIds = actor
+    ? (await prisma.facility.findMany({
+      where: {
+        OR: [
+          { name: { contains: actor, mode: "insensitive" } },
+          { username: { contains: actor, mode: "insensitive" } },
+        ],
+      },
+      select: { id: true },
+      take: 200,
+    })).map((f) => f.id)
+    : [];
+
   const where = {
     ...(logId ? { id: logId } : {}),
     action: { in: TARGET_ACTIONS[target] },
-    ...(actor ? { user: { contains: actor, mode: "insensitive" as const } } : {}),
+    ...(actor
+      ? {
+        OR: [
+          { user: { contains: actor, mode: "insensitive" as const } },
+          ...(actorMatchedFacilityIds.length > 0
+            ? [{ facility_id: { in: actorMatchedFacilityIds } }]
+            : []),
+        ],
+      }
+      : {}),
     ...(Object.keys(createdAtFilter).length > 0 ? { created_at: createdAtFilter } : {}),
   };
 

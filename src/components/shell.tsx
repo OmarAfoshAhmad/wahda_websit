@@ -62,7 +62,7 @@ export function Shell({
   const roleLabel = isAdmin ? "المبرمج" : isManager ? "مدير" : "مرفق";
 
   return (
-    <div className="page-shell min-h-screen pb-5 bg-slate-50 dark:bg-[#0b1120] text-slate-900 dark:text-slate-100 transition-colors">
+    <div suppressHydrationWarning className="page-shell min-h-screen pb-5 bg-slate-50 dark:bg-[#0b1120] text-slate-900 dark:text-slate-100 transition-colors">
       <nav className="sticky top-0 z-50 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 transition-colors">
         <div className="mx-auto max-w-7xl px-3 py-2.5 sm:px-5">
           <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
@@ -133,7 +133,7 @@ export function Shell({
         </div>
       </nav>
 
-      <main className="mx-auto max-w-7xl px-3 py-4 sm:px-5 lg:px-6">
+      <main suppressHydrationWarning className="mx-auto max-w-7xl px-3 py-4 sm:px-5 lg:px-6">
         {children}
       </main>
     </div>

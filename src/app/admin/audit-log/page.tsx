@@ -126,7 +126,30 @@ function getMetadataValue(
 
 type AuditRenderLookups = {
   txBeneficiaryById: Map<string, { name: string; cardNumber: string }>;
+  txBalanceAfterById: Map<string, number>;
+  txAmountById: Map<string, number>;
 };
+
+type ActorLookupMaps = {
+  byUsername: Map<string, { name: string; is_admin: boolean; is_manager: boolean }>;
+  byFacilityId: Map<string, { name: string; is_admin: boolean; is_manager: boolean }>;
+};
+
+function formatExecutorLabel(user: string, facilityId: string | null, actorLookups: ActorLookupMaps): string {
+  const actorByUsername = actorLookups.byUsername.get(user);
+  if (actorByUsername) {
+    return actorByUsername.name;
+  }
+
+  if (facilityId) {
+    const actorByFacilityId = actorLookups.byFacilityId.get(facilityId);
+    if (actorByFacilityId) {
+      return actorByFacilityId.name;
+    }
+  }
+
+  return user;
+}
 
 function summarizeMetadata(action: string, metadata: unknown, auditLogId?: string, lookups?: AuditRenderLookups): React.ReactNode {
   if (!metadata || typeof metadata !== "object") return "-";
@@ -178,15 +201,30 @@ function summarizeMetadata(action: string, metadata: unknown, auditLogId?: strin
   }
 
   if (action === "DEDUCT_BALANCE") {
-    const name = m.beneficiary_name ? String(m.beneficiary_name) : null;
+    const transactionId = getMetadataValue(m, "transaction_id");
+    const txLookup = typeof transactionId === "string" ? lookups?.txBeneficiaryById.get(transactionId) : undefined;
+    const name = m.beneficiary_name ? String(m.beneficiary_name) : (txLookup?.name ?? null);
+    const cardNumber = m.card_number ? String(m.card_number) : (txLookup?.cardNumber ?? "-");
+    const metadataAmount = Number(getMetadataValue(m, "amount"));
+    const lookupAmount = typeof transactionId === "string" ? lookups?.txAmountById.get(transactionId) : undefined;
+    const effectiveAmount = Number.isFinite(metadataAmount) && metadataAmount > 0
+      ? metadataAmount
+      : (typeof lookupAmount === "number" ? lookupAmount : null);
+    const computedAfter = typeof transactionId === "string" ? lookups?.txBalanceAfterById.get(transactionId) : undefined;
+    const effectiveBefore = balanceBefore !== "-"
+      ? balanceBefore
+      : (typeof computedAfter === "number" && typeof effectiveAmount === "number" ? computedAfter + effectiveAmount : "-");
+    const effectiveAfter = balanceAfter !== "-"
+      ? balanceAfter
+      : (typeof computedAfter === "number" ? computedAfter : "-");
     const completed = m.beneficiary_completed ? true : false;
     return (
       <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
         {name && <span className="font-bold text-slate-800 dark:text-slate-200">{name}</span>}
-        <span className="text-slate-500 dark:text-slate-400">بطاقة: {String(m.card_number ?? "-")}</span>
+        <span className="text-slate-500 dark:text-slate-400">بطاقة: {cardNumber}</span>
         <span className="text-slate-500 dark:text-slate-400">مبلغ: {String(m.amount ?? "-")} د.ل</span>
-        <span className="text-slate-500 dark:text-slate-400">قبل: {String(balanceBefore)} د.ل</span>
-        <span className="text-slate-500 dark:text-slate-400">بعد: {String(balanceAfter)} د.ل</span>
+        <span className="text-slate-500 dark:text-slate-400">قبل: {String(effectiveBefore)} د.ل</span>
+        <span className="text-slate-500 dark:text-slate-400">بعد: {String(effectiveAfter)} د.ل</span>
         <span className="text-xs text-slate-400 dark:text-slate-500">({String(m.type === "MEDICINE" ? "دواء" : m.type === "SUPPLIES" ? "مستلزمات" : String(m.type ?? "-"))})</span>
         {completed && (
           <span className="inline-flex items-center rounded-md border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/30 px-1.5 py-0.5 text-xs font-bold text-emerald-700 dark:text-emerald-400">
@@ -430,6 +468,7 @@ export default async function AuditLogPage({
   if (!canView) redirect("/dashboard");
 
   const { page: pageParam, target: targetParam, actor, start_date, end_date } = await searchParams;
+  const actorTerm = actor?.trim() ?? "";
 
   const target: TargetFilter =
     targetParam === "beneficiaries" || targetParam === "transactions" || targetParam === "facilities" || targetParam === "completed"
@@ -456,9 +495,31 @@ export default async function AuditLogPage({
     ? { path: ["beneficiary_completed"], equals: true }
     : undefined;
 
+  const actorMatchedFacilityIds = actorTerm
+    ? (await prisma.facility.findMany({
+      where: {
+        OR: [
+          { name: { contains: actorTerm, mode: "insensitive" } },
+          { username: { contains: actorTerm, mode: "insensitive" } },
+        ],
+      },
+      select: { id: true },
+      take: 200,
+    })).map((f) => f.id)
+    : [];
+
   const where = {
     action: { in: TARGET_ACTIONS[target] },
-    ...(actor?.trim() ? { user: { contains: actor.trim(), mode: "insensitive" as const } } : {}),
+    ...(actorTerm
+      ? {
+        OR: [
+          { user: { contains: actorTerm, mode: "insensitive" as const } },
+          ...(actorMatchedFacilityIds.length > 0
+            ? [{ facility_id: { in: actorMatchedFacilityIds } }]
+            : []),
+        ],
+      }
+      : {}),
     ...(Object.keys(createdAtFilter).length > 0 ? { created_at: createdAtFilter } : {}),
     ...(completedMetadataFilter ? { metadata: completedMetadataFilter } : {}),
   };
@@ -481,19 +542,61 @@ export default async function AuditLogPage({
     prisma.auditLog.count({ where }),
   ]);
 
-  const editTransactionIds = rows.flatMap((row) => {
-    if (row.action !== "EDIT_TRANSACTION") return [] as string[];
+  const actorUsernames = [...new Set(rows.map((row) => row.user).filter((u) => typeof u === "string" && u.trim().length > 0))];
+  const actorFacilityIds = [...new Set(rows.flatMap((row) => (row.facility_id ? [row.facility_id] : [])))];
+
+  const actorFacilities = (actorUsernames.length > 0 || actorFacilityIds.length > 0)
+    ? await prisma.facility.findMany({
+      where: {
+        OR: [
+          ...(actorUsernames.length > 0 ? [{ username: { in: actorUsernames } }] : []),
+          ...(actorFacilityIds.length > 0 ? [{ id: { in: actorFacilityIds } }] : []),
+        ],
+      },
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        is_admin: true,
+        is_manager: true,
+      },
+    })
+    : [];
+
+  const actorLookups: ActorLookupMaps = {
+    byUsername: new Map(
+      actorFacilities.map((f) => [
+        f.username,
+        { name: f.name, is_admin: f.is_admin, is_manager: f.is_manager },
+      ])
+    ),
+    byFacilityId: new Map(
+      actorFacilities.map((f) => [
+        f.id,
+        { name: f.name, is_admin: f.is_admin, is_manager: f.is_manager },
+      ])
+    ),
+  };
+
+  const loggedTransactionIds = rows.flatMap((row) => {
+    if (row.action !== "EDIT_TRANSACTION" && row.action !== "DEDUCT_BALANCE") return [] as string[];
     if (!row.metadata || typeof row.metadata !== "object") return [] as string[];
     const txId = (row.metadata as Record<string, unknown>).transaction_id;
     return typeof txId === "string" && txId.trim().length > 0 ? [txId.trim()] : [];
   });
 
-  const uniqueEditTransactionIds = [...new Set(editTransactionIds)];
-  const editedTransactions = uniqueEditTransactionIds.length > 0
+  const uniqueLoggedTransactionIds = [...new Set(loggedTransactionIds)];
+  const loggedTransactions = uniqueLoggedTransactionIds.length > 0
     ? await prisma.transaction.findMany({
-      where: { id: { in: uniqueEditTransactionIds } },
+      where: { id: { in: uniqueLoggedTransactionIds } },
       select: {
         id: true,
+        beneficiary_id: true,
+        amount: true,
+        type: true,
+        is_cancelled: true,
+        created_at: true,
+        original_transaction_id: true,
         beneficiary: {
           select: {
             name: true,
@@ -504,13 +607,79 @@ export default async function AuditLogPage({
     })
     : [];
 
+  const loggedBeneficiaryIds = [...new Set(loggedTransactions.map((tx) => tx.beneficiary_id))];
+  const maxLoggedCreatedAt = loggedTransactions.reduce<Date | null>((acc, tx) => {
+    if (!acc || tx.created_at > acc) return tx.created_at;
+    return acc;
+  }, null);
+
+  const txBalanceAfterById = new Map<string, number>();
+  if (loggedBeneficiaryIds.length > 0 && maxLoggedCreatedAt) {
+    const [beneficiaryTotals, historyRows] = await Promise.all([
+      prisma.beneficiary.findMany({
+        where: { id: { in: loggedBeneficiaryIds } },
+        select: { id: true, total_balance: true },
+      }),
+      prisma.transaction.findMany({
+        where: {
+          beneficiary_id: { in: loggedBeneficiaryIds },
+          created_at: { lte: maxLoggedCreatedAt },
+        },
+        select: {
+          id: true,
+          beneficiary_id: true,
+          amount: true,
+          type: true,
+          is_cancelled: true,
+          original_transaction_id: true,
+          created_at: true,
+        },
+        orderBy: [{ created_at: "asc" }, { id: "asc" }],
+      }),
+    ]);
+
+    const runningByBeneficiary = new Map<string, number>(
+      beneficiaryTotals.map((b) => [b.id, Number(b.total_balance)])
+    );
+
+    const correctedOriginalIds = new Set(
+      historyRows
+        .filter((tx) => tx.type === "CANCELLATION" && !tx.is_cancelled && tx.original_transaction_id)
+        .map((tx) => tx.original_transaction_id as string)
+    );
+
+    for (const tx of historyRows) {
+      const isActiveCancellation = tx.type === "CANCELLATION" && !tx.is_cancelled;
+      const isOriginalWithCorrection = tx.type !== "CANCELLATION" && correctedOriginalIds.has(tx.id);
+      const isActiveDeduction = tx.type !== "CANCELLATION" && !tx.is_cancelled;
+
+      if (!isActiveCancellation && !isOriginalWithCorrection && !isActiveDeduction) {
+        continue;
+      }
+
+      const current = runningByBeneficiary.get(tx.beneficiary_id) ?? 0;
+      let next = current;
+
+      if (tx.type === "CANCELLATION") {
+        next = current + Math.abs(Number(tx.amount));
+      } else {
+        next = current - Number(tx.amount);
+      }
+
+      runningByBeneficiary.set(tx.beneficiary_id, next);
+      txBalanceAfterById.set(tx.id, Math.max(0, next));
+    }
+  }
+
   const lookups: AuditRenderLookups = {
     txBeneficiaryById: new Map(
-      editedTransactions.map((tx) => [
+      loggedTransactions.map((tx) => [
         tx.id,
         { name: tx.beneficiary.name, cardNumber: tx.beneficiary.card_number },
       ])
     ),
+    txBalanceAfterById,
+    txAmountById: new Map(loggedTransactions.map((tx) => [tx.id, Number(tx.amount)])),
   };
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
@@ -628,7 +797,12 @@ export default async function AuditLogPage({
                             {actionLabel(row.action)}
                           </span>
                         </td>
-                        <td className="px-5 py-3 text-sm font-bold text-slate-800 dark:text-slate-200">{row.user}</td>
+                        <td className="px-5 py-3 text-sm">
+                          <div className="font-bold text-slate-800 dark:text-slate-200">
+                            {formatExecutorLabel(row.user, row.facility_id, actorLookups)}
+                          </div>
+                          <div className="text-xs text-slate-400 dark:text-slate-500">{row.user}</div>
+                        </td>
                         <td className="px-5 py-3 text-sm text-slate-600 dark:text-slate-400">{summarizeMetadata(row.action, row.metadata, row.id, lookups)}</td>
                         <td className="px-5 py-3 text-sm text-slate-500 dark:text-slate-400">
                           {formatDateTimeTripoli(row.created_at, "ar-LY", {
@@ -659,7 +833,8 @@ export default async function AuditLogPage({
                     </span>
                   </div>
                   <div className="text-xs font-bold text-slate-500 dark:text-slate-400">
-                    المنفذ: <span className="text-slate-800 dark:text-slate-200">{row.user}</span>
+                    المنفذ: <span className="text-slate-800 dark:text-slate-200">{formatExecutorLabel(row.user, row.facility_id, actorLookups)}</span>
+                    <div className="mt-0.5 text-[11px] font-medium text-slate-400 dark:text-slate-500">{row.user}</div>
                   </div>
                   <div className="text-sm text-slate-600 dark:text-slate-400">
                     {summarizeMetadata(row.action, row.metadata, row.id, lookups)}

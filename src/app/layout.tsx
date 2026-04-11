@@ -34,6 +34,12 @@ export default function RootLayout({
   return (
     <html lang="ar" dir="rtl" data-scroll-behavior="smooth" suppressHydrationWarning>
       <body className={`${tajawal.variable} ${tajawal.className}`} suppressHydrationWarning>
+        <script
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var clean=function(){var nodes=document.querySelectorAll('[bis_skin_checked]');for(var i=0;i<nodes.length;i++){nodes[i].removeAttribute('bis_skin_checked');}};clean();setTimeout(clean,0);setTimeout(clean,50);}catch(_e){}})();`,
+          }}
+        />
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <ToastProvider>
             {children}
