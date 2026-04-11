@@ -96,7 +96,7 @@ function actionLabel(action: string) {
   }
 }
 
-function summarizeMetadata(action: string, metadata: unknown): React.ReactNode {
+function summarizeMetadata(action: string, metadata: unknown, auditLogId?: string): React.ReactNode {
   if (!metadata || typeof metadata !== "object") return "-";
   const m = metadata as Record<string, unknown>;
 
@@ -235,6 +235,7 @@ function summarizeMetadata(action: string, metadata: unknown): React.ReactNode {
   }
 
   if (action === "IMPORT_TRANSACTIONS") {
+    const appliedRowsCount = Array.isArray(m.appliedRows) ? m.appliedRows.length : 0;
     return (
       <span className="flex flex-wrap gap-x-2 text-slate-500 dark:text-slate-400">
         <span>عائلات: <strong className="text-slate-700 dark:text-slate-300">{String(m.importedFamilies ?? m.added ?? "-")}</strong></span>
@@ -242,6 +243,16 @@ function summarizeMetadata(action: string, metadata: unknown): React.ReactNode {
         {m.suspendedFamilies ? <span>موقوفة: <strong className="text-slate-700 dark:text-slate-300">{String(m.suspendedFamilies)}</strong></span> : null}
         {Number(m.skippedNotFound ?? 0) > 0 ? <span className="text-amber-600 dark:text-amber-400">غير موجودة: {String(m.skippedNotFound)}</span> : null}
         {Number(m.skippedAlreadyImported ?? 0) > 0 ? <span className="text-slate-400 dark:text-slate-500">مكررة: {String(m.skippedAlreadyImported)}</span> : null}
+        {auditLogId && appliedRowsCount > 0 ? (
+          <a
+            href={`/api/export/audit-log?log_id=${encodeURIComponent(auditLogId)}`}
+            target="_blank"
+            className="inline-flex items-center gap-1 rounded border border-sky-200 dark:border-sky-700 bg-sky-50 dark:bg-sky-900/30 px-2 py-0.5 text-xs font-bold text-sky-700 dark:text-sky-400 hover:bg-sky-100 dark:hover:bg-sky-900/50 transition-colors"
+            title="تصدير تقرير تفصيلي لهذه العملية بصيغة Excel"
+          >
+            ↓ تقرير تفصيلي ({appliedRowsCount})
+          </a>
+        ) : null}
       </span>
     );
   }
@@ -474,7 +485,7 @@ export default async function AuditLogPage({
                           </span>
                         </td>
                         <td className="px-5 py-3 text-sm font-bold text-slate-800 dark:text-slate-200">{row.user}</td>
-                        <td className="px-5 py-3 text-sm text-slate-600 dark:text-slate-400">{summarizeMetadata(row.action, row.metadata)}</td>
+                        <td className="px-5 py-3 text-sm text-slate-600 dark:text-slate-400">{summarizeMetadata(row.action, row.metadata, row.id)}</td>
                         <td className="px-5 py-3 text-sm text-slate-500 dark:text-slate-400">
                           {new Date(row.created_at).toLocaleString("ar-LY", {
                             dateStyle: "medium",
@@ -507,7 +518,7 @@ export default async function AuditLogPage({
                     المنفذ: <span className="text-slate-800 dark:text-slate-200">{row.user}</span>
                   </div>
                   <div className="text-sm text-slate-600 dark:text-slate-400">
-                    {summarizeMetadata(row.action, row.metadata)}
+                    {summarizeMetadata(row.action, row.metadata, row.id)}
                   </div>
                 </Card>
               ))}

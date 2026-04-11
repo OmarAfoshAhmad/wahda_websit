@@ -207,6 +207,7 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const targetParam = searchParams.get("target");
+  const logId = searchParams.get("log_id")?.trim() ?? "";
   const actor = searchParams.get("actor")?.trim() ?? "";
   const startDate = searchParams.get("start_date");
   const endDate = searchParams.get("end_date");
@@ -230,6 +231,7 @@ export async function GET(request: NextRequest) {
   }
 
   const where = {
+    ...(logId ? { id: logId } : {}),
     action: { in: TARGET_ACTIONS[target] },
     ...(actor ? { user: { contains: actor, mode: "insensitive" as const } } : {}),
     ...(Object.keys(createdAtFilter).length > 0 ? { created_at: createdAtFilter } : {}),
