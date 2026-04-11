@@ -171,7 +171,10 @@ export default async function BeneficiariesPage({
   const canExport = hasPermission(session, "export_data");
 
   const totalPages = Math.max(1, Math.ceil(filteredCount / PAGE_SIZE));
-  const emptyColSpan = (canEdit || canDelete || session.is_admin) ? 7 : 5;
+  const hasActions = canEdit || canDelete || canManageRecycleBin || session.is_admin;
+  const emptyColSpan = isDeletedView
+    ? (hasActions ? 7 : 6)
+    : (hasActions ? 8 : 6);
   const exportParams = new URLSearchParams();
   if (query) exportParams.set("q", query);
   if (isDeletedView) exportParams.set("view", "deleted");
@@ -357,7 +360,7 @@ export default async function BeneficiariesPage({
               </div>
             )}
             <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-left">
+              <table className="w-full min-w-295 border-collapse text-right">
                 <thead className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
                   <tr>
                     {(session.is_admin || (canDelete && !isDeletedView) || (canManageRecycleBin && isDeletedView)) && (
@@ -380,10 +383,15 @@ export default async function BeneficiariesPage({
                     </th>
                     <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">تاريخ الميلاد</th>
                     {!isDeletedView && (
-                      <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">
+                      <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-sky-600 dark:text-sky-400">
                         <Link href={sortHref("remaining_balance")} className="inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
-                          الرصيد المتبقي {sortCol === "remaining_balance" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                          الرصيد المتبقي الحالي {sortCol === "remaining_balance" ? (sortDir === "asc" ? "↑" : "↓") : ""}
                         </Link>
+                      </th>
+                    )}
+                    {!isDeletedView && (
+                      <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-emerald-600 dark:text-emerald-400">
+                        الرصيد الكلي الابتدائي
                       </th>
                     )}
                     <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">
@@ -429,7 +437,10 @@ export default async function BeneficiariesPage({
                           </span>
                         </td>
                         {!isDeletedView && (
-                          <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">{Number(beneficiary.remaining_balance).toLocaleString("ar-LY")} د.ل</td>
+                          <td className="px-6 py-4 text-sm font-bold text-sky-700 dark:text-sky-300">{Number(beneficiary.remaining_balance).toLocaleString("ar-LY")} د.ل</td>
+                        )}
+                        {!isDeletedView && (
+                          <td className="px-6 py-4 text-sm font-bold text-emerald-700 dark:text-emerald-300">{Number(beneficiary.total_balance).toLocaleString("ar-LY")} د.ل</td>
                         )}
                         <td className="px-6 py-4">
                           <Badge variant={beneficiary.status === "ACTIVE" ? "success" : beneficiary.status === "SUSPENDED" ? "warning" : "default"}>

@@ -193,8 +193,8 @@ export async function processTransactionImport(
     const toSetBalance: Array<{ row: ParsedRow; baseCard: string }> = [];
 
     for (const row of rows) {
-      // رصيد كلي = 0 → تصفير الأسرة وإيقافها
-      if (row.totalBalance === 0) {
+      // القاعدة: (الرصيد الكلي = 0 && الرصيد المستخدم = 0) → تصفير الأسرة وإيقافها
+      if (row.totalBalance === 0 && row.usedBalance === 0) {
         const baseCard = resolveCardNumber(row.cardNumber, lookup);
         if (!baseCard) {
           notFoundRows.push({
@@ -211,8 +211,8 @@ export async function processTransactionImport(
         continue;
       }
 
-      // رصيد مستخدم = 0 ورصيد كلي > 0 → توزيع الرصيد الكلي بدون خصم
-      if (row.usedBalance <= 0) {
+      // القاعدة: (الرصيد الكلي > 0 && الرصيد المستخدم <= 0) → توزيع الرصيد الكلي بدون خصم
+      if (row.totalBalance > 0 && row.usedBalance <= 0) {
         const baseCard = resolveCardNumber(row.cardNumber, lookup);
         if (!baseCard) {
           notFoundRows.push({
