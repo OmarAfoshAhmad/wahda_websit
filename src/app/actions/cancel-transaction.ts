@@ -15,28 +15,29 @@ export async function cancelTransaction(transactionId: string) {
       return { error: "غير مصرح لك بإجراء هذه العملية" };
     }
 
-    const transaction = await prisma.transaction.findUnique({
-      where: { id: transactionId },
-      include: { beneficiary: true },
-    });
-
-    if (!transaction) {
-      return { error: "المعاملة غير موجودة" };
-    }
-
-    if (transaction.is_cancelled) {
-      return { error: "المعاملة ملغاة بالفعل" };
-    }
-
-    if (transaction.type === "CANCELLATION") {
-      return { error: "لا يمكن إلغاء معاملة إلغاء" };
-    }
-
-    const amount = Number(transaction.amount);
-
     let createdCancellationId = "";
 
     await prisma.$transaction(async (tx) => {
+      // FIX: قراءة الحركة داخل الـ transaction لإغلاق ثغرة TOCTOU
+      const transaction = await tx.transaction.findUnique({
+        where: { id: transactionId },
+        include: { beneficiary: true },
+      });
+
+      if (!transaction) {
+        throw new Error("TX_NOT_FOUND");
+      }
+
+      if (transaction.is_cancelled) {
+        throw new Error("TX_ALREADY_CANCELLED");
+      }
+
+      if (transaction.type === "CANCELLATION") {
+        throw new Error("TX_IS_CANCELLATION");
+      }
+
+      const amount = Number(transaction.amount);
+
       // 1. قفل صف المستفيد لمنع race condition
       const locked = await tx.$queryRaw<Array<{ id: string; remaining_balance: number; status: string }>>`
         SELECT id, remaining_balance, status FROM "Beneficiary"
@@ -105,6 +106,10 @@ export async function cancelTransaction(transactionId: string) {
 
     return { success: true, cancellationId: createdCancellationId };
   } catch (error) {
+    const msg = error instanceof Error ? error.message : "";
+    if (msg === "TX_NOT_FOUND") return { error: "المعاملة غير موجودة" };
+    if (msg === "TX_ALREADY_CANCELLED") return { error: "المعاملة ملغاة بالفعل" };
+    if (msg === "TX_IS_CANCELLATION") return { error: "لا يمكن إلغاء معاملة إلغاء" };
     logger.error("Cancellation error", { error: String(error) });
     return { error: "فشل في إلغاء المعاملة" };
   }
@@ -221,7 +226,8 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
     }
 
     if (op === "restore_delete") {
-      const restorable = selected.filter((tx) => tx.is_cancelled && tx.corrections.length === 0);
+      // لا نستعيد حركات CANCELLATION هنا؛ هذه لها مسار مستقل (إعادة الخصم من الإلغاء)
+      const restorable = selected.filter((tx) => tx.is_cancelled && tx.corrections.length === 0 && tx.type !== "CANCELLATION");
       if (restorable.length === 0) return;
 
       const restorableIds = restorable.map((tx) => tx.id);
@@ -243,7 +249,8 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
 
           const beneficiary = lockedBen[0];
           const remainingBefore = Number(beneficiary.remaining_balance);
-          const deductedAmount = Number(transactionRecord.amount);
+          // إعادة الخصم الفعلية يجب أن تكون بقيمة موجبة دائماً
+          const deductedAmount = Math.abs(Number(transactionRecord.amount));
           const remainingAfter = roundCurrency(remainingBefore - deductedAmount);
 
           // استرجاع الحركة المحذوفة وإعادتها منشطة
@@ -273,6 +280,7 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
                 deducted_amount: deductedAmount,
                 balance_before: remainingBefore,
                 balance_after: remainingAfter,
+                re_deduct_applied: true,
                 message: `تم استرجاع الحركة المحذوفة وخصم المبلغ (${deductedAmount}) من الرصيد المتبقي مرة أخرى.`,
               },
             },
@@ -287,12 +295,37 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
     }
 
     if (op === "permanent_delete") {
-      const deletable = selected.filter((tx) => tx.is_cancelled && tx.type !== "CANCELLATION");
-      if (deletable.length === 0) return;
-
-      const validIds = deletable.map((tx) => tx.id);
+      // SEC-FIX: التحقق الأوّلي من المرشحين (pre-filter) — التحقق النهائي يتم داخل الـ transaction
+      const candidateIds = selected.filter((tx) => tx.is_cancelled && tx.type !== "CANCELLATION").map((tx) => tx.id);
+      if (candidateIds.length === 0) return;
 
       await prisma.$transaction(async (tx) => {
+        // SEC-FIX: إعادة الفحص داخل الـ transaction مع قفل FOR UPDATE لمنع TOCTOU
+        const lockedTransactions = await tx.$queryRaw<Array<{
+          id: string; beneficiary_id: string; amount: number; type: string;
+          is_cancelled: boolean; created_at: Date; facility_id: string;
+        }>>`
+          SELECT id, beneficiary_id, amount::float8 AS amount, type, is_cancelled, created_at, facility_id
+          FROM "Transaction"
+          WHERE id = ANY(${candidateIds}::text[])
+          FOR UPDATE
+        `;
+
+        const validTransactions = lockedTransactions.filter((t) => t.is_cancelled && t.type !== "CANCELLATION");
+        if (validTransactions.length === 0) return;
+
+        const validIds = validTransactions.map((t) => t.id);
+
+        // SEC-FIX: حفظ snapshot كامل للحركات المحذوفة في سجل التدقيق للمرجعية
+        const deletedSnapshot = validTransactions.map((t) => ({
+          id: t.id,
+          beneficiary_id: t.beneficiary_id,
+          amount: t.amount,
+          type: t.type,
+          created_at: t.created_at,
+          facility_id: t.facility_id,
+        }));
+
         // حركات الإلغاء المرتبطة
         await tx.transaction.deleteMany({
           where: { original_transaction_id: { in: validIds } },
@@ -311,9 +344,10 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
             action: "PERMANENT_DELETE_TRANSACTION",
             metadata: {
               selected_count: ids.length,
-              deleted_count: deletable.length,
+              deleted_count: validTransactions.length,
               transaction_ids: validIds,
               balance_impact: 0,
+              deleted_snapshot: deletedSnapshot,
               message: "تم حذف الحركات نهائياً من قاعدة البيانات بعد إلغائها سابقاً.",
             },
           },

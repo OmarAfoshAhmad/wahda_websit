@@ -1,4 +1,5 @@
 import prisma from "@/lib/prisma";
+import { roundCurrency } from "@/lib/money";
 
 export async function getLedgerRemainingByBeneficiaryIds(beneficiaryIds: string[]) {
   if (beneficiaryIds.length === 0) return new Map<string, number>();
@@ -25,7 +26,7 @@ export async function getLedgerRemainingByBeneficiaryIds(beneficiaryIds: string[
     totals.map((row) => {
       const total = Number(row.total_balance);
       const spent = spentById.get(row.id) ?? 0;
-      return [row.id, Math.max(0, total - spent)] as const;
+      return [row.id, roundCurrency(Math.max(0, total - spent))] as const;
     })
   );
 }
@@ -54,5 +55,5 @@ export async function getLedgerRemainingByBeneficiaryId(beneficiaryId: string, t
     _sum: { amount: true },
   });
 
-  return Math.max(0, balanceTotal - Number(spent._sum.amount ?? 0));
+  return roundCurrency(Math.max(0, balanceTotal - Number(spent._sum.amount ?? 0)));
 }

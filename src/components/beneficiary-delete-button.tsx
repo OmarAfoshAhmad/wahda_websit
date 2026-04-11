@@ -52,6 +52,7 @@ export function BeneficiaryDeleteButton({ id, name, hasTransactions }: Props) {
   return (
     <>
       <button
+        type="button"
         onClick={() => { if (!hasTransactions) { setOpen(true); setError(null); } }}
         disabled={hasTransactions}
         className={hasTransactions
@@ -71,7 +72,7 @@ export function BeneficiaryDeleteButton({ id, name, hasTransactions }: Props) {
           <Card className="w-full max-w-sm p-6">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-base font-black text-slate-900">تأكيد الحذف</h2>
-              <button onClick={() => setOpen(false)} className="rounded-md p-1 text-slate-400 hover:text-slate-700">
+              <button type="button" onClick={() => setOpen(false)} className="rounded-md p-1 text-slate-400 hover:text-slate-700">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -90,11 +91,11 @@ export function BeneficiaryDeleteButton({ id, name, hasTransactions }: Props) {
             )}
 
             <div className="flex gap-2">
-              <Button variant="danger" onClick={handleDelete} disabled={loading} className="flex-1">
+              <Button type="button" variant="danger" onClick={handleDelete} disabled={loading} className="flex-1">
                 {loading ? <Loader2 className="ml-1.5 h-4 w-4 animate-spin" /> : <Trash2 className="ml-1.5 h-4 w-4" />}
                 {loading ? "جارٍ الحذف..." : "نعم، احذف"}
               </Button>
-              <Button variant="outline" onClick={() => setOpen(false)} className="flex-1">
+              <Button type="button" variant="outline" onClick={() => setOpen(false)} className="flex-1">
                 إلغاء
               </Button>
             </div>

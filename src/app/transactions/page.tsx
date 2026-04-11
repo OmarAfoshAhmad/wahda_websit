@@ -48,13 +48,15 @@ type TransactionRow = {
 export default async function TransactionsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ start_date?: string; end_date?: string; facility_id?: string; page?: string; q?: string; sort?: string; order?: string; status?: string; source?: string }>;
+  searchParams: Promise<{ start_date?: string; end_date?: string; facility_id?: string; page?: string; pageSize?: string; q?: string; sort?: string; order?: string; status?: string; source?: string }>;
 }) {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const { start_date, end_date, facility_id, page: pageParam, q, sort, order, status, source } = await searchParams;
-  const PAGE_SIZE = 50;
+  const { start_date, end_date, facility_id, page: pageParam, pageSize: pageSizeParam, q, sort, order, status, source } = await searchParams;
+  const allowedPageSizes = [10, 25, 50, 100, 200];
+  const requestedPageSize = parseInt(pageSizeParam ?? "10", 10);
+  const PAGE_SIZE = allowedPageSizes.includes(requestedPageSize) ? requestedPageSize : 10;
   const page = Math.max(1, parseInt(pageParam ?? "1", 10) || 1);
 
   const facilities: Array<{ id: string; name: string }> = canAccessAdmin(session)
@@ -97,6 +99,7 @@ export default async function TransactionsPage({
     if (q) p.set("q", q);
     if (statusFilter !== "all") p.set("status", statusFilter);
     if (sourceFilter !== "all") p.set("source", sourceFilter);
+    p.set("pageSize", String(PAGE_SIZE));
     p.set("sort", sortCol);
     p.set("order", sortDir);
     Object.entries(overrides).forEach(([k, v]) => p.set(k, v));
@@ -128,6 +131,7 @@ export default async function TransactionsPage({
     where.type = "CANCELLATION";
   } else if (statusFilter === "deleted") {
     where.is_cancelled = true;
+    where.type = { not: "CANCELLATION" };
     where.corrections = { none: { type: "CANCELLATION", is_cancelled: false } };
   } else {
     where.OR = [
@@ -196,7 +200,7 @@ export default async function TransactionsPage({
     }
   }
 
-  const [transactions, totalCount, aggregate] = await Promise.all([
+  const [transactions, totalCount] = await Promise.all([
     prisma.transaction.findMany({
       where,
       orderBy: txOrderByMap[sortCol],
@@ -222,9 +226,6 @@ export default async function TransactionsPage({
       take: PAGE_SIZE,
     }),
     prisma.transaction.count({ where }),
-    hasDateFilter
-      ? prisma.transaction.aggregate({ where, _sum: { amount: true } })
-      : Promise.resolve({ _sum: { amount: 0 } }),
   ]);
 
   const transactionRows = transactions as TransactionRow[];
@@ -298,7 +299,6 @@ export default async function TransactionsPage({
   const canExport = hasPermission(session, "export_data");
   const canImport = session.is_admin || ((session.manager_permissions as Partial<Record<string, boolean>> | null)?.import_transactions === true);
 
-  const totalAmount = aggregate._sum.amount ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
   // Use a shared datalist for all modals to save DOM memory
@@ -371,11 +371,7 @@ export default async function TransactionsPage({
 
         {/* ملخص التقرير */}
         {(start_date || end_date) && (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 mb-6">
-            <Card className="p-4 bg-blue-50 dark:bg-blue-900/20 border-blue-100 dark:border-blue-900/50">
-              <p className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase">إجمالي المبلغ</p>
-              <p className="text-2xl font-black text-blue-900 dark:text-blue-100 mt-1">{Number(totalAmount).toLocaleString("ar-LY")} د.ل</p>
-            </Card>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 mb-6">
             <Card className="p-4 bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-900/50">
               <p className="text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase">عدد العمليات</p>
               <p className="text-2xl font-black text-emerald-900 dark:text-emerald-100 mt-1">{totalCount.toLocaleString("ar-LY")}</p>
@@ -393,6 +389,7 @@ export default async function TransactionsPage({
 
         <form className="mb-1 flex flex-col gap-2 sm:flex-row sm:items-end" method="get">
           <input type="hidden" name="page" value="1" />
+          <input type="hidden" name="pageSize" value={String(PAGE_SIZE)} />
           <input type="hidden" name="start_date" value={start_date ?? ""} />
           <input type="hidden" name="end_date" value={end_date ?? ""} />
           <input type="hidden" name="facility_id" value={facility_id ?? ""} />
@@ -416,6 +413,7 @@ export default async function TransactionsPage({
         <Card className="p-3.5 sm:p-4">
           <form className="flex flex-col gap-4">
             <input type="hidden" name="page" value="1" />
+            <input type="hidden" name="pageSize" value={String(PAGE_SIZE)} />
             <input type="hidden" name="q" value={q ?? ""} />
 
             <div className={`grid grid-cols-1 gap-4 ${session.is_admin ? "md:grid-cols-6" : "md:grid-cols-4"}`}>
@@ -750,18 +748,6 @@ export default async function TransactionsPage({
                     ))
                   )}
                 </tbody>
-                {transactionRows.length > 0 && (
-                  <tfoot className="bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-800 font-black">
-                    <tr>
-                      <td colSpan={session.is_admin ? 6 : 3} className="px-6 py-4 text-left text-slate-900 dark:text-white">الإجمالي الكلي</td>
-                      <td className="px-6 py-4 text-right">
-                        <span className="text-slate-900 dark:text-white">{Number(totalAmount).toLocaleString("ar-LY")}</span>
-                        <span className="mr-3 text-[10px] text-slate-400 dark:text-slate-500">د.ل</span>
-                      </td>
-                      <td colSpan={session.is_admin ? 5 : 3}></td>
-                    </tr>
-                  </tfoot>
-                )}
               </table>
             </div>
           </Card>
@@ -781,6 +767,27 @@ export default async function TransactionsPage({
                 </strong>{" "}
                 عملية
               </span>
+              <form method="get" className="hidden sm:flex items-center gap-2">
+                <input type="hidden" name="page" value="1" />
+                <input type="hidden" name="start_date" value={start_date ?? ""} />
+                <input type="hidden" name="end_date" value={end_date ?? ""} />
+                <input type="hidden" name="facility_id" value={facility_id ?? ""} />
+                <input type="hidden" name="q" value={q ?? ""} />
+                <input type="hidden" name="sort" value={sortCol} />
+                <input type="hidden" name="order" value={sortDir} />
+                {statusFilter !== "all" && <input type="hidden" name="status" value={statusFilter} />}
+                {sourceFilter !== "all" && <input type="hidden" name="source" value={sourceFilter} />}
+                <label className="text-xs font-bold text-slate-500 dark:text-slate-400">عدد السجلات</label>
+                <select
+                  name="pageSize"
+                  defaultValue={String(PAGE_SIZE)}
+                  className="h-8 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 text-sm text-slate-900 dark:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                >
+                  {allowedPageSizes.map((size) => (
+                    <option key={size} value={String(size)}>{size}</option>
+                  ))}
+                </select>
+              </form>
               {totalPages > 1 && (
                 <span className="hidden sm:inline text-slate-400 dark:text-slate-500">
                   صفحة <strong className="text-slate-700 dark:text-slate-300">{page}</strong> من{" "}

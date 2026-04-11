@@ -106,7 +106,9 @@ model ImportJob {
   created_by     String
   status         ImportJobStatus @default(PENDING)
   payload        Json
+  options        Json?
   skipped_rows_report Json?
+  rollback_data  Json?
   total_rows     Int             @default(0)
   processed_rows Int             @default(0)
   inserted_rows  Int             @default(0)
@@ -139,6 +141,7 @@ enum ImportJobStatus {
   PROCESSING
   COMPLETED
   FAILED
+  ROLLED_BACK
 }
 
 model RestoreJob {
@@ -155,6 +158,7 @@ model RestoreJob {
   updated_admins      Int              @default(0)
   added_beneficiaries Int              @default(0)
   updated_beneficiaries Int            @default(0)
+  removed_beneficiaries Int            @default(0)
   added_transactions  Int              @default(0)
   skipped_transactions Int             @default(0)
   added_audit_logs    Int              @default(0)

@@ -6,6 +6,7 @@ import prisma from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { getArabicSearchTerms } from "@/lib/search";
 import { formatDateTripoli } from "@/lib/datetime";
+import { getLedgerRemainingByBeneficiaryIds } from "@/lib/ledger-balance";
 
 const EXPORT_LIMIT = 50_000;
 
@@ -64,6 +65,9 @@ export async function GET(request: NextRequest) {
       },
     });
 
+    const beneficiaryIds = beneficiaries.map((b) => b.id);
+    const remainingById = await getLedgerRemainingByBeneficiaryIds(beneficiaryIds);
+
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet("Beneficiaries");
     worksheet.views = [{ rightToLeft: true }];
@@ -99,7 +103,7 @@ export async function GET(request: NextRequest) {
         birth_date: b.birth_date ? formatDateTripoli(b.birth_date, "en-GB") : "",
         status: statusLabel(b.status),
         total_balance: Number(b.total_balance),
-        remaining_balance: Number(b.remaining_balance),
+        remaining_balance: remainingById.get(b.id) ?? Number(b.remaining_balance),
         transactions: b._count.transactions,
         created_at: formatDateTripoli(b.created_at, "en-GB"),
         deleted_at: b.deleted_at ? formatDateTripoli(b.deleted_at, "en-GB") : "",

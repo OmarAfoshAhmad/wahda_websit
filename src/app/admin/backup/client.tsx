@@ -8,7 +8,7 @@ import { ConfirmationModal } from "@/components/confirmation-modal";
 
 type RestoreSummary = {
   users: { added: number; updated: number; addedAdmins: number; updatedAdmins: number };
-  providers: { added: number; updated: number };
+  providers: { added: number; updated: number; removed?: number };
   transactions: { added: number; skipped: number };
   audit_logs: { added: number };
   notifications: { added: number; skipped: number };
@@ -58,6 +58,7 @@ function buildSuccessMessage(summary: RestoreSummary) {
   if (summary.users.updatedAdmins > 0) parts.push(`${summary.users.updatedAdmins} حساب إداري محدّث`);
   if (summary.providers.added > 0) parts.push(`${summary.providers.added} مستفيد جديد`);
   if (summary.providers.updated > 0) parts.push(`${summary.providers.updated} مستفيد محدّث`);
+  if ((summary.providers.removed ?? 0) > 0) parts.push(`${summary.providers.removed ?? 0} مستفيد محذوف`);
   if (summary.transactions.added > 0) parts.push(`${summary.transactions.added} حركة`);
   if (summary.audit_logs.added > 0) parts.push(`${summary.audit_logs.added} سجل مراجعة`);
   if (summary.notifications.added > 0) parts.push(`${summary.notifications.added} إشعار`);
@@ -69,6 +70,7 @@ function buildSuccessMessage(summary: RestoreSummary) {
     summary.users.updatedAdmins +
     summary.providers.added +
     summary.providers.updated +
+    (summary.providers.removed ?? 0) +
     summary.transactions.added +
     summary.audit_logs.added +
     summary.notifications.added;
@@ -456,6 +458,9 @@ export function BackupClient() {
             </div>
             <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1 flex items-center justify-between">
               <span>مستفيدون محدثون:</span> <span>{restoreJob.summary.providers.updated}</span>
+            </div>
+            <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1 flex items-center justify-between">
+              <span>مستفيدون محذوفون:</span> <span>{restoreJob.summary.providers.removed ?? 0}</span>
             </div>
             <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1 flex items-center justify-between">
               <span>حركات مضافة:</span> <span>{restoreJob.summary.transactions.added}</span>

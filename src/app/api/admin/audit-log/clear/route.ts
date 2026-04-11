@@ -54,64 +54,10 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
   facilities: ["CREATE_FACILITY", "IMPORT_FACILITIES", "DELETE_FACILITY"],
 };
 
-export async function POST(request: Request) {
-  const session = await requireActiveFacilitySession();
-  if (!session) {
-    return new NextResponse("Unauthorized", { status: 401 });
-  }
-  if (!session.is_admin) {
-    return new NextResponse("Forbidden", { status: 403 });
-  }
-
-  const rawBody = await request.json().catch(() => ({}));
-  const parsed = clearAuditLogSchema.safeParse(rawBody);
-  if (!parsed.success) {
-    return NextResponse.json({ error: "بيانات غير صالحة" }, { status: 400 });
-  }
-
-  const body = parsed.data;
-  const target: TargetFilter = body.target;
-
-  const createdAtFilter: { gte?: Date; lte?: Date } = {};
-  if (body.start_date) {
-    const d = new Date(body.start_date);
-    if (!isNaN(d.getTime())) createdAtFilter.gte = d;
-  }
-  if (body.end_date) {
-    const d = new Date(body.end_date);
-    if (!isNaN(d.getTime())) {
-      d.setHours(23, 59, 59, 999);
-      createdAtFilter.lte = d;
-    }
-  }
-
-  const where = {
-    action: { in: TARGET_ACTIONS[target] },
-    ...(body.actor?.trim() ? { user: { contains: body.actor.trim(), mode: "insensitive" as const } } : {}),
-    ...(Object.keys(createdAtFilter).length > 0 ? { created_at: createdAtFilter } : {}),
-  };
-
-  try {
-    const deleted = await prisma.auditLog.deleteMany({ where });
-
-    await prisma.auditLog.create({
-      data: {
-        facility_id: session.id,
-        user: session.username,
-        action: "CLEAR_AUDIT_LOG",
-        metadata: {
-          deleted_count: deleted.count,
-          target,
-          actor: body.actor?.trim() ?? "",
-          start_date: body.start_date ?? "",
-          end_date: body.end_date ?? "",
-        },
-      },
-    });
-
-    return NextResponse.json({ success: true, deletedCount: deleted.count });
-  } catch (error) {
-    logger.error("Audit log clear failed", { error: String(error) });
-    return NextResponse.json({ error: "تعذر تفريغ سجل المراقبة" }, { status: 500 });
-  }
+export async function POST() {
+  // SEC-FIX: سجلات التدقيق محمية ولا يمكن حذفها — لضمان سلامة سلسلة المراجعة المالية
+  return NextResponse.json(
+    { error: "عملية حذف سجلات التدقيق معطلة. سجلات التدقيق محمية ولا يمكن حذفها لضمان سلامة النظام المالي." },
+    { status: 403 },
+  );
 }

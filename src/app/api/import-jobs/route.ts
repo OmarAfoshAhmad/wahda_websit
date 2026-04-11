@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { requireActiveFacilitySession } from "@/lib/session-guard";
-import { createImportJob } from "@/lib/import-jobs";
+import { createImportJob, type ImportOptions } from "@/lib/import-jobs";
 
 // MIME types المقبولة صراحةً لملفات Excel — لا نقبل octet-stream
 // التحقق الفعلي يعتمد على extension + محتوى الملف داخل ExcelJS
@@ -51,7 +51,9 @@ export async function POST(request: Request) {
     // استخراج الصفوف كـ objects باستخدام الصف الأول كعناوين
     const headerRow = worksheet.getRow(1);
     const headers: string[] = [];
-    headerRow.eachCell((cell) => {
+    headerRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+      // ضمان أن الفهرس يتطابق مع العمود الفعلي
+      while (headers.length < colNumber - 1) headers.push("");
       headers.push(String(cell.value ?? "").trim());
     });
 
@@ -73,7 +75,13 @@ export async function POST(request: Request) {
       }
     });
 
-    const result = await createImportJob(rows, session.username);
+    // قراءة خيارات الاستيراد من FormData
+    const options: ImportOptions = {
+      updateBalance: formData.get("updateBalance") === "true",
+      reactivate: formData.get("reactivate") === "true",
+    };
+
+    const result = await createImportJob(rows, session.username, options);
     if (result.error) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }

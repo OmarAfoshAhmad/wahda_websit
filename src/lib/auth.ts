@@ -58,7 +58,9 @@ export async function login(user: {
   must_change_password: boolean;
 }) {
   const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
-  const session = await encrypt(user as unknown as Record<string, unknown>);
+  // SEC-FIX: حفظ وقت إنشاء الجلسة الأصلي لفرض absolute timeout
+  const payload = { ...user, iat_absolute: Date.now() } as unknown as Record<string, unknown>;
+  const session = await encrypt(payload);
 
   (await cookies()).set("session", session, {
     expires,
@@ -107,6 +109,25 @@ export async function updateSession(request: NextRequest) {
   // FIX SEC-03: JWT فاسد (تلاعب أو انتهاء المفتاح) يجب ألا يُسقط الـ middleware
   try {
     const parsed = await decrypt(session);
+
+    // SEC-FIX: Absolute session timeout — 72 ساعة كحد أقصى بغض النظر عن النشاط
+    const ABSOLUTE_TIMEOUT_MS = 72 * 60 * 60 * 1000; // 72 hours
+    const iatAbsolute = typeof parsed.iat_absolute === "number" ? parsed.iat_absolute : 0;
+    if (iatAbsolute > 0 && Date.now() - iatAbsolute > ABSOLUTE_TIMEOUT_MS) {
+      // الجلسة تجاوزت الحد المطلق — حذف الكوكي وإجبار إعادة تسجيل الدخول
+      const res = NextResponse.next();
+      res.cookies.set({
+        name: "session",
+        value: "",
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        path: "/",
+        expires: new Date(0),
+      });
+      return res;
+    }
+
     parsed.expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
     const res = NextResponse.next();
     res.cookies.set({

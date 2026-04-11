@@ -24,11 +24,13 @@ const EXPORT_LIMIT = 50_000;
 const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
   all: [
     "CREATE_BENEFICIARY",
+    "UPDATE_BENEFICIARY",
     "IMPORT_BENEFICIARIES_BACKGROUND",
     "DELETE_BENEFICIARY",
     "PERMANENT_DELETE_BENEFICIARY",
     "RESTORE_BENEFICIARY",
     "DEDUCT_BALANCE",
+    "EDIT_TRANSACTION",
     "CANCEL_TRANSACTION",
     "REVERT_CANCELLATION",
     "SOFT_DELETE_TRANSACTION",
@@ -40,16 +42,20 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "CREATE_FACILITY",
     "IMPORT_FACILITIES",
     "DELETE_FACILITY",
+    "ROLLBACK_IMPORT",
   ],
   beneficiaries: [
     "CREATE_BENEFICIARY",
+    "UPDATE_BENEFICIARY",
     "IMPORT_BENEFICIARIES_BACKGROUND",
+    "ROLLBACK_IMPORT",
     "DELETE_BENEFICIARY",
     "PERMANENT_DELETE_BENEFICIARY",
     "RESTORE_BENEFICIARY",
   ],
   transactions: [
     "DEDUCT_BALANCE",
+    "EDIT_TRANSACTION",
     "CANCEL_TRANSACTION",
     "REVERT_CANCELLATION",
     "SOFT_DELETE_TRANSACTION",
@@ -68,6 +74,8 @@ function actionLabel(action: string) {
       return "إضافة مستفيد";
     case "IMPORT_BENEFICIARIES_BACKGROUND":
       return "استيراد مستفيدين";
+    case "UPDATE_BENEFICIARY":
+      return "تعديل مستفيد";
     case "DELETE_BENEFICIARY":
       return "حذف مستفيد";
     case "PERMANENT_DELETE_BENEFICIARY":
@@ -76,6 +84,8 @@ function actionLabel(action: string) {
       return "استرجاع مستفيد";
     case "DEDUCT_BALANCE":
       return "إضافة حركة خصم";
+    case "EDIT_TRANSACTION":
+      return "تعديل حركة";
     case "CANCEL_TRANSACTION":
       return "حذف/إلغاء حركة";
     case "REVERT_CANCELLATION":
@@ -98,6 +108,8 @@ function actionLabel(action: string) {
       return "استيراد مرافق";
     case "DELETE_FACILITY":
       return "حذف مرفق";
+    case "ROLLBACK_IMPORT":
+      return "تراجع عن استيراد";
     default:
       return action;
   }
@@ -122,7 +134,17 @@ function summarizeMetadata(action: string, metadata: unknown): string {
   const balanceAfter = getMetadataValue(m, "balance_after", "balanceAfter", "after_balance");
 
   if (action === "CREATE_BENEFICIARY" || action === "UPDATE_BENEFICIARY") {
-    return `بطاقة: ${String(m.card_number ?? "-")}`;
+    return `بطاقة: ${String(m.card_number ?? "-")} · رصيد متبقٍ: ${String(getMetadataValue(m, "old_remaining_balance"))} ← ${String(getMetadataValue(m, "new_remaining_balance"))}`;
+  }
+
+  if (action === "EDIT_TRANSACTION") {
+    const oldBeforeDeduction = getMetadataValue(m, "old_balance_before_deduction", "balance_before");
+    const oldDeducted = getMetadataValue(m, "old_deducted_amount", "old_amount");
+    const oldRemaining = getMetadataValue(m, "old_remaining_after_deduction", "balance_before");
+    const newBeforeDeduction = getMetadataValue(m, "new_balance_before_deduction", "balance_before");
+    const newDeducted = getMetadataValue(m, "new_deducted_amount", "new_amount");
+    const newRemaining = getMetadataValue(m, "new_remaining_after_deduction", "balance_after");
+    return `حركة: ${String(m.transaction_id ?? "-")} · قبل التعديل: (قبل الخصم ${String(oldBeforeDeduction)}، المخصوم ${String(oldDeducted)}، المتبقي ${String(oldRemaining)}) · بعد التعديل: (قبل الخصم ${String(newBeforeDeduction)}، المخصوم ${String(newDeducted)}، المتبقي ${String(newRemaining)})`;
   }
 
   if (action === "DELETE_BENEFICIARY" || action === "PERMANENT_DELETE_BENEFICIARY" || action === "RESTORE_BENEFICIARY") {

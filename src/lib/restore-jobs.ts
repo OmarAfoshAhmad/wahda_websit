@@ -7,6 +7,7 @@ import { logger } from "@/lib/logger";
 import { decryptBackup } from "@/lib/backup-crypto";
 import { backupSchema } from "@/lib/backup-validation";
 import { normalizeCardNumber, normalizePersonName } from "@/lib/normalize";
+import { roundCurrency } from "@/lib/money";
 
 const MAX_BACKUP_SIZE = 100 * 1024 * 1024; // 100 MB
 const BATCH_SIZE = 100;
@@ -26,7 +27,7 @@ type RestoreJobSnapshot = {
   completedAt: string | null;
   summary: {
     users: { added: number; updated: number; addedAdmins: number; updatedAdmins: number };
-    providers: { added: number; updated: number };
+    providers: { added: number; updated: number; removed: number };
     transactions: { added: number; skipped: number };
     audit_logs: { added: number };
     notifications: { added: number; skipped: number };
@@ -53,6 +54,7 @@ function buildSummary(job: {
   updated_admins: number;
   added_beneficiaries: number;
   updated_beneficiaries: number;
+  removed_beneficiaries: number;
   added_transactions: number;
   skipped_transactions: number;
   added_audit_logs: number;
@@ -61,7 +63,7 @@ function buildSummary(job: {
 }) {
   return {
     users: { added: job.added_facilities, updated: job.updated_facilities, addedAdmins: job.added_admins, updatedAdmins: job.updated_admins },
-    providers: { added: job.added_beneficiaries, updated: job.updated_beneficiaries },
+    providers: { added: job.added_beneficiaries, updated: job.updated_beneficiaries, removed: job.removed_beneficiaries },
     transactions: { added: job.added_transactions, skipped: job.skipped_transactions },
     audit_logs: { added: job.added_audit_logs },
     notifications: { added: job.added_notifications, skipped: job.skipped_notifications },
@@ -124,6 +126,7 @@ async function updateProgress(jobId: string, input: {
   updatedAdmins?: number;
   addedBeneficiaries?: number;
   updatedBeneficiaries?: number;
+  removedBeneficiaries?: number;
   addedTransactions?: number;
   skippedTransactions?: number;
   addedAuditLogs?: number;
@@ -140,6 +143,7 @@ async function updateProgress(jobId: string, input: {
   if (input.updatedAdmins !== undefined) updates.updated_admins = input.updatedAdmins;
   if (input.addedBeneficiaries !== undefined) updates.added_beneficiaries = input.addedBeneficiaries;
   if (input.updatedBeneficiaries !== undefined) updates.updated_beneficiaries = input.updatedBeneficiaries;
+  if (input.removedBeneficiaries !== undefined) updates.removed_beneficiaries = input.removedBeneficiaries;
   if (input.addedTransactions !== undefined) updates.added_transactions = input.addedTransactions;
   if (input.skippedTransactions !== undefined) updates.skipped_transactions = input.skippedTransactions;
   if (input.addedAuditLogs !== undefined) updates.added_audit_logs = input.addedAuditLogs;
@@ -307,6 +311,7 @@ export async function processRestoreJob(jobId: string, username: string) {
       updated_admins: 0,
       added_beneficiaries: 0,
       updated_beneficiaries: 0,
+      removed_beneficiaries: 0,
       added_transactions: 0,
       skipped_transactions: 0,
       added_audit_logs: 0,
@@ -362,7 +367,7 @@ export async function processRestoreJob(jobId: string, username: string) {
     const auditLogChunks = chunkRows(audit_logs, BATCH_SIZE);
     const notificationChunks = chunkRows(notifications, BATCH_SIZE);
 
-    const totalSteps = userChunks.length + providerChunks.length + transactionChunks.length + auditLogChunks.length + notificationChunks.length + 1;
+    const totalSteps = userChunks.length + providerChunks.length + 1 + transactionChunks.length + auditLogChunks.length + notificationChunks.length + 1;
 
     await prisma.restoreJob.update({
       where: { id: currentJob.id },
@@ -383,6 +388,7 @@ export async function processRestoreJob(jobId: string, username: string) {
     let updatedAdmins = 0;
     let restoredBeneficiaries = 0;
     let updatedBeneficiaries = 0;
+    let removedBeneficiaries = 0;
     let restoredTransactions = 0;
     let skippedTransactions = 0;
     let restoredAuditLogs = 0;
@@ -508,7 +514,8 @@ export async function processRestoreJob(jobId: string, username: string) {
               name: normalizedProviderName,
               birth_date: providerBirthDate,
               status: provider.status,
-              // لا نعدّل الأرصدة عند التحديث لمنع فقد بيانات التشغيل الحالية.
+              total_balance: provider.total_balance,
+              remaining_balance: provider.remaining_balance,
               ...(provider.pin_hash && !existing.pin_hash ? { pin_hash: provider.pin_hash } : {}),
               deleted_at: provider.deleted_at ? new Date(provider.deleted_at) : null,
             },
@@ -544,6 +551,50 @@ export async function processRestoreJob(jobId: string, username: string) {
         updatedBeneficiaries,
       });
     }
+
+    // ─── مرحلة التنظيف: حذف المستفيدين غير الموجودين في النسخة ─────
+    await throwIfCancelled(currentJob.id);
+    await updateProgress(currentJob.id, { currentPhase: "CLEANING_EXTRA_BENEFICIARIES" });
+
+    // جمع IDs المستفيدين الذين تمت مطابقتهم أو إنشاؤهم من النسخة
+    const restoredBeneficiaryIds = new Set(providerIdMap.values());
+
+    // جلب جميع المستفيدين النشطين في قاعدة البيانات
+    const allDbBeneficiaries = await prisma.beneficiary.findMany({
+      where: { deleted_at: null },
+      select: { id: true },
+    });
+
+    // حذف ناعم للمستفيدين غير الموجودين في النسخة
+    const toRemoveIds = allDbBeneficiaries
+      .filter((b) => !restoredBeneficiaryIds.has(b.id))
+      .map((b) => b.id);
+
+    if (toRemoveIds.length > 0) {
+      // حذف الحركات المرتبطة بالمستفيدين المحذوفين
+      await prisma.transaction.deleteMany({
+        where: { beneficiary_id: { in: toRemoveIds } },
+      });
+
+      // حذف الإشعارات المرتبطة
+      await prisma.notification.deleteMany({
+        where: { beneficiary_id: { in: toRemoveIds } },
+      });
+
+      // حذف ناعم للمستفيدين
+      await prisma.beneficiary.updateMany({
+        where: { id: { in: toRemoveIds } },
+        data: { deleted_at: new Date() },
+      });
+
+      removedBeneficiaries = toRemoveIds.length;
+    }
+
+    completedSteps++;
+    await updateProgress(currentJob.id, {
+      completedSteps,
+      removedBeneficiaries,
+    });
 
     await updateProgress(currentJob.id, { currentPhase: "RESTORING_TRANSACTIONS" });
 
@@ -727,6 +778,7 @@ export async function processRestoreJob(jobId: string, username: string) {
         updated_admins: updatedAdmins,
         added_beneficiaries: restoredBeneficiaries,
         updated_beneficiaries: updatedBeneficiaries,
+        removed_beneficiaries: removedBeneficiaries,
         added_transactions: restoredTransactions,
         skipped_transactions: skippedTransactions,
         added_audit_logs: restoredAuditLogs,
@@ -761,6 +813,13 @@ export async function processRestoreJob(jobId: string, username: string) {
       where: { id: currentJob.id },
       data: { encrypted_payload: Buffer.alloc(0) },
     });
+
+    // إعادة حساب الأرصدة لضمان التطابق بين remaining_balance والحركات الفعلية
+    try {
+      await recalcBalancesAfterRestore();
+    } catch (recalcErr) {
+      logger.error("Recalc balances after restore failed", { error: String(recalcErr) });
+    }
 
     try {
       revalidateTag("beneficiary-counts", "max");
@@ -821,4 +880,54 @@ export async function cleanupOldRestoreJobs(days = 14) {
 export function canStartNewRestore(status: RestoreJobStatus | null) {
   if (!status) return true;
   return isTerminalStatus(status);
+}
+
+// ─── Recalc Balances After Restore ───────────────────────────────
+
+async function recalcBalancesAfterRestore() {
+  const beneficiaries = await prisma.beneficiary.findMany({
+    where: { deleted_at: null },
+    select: { id: true, total_balance: true, remaining_balance: true, status: true, completed_via: true },
+  });
+
+  if (beneficiaries.length === 0) return;
+
+  const spentRows = await prisma.transaction.groupBy({
+    by: ["beneficiary_id"],
+    where: {
+      beneficiary_id: { in: beneficiaries.map((b) => b.id) },
+      is_cancelled: false,
+      type: { not: "CANCELLATION" },
+    },
+    _sum: { amount: true },
+  });
+
+  const spentById = new Map(spentRows.map((row) => [row.beneficiary_id, Number(row._sum.amount ?? 0)]));
+
+  for (const ben of beneficiaries) {
+    const total = Number(ben.total_balance);
+    const spent = spentById.get(ben.id) ?? 0;
+    const correctRemaining = roundCurrency(Math.max(0, total - spent));
+    const currentRemaining = Number(ben.remaining_balance);
+
+    const correctStatus =
+      ben.status === "SUSPENDED" ? "SUSPENDED" : correctRemaining <= 0 ? "FINISHED" : "ACTIVE";
+
+    const balanceDiff = Math.abs(correctRemaining - currentRemaining);
+    if (balanceDiff < 0.005 && correctStatus === ben.status) continue;
+
+    await prisma.beneficiary.update({
+      where: { id: ben.id },
+      data: {
+        remaining_balance: correctRemaining,
+        status: correctStatus,
+        completed_via:
+          correctStatus === "FINISHED"
+            ? (ben.completed_via ?? "IMPORT")
+            : correctStatus !== "FINISHED"
+              ? null
+              : undefined,
+      },
+    });
+  }
 }

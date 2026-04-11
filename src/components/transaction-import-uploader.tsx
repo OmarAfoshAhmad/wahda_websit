@@ -180,6 +180,8 @@ export function TransactionImportUploader({
             <StatBox label="حركات محدَّثة" value={result.updatedTransactions} color="amber" />
             <StatBox label="أسر انتهى رصيدها (صُفِّر)" value={result.suspendedFamilies} color="amber" />
             <StatBox label="منتهٍ مسبقاً" value={result.skippedAlreadySuspended} color="slate" />
+            <StatBox label="أسر بدون استخدام (أُعيد رصيدها)" value={result.balanceSetFamilies} color="emerald" />
+            <StatBox label="رصيد صحيح مسبقاً" value={result.skippedAlreadyCorrect} color="slate" />
             <StatBox label="غير موجودين" value={result.skippedNotFound} color="red" />
           </div>
 

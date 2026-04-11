@@ -7,7 +7,10 @@ import { Shell } from "@/components/shell";
 import { getSession } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { Activity, Download } from "lucide-react";
-import { AuditLogClearButton } from "../../../components/audit-log-clear-button";
+// SEC-FIX: تم تعطيل زر حذف سجلات التدقيق — السجلات محمية ولا تقبل الحذف
+// import { AuditLogClearButton } from "../../../components/audit-log-clear-button";
+import { ImportRollbackButton } from "@/components/import-rollback-button";
+import { TransactionRollbackButton } from "@/components/transaction-rollback-button";
 import { formatDateTimeTripoli } from "@/lib/datetime";
 
 type TargetFilter = "all" | "beneficiaries" | "transactions" | "facilities" | "completed";
@@ -17,11 +20,13 @@ const PAGE_SIZE = 30;
 const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
   all: [
     "CREATE_BENEFICIARY",
+    "UPDATE_BENEFICIARY",
     "IMPORT_BENEFICIARIES_BACKGROUND",
     "DELETE_BENEFICIARY",
     "PERMANENT_DELETE_BENEFICIARY",
     "RESTORE_BENEFICIARY",
     "DEDUCT_BALANCE",
+    "EDIT_TRANSACTION",
     "CANCEL_TRANSACTION",
     "REVERT_CANCELLATION",
     "SOFT_DELETE_TRANSACTION",
@@ -33,16 +38,20 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "CREATE_FACILITY",
     "IMPORT_FACILITIES",
     "DELETE_FACILITY",
+    "ROLLBACK_IMPORT",
   ],
   beneficiaries: [
     "CREATE_BENEFICIARY",
+    "UPDATE_BENEFICIARY",
     "IMPORT_BENEFICIARIES_BACKGROUND",
+    "ROLLBACK_IMPORT",
     "DELETE_BENEFICIARY",
     "PERMANENT_DELETE_BENEFICIARY",
     "RESTORE_BENEFICIARY",
   ],
   transactions: [
     "DEDUCT_BALANCE",
+    "EDIT_TRANSACTION",
     "CANCEL_TRANSACTION",
     "REVERT_CANCELLATION",
     "SOFT_DELETE_TRANSACTION",
@@ -62,6 +71,8 @@ function actionLabel(action: string) {
       return "إضافة مستفيد";
     case "IMPORT_BENEFICIARIES_BACKGROUND":
       return "استيراد مستفيدين";
+    case "UPDATE_BENEFICIARY":
+      return "تعديل مستفيد";
     case "DELETE_BENEFICIARY":
       return "حذف مستفيد";
     case "PERMANENT_DELETE_BENEFICIARY":
@@ -70,6 +81,8 @@ function actionLabel(action: string) {
       return "استرجاع مستفيد";
     case "DEDUCT_BALANCE":
       return "إضافة حركة خصم";
+    case "EDIT_TRANSACTION":
+      return "تعديل حركة";
     case "CANCEL_TRANSACTION":
       return "حذف/إلغاء حركة";
     case "REVERT_CANCELLATION":
@@ -92,6 +105,8 @@ function actionLabel(action: string) {
       return "استيراد مرافق";
     case "DELETE_FACILITY":
       return "حذف مرفق";
+    case "ROLLBACK_IMPORT":
+      return "تراجع عن استيراد";
     default:
       return action;
   }
@@ -109,7 +124,11 @@ function getMetadataValue(
   return "-";
 }
 
-function summarizeMetadata(action: string, metadata: unknown, auditLogId?: string): React.ReactNode {
+type AuditRenderLookups = {
+  txBeneficiaryById: Map<string, { name: string; cardNumber: string }>;
+};
+
+function summarizeMetadata(action: string, metadata: unknown, auditLogId?: string, lookups?: AuditRenderLookups): React.ReactNode {
   if (!metadata || typeof metadata !== "object") return "-";
   const m = metadata as Record<string, unknown>;
   const balanceBefore = getMetadataValue(m, "balance_before", "balanceBefore", "before_balance");
@@ -125,11 +144,23 @@ function summarizeMetadata(action: string, metadata: unknown, auditLogId?: strin
   }
 
   if (action === "UPDATE_BENEFICIARY") {
+    const beneficiaryName = getMetadataValue(m, "beneficiary_name", "new_name", "old_name");
+    const oldRemaining = getMetadataValue(m, "old_remaining_balance");
+    const newRemaining = getMetadataValue(m, "new_remaining_balance");
+    const spentAtEdit = getMetadataValue(m, "spent_amount_at_edit");
+    const showRemainingChange = oldRemaining !== "-" || newRemaining !== "-";
+
     return (
       <span>
-        <span className="font-bold text-slate-800 dark:text-slate-200">{String(m.card_number ?? "-")}</span>
-        {m.beneficiary_name ? <span className="mr-1.5 text-slate-500 dark:text-slate-400">— {String(m.beneficiary_name)}</span> : null}
+        <span className="font-bold text-slate-800 dark:text-slate-200">{String(beneficiaryName)}</span>
+        <span className="mr-1.5 text-slate-500 dark:text-slate-400">— بطاقة: {String(m.card_number ?? "-")}</span>
         <span className="mr-1.5 text-xs text-slate-400 dark:text-slate-500">(تعديل بيانات)</span>
+        {showRemainingChange ? (
+          <>
+            <span className="mr-2 text-slate-500 dark:text-slate-400">· الرصيد المتبقي: {String(oldRemaining)} ← {String(newRemaining)} د.ل</span>
+            <span className="mr-1.5 text-xs text-slate-400 dark:text-slate-500">(المصروف وقت التعديل: {String(spentAtEdit)} د.ل)</span>
+          </>
+        ) : null}
       </span>
     );
   }
@@ -166,6 +197,60 @@ function summarizeMetadata(action: string, metadata: unknown, auditLogId?: strin
     );
   }
 
+  if (action === "EDIT_TRANSACTION") {
+    const transactionId = getMetadataValue(m, "transaction_id");
+    const txLookup = typeof transactionId === "string" ? lookups?.txBeneficiaryById.get(transactionId) : undefined;
+    const oldBeforeDeduction = getMetadataValue(m, "old_balance_before_deduction", "balance_before");
+    const oldDeducted = getMetadataValue(m, "old_deducted_amount", "old_amount");
+    const oldRemaining = getMetadataValue(m, "old_remaining_after_deduction", "balance_before");
+    const newBeforeDeduction = getMetadataValue(m, "new_balance_before_deduction", "balance_before");
+    const newDeducted = getMetadataValue(m, "new_deducted_amount", "new_amount");
+    const newRemaining = getMetadataValue(m, "new_remaining_after_deduction", "balance_after");
+    const beneficiaryName = getMetadataValue(m, "beneficiary_name") !== "-"
+      ? getMetadataValue(m, "beneficiary_name")
+      : (txLookup?.name ?? "-");
+    const cardNumber = getMetadataValue(m, "card_number") !== "-"
+      ? getMetadataValue(m, "card_number")
+      : (txLookup?.cardNumber ?? "-");
+
+    return (
+      <div className="space-y-2 text-right">
+        <div className="text-slate-600 dark:text-slate-400">
+          <div><span className="font-bold text-slate-800 dark:text-slate-200">{String(beneficiaryName)}</span></div>
+          <div className="text-xs">بطاقة: {String(cardNumber)}</div>
+        </div>
+        <div className="overflow-x-auto rounded-md border border-slate-200 dark:border-slate-700">
+          <table className="w-full border-collapse text-xs">
+            <thead>
+              <tr className="text-slate-500 dark:text-slate-400">
+                <th className="px-2 py-1 text-right">البيان</th>
+                <th className="px-2 py-1 text-right text-red-600 dark:text-red-400">قبل</th>
+                <th className="px-2 py-1 text-right text-emerald-700 dark:text-emerald-400">بعد</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className="px-2 py-1 font-semibold text-slate-600 dark:text-slate-300">قبل الخصم</td>
+                <td className="px-2 py-1 font-bold text-red-600 dark:text-red-400">{String(oldBeforeDeduction)} د.ل</td>
+                <td className="px-2 py-1 font-bold text-emerald-700 dark:text-emerald-400">{String(newBeforeDeduction)} د.ل</td>
+              </tr>
+              <tr>
+                <td className="px-2 py-1 font-semibold text-slate-600 dark:text-slate-300">المخصوم</td>
+                <td className="px-2 py-1 font-bold text-red-600 dark:text-red-400">{String(oldDeducted)} د.ل</td>
+                <td className="px-2 py-1 font-bold text-emerald-700 dark:text-emerald-400">{String(newDeducted)} د.ل</td>
+              </tr>
+              <tr>
+                <td className="px-2 py-1 font-semibold text-slate-600 dark:text-slate-300">المتبقي</td>
+                <td className="px-2 py-1 font-bold text-red-600 dark:text-red-400">{String(oldRemaining)} د.ل</td>
+                <td className="px-2 py-1 font-bold text-emerald-700 dark:text-emerald-400">{String(newRemaining)} د.ل</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
   if (action === "IMPORT_BENEFICIARIES_BACKGROUND") {
     const jobId = m.jobId ? String(m.jobId) : null;
     const dupeCount = Number(m.duplicateRows ?? 0);
@@ -174,6 +259,16 @@ function summarizeMetadata(action: string, metadata: unknown, auditLogId?: strin
         <span>تمت إضافة: <strong className="text-slate-700 dark:text-slate-300">{String(m.insertedRows ?? "-")}</strong></span>
         <span>مكررة: <strong className="text-slate-700 dark:text-slate-300">{String(m.duplicateRows ?? "-")}</strong></span>
         {m.totalRows ? <span>الإجمالي: <strong className="text-slate-700 dark:text-slate-300">{String(m.totalRows)}</strong></span> : null}
+        {jobId && (
+          <a
+            href={`/api/export/import-beneficiaries?jobId=${encodeURIComponent(jobId)}`}
+            target="_blank"
+            className="inline-flex items-center gap-1 rounded border border-emerald-200 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 px-2 py-0.5 text-xs font-bold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-colors"
+            title="تصدير تقرير المستفيدين المستوردين مع الأرصدة بصيغة Excel"
+          >
+            ↓ تقرير المستوردين
+          </a>
+        )}
         {jobId && dupeCount > 0 && (
           <a
             href={`/api/export/import-report?jobId=${encodeURIComponent(jobId)}`}
@@ -183,6 +278,7 @@ function summarizeMetadata(action: string, metadata: unknown, auditLogId?: strin
             ↓ تقرير المكررين ({dupeCount})
           </a>
         )}
+        {jobId && <ImportRollbackButton jobId={jobId} />}
       </span>
     );
   }
@@ -251,11 +347,13 @@ function summarizeMetadata(action: string, metadata: unknown, auditLogId?: strin
 
   if (action === "IMPORT_TRANSACTIONS") {
     const appliedRowsCount = Array.isArray(m.appliedRows) ? m.appliedRows.length : 0;
+    const isRolledBack = Boolean(m.rolledBack);
     return (
       <span className="flex flex-wrap gap-x-2 text-slate-500 dark:text-slate-400">
         <span>عائلات: <strong className="text-slate-700 dark:text-slate-300">{String(m.importedFamilies ?? m.added ?? "-")}</strong></span>
         <span>حركات: <strong className="text-slate-700 dark:text-slate-300">{String(m.importedTransactions ?? "-")}</strong></span>
         {m.suspendedFamilies ? <span>موقوفة: <strong className="text-slate-700 dark:text-slate-300">{String(m.suspendedFamilies)}</strong></span> : null}
+        {Number(m.balanceSetFamilies ?? 0) > 0 ? <span>أُعيد رصيدها: <strong className="text-blue-700 dark:text-blue-400">{String(m.balanceSetFamilies)}</strong></span> : null}
         {Number(m.skippedNotFound ?? 0) > 0 ? <span className="text-amber-600 dark:text-amber-400">غير موجودة: {String(m.skippedNotFound)}</span> : null}
         {Number(m.skippedAlreadyImported ?? 0) > 0 ? <span className="text-slate-400 dark:text-slate-500">مكررة: {String(m.skippedAlreadyImported)}</span> : null}
         {auditLogId && appliedRowsCount > 0 ? (
@@ -268,6 +366,7 @@ function summarizeMetadata(action: string, metadata: unknown, auditLogId?: strin
             ↓ تقرير تفصيلي ({appliedRowsCount})
           </a>
         ) : null}
+        {auditLogId && <TransactionRollbackButton logId={auditLogId} rolledBack={isRolledBack} />}
       </span>
     );
   }
@@ -382,6 +481,38 @@ export default async function AuditLogPage({
     prisma.auditLog.count({ where }),
   ]);
 
+  const editTransactionIds = rows.flatMap((row) => {
+    if (row.action !== "EDIT_TRANSACTION") return [] as string[];
+    if (!row.metadata || typeof row.metadata !== "object") return [] as string[];
+    const txId = (row.metadata as Record<string, unknown>).transaction_id;
+    return typeof txId === "string" && txId.trim().length > 0 ? [txId.trim()] : [];
+  });
+
+  const uniqueEditTransactionIds = [...new Set(editTransactionIds)];
+  const editedTransactions = uniqueEditTransactionIds.length > 0
+    ? await prisma.transaction.findMany({
+      where: { id: { in: uniqueEditTransactionIds } },
+      select: {
+        id: true,
+        beneficiary: {
+          select: {
+            name: true,
+            card_number: true,
+          },
+        },
+      },
+    })
+    : [];
+
+  const lookups: AuditRenderLookups = {
+    txBeneficiaryById: new Map(
+      editedTransactions.map((tx) => [
+        tx.id,
+        { name: tx.beneficiary.name, cardNumber: tx.beneficiary.card_number },
+      ])
+    ),
+  };
+
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
   const buildHref = (nextPage: number) => {
@@ -424,12 +555,10 @@ export default async function AuditLogPage({
               <Download className="h-4 w-4" />
               <span>تنزيل Excel</span>
             </a>
-            <AuditLogClearButton
-              target={target}
-              actor={actor ?? ""}
-              startDate={start_date ?? ""}
-              endDate={end_date ?? ""}
-            />
+            {/* SEC-FIX: سجلات التدقيق محمية — لا يمكن حذفها */}
+            <span className="inline-flex h-10 items-center gap-1.5 rounded-md border border-gray-200 bg-gray-50 px-3 text-xs font-bold text-gray-400 select-none" title="سجلات التدقيق محمية ولا يمكن حذفها">
+              🔒 السجلات محمية
+            </span>
           </div>
         </div>
 
@@ -500,7 +629,7 @@ export default async function AuditLogPage({
                           </span>
                         </td>
                         <td className="px-5 py-3 text-sm font-bold text-slate-800 dark:text-slate-200">{row.user}</td>
-                        <td className="px-5 py-3 text-sm text-slate-600 dark:text-slate-400">{summarizeMetadata(row.action, row.metadata, row.id)}</td>
+                        <td className="px-5 py-3 text-sm text-slate-600 dark:text-slate-400">{summarizeMetadata(row.action, row.metadata, row.id, lookups)}</td>
                         <td className="px-5 py-3 text-sm text-slate-500 dark:text-slate-400">
                           {formatDateTimeTripoli(row.created_at, "ar-LY", {
                             dateStyle: "medium",
@@ -533,7 +662,7 @@ export default async function AuditLogPage({
                     المنفذ: <span className="text-slate-800 dark:text-slate-200">{row.user}</span>
                   </div>
                   <div className="text-sm text-slate-600 dark:text-slate-400">
-                    {summarizeMetadata(row.action, row.metadata, row.id)}
+                    {summarizeMetadata(row.action, row.metadata, row.id, lookups)}
                   </div>
                 </Card>
               ))}

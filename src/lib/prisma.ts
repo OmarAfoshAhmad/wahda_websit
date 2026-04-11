@@ -85,11 +85,28 @@ if (process.env.NODE_ENV === "production") {
 
 declare global {
   var prisma: undefined | ReturnType<typeof prismaClientSingleton>;
+  var prismaVersion: undefined | string;
 }
 
-const prisma = globalThis.prisma ?? prismaClientSingleton();
+const PRISMA_CLIENT_VERSION = "v2-no-audit-chain";
+
+let prisma: ReturnType<typeof prismaClientSingleton>;
+const cachedPrisma = globalThis.prisma;
+
+if (!cachedPrisma || globalThis.prismaVersion !== PRISMA_CLIENT_VERSION) {
+  // DEV-FIX: إذا تغيّر تكوين Prisma أثناء HMR، نتخلص من النسخة القديمة لتفادي السلوك العالق
+  if (process.env.NODE_ENV !== "production" && cachedPrisma) {
+    cachedPrisma.$disconnect().catch(() => undefined);
+  }
+  prisma = prismaClientSingleton();
+} else {
+  prisma = cachedPrisma;
+}
 
 export default prisma;
 
-if (process.env.NODE_ENV !== "production") globalThis.prisma = prisma;
+if (process.env.NODE_ENV !== "production") {
+  globalThis.prisma = prisma;
+  globalThis.prismaVersion = PRISMA_CLIENT_VERSION;
+}
 

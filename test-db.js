@@ -3,24 +3,16 @@ const fs = require('fs');
 const prisma = new PrismaClient();
 
 async function main() {
-  const date = new Date("2026-04-01");
-  const logs = await prisma.auditLog.findMany({
-    where: {
-      created_at: {
-        gte: new Date("2026-04-01T00:00:00Z"),
-        lt: new Date("2026-04-02T00:00:00Z")
-      }
-    },
-    orderBy: { created_at: "asc" }
+  const jobs = await prisma.importJob.findMany({
+    select: { id: true, created_at: true, status: true, total_rows: true },
+    orderBy: { created_at: "desc" },
+    take: 20
   });
 
-  const settings = await prisma.auditLog.findMany({
-    where: { action: "SET_INITIAL_BALANCE" },
-    orderBy: { created_at: "desc" }
-  });
+  const count = await prisma.importJob.count();
 
-  let output = `Logs for 2026-04-01:\n${JSON.stringify(logs, null, 2)}\n\n`;
-  output += `All Initial Balance Settings:\n${JSON.stringify(settings, null, 2)}\n`;
+  let output = `Total Import Jobs: ${count}\n\n`;
+  output += `Recent Jobs:\n${JSON.stringify(jobs, null, 2)}\n`;
 
   fs.writeFileSync('c:\\Users\\Omar\\waad_temp_website\\db-output.txt', output);
 }

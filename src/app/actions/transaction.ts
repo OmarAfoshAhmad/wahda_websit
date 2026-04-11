@@ -118,6 +118,14 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
           amount: true,
           is_cancelled: true,
           type: true,
+          created_at: true,
+          facility_id: true,
+          beneficiary: {
+            select: {
+              name: true,
+              card_number: true,
+            },
+          },
         },
       });
 
@@ -181,10 +189,24 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
           action: "EDIT_TRANSACTION",
           metadata: {
             transaction_id: transaction.id,
+            beneficiary_name: transaction.beneficiary.name,
+            card_number: transaction.beneficiary.card_number,
             old_amount: oldAmount,
             new_amount: input.amount,
+            // تفاصيل الحركة قبل/بعد التعديل لعرض واضح في سجل المراقبة
+            old_balance_before_deduction: balanceBeforeThisTransaction,
+            old_deducted_amount: oldAmount,
+            old_remaining_after_deduction: currentBalance,
+            new_balance_before_deduction: balanceBeforeThisTransaction,
+            new_deducted_amount: input.amount,
+            new_remaining_after_deduction: newBalance,
+            // SEC-FIX: حفظ جميع القيم القديمة والجديدة لإمكانية التراجع
+            old_type: transaction.type,
             new_type: input.type,
+            old_date: transaction.created_at?.toISOString?.() ?? null,
             new_date: parsedDate.toISOString(),
+            old_facility_id: transaction.facility_id ?? null,
+            new_facility_id: facility.id,
             balance_before: currentBalance,
             balance_after: newBalance,
           },

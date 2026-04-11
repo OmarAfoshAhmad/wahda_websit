@@ -25,6 +25,7 @@ export function BeneficiaryEditModal({ beneficiary }: BeneficiaryEditModalProps)
   const [cardNumber, setCardNumber] = useState(beneficiary.card_number);
   const [birthDate, setBirthDate] = useState(beneficiary.birth_date);
   const [status, setStatus] = useState<"ACTIVE" | "FINISHED" | "SUSPENDED">(beneficiary.status);
+  const [remainingBalance, setRemainingBalance] = useState(String(beneficiary.remaining_balance ?? 0));
   const [error, setError] = useState<string | null>(null);
 
   // إغلاق بمفتاح Escape
@@ -39,6 +40,13 @@ export function BeneficiaryEditModal({ beneficiary }: BeneficiaryEditModalProps)
 
   const onSave = () => {
     setError(null);
+    const parsedRemaining = Number(remainingBalance);
+
+    if (!Number.isFinite(parsedRemaining)) {
+      setError("يرجى إدخال رقم صحيح في حقل الرصيد المتبقي");
+      return;
+    }
+
     startTransition(async () => {
       try {
         const result = await updateBeneficiary({
@@ -47,6 +55,7 @@ export function BeneficiaryEditModal({ beneficiary }: BeneficiaryEditModalProps)
           card_number: cardNumber,
           birth_date: birthDate,
           status,
+          remaining_balance: parsedRemaining,
         });
 
         if (result.error) {
@@ -106,12 +115,14 @@ export function BeneficiaryEditModal({ beneficiary }: BeneficiaryEditModalProps)
 
               <div>
                 <label className="mb-1 block text-xs font-black text-slate-500 dark:text-slate-400">الرصيد المتاح (المتبقي)</label>
-                <div className="flex h-10 items-center rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-3 text-sm text-slate-600 dark:text-slate-400">{beneficiary.remaining_balance ?? 0} د.ل</div>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-xs font-black text-slate-500 dark:text-slate-400">الرصيد الكلي</label>
-                <div className="flex h-10 items-center rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-3 text-sm text-slate-600 dark:text-slate-400">{beneficiary.total_balance ?? 0} د.ل</div>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={remainingBalance}
+                  onChange={(e) => setRemainingBalance(e.target.value)}
+                  className="h-10 text-right"
+                />
               </div>
 
               <div className="col-span-2">

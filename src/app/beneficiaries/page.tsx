@@ -125,7 +125,7 @@ export default async function BeneficiariesPage({
       orderBy: { [sortCol]: sortDir },
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
-      include: { _count: { select: { transactions: true } } },
+      include: { _count: { select: { transactions: { where: { is_cancelled: false } } } } },
     }),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     prisma.beneficiary.count({ where: where as any }),
@@ -171,12 +171,12 @@ export default async function BeneficiariesPage({
   const canExport = hasPermission(session, "export_data");
 
   const totalPages = Math.max(1, Math.ceil(filteredCount / PAGE_SIZE));
-  const emptyColSpan = (canEdit || canDelete || session.is_admin) ? 8 : 6;
+  const emptyColSpan = (canEdit || canDelete || session.is_admin) ? 7 : 5;
   const exportParams = new URLSearchParams();
   if (query) exportParams.set("q", query);
   if (isDeletedView) exportParams.set("view", "deleted");
   if (statusFilter !== "all") exportParams.set("status", statusFilter);
-  if (completedViaFilter !== "all") exportParams.set("completed_via", completedViaFilter);
+
   const exportHref = `/api/export/beneficiaries?${exportParams.toString()}`;
 
   return (
@@ -306,46 +306,23 @@ export default async function BeneficiariesPage({
             <>
               <span className="self-center w-px h-5 bg-slate-200 dark:bg-slate-700" />
               {([
-                { value: "all", label: "كل الحالات", activeClass: "border-slate-400 dark:border-slate-500 bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-200" },
-                { value: "ACTIVE", label: "نشط", activeClass: "border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400" },
-                { value: "SUSPENDED", label: "موقوف", activeClass: "border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400" },
-                { value: "FINISHED", label: "مكتمل", activeClass: "border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300" },
-              ] as const).map(({ value, label, activeClass }) => {
-                const isActive = statusFilter === value;
-                const href = buildBeneficiaryParams({ status: value === "all" ? undefined : value, page: "1" });
-                return (
-                  <Link
-                    key={value}
-                    href={href}
-                    className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-sm font-bold transition-colors ${isActive
-                      ? activeClass
-                      : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700"
-                      }`}
-                  >
-                    {label}
-                  </Link>
-                );
-              })}
-            </>
-          )}
-          {/* فلتر طريقة الاكتمال — يظهر فقط في عرض النشطين */}
-          {!isDeletedView && (
-            <>
-              <span className="self-center w-px h-5 bg-slate-200 dark:bg-slate-700" />
-              {([
-                { value: "all", label: "كل الاكتمال", activeClass: "border-slate-400 dark:border-slate-500 bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-200" },
-                { value: "MANUAL", label: "اكتمال يدوي", activeClass: "border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400" },
-                { value: "IMPORT", label: "اكتمال بالاستيراد", activeClass: "border-violet-300 dark:border-violet-700 bg-violet-50 dark:bg-violet-900/30 text-violet-700 dark:text-violet-400" },
-              ] as const).map(({ value, label, activeClass }) => {
-                const isActive = completedViaFilter === value;
+                { value: "all", cv: undefined, label: "كل الحالات", activeClass: "border-slate-400 dark:border-slate-500 bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-200" },
+                { value: "ACTIVE", cv: undefined, label: "نشط", activeClass: "border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400" },
+                { value: "SUSPENDED", cv: undefined, label: "موقوف", activeClass: "border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400" },
+                { value: "FINISHED", cv: "MANUAL", label: "مكتمل (خصم)", activeClass: "border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400" },
+                { value: "FINISHED", cv: "IMPORT", label: "مكتمل (استيراد)", activeClass: "border-violet-300 dark:border-violet-700 bg-violet-50 dark:bg-violet-900/30 text-violet-700 dark:text-violet-400" },
+              ] as { value: string; cv: string | undefined; label: string; activeClass: string }[]).map(({ value, cv, label, activeClass }) => {
+                const isActive = value === "all"
+                  ? statusFilter === "all" && completedViaFilter === "all"
+                  : statusFilter === value && (cv ? completedViaFilter === cv : completedViaFilter === "all");
                 const href = buildBeneficiaryParams({
-                  completed_via: value === "all" ? undefined : value,
-                  status: value === "all" ? undefined : "FINISHED",
+                  status: value === "all" ? undefined : value,
+                  completed_via: cv ?? undefined,
                   page: "1",
                 });
                 return (
                   <Link
-                    key={`cv-${value}`}
+                    key={`${value}-${cv ?? "all"}`}
                     href={href}
                     className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-sm font-bold transition-colors ${isActive
                       ? activeClass
@@ -358,6 +335,7 @@ export default async function BeneficiariesPage({
               })}
             </>
           )}
+
 
         </div>
         <Card className="overflow-hidden">
@@ -413,7 +391,7 @@ export default async function BeneficiariesPage({
                         الحالة {sortCol === "status" ? (sortDir === "asc" ? "↑" : "↓") : ""}
                       </Link>
                     </th>
-                    {!isDeletedView && <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">طريقة الاكتمال</th>}
+
                     {isDeletedView && <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">تاريخ الحذف</th>}
                     {(canEdit || canDelete || canManageRecycleBin || session.is_admin) && (
                       <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">إجراءات</th>
@@ -455,24 +433,18 @@ export default async function BeneficiariesPage({
                         )}
                         <td className="px-6 py-4">
                           <Badge variant={beneficiary.status === "ACTIVE" ? "success" : beneficiary.status === "SUSPENDED" ? "warning" : "default"}>
-                            {beneficiary.status === "ACTIVE" ? "نشط" : beneficiary.status === "SUSPENDED" ? "موقوف" : "مكتمل"}
+                            {beneficiary.status === "ACTIVE"
+                              ? "نشط"
+                              : beneficiary.status === "SUSPENDED"
+                              ? "موقوف"
+                              : beneficiary.completed_via === "MANUAL"
+                              ? "مكتمل (خصم)"
+                              : beneficiary.completed_via === "IMPORT"
+                              ? "مكتمل (استيراد)"
+                              : "مكتمل"}
                           </Badge>
                         </td>
-                        {!isDeletedView && (
-                          <td className="px-6 py-4">
-                            {beneficiary.status === "FINISHED" ? (
-                              beneficiary.completed_via === "IMPORT" ? (
-                                <span className="inline-flex items-center rounded-md border border-violet-200 dark:border-violet-800 bg-violet-50 dark:bg-violet-900/30 px-2 py-1 text-xs font-bold text-violet-700 dark:text-violet-400">استيراد</span>
-                              ) : beneficiary.completed_via === "MANUAL" ? (
-                                <span className="inline-flex items-center rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/30 px-2 py-1 text-xs font-bold text-blue-700 dark:text-blue-400">يدوي</span>
-                              ) : (
-                                <span className="text-xs text-slate-400 dark:text-slate-500">—</span>
-                              )
-                            ) : (
-                              <span className="text-xs text-slate-300 dark:text-slate-600">—</span>
-                            )}
-                          </td>
-                        )}
+
                         {isDeletedView && (
                           <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">
                             {beneficiary.deleted_at ? formatDateTripoli(beneficiary.deleted_at, "en-GB") : "—"}
@@ -540,7 +512,7 @@ export default async function BeneficiariesPage({
                 <input type="hidden" name="page" value="1" />
                 {isDeletedView && <input type="hidden" name="view" value="deleted" />}
                 {statusFilter !== "all" && <input type="hidden" name="status" value={statusFilter} />}
-                {completedViaFilter !== "all" && <input type="hidden" name="completed_via" value={completedViaFilter} />}
+
                 <label className="text-xs font-bold text-slate-500 dark:text-slate-400">عدد السجلات</label>
                 <select
                   name="pageSize"

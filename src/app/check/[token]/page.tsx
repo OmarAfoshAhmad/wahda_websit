@@ -15,6 +15,8 @@ const TYPE_LABELS: Record<string, string> = {
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
   ACTIVE: { label: "نشط", color: "bg-emerald-100 text-emerald-700" },
   FINISHED: { label: "مكتمل", color: "bg-slate-100 text-slate-600" },
+  FINISHED_MANUAL: { label: "مكتمل (خصم)", color: "bg-slate-100 text-slate-600" },
+  FINISHED_IMPORT: { label: "مكتمل (استيراد)", color: "bg-slate-100 text-slate-600" },
   SUSPENDED: { label: "موقوف", color: "bg-amber-100 text-amber-700" },
 };
 
@@ -48,6 +50,7 @@ export default async function CheckTokenPage({
       total_balance: true,
       remaining_balance: true,
       status: true,
+      completed_via: true,
       transactions: {
         where: { is_cancelled: false, type: { not: "CANCELLATION" } },
         orderBy: { created_at: "desc" },
@@ -68,7 +71,10 @@ export default async function CheckTokenPage({
   const totalBalance = Number(beneficiary.total_balance);
   const remainingBalance = await getLedgerRemainingByBeneficiaryId(beneficiaryId, totalBalance);
   const usedBalance = totalBalance - remainingBalance;
-  const statusInfo = STATUS_MAP[beneficiary.status] ?? STATUS_MAP.ACTIVE;
+  const statusKey = beneficiary.status === "FINISHED" && beneficiary.completed_via
+    ? `FINISHED_${beneficiary.completed_via}`
+    : beneficiary.status;
+  const statusInfo = STATUS_MAP[statusKey] ?? STATUS_MAP.ACTIVE;
 
   return (
     <div className="min-h-screen bg-slate-50 px-4 py-8" dir="rtl">

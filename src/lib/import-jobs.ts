@@ -22,6 +22,12 @@ export type ImportJobSnapshot = {
   createdAt: string;
   startedAt: string | null;
   completedAt: string | null;
+  canRollback?: boolean;
+};
+
+export type ImportOptions = {
+  updateBalance: boolean;
+  reactivate: boolean;
 };
 
 type NormalizedImportRow = {
@@ -216,8 +222,8 @@ function normalizeImportRow(row: unknown): { data?: NormalizedImportRow; error?:
     return { error: "invalid_row" };
   }
 
-  const cardNumber = normalizeString(getField(parsed.data, "card_number", "رقم البطاقة", "رقم_البطاقة", "الرقم", "insurance profile", "Insurance Profile")).toUpperCase();
-  const name = normalizeString(getField(parsed.data, "name", "الاسم", "اسم المستفيد", "اسم_المستفيد", "employee name", "Employee Name"));
+  const cardNumber = normalizeString(getField(parsed.data, "card_number", "رقم البطاقة", "رقم_البطاقة", "الرقم", "رقم_بطاقة", "insurance profile", "Insurance Profile")).toUpperCase();
+  const name = normalizeString(getField(parsed.data, "name", "الاسم", "الإسم", "اسم المستفيد", "اسم_المستفيد", "employee name", "Employee Name"));
 
   if (!cardNumber || !name) {
     return { error: "missing_required_fields" };
@@ -260,6 +266,7 @@ function toSnapshot(job: {
   started_at: Date | null;
   completed_at: Date | null;
   skipped_rows_report?: Prisma.JsonValue | null;
+  rollback_data?: Prisma.JsonValue | null;
 }): ImportJobSnapshot {
   const progress = job.total_rows === 0 ? 0 : Math.min(100, Math.round((job.processed_rows / job.total_rows) * 100));
 
@@ -267,6 +274,8 @@ function toSnapshot(job: {
   if (job.skipped_rows_report && !Array.isArray(job.skipped_rows_report) && typeof job.skipped_rows_report === "object" && "updatedRows" in job.skipped_rows_report) {
     updatedRowsCount = Number((job.skipped_rows_report as Record<string, unknown>).updatedRows);
   }
+
+  const hasRollbackData = job.rollback_data != null && typeof job.rollback_data === "object";
 
   return {
     id: job.id,
@@ -282,12 +291,13 @@ function toSnapshot(job: {
     createdAt: job.created_at.toISOString(),
     startedAt: job.started_at?.toISOString() ?? null,
     completedAt: job.completed_at?.toISOString() ?? null,
+    canRollback: job.status === "COMPLETED" && hasRollbackData,
   };
 }
 
 const MAX_IMPORT_ROWS = 10_000;
 
-export async function createImportJob(data: unknown[], username: string) {
+export async function createImportJob(data: unknown[], username: string, options?: ImportOptions) {
   if (!Array.isArray(data) || data.length === 0) {
     return { error: "الملف لا يحتوي على صفوف قابلة للاستيراد." };
   }
@@ -301,6 +311,7 @@ export async function createImportJob(data: unknown[], username: string) {
       created_by: username,
       payload: toJsonValue(data),
       total_rows: data.length,
+      options: options ? toJsonValue(options) : undefined,
     },
   });
 
@@ -362,6 +373,30 @@ export async function processImportJob(jobId: string, username: string) {
   }
 
   const skippedRows: SkippedImportRowReport[] = [];
+
+  // قراءة خيارات الاستيراد
+  const opts: ImportOptions = {
+    updateBalance: false,
+    reactivate: false,
+  };
+  if (currentJob.options && typeof currentJob.options === "object" && !Array.isArray(currentJob.options)) {
+    const rawOpts = currentJob.options as Record<string, unknown>;
+    if (rawOpts.updateBalance === true) opts.updateBalance = true;
+    if (rawOpts.reactivate === true) opts.reactivate = true;
+  }
+
+  // بيانات التراجع
+  const rollbackCreatedIds: string[] = [];
+  const rollbackBeforeSnapshots: Array<{
+    id: string;
+    name: string;
+    birth_date: string | null;
+    total_balance: string;
+    remaining_balance: string;
+    status: string;
+    deleted_at: string | null;
+  }> = [];
+  const rollbackRestoredIds: string[] = []; // IDs of soft-deleted records that were restored
 
   try {
     const payload = Array.isArray(currentJob.payload) ? currentJob.payload : [];
@@ -437,11 +472,19 @@ export async function processImportJob(jobId: string, username: string) {
 
     for (const chunk of chunkRows(uniqueRows, 100)) {
       const normalizedCardNumbers = [...new Set(chunk.map((row) => row.data.card_number.trim().toUpperCase()))];
-      const existing = await prisma.$queryRaw<Array<{ normalized_card_number: string }>>`
+
+      // البحث يشمل المحذوفين soft-delete لتفادي إنشاء سجل مكرر
+      const existingActive = await prisma.$queryRaw<Array<{ normalized_card_number: string }>>`
         SELECT UPPER(BTRIM("card_number")) AS normalized_card_number
         FROM "Beneficiary"
         WHERE UPPER(BTRIM("card_number")) IN (${Prisma.join(normalizedCardNumbers)})
           AND "deleted_at" IS NULL
+      `;
+      const existingDeleted = await prisma.$queryRaw<Array<{ normalized_card_number: string }>>`
+        SELECT UPPER(BTRIM("card_number")) AS normalized_card_number
+        FROM "Beneficiary"
+        WHERE UPPER(BTRIM("card_number")) IN (${Prisma.join(normalizedCardNumbers)})
+          AND "deleted_at" IS NOT NULL
       `;
 
       const birthDateByTime = new Map<number, Date>();
@@ -465,18 +508,37 @@ export async function processImportJob(jobId: string, username: string) {
         })
         : [];
 
-      const existingCards = new Set(existing.map((item) => item.normalized_card_number));
-      // نجلب id + card_number للسجلات الموجودة لتنفيذ التحديث عليها
-      const existingCardRows = existing.length > 0
+      const activeCards = new Set(existingActive.map((item) => item.normalized_card_number));
+      const deletedCards = new Set(existingDeleted.map((item) => item.normalized_card_number));
+
+      // جلب السجلات الحية الموجودة للتحديث
+      const existingActiveRows = existingActive.length > 0
         ? await prisma.beneficiary.findMany({
           where: {
-            card_number: { in: [...existingCards], mode: "insensitive" },
+            card_number: { in: [...activeCards], mode: "insensitive" },
+            deleted_at: null,
           },
-          select: { id: true, card_number: true },
+          select: { id: true, card_number: true, name: true, birth_date: true, total_balance: true, remaining_balance: true, status: true },
         })
         : [];
-      const cardToId = new Map(
-        existingCardRows.map((r) => [r.card_number.trim().toUpperCase(), r.id])
+      const cardToActiveRow = new Map(
+        existingActiveRows.map((r) => [r.card_number.trim().toUpperCase(), r])
+      );
+
+      // جلب السجلات المحذوفة soft-delete لاستعادتها بدل إنشاء سجل جديد
+      const existingDeletedRows = existingDeleted.length > 0
+        ? await prisma.beneficiary.findMany({
+          where: {
+            card_number: { in: [...deletedCards], mode: "insensitive" },
+            deleted_at: { not: null },
+          },
+          select: { id: true, card_number: true, name: true, birth_date: true, total_balance: true, remaining_balance: true, status: true, deleted_at: true },
+          // آخر سجل محذوف لهذا الرقم
+          orderBy: { deleted_at: "desc" },
+        })
+        : [];
+      const cardToDeletedRow = new Map(
+        existingDeletedRows.map((r) => [r.card_number.trim().toUpperCase(), r])
       );
 
       const existingPersonKeys = new Set(
@@ -486,8 +548,9 @@ export async function processImportJob(jobId: string, username: string) {
       );
 
       const rowsToInsert = chunk.filter((row) => {
-        const hasCardDuplicate = existingCards.has(row.data.card_number.trim().toUpperCase());
-        if (hasCardDuplicate) return false;
+        const cn = row.data.card_number.trim().toUpperCase();
+        if (activeCards.has(cn)) return false;
+        if (deletedCards.has(cn)) return false; // سيُستعاد بدل الإنشاء
 
         const pKey = personKey(row.data.name, row.data.birth_date);
         if (pKey && existingPersonKeys.has(pKey)) return false;
@@ -495,14 +558,21 @@ export async function processImportJob(jobId: string, username: string) {
         return true;
       });
 
-      // صفوف سيتم تحديثها (رقم البطاقة موجود مسبقاً)
+      // صفوف سيتم تحديثها (رقم البطاقة موجود وحيّ)
       const rowsToUpdate = chunk.filter((row) =>
-        existingCards.has(row.data.card_number.trim().toUpperCase())
+        activeCards.has(row.data.card_number.trim().toUpperCase())
       );
+
+      // صفوف محذوفة سيتم استعادتها
+      const rowsToRestore = chunk.filter((row) => {
+        const cn = row.data.card_number.trim().toUpperCase();
+        return !activeCards.has(cn) && deletedCards.has(cn);
+      });
 
       // صفوف مكررة (نفس الشخص، بطاقة مختلفة) — لا تزال تُتخطى
       chunk.forEach((row) => {
-        if (existingCards.has(row.data.card_number.trim().toUpperCase())) return; // ستُحدَّث
+        const cn = row.data.card_number.trim().toUpperCase();
+        if (activeCards.has(cn) || deletedCards.has(cn)) return;
 
         const pKey = personKey(row.data.name, row.data.birth_date);
         if (pKey && existingPersonKeys.has(pKey)) {
@@ -515,9 +585,9 @@ export async function processImportJob(jobId: string, username: string) {
         }
       });
 
-      // عدد المكررين الحقيقيين (duplicate_person فقط، ليس already_exists)
       const trueDuplicates = chunk.filter((row) => {
-        if (existingCards.has(row.data.card_number.trim().toUpperCase())) return false;
+        const cn = row.data.card_number.trim().toUpperCase();
+        if (activeCards.has(cn) || deletedCards.has(cn)) return false;
         const pKey = personKey(row.data.name, row.data.birth_date);
         return pKey !== null && existingPersonKeys.has(pKey);
       }).length;
@@ -525,6 +595,7 @@ export async function processImportJob(jobId: string, username: string) {
       duplicateRows += trueDuplicates;
       processedRows += chunk.length;
 
+      // إدراج المستفيدين الجدد
       if (rowsToInsert.length > 0) {
         const result = await prisma.beneficiary.createMany({
           data: rowsToInsert.map((row) => ({
@@ -539,26 +610,99 @@ export async function processImportJob(jobId: string, username: string) {
         });
         insertedRows += result.count;
         duplicateRows += rowsToInsert.length - result.count;
+
+        // حفظ IDs المنشأة حديثاً للتراجع
+        if (result.count > 0) {
+          const newlyCreated = await prisma.beneficiary.findMany({
+            where: {
+              card_number: { in: rowsToInsert.map((r) => r.data.card_number), mode: "insensitive" },
+              deleted_at: null,
+            },
+            select: { id: true },
+          });
+          rollbackCreatedIds.push(...newlyCreated.map((r) => r.id));
+        }
       }
 
-      // تحديث الاسم وتاريخ الميلاد للسجلات الموجودة (لا نلمس الأرصدة ولا الحالة)
-      // FIX: لا تُحسب هذه الصفوف كـ insertedRows — بل كـ updatedRows منفصلة
-      if (rowsToUpdate.length > 0) {
-        let successfulUpdates = 0;
-        await Promise.all(
-          rowsToUpdate.map(async (row) => {
-            const id = cardToId.get(row.data.card_number.trim().toUpperCase());
-            if (!id) return;
+      // استعادة السجلات المحذوفة soft-delete
+      // SEC-FIX: استبدال Promise.all بحلقة متسلسلة لمنع deadlocks
+      if (rowsToRestore.length > 0) {
+        for (const row of rowsToRestore) {
+            const cn = row.data.card_number.trim().toUpperCase();
+            const deletedRow = cardToDeletedRow.get(cn);
+            if (!deletedRow) continue;
+
+            // حفظ snapshot قبل الاستعادة
+            rollbackBeforeSnapshots.push({
+              id: deletedRow.id,
+              name: deletedRow.name,
+              birth_date: deletedRow.birth_date?.toISOString() ?? null,
+              total_balance: String(deletedRow.total_balance),
+              remaining_balance: String(deletedRow.remaining_balance),
+              status: deletedRow.status,
+              deleted_at: deletedRow.deleted_at?.toISOString() ?? null,
+            });
+
             await prisma.beneficiary.update({
-              where: { id },
+              where: { id: deletedRow.id },
               data: {
+                deleted_at: null,
                 name: row.data.name,
                 birth_date: row.data.birth_date,
+                status: "ACTIVE",
+                ...(opts.updateBalance ? {
+                  total_balance: initialBalance,
+                  remaining_balance: initialBalance,
+                } : {}),
               },
             });
+            rollbackRestoredIds.push(deletedRow.id);
+        }
+        insertedRows += rowsToRestore.length; // تُحسب كإدراج لأنها استعادة
+      }
+
+      // تحديث المستفيدين الموجودين
+      // SEC-FIX: استبدال Promise.all بحلقة متسلسلة لمنع deadlocks
+      if (rowsToUpdate.length > 0) {
+        let successfulUpdates = 0;
+        for (const row of rowsToUpdate) {
+            const cn = row.data.card_number.trim().toUpperCase();
+            const activeRow = cardToActiveRow.get(cn);
+            if (!activeRow) continue;
+
+            // حفظ snapshot قبل التحديث
+            rollbackBeforeSnapshots.push({
+              id: activeRow.id,
+              name: activeRow.name,
+              birth_date: activeRow.birth_date?.toISOString() ?? null,
+              total_balance: String(activeRow.total_balance),
+              remaining_balance: String(activeRow.remaining_balance),
+              status: activeRow.status,
+              deleted_at: null,
+            });
+
+            const updateData: Record<string, unknown> = {
+              name: row.data.name,
+              birth_date: row.data.birth_date,
+            };
+
+            // تحديث الرصيد إذا طلب المستخدم ذلك
+            if (opts.updateBalance) {
+              updateData.total_balance = initialBalance;
+              updateData.remaining_balance = initialBalance;
+            }
+
+            // إعادة التفعيل إذا طلب المستخدم ذلك
+            if (opts.reactivate && activeRow.status !== "ACTIVE") {
+              updateData.status = "ACTIVE";
+            }
+
+            await prisma.beneficiary.update({
+              where: { id: activeRow.id },
+              data: updateData,
+            });
             successfulUpdates++;
-          })
-        );
+        }
         updatedRows += successfulUpdates;
       }
 
@@ -580,8 +724,12 @@ export async function processImportJob(jobId: string, username: string) {
       where: { id: currentJob.id },
       data: {
         status: "COMPLETED",
-        // نُضمّن updatedRows داخل skipped_rows_report مؤقتاً كـ metadata إضافية
         skipped_rows_report: toJsonValue({ rows: skippedRows, updatedRows }),
+        rollback_data: toJsonValue({
+          createdIds: rollbackCreatedIds,
+          restoredIds: rollbackRestoredIds,
+          beforeSnapshots: rollbackBeforeSnapshots,
+        }),
         processed_rows: currentJob.total_rows,
         inserted_rows: insertedRows,
         duplicate_rows: duplicateRows,
@@ -624,12 +772,77 @@ export async function processImportJob(jobId: string, username: string) {
     return { job: toSnapshot(completedJob) };
   } catch (error) {
     const message = error instanceof Error ? error.message : "حدث خطأ أثناء معالجة الاستيراد.";
+
+    // SEC-FIX: حفظ بيانات التراجع حتى عند الفشل لإمكانية التنظيف
+    const partialRollbackData = (rollbackCreatedIds.length > 0 || rollbackRestoredIds.length > 0 || rollbackBeforeSnapshots.length > 0)
+      ? toJsonValue({
+          createdIds: rollbackCreatedIds,
+          restoredIds: rollbackRestoredIds,
+          beforeSnapshots: rollbackBeforeSnapshots,
+        })
+      : Prisma.JsonNull;
+
+    // SEC-FIX: محاولة التراجع التلقائي عند الفشل الجزئي
+    let autoRollbackResult = "";
+    if (rollbackCreatedIds.length > 0 || rollbackRestoredIds.length > 0) {
+      try {
+        let autoDeletedCount = 0;
+        let autoRestoredCount = 0;
+        let autoRevertedCount = 0;
+
+        // حذف المُنشأين الجدد
+        if (rollbackCreatedIds.length > 0) {
+          const r = await prisma.beneficiary.updateMany({
+            where: { id: { in: rollbackCreatedIds }, deleted_at: null },
+            data: { deleted_at: new Date() },
+          });
+          autoDeletedCount = r.count;
+        }
+
+        // استعادة السجلات المستعادة لحالتها المحذوفة
+        for (const snap of rollbackBeforeSnapshots.filter((s) => rollbackRestoredIds.includes(s.id))) {
+          await prisma.beneficiary.update({
+            where: { id: snap.id },
+            data: {
+              name: snap.name,
+              birth_date: snap.birth_date ? new Date(snap.birth_date) : null,
+              total_balance: parseFloat(snap.total_balance),
+              remaining_balance: parseFloat(snap.remaining_balance),
+              status: snap.status as "ACTIVE" | "FINISHED" | "SUSPENDED",
+              deleted_at: snap.deleted_at ? new Date(snap.deleted_at) : null,
+            },
+          });
+          autoRestoredCount++;
+        }
+
+        // استعادة السجلات المحدَّثة
+        for (const snap of rollbackBeforeSnapshots.filter((s) => !rollbackRestoredIds.includes(s.id))) {
+          await prisma.beneficiary.update({
+            where: { id: snap.id },
+            data: {
+              name: snap.name,
+              birth_date: snap.birth_date ? new Date(snap.birth_date) : null,
+              total_balance: parseFloat(snap.total_balance),
+              remaining_balance: parseFloat(snap.remaining_balance),
+              status: snap.status as "ACTIVE" | "FINISHED" | "SUSPENDED",
+            },
+          });
+          autoRevertedCount++;
+        }
+
+        autoRollbackResult = ` | تراجع تلقائي: حذف ${autoDeletedCount}، استعادة ${autoRestoredCount}، ارجاع ${autoRevertedCount}`;
+      } catch (rollbackError) {
+        autoRollbackResult = ` | فشل التراجع التلقائي: ${rollbackError instanceof Error ? rollbackError.message : "خطأ غير معروف"}`;
+      }
+    }
+
     const failedJob = await prisma.importJob.update({
       where: { id: currentJob.id },
       data: {
         status: "FAILED",
-        error_message: message,
+        error_message: message + autoRollbackResult,
         skipped_rows_report: skippedRows.length > 0 ? toJsonValue(skippedRows) : Prisma.JsonNull,
+        rollback_data: partialRollbackData,
         completed_at: new Date(),
       },
     });
@@ -708,4 +921,129 @@ export async function getImportJobSkippedRowsWorkbook(jobId: string, username?: 
     buffer: Buffer.from(buffer),
     fileName: `import-skipped-rows-${job.id}-${datePart}.xlsx`,
   };
+}
+
+// ─── التراجع عن الاستيراد ─────────────────────────────────────────
+type RollbackData = {
+  createdIds: string[];
+  restoredIds: string[];
+  beforeSnapshots: Array<{
+    id: string;
+    name: string;
+    birth_date: string | null;
+    total_balance: string;
+    remaining_balance: string;
+    status: string;
+    deleted_at: string | null;
+  }>;
+};
+
+export async function rollbackImportJob(jobId: string, username: string) {
+  const job = await prisma.importJob.findFirst({
+    where: { id: jobId, created_by: username, status: "COMPLETED" },
+    select: { id: true, rollback_data: true },
+  });
+
+  if (!job) {
+    return { error: "لم يتم العثور على المهمة أو لا يمكن التراجع عنها." };
+  }
+
+  if (!job.rollback_data || typeof job.rollback_data !== "object") {
+    return { error: "لا توجد بيانات تراجع لهذه المهمة." };
+  }
+
+  const data = job.rollback_data as unknown as RollbackData;
+  const createdIds = Array.isArray(data.createdIds) ? data.createdIds : [];
+  const restoredIds = Array.isArray(data.restoredIds) ? data.restoredIds : [];
+  const beforeSnapshots = Array.isArray(data.beforeSnapshots) ? data.beforeSnapshots : [];
+
+  let deletedCount = 0;
+  let restoredCount = 0;
+  let revertedCount = 0;
+
+  try {
+    // 1. حذف المستفيدين الذين أُنشئوا بالاستيراد (soft delete)
+    if (createdIds.length > 0) {
+      const result = await prisma.beneficiary.updateMany({
+        where: { id: { in: createdIds }, deleted_at: null },
+        data: { deleted_at: new Date() },
+      });
+      deletedCount = result.count;
+    }
+
+    // 2. استعادة الحالة السابقة للسجلات المُستعادة من soft-delete
+    if (restoredIds.length > 0) {
+      for (const snap of beforeSnapshots.filter((s) => restoredIds.includes(s.id))) {
+        await prisma.beneficiary.update({
+          where: { id: snap.id },
+          data: {
+            name: snap.name,
+            birth_date: snap.birth_date ? new Date(snap.birth_date) : null,
+            total_balance: parseFloat(snap.total_balance),
+            remaining_balance: parseFloat(snap.remaining_balance),
+            status: snap.status as "ACTIVE" | "FINISHED" | "SUSPENDED",
+            deleted_at: snap.deleted_at ? new Date(snap.deleted_at) : null,
+          },
+        });
+        restoredCount++;
+      }
+    }
+
+    // 3. استعادة الحالة السابقة للسجلات المُحدَّثة
+    const updatedSnapshots = beforeSnapshots.filter((s) => !restoredIds.includes(s.id));
+    for (const snap of updatedSnapshots) {
+      await prisma.beneficiary.update({
+        where: { id: snap.id },
+        data: {
+          name: snap.name,
+          birth_date: snap.birth_date ? new Date(snap.birth_date) : null,
+          total_balance: parseFloat(snap.total_balance),
+          remaining_balance: parseFloat(snap.remaining_balance),
+          status: snap.status as "ACTIVE" | "FINISHED" | "SUSPENDED",
+        },
+      });
+      revertedCount++;
+    }
+
+    // 4. تحديث حالة المهمة
+    await prisma.importJob.update({
+      where: { id: job.id },
+      data: {
+        status: "ROLLED_BACK",
+        error_message: `تم التراجع: حذف ${deletedCount}، إعادة ${restoredCount} لحالة الحذف، استعادة ${revertedCount} سجل`,
+      },
+    });
+
+    // 5. سجل التدقيق
+    const facility = await prisma.facility.findUnique({
+      where: { username },
+      select: { id: true },
+    });
+    await prisma.auditLog.create({
+      data: {
+        facility_id: facility?.id ?? undefined,
+        user: username,
+        action: "ROLLBACK_IMPORT",
+        metadata: {
+          jobId: job.id,
+          deletedCount,
+          restoredCount,
+          revertedCount,
+        },
+      },
+    });
+
+    try {
+      revalidatePath("/dashboard");
+      revalidatePath("/import");
+      revalidatePath("/beneficiaries");
+    } catch {
+      // revalidate غير متاح خارج سياق الطلب
+    }
+
+    return { success: true, deletedCount, restoredCount, revertedCount };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "حدث خطأ أثناء التراجع.";
+    return { error: message };
+  }
 }

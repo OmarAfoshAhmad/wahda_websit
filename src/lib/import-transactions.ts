@@ -3,6 +3,7 @@
 import { TransactionType } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import ExcelJS from "exceljs";
+import { roundCurrency } from "@/lib/money";
 
 /** Waad company facility ID (optional fallback) */
 function getWaadFacilityId(): string | undefined {
@@ -54,6 +55,8 @@ export type TransactionImportResult = {
   updatedTransactions: number;
   suspendedFamilies: number;
   skippedAlreadySuspended: number;
+  balanceSetFamilies: number;
+  skippedAlreadyCorrect: number;
   skippedNotFound: number;
   skippedAlreadyImported: number;
   notFoundRows: NotFoundRow[];
@@ -187,10 +190,11 @@ export async function processTransactionImport(
     const notFoundRows: NotFoundRow[] = [];
     const toImport: Array<{ row: ParsedRow; baseCard: string }> = [];
     const toSuspend: Array<{ row: ParsedRow; baseCard: string }> = [];
+    const toSetBalance: Array<{ row: ParsedRow; baseCard: string }> = [];
 
     for (const row of rows) {
-      // رصيد كلي = 0 أو رصيد مستخدم = 0 → تصفير الأسرة وإنهاء رصيدها
-      if (row.totalBalance === 0 || row.usedBalance <= 0) {
+      // رصيد كلي = 0 → تصفير الأسرة وإيقافها
+      if (row.totalBalance === 0) {
         const baseCard = resolveCardNumber(row.cardNumber, lookup);
         if (!baseCard) {
           notFoundRows.push({
@@ -203,6 +207,24 @@ export async function processTransactionImport(
           });
         } else {
           toSuspend.push({ row, baseCard });
+        }
+        continue;
+      }
+
+      // رصيد مستخدم = 0 ورصيد كلي > 0 → توزيع الرصيد الكلي بدون خصم
+      if (row.usedBalance <= 0) {
+        const baseCard = resolveCardNumber(row.cardNumber, lookup);
+        if (!baseCard) {
+          notFoundRows.push({
+            rowNumber: row.rowNumber,
+            cardNumber: row.cardNumber,
+            name: row.name,
+            familyCount: row.familyCount,
+            totalBalance: row.totalBalance,
+            usedBalance: row.usedBalance,
+          });
+        } else {
+          toSetBalance.push({ row, baseCard });
         }
         continue;
       }
@@ -236,7 +258,20 @@ export async function processTransactionImport(
       }
     }
 
-    // 4b. Process imports
+    // 4b. Set balance for families with usedBalance = 0 and totalBalance > 0
+    let balanceSetFamilies = 0;
+    let skippedAlreadyCorrect = 0;
+
+    for (const { row, baseCard } of toSetBalance) {
+      const setResult = await setFamilyBalance(baseCard, row.totalBalance);
+      if (setResult === "already_correct") {
+        skippedAlreadyCorrect++;
+      } else {
+        balanceSetFamilies++;
+      }
+    }
+
+    // 4c. Process imports
     let importedFamilies = 0;
     let importedTransactions = 0;
     const skippedAlreadyImported = 0;
@@ -269,6 +304,8 @@ export async function processTransactionImport(
           importedTransactions,
           suspendedFamilies,
           skippedAlreadySuspended,
+          balanceSetFamilies,
+          skippedAlreadyCorrect,
           skippedNotFound: notFoundRows.length,
           skippedAlreadyImported,
           updatedFamilies,
@@ -287,6 +324,8 @@ export async function processTransactionImport(
         updatedTransactions,
         suspendedFamilies,
         skippedAlreadySuspended,
+        balanceSetFamilies,
+        skippedAlreadyCorrect,
         skippedNotFound: notFoundRows.length,
         skippedAlreadyImported,
         notFoundRows,
@@ -307,54 +346,97 @@ async function importFamilyTransactions(
   totalUsedAmount: number,
   facilityId: string,
 ): Promise<{ count: number; mode: "created" | "updated"; appliedRows: ImportAppliedRow[] }> {
-  // Find ALL family members (base card + suffixes like W1, S1, D1, etc.)
-  const familyMembers = await prisma.beneficiary.findMany({
-    where: {
-      card_number: { startsWith: baseCard },
-      deleted_at: null,
-    },
-    select: { id: true, name: true, card_number: true, remaining_balance: true, total_balance: true, status: true },
-    orderBy: { card_number: "asc" },
-  });
-
-  if (familyMembers.length === 0) {
-    return { count: 0, mode: "updated", appliedRows: [] }; // shouldn't happen since we checked lookup
-  }
-
-  const existingImports = await prisma.transaction.findMany({
-    where: {
-      beneficiary_id: { in: familyMembers.map((m) => m.id) },
-      type: TransactionType.IMPORT,
-      facility_id: facilityId,
-      is_cancelled: false,
-    },
-    select: { id: true, beneficiary_id: true, amount: true },
-    orderBy: { created_at: "asc" },
-  });
-  const hasExistingImport = existingImports.length > 0;
-
-  // Distribute amount equally among family members
-  const perMember = Math.round((totalUsedAmount / familyMembers.length) * 100) / 100;
   let transactionCount = 0;
   const appliedRows: ImportAppliedRow[] = [];
-
-  const importsByMember = new Map<string, Array<{ id: string; amount: number }>>();
-  for (const tx of existingImports) {
-    const arr = importsByMember.get(tx.beneficiary_id) ?? [];
-    arr.push({ id: tx.id, amount: Number(tx.amount) });
-    importsByMember.set(tx.beneficiary_id, arr);
-  }
+  let hasExistingImport = false;
 
   await prisma.$transaction(async (tx) => {
-    for (const member of familyMembers) {
+    // 1. قفل صفوف أعضاء العائلة لمنع race condition مع خصم يدوي متزامن
+    const familyMembers = await tx.$queryRaw<Array<{ id: string; name: string; card_number: string; remaining_balance: number; total_balance: number; status: string }>>`
+      SELECT id, name, card_number, remaining_balance, total_balance, status
+      FROM "Beneficiary"
+      WHERE card_number LIKE ${baseCard + '%'}
+        AND "deleted_at" IS NULL
+      ORDER BY card_number ASC
+      FOR UPDATE
+    `;
+
+    if (familyMembers.length === 0) {
+      return;
+    }
+
+    const memberIds = familyMembers.map((m) => m.id);
+
+    const existingImports = await tx.transaction.findMany({
+      where: {
+        beneficiary_id: { in: memberIds },
+        type: TransactionType.IMPORT,
+        facility_id: facilityId,
+        is_cancelled: false,
+      },
+      select: { id: true, beneficiary_id: true, amount: true },
+      orderBy: { created_at: "asc" },
+    });
+    hasExistingImport = existingImports.length > 0;
+
+    // Distribute amount equally with remainder distribution
+    const count = familyMembers.length;
+    const baseAmount = roundCurrency(totalUsedAmount / count);
+    const totalBase = roundCurrency(baseAmount * (count - 1));
+    const lastAmount = roundCurrency(totalUsedAmount - totalBase);
+
+    const importsByMember = new Map<string, Array<{ id: string; amount: number }>>();
+    for (const imp of existingImports) {
+      const arr = importsByMember.get(imp.beneficiary_id) ?? [];
+      arr.push({ id: imp.id, amount: Number(imp.amount) });
+      importsByMember.set(imp.beneficiary_id, arr);
+    }
+
+    // --- مرحلة 1: حساب الخصم الأولي لكل فرد ---
+    type MemberCalc = {
+      member: typeof familyMembers[0];
+      existingForMember: Array<{ id: string; amount: number }>;
+      balanceBeforeImport: number;
+      deductAmount: number;
+      newBalance: number;
+    };
+    const calcs: MemberCalc[] = [];
+
+    for (let i = 0; i < familyMembers.length; i++) {
+      const member = familyMembers[i];
+      const perMember = i === familyMembers.length - 1 ? lastAmount : baseAmount;
       const currentBalance = Number(member.remaining_balance);
       const existingForMember = importsByMember.get(member.id) ?? [];
       const previousImported = existingForMember.reduce((sum, item) => sum + Number(item.amount), 0);
+      const balanceBeforeImport = roundCurrency(currentBalance + previousImported);
+      const deductAmount = roundCurrency(Math.min(perMember, balanceBeforeImport));
+      const newBalance = roundCurrency(Math.max(0, balanceBeforeImport - deductAmount));
 
-      // نعيد بناء الرصيد قبل استيراد IMPORT ثم نطبق القيمة الجديدة
-      const balanceBeforeImport = currentBalance + previousImported;
-      const deductAmount = Math.min(perMember, balanceBeforeImport);
-      const newBalance = Math.max(0, balanceBeforeImport - deductAmount);
+      calcs.push({ member, existingForMember, balanceBeforeImport, deductAmount, newBalance });
+    }
+
+    // --- مرحلة 2: تجميع الكسور < 1 دينار من غير المؤمن الأصل ---
+    // المؤمن الأصل هو أول فرد (البطاقة الأساسية بدون لاحقة)
+    let fractionsTotal = 0;
+    for (let i = 1; i < calcs.length; i++) {
+      const c = calcs[i];
+      if (c.newBalance > 0 && c.newBalance < 1) {
+        fractionsTotal = roundCurrency(fractionsTotal + c.newBalance);
+        c.deductAmount = roundCurrency(c.deductAmount + c.newBalance);
+        c.newBalance = 0;
+      }
+    }
+
+    // تخفيف الخصم من المؤمن الأصل بمقدار الكسور المجمعة
+    if (fractionsTotal > 0 && calcs.length > 0) {
+      const primary = calcs[0];
+      primary.deductAmount = roundCurrency(Math.max(0, primary.deductAmount - fractionsTotal));
+      primary.newBalance = roundCurrency(Math.max(0, primary.balanceBeforeImport - primary.deductAmount));
+    }
+
+    // --- مرحلة 3: تطبيق التغييرات ---
+    for (const c of calcs) {
+      const { member, existingForMember, balanceBeforeImport, deductAmount, newBalance } = c;
       const newStatus = newBalance <= 0 ? "FINISHED" : "ACTIVE";
 
       appliedRows.push({
@@ -417,6 +499,7 @@ async function importFamilyTransactions(
   return { count: transactionCount, mode: hasExistingImport ? "updated" : "created", appliedRows };
 }
 
+
 // ─── Suspend Family ──────────────────────────────────────────────
 
 /**
@@ -456,6 +539,76 @@ async function suspendFamily(
       }),
     ),
   );
+
+  return { count: familyMembers.length };
+}
+
+// ─── Set Family Balance (usedBalance=0, totalBalance>0) ─────────
+
+/**
+ * Distribute totalBalance equally among family members, setting both
+ * total_balance and remaining_balance. Reactivates SUSPENDED members.
+ * Removes any existing IMPORT transactions (cleanup from wrong previous runs).
+ * Idempotent: skips if all members already have the correct balance and are ACTIVE.
+ */
+async function setFamilyBalance(
+  baseCard: string,
+  totalBalance: number,
+): Promise<"already_correct" | { count: number }> {
+  const familyMembers = await prisma.beneficiary.findMany({
+    where: {
+      card_number: { startsWith: baseCard },
+      deleted_at: null,
+    },
+    select: { id: true, status: true, total_balance: true, remaining_balance: true },
+    orderBy: { card_number: "asc" },
+  });
+
+  if (familyMembers.length === 0) return "already_correct";
+
+  const count = familyMembers.length;
+  const perMember = roundCurrency(totalBalance / count);
+  const totalBase = roundCurrency(perMember * (count - 1));
+  const lastMemberBalance = roundCurrency(totalBalance - totalBase);
+
+  // Check if already correct
+  const alreadyCorrect = familyMembers.every((m, i) => {
+    const expected = i === count - 1 ? lastMemberBalance : perMember;
+    return (
+      m.status === "ACTIVE" &&
+      Number(m.total_balance) === expected &&
+      Number(m.remaining_balance) === expected
+    );
+  });
+  if (alreadyCorrect) return "already_correct";
+
+  const memberIds = familyMembers.map((m) => m.id);
+
+  await prisma.$transaction(async (tx) => {
+    // حذف حركات الاستيراد السابقة (تنظيف من عمليات خاطئة سابقة)
+    await tx.transaction.deleteMany({
+      where: {
+        beneficiary_id: { in: memberIds },
+        type: "IMPORT",
+        is_cancelled: false,
+      },
+    });
+
+    // توزيع الرصيد وإعادة التفعيل
+    for (let i = 0; i < familyMembers.length; i++) {
+      const member = familyMembers[i];
+      const balance = i === count - 1 ? lastMemberBalance : perMember;
+      await tx.beneficiary.update({
+        where: { id: member.id },
+        data: {
+          total_balance: balance,
+          remaining_balance: balance,
+          status: "ACTIVE",
+          completed_via: null,
+        },
+      });
+    }
+  });
 
   return { count: familyMembers.length };
 }

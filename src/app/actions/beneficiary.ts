@@ -53,44 +53,17 @@ async function findCanonicalDuplicate(
     });
   }
 
-  // FIX: استخدام SQL نظيف لتوحيد البطاقات مباشرةً في قاعدة البيانات
-  // بدلاً من جلب كل بطاقات WAB2025 في الذاكرة (O(N) → O(1))
-  // المنطق: WAB202500123 و WAB2025123 يُعطيان نفس الـ canonical
-  if (excludeId) {
-    const results = await tx.$queryRaw<Array<{ id: string; card_number: string }>>`
-      SELECT id, card_number
-      FROM "Beneficiary"
-      WHERE card_number ILIKE 'WAB2025%'
-        AND id != ${excludeId}
-        AND (
-          regexp_replace(
-            UPPER(BTRIM(card_number)),
-            E'^WAB2025(0*)([0-9])',
-            'WAB2025\2'
-          ) = ${canonicalInput}
-          OR UPPER(BTRIM(card_number)) = ${canonicalInput}
-        )
-      LIMIT 1
-    `;
-    return results[0] ?? null;
-  }
+  // FIX: استبدال raw SQL بصيغة Prisma آمنة لتفادي أخطاء تركيب الاستعلامات
+  // (خطأ 42601: trailing junk after parameter)
+  const candidates = await tx.beneficiary.findMany({
+    where: {
+      ...(excludeId ? { id: { not: excludeId } } : {}),
+      card_number: { startsWith: "WAB2025", mode: "insensitive" },
+    },
+    select: { id: true, card_number: true },
+  });
 
-  const results = await tx.$queryRaw<Array<{ id: string; card_number: string }>>`
-    SELECT id, card_number
-    FROM "Beneficiary"
-    WHERE card_number ILIKE 'WAB2025%'
-      AND (
-        regexp_replace(
-          UPPER(BTRIM(card_number)),
-          E'^WAB2025(0*)([0-9])',
-          'WAB2025\2'
-        ) = ${canonicalInput}
-        OR UPPER(BTRIM(card_number)) = ${canonicalInput}
-      )
-    LIMIT 1
-  `;
-
-  return results[0] ?? null;
+  return candidates.find((row) => canonicalizeCardNumber(row.card_number) === canonicalInput) ?? null;
 }
 
 // normalizePersonName مستوردة من @/lib/normalize لضمان التطابق مع الاستيراد وكشف التكرارات
@@ -381,6 +354,8 @@ export async function updateBeneficiary(data: {
   card_number: string;
   birth_date?: string;
   status: "ACTIVE" | "FINISHED" | "SUSPENDED";
+  total_balance?: number;
+  remaining_balance?: number;
 }) {
   const session = await requireActiveFacilitySession();
   if (!session || !hasPermission(session, "edit_beneficiary")) {
@@ -424,6 +399,43 @@ export async function updateBeneficiary(data: {
         }
       }
 
+      // SEC-FIX: جلب القيم القديمة قبل التعديل لحفظها في سجل التدقيق
+      const oldRecord = await tx.beneficiary.findUnique({
+        where: { id: payload.id },
+        select: {
+          name: true,
+          card_number: true,
+          birth_date: true,
+          status: true,
+          total_balance: true,
+          remaining_balance: true,
+        },
+      });
+
+      if (!oldRecord) {
+        throw new Error("NOT_FOUND");
+      }
+
+      const spentAggregate = await tx.transaction.aggregate({
+        where: {
+          beneficiary_id: payload.id,
+          is_cancelled: false,
+          type: { not: "CANCELLATION" },
+        },
+        _sum: { amount: true },
+      });
+
+      const spentAmount = Number(spentAggregate._sum.amount ?? 0);
+      const nextRemaining = payload.remaining_balance !== undefined
+        ? payload.remaining_balance
+        : Number(oldRecord.remaining_balance);
+
+      const nextTotal = payload.total_balance !== undefined
+        ? payload.total_balance
+        : (payload.remaining_balance !== undefined
+          ? spentAmount + payload.remaining_balance
+          : Number(oldRecord.total_balance));
+
       await tx.beneficiary.update({
         where: { id: payload.id },
         data: {
@@ -431,6 +443,8 @@ export async function updateBeneficiary(data: {
           card_number: normalizedCardNumber,
           birth_date: parsedBirthDate,
           status: payload.status,
+          total_balance: nextTotal,
+          remaining_balance: nextRemaining,
         },
       });
 
@@ -441,7 +455,21 @@ export async function updateBeneficiary(data: {
           action: "UPDATE_BENEFICIARY",
           metadata: {
             beneficiary_id: payload.id,
+            beneficiary_name: normalizedName,
             card_number: normalizedCardNumber,
+            // SEC-FIX: القيم القديمة للتراجع والمراجعة
+            old_name: oldRecord?.name ?? null,
+            old_card_number: oldRecord?.card_number ?? null,
+            old_birth_date: oldRecord?.birth_date?.toISOString() ?? null,
+            old_status: oldRecord?.status ?? null,
+            old_total_balance: oldRecord?.total_balance ?? null,
+            old_remaining_balance: oldRecord?.remaining_balance ?? null,
+            new_name: normalizedName,
+            new_birth_date: parsedBirthDate?.toISOString() ?? null,
+            new_status: payload.status,
+            spent_amount_at_edit: spentAmount,
+            new_total_balance: nextTotal,
+            new_remaining_balance: nextRemaining,
           },
         },
       });
@@ -455,6 +483,11 @@ export async function updateBeneficiary(data: {
     if (error instanceof Error) {
       if (error.message === "CARD_EXISTS") return { error: "رقم البطاقة مستخدم مسبقاً ولا يمكن استخدامه لشخص آخر" };
       if (error.message === "PERSON_EXISTS") return { error: "لا يمكن إعطاء بطاقتين لنفس المستفيد (تطابق الاسم وتاريخ الميلاد)" };
+      if (error.message === "NOT_FOUND") return { error: "المستفيد غير موجود" };
+      // إظهار رسالة أوضح للمستخدم عند أخطاء قاعدة البيانات غير المتوقعة
+      if (error.message.includes("AuditLog") || error.message.includes("audit")) {
+        return { error: "تعذر حفظ سجل التدقيق أثناء تحديث المستفيد. يرجى إعادة المحاولة." };
+      }
     }
     logger.error("Update beneficiary error", { error: String(error) });
     return { error: "تعذر تحديث بيانات المستفيد" };
@@ -475,7 +508,7 @@ export async function deleteBeneficiary(id: string) {
         name: true,
         card_number: true,
         deleted_at: true,
-        _count: { select: { transactions: true } },
+        _count: { select: { transactions: { where: { is_cancelled: false } } } },
       },
     });
 
@@ -843,6 +876,13 @@ export async function bulkRenewBalance(formData: FormData) {
             beneficiary_count: beneficiaryIds.length,
             renewal_amount: initialBalance,
             details: renewalDetails,
+            // SEC-FIX: حفظ snapshot كامل للتراجع
+            undo_snapshot: renewalDetails.map((d) => ({
+              id: d.id,
+              total_before: d.total_before,
+              remaining_before: d.remaining_before,
+              status_before: d.status_before,
+            })),
           },
         },
       });
@@ -859,6 +899,103 @@ export async function bulkRenewBalance(formData: FormData) {
     }
     logger.error("Bulk renew balance error", { error: String(error) });
     return { error: "تعذر تنفيذ التجديد الجماعي" };
+  }
+}
+
+// SEC-FIX: دالة التراجع عن تجديد الرصيد الجماعي
+export async function undoBulkRenewal(auditLogId: string) {
+  const session = await requireActiveFacilitySession();
+  if (!session || !session.is_admin) {
+    return { error: "غير مصرح بهذه العملية" };
+  }
+
+  if (!auditLogId) {
+    return { error: "معرف سجل التدقيق مطلوب" };
+  }
+
+  try {
+    const auditLog = await prisma.auditLog.findUnique({
+      where: { id: auditLogId },
+      select: { id: true, action: true, metadata: true },
+    });
+
+    if (!auditLog || auditLog.action !== "BULK_RENEW_BALANCE") {
+      return { error: "سجل التدقيق غير موجود أو ليس عملية تجديد" };
+    }
+
+    const metadata = auditLog.metadata as Record<string, unknown> | null;
+    const undoSnapshot = metadata?.undo_snapshot as Array<{
+      id: string;
+      total_before: number;
+      remaining_before: number;
+      status_before: string;
+    }> | undefined;
+
+    if (!undoSnapshot || undoSnapshot.length === 0) {
+      return { error: "لا توجد بيانات تراجع لهذه العملية" };
+    }
+
+    // تحقق من عدم التراجع مسبقاً
+    if (metadata?.undo_reverted_at) {
+      return { error: "تم التراجع عن هذه العملية مسبقاً" };
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const beneficiaryIds = undoSnapshot.map((s) => s.id);
+
+      // قفل الصفوف لمنع سباق التزامن
+      await tx.$queryRaw`
+        SELECT id FROM "Beneficiary"
+        WHERE id = ANY(${beneficiaryIds}::text[]) AND "deleted_at" IS NULL
+        FOR UPDATE
+      `;
+
+      let revertedCount = 0;
+      for (const snap of undoSnapshot) {
+        await tx.beneficiary.update({
+          where: { id: snap.id },
+          data: {
+            total_balance: snap.total_before,
+            remaining_balance: snap.remaining_before,
+            status: snap.status_before as "ACTIVE" | "FINISHED" | "SUSPENDED",
+          },
+        });
+        revertedCount++;
+      }
+
+      // تحديث سجل التجديد الأصلي بعلامة التراجع
+      await tx.auditLog.update({
+        where: { id: auditLogId },
+        data: {
+          metadata: {
+            ...(metadata ?? {}),
+            undo_reverted_at: new Date().toISOString(),
+            undo_reverted_by: session.username,
+          },
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          facility_id: session.id,
+          user: session.username,
+          action: "UNDO_BULK_RENEW_BALANCE",
+          metadata: {
+            original_audit_log_id: auditLogId,
+            reverted_count: revertedCount,
+          },
+        },
+      });
+
+      return { revertedCount };
+    });
+
+    revalidatePath("/beneficiaries");
+    revalidateTag("beneficiary-counts", "max");
+    return { success: true, revertedCount: result.revertedCount };
+  } catch (error: unknown) {
+    logger.error("Undo bulk renewal error", { error: String(error) });
+    return { error: "تعذر التراجع عن التجديد الجماعي" };
   }
 }
 

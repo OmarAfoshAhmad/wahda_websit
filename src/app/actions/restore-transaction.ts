@@ -74,9 +74,10 @@ export async function deleteCancellationTransaction(cancellationId: string) {
         },
       });
 
-      // 4. Delete the cancellation transaction
-      await tx.transaction.delete({
+      // 4. SEC-FIX: إلغاء حركة الإلغاء بدل حذفها نهائياً — للحفاظ على سلسلة الأثر المالية
+      await tx.transaction.update({
         where: { id: cancellationId },
+        data: { is_cancelled: true },
       });
 
       // 5. Audit Log — مع تسجيل الرصيد قبل وبعد
