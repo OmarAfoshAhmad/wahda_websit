@@ -2,8 +2,18 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { ConfirmationModal } from "@/components/confirmation-modal";
 
 type Mode = "cancel" | "rededuct" | "mixed";
+
+type SelectedTxMeta = {
+  id: string;
+  type: string;
+  beneficiaryName: string;
+  balanceBeforeDelete: number;
+  amount: number;
+  balanceAfterDelete: number;
+};
 
 function computeMode(types: string[]): Mode {
   const hasCancellation = types.some((t) => t === "CANCELLATION");
@@ -23,6 +33,9 @@ export function BulkTransactionActionButton({
   canDelete?: boolean;
 }) {
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
+  const [selectedMeta, setSelectedMeta] = useState<SelectedTxMeta[]>([]);
+  const [isPrimaryConfirmOpen, setIsPrimaryConfirmOpen] = useState(false);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
 
   useEffect(() => {
     const collect = () => {
@@ -30,6 +43,16 @@ export function BulkTransactionActionButton({
         document.querySelectorAll<HTMLInputElement>('input[data-bulk-tx-checkbox="1"]:checked')
       );
       setSelectedTypes(checked.map((node) => node.dataset.txType ?? ""));
+      setSelectedMeta(
+        checked.map((node) => ({
+          id: node.value,
+          type: node.dataset.txType ?? "",
+          beneficiaryName: node.dataset.beneficiaryName ?? "—",
+          balanceBeforeDelete: Number(node.dataset.balanceBeforeDelete ?? "0"),
+          amount: Number(node.dataset.amount ?? "0"),
+          balanceAfterDelete: Number(node.dataset.balanceAfterDelete ?? "0"),
+        }))
+      );
     };
 
     collect();
@@ -40,6 +63,22 @@ export function BulkTransactionActionButton({
   const count = selectedTypes.length;
   const mode = useMemo(() => computeMode(selectedTypes), [selectedTypes]);
   const hasCorrectedSelected = selectedTypes.some((t) => t === "CANCELLATION");
+  const firstSelected = selectedMeta[0];
+  const totalAmount = selectedMeta.reduce((sum, tx) => sum + tx.amount, 0);
+  const totalDeductionAmount = selectedMeta.reduce((sum, tx) => sum + Math.abs(tx.amount), 0);
+  const primaryTitle = mode === "rededuct" ? "تأكيد إعادة الخصم" : "تأكيد إلغاء الخصم";
+  const primaryDescription =
+    count <= 1 && firstSelected
+      ? mode === "rededuct"
+        ? `هل تريد إعادة الخصم على ${firstSelected.beneficiaryName}؟ الرصيد قبل إعادة الخصم: ${firstSelected.balanceBeforeDelete.toLocaleString("ar-LY")} د.ل، قيمة الخصم: ${Math.abs(firstSelected.amount).toLocaleString("ar-LY")} د.ل، الرصيد بعد إعادة الخصم: ${firstSelected.balanceAfterDelete.toLocaleString("ar-LY")} د.ل.`
+        : `هل تريد إلغاء الخصم عن ${firstSelected.beneficiaryName}؟ الرصيد قبل الإلغاء: ${firstSelected.balanceBeforeDelete.toLocaleString("ar-LY")} د.ل، قيمة الخصم: ${Math.abs(firstSelected.amount).toLocaleString("ar-LY")} د.ل، الرصيد بعد الإلغاء: ${firstSelected.balanceAfterDelete.toLocaleString("ar-LY")} د.ل.`
+      : mode === "rededuct"
+        ? `هل تريد إعادة الخصم لـ ${count} حركات؟ إجمالي قيمة الخصم: ${totalDeductionAmount.toLocaleString("ar-LY")} د.ل.`
+        : `هل تريد إلغاء الخصم لـ ${count} حركات؟ إجمالي قيمة الخصم: ${totalDeductionAmount.toLocaleString("ar-LY")} د.ل وسيتم إرجاعها إلى الأرصدة.`;
+  const deleteDescription =
+    count <= 1 && firstSelected
+      ? `هل تريد حذف حركة ${firstSelected.beneficiaryName}؟ الرصيد قبل الحذف: ${firstSelected.balanceBeforeDelete.toLocaleString("ar-LY")} د.ل، قيمة الخصم: ${Math.abs(firstSelected.amount).toLocaleString("ar-LY")} د.ل، الرصيد بعد الحذف: ${firstSelected.balanceAfterDelete.toLocaleString("ar-LY")} د.ل.`
+      : `هل تريد حذف ${count} حركات؟ إجمالي الخصم المحدد: ${totalDeductionAmount.toLocaleString("ar-LY")} د.ل. سيتم إعادة قيمة كل حركة إلى رصيد صاحبها.`;
 
   const label =
     count === 0
@@ -51,6 +90,36 @@ export function BulkTransactionActionButton({
           : "اختر نوعًا واحدًا فقط";
 
   const disabled = count === 0 || mode === "mixed";
+
+  const submitWithOp = (op: "cancel_or_rededuct" | "soft_delete") => {
+    const checked = Array.from(
+      document.querySelectorAll<HTMLInputElement>('input[data-bulk-tx-checkbox="1"]:checked')
+    );
+    if (checked.length === 0) {
+      setIsPrimaryConfirmOpen(false);
+      setIsDeleteConfirmOpen(false);
+      return;
+    }
+
+    const form = checked[0].form;
+    if (!form) {
+      setIsPrimaryConfirmOpen(false);
+      setIsDeleteConfirmOpen(false);
+      return;
+    }
+
+    const hiddenSubmit = document.createElement("button");
+    hiddenSubmit.type = "submit";
+    hiddenSubmit.name = "op";
+    hiddenSubmit.value = op;
+    hiddenSubmit.style.display = "none";
+    form.appendChild(hiddenSubmit);
+    hiddenSubmit.click();
+    hiddenSubmit.remove();
+
+    setIsPrimaryConfirmOpen(false);
+    setIsDeleteConfirmOpen(false);
+  };
 
   const clearSelection = () => {
     const checked = Array.from(
@@ -103,12 +172,14 @@ export function BulkTransactionActionButton({
         <>
           {canCancel && (
             <button
-              type="submit"
-              name="op"
-              value="cancel_or_rededuct"
+              type="button"
               disabled={disabled}
               className="inline-flex h-8 items-center justify-center rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30 px-3 text-xs font-black text-amber-800 dark:text-amber-300 transition-colors hover:bg-amber-100 dark:hover:bg-amber-900/50 disabled:cursor-not-allowed disabled:opacity-50"
               title={mode === "mixed" ? "لا يمكن تنفيذ الإجراء على حركات عادية ومصححة معًا" : label}
+              onClick={() => {
+                if (disabled) return;
+                setIsPrimaryConfirmOpen(true);
+              }}
             >
               {label}
             </button>
@@ -116,12 +187,14 @@ export function BulkTransactionActionButton({
 
           {canDelete && (
             <button
-              type="submit"
-              name="op"
-              value="soft_delete"
+              type="button"
               disabled={count === 0 || hasCorrectedSelected}
               className="inline-flex h-8 items-center justify-center rounded-md border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/30 px-3 text-xs font-black text-red-700 dark:text-red-300 transition-colors hover:bg-red-100 dark:hover:bg-red-900/50 disabled:cursor-not-allowed disabled:opacity-50"
               title={hasCorrectedSelected ? "لا يمكن حذف حركة مصححة" : "حذف ناعم للحركة"}
+              onClick={() => {
+                if (count === 0 || hasCorrectedSelected) return;
+                setIsDeleteConfirmOpen(true);
+              }}
             >
               حذف حركة
             </button>
@@ -156,6 +229,28 @@ export function BulkTransactionActionButton({
           المحذوفات
         </Link>
       )}
+
+      <ConfirmationModal
+        isOpen={isPrimaryConfirmOpen}
+        onClose={() => setIsPrimaryConfirmOpen(false)}
+        onConfirm={() => submitWithOp("cancel_or_rededuct")}
+        title={primaryTitle}
+        description={primaryDescription}
+        confirmLabel="نعم"
+        cancelLabel="لا"
+        variant="warning"
+      />
+
+      <ConfirmationModal
+        isOpen={isDeleteConfirmOpen}
+        onClose={() => setIsDeleteConfirmOpen(false)}
+        onConfirm={() => submitWithOp("soft_delete")}
+        title="تأكيد حذف الحركة"
+        description={deleteDescription}
+        confirmLabel="نعم"
+        cancelLabel="لا"
+        variant="danger"
+      />
     </div>
   );
 }

@@ -590,6 +590,13 @@ export default async function TransactionsPage({
                     </tr>
                   ) : (
                     transactionRows.map((tx: TransactionRow, idx: number) => (
+                      (() => {
+                        const currentBalance = Number(tx.beneficiary.remaining_balance);
+                        const amount = Number(tx.amount);
+                        const balanceBeforeDelete = currentBalance;
+                        const balanceAfterDelete = currentBalance + amount;
+
+                        return (
                       <tr key={tx.id} className={`transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50 ${tx.is_cancelled ? "bg-red-50/50 dark:bg-red-900/10 hover:bg-red-50 dark:hover:bg-red-900/20" : ""} ${tx.type === "CANCELLATION" ? "bg-green-50/50 dark:bg-green-900/10 hover:bg-green-50 dark:hover:bg-green-900/20" : ""}`}>
                         {(session.is_admin || canCancel || canDelete) && (
                           <td className="px-4 py-4">
@@ -599,6 +606,10 @@ export default async function TransactionsPage({
                               value={tx.id}
                               data-bulk-tx-checkbox="1"
                               data-tx-type={tx.type}
+                              data-beneficiary-name={tx.beneficiary.name}
+                              data-balance-before-delete={String(balanceBeforeDelete)}
+                              data-amount={String(amount)}
+                              data-balance-after-delete={String(balanceAfterDelete)}
                               disabled={
                                 tx.is_cancelled && (tx.corrections.length > 0 || statusFilter !== "deleted")
                               }
@@ -733,6 +744,8 @@ export default async function TransactionsPage({
                           </td>
                         )}
                       </tr>
+                        );
+                      })()
                     ))
                   )}
                 </tbody>
