@@ -34,11 +34,11 @@ export function BeneficiaryResetPinButton({ beneficiaryId }: { beneficiaryId: st
         type="button"
         onClick={() => setConfirmOpen(true)}
         disabled={loading}
-        className="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-bold text-amber-700 transition hover:bg-amber-100 disabled:opacity-60"
+        className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-amber-200 bg-amber-50 text-amber-700 transition hover:bg-amber-100 disabled:opacity-60"
         title="إعادة تعيين PIN"
+        aria-label="إعادة تعيين PIN"
       >
         {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : done ? <Check className="h-3.5 w-3.5" /> : <KeyRound className="h-3.5 w-3.5" />}
-        {done ? "تم" : "Reset PIN"}
       </button>
 
       <ConfirmationModal

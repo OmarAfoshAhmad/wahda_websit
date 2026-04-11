@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition, useEffect } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button, Input } from "@/components/ui";
 import { Loader2 } from "lucide-react";
 import { updateBeneficiary } from "@/app/actions/beneficiary";
@@ -19,6 +20,9 @@ interface BeneficiaryEditModalProps {
 }
 
 export function BeneficiaryEditModal({ beneficiary }: BeneficiaryEditModalProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [name, setName] = useState(beneficiary.name);
@@ -64,6 +68,10 @@ export function BeneficiaryEditModal({ beneficiary }: BeneficiaryEditModalProps)
         }
 
         setOpen(false);
+        const params = new URLSearchParams(searchParams.toString());
+        params.set("focus_beneficiary", beneficiary.id);
+        router.replace(`${pathname}?${params.toString()}`);
+        router.refresh();
       } catch {
         setError("خطأ في الاتصال. حاول مرة أخرى.");
       }

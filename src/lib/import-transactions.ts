@@ -263,7 +263,7 @@ export async function processTransactionImport(
     let skippedAlreadyCorrect = 0;
 
     for (const { row, baseCard } of toSetBalance) {
-      const setResult = await setFamilyBalance(baseCard, row.totalBalance);
+      const setResult = await setFamilyBalance(baseCard, row.totalBalance, row.familyCount);
       if (setResult === "already_correct") {
         skippedAlreadyCorrect++;
       } else {
@@ -280,7 +280,18 @@ export async function processTransactionImport(
     const appliedRows: ImportAppliedRow[] = [];
 
     for (const { row, baseCard } of toImport) {
-      const familyResult = await importFamilyTransactions(baseCard, row.usedBalance, importFacilityId);
+      // إذا كان هناك رصيد كلي بالملف، يجب ضبط رصيد الأسرة أولاً
+      // ثم تطبيق الخصم (usedBalance) حتى لا نعتمد على أرصدة قديمة.
+      if (row.totalBalance > 0) {
+        const setResult = await setFamilyBalance(baseCard, row.totalBalance, row.familyCount);
+        if (setResult === "already_correct") {
+          skippedAlreadyCorrect++;
+        } else {
+          balanceSetFamilies++;
+        }
+      }
+
+      const familyResult = await importFamilyTransactions(baseCard, row.usedBalance, importFacilityId, row.familyCount);
       appliedRows.push(...familyResult.appliedRows);
 
       if (familyResult.mode === "updated") {
@@ -345,6 +356,7 @@ async function importFamilyTransactions(
   baseCard: string,
   totalUsedAmount: number,
   facilityId: string,
+  expectedFamilyCount?: number,
 ): Promise<{ count: number; mode: "created" | "updated"; appliedRows: ImportAppliedRow[] }> {
   let transactionCount = 0;
   const appliedRows: ImportAppliedRow[] = [];
@@ -379,11 +391,10 @@ async function importFamilyTransactions(
     });
     hasExistingImport = existingImports.length > 0;
 
-    // Distribute amount equally with remainder distribution
-    const count = familyMembers.length;
-    const baseAmount = roundCurrency(totalUsedAmount / count);
-    const totalBase = roundCurrency(baseAmount * (count - 1));
-    const lastAmount = roundCurrency(totalUsedAmount - totalBase);
+    // Distribute amount by family size from file when available.
+    // This prevents over-deducting when DB has fewer members than the file family size.
+    const divisor = Math.max(1, Number(expectedFamilyCount) || familyMembers.length);
+    const perMemberAmount = roundCurrency(totalUsedAmount / divisor);
 
     const importsByMember = new Map<string, Array<{ id: string; amount: number }>>();
     for (const imp of existingImports) {
@@ -392,7 +403,7 @@ async function importFamilyTransactions(
       importsByMember.set(imp.beneficiary_id, arr);
     }
 
-    // --- مرحلة 1: حساب الخصم الأولي لكل فرد ---
+    // --- مرحلة 1: حساب الخصم لكل فرد بالتقسيم على عدد أفراد الأسرة ---
     type MemberCalc = {
       member: typeof familyMembers[0];
       existingForMember: Array<{ id: string; amount: number }>;
@@ -404,37 +415,17 @@ async function importFamilyTransactions(
 
     for (let i = 0; i < familyMembers.length; i++) {
       const member = familyMembers[i];
-      const perMember = i === familyMembers.length - 1 ? lastAmount : baseAmount;
       const currentBalance = Number(member.remaining_balance);
       const existingForMember = importsByMember.get(member.id) ?? [];
       const previousImported = existingForMember.reduce((sum, item) => sum + Number(item.amount), 0);
       const balanceBeforeImport = roundCurrency(currentBalance + previousImported);
-      const deductAmount = roundCurrency(Math.min(perMember, balanceBeforeImport));
+      const deductAmount = roundCurrency(perMemberAmount);
       const newBalance = roundCurrency(Math.max(0, balanceBeforeImport - deductAmount));
 
       calcs.push({ member, existingForMember, balanceBeforeImport, deductAmount, newBalance });
     }
 
-    // --- مرحلة 2: تجميع الكسور < 1 دينار من غير المؤمن الأصل ---
-    // المؤمن الأصل هو أول فرد (البطاقة الأساسية بدون لاحقة)
-    let fractionsTotal = 0;
-    for (let i = 1; i < calcs.length; i++) {
-      const c = calcs[i];
-      if (c.newBalance > 0 && c.newBalance < 1) {
-        fractionsTotal = roundCurrency(fractionsTotal + c.newBalance);
-        c.deductAmount = roundCurrency(c.deductAmount + c.newBalance);
-        c.newBalance = 0;
-      }
-    }
-
-    // تخفيف الخصم من المؤمن الأصل بمقدار الكسور المجمعة
-    if (fractionsTotal > 0 && calcs.length > 0) {
-      const primary = calcs[0];
-      primary.deductAmount = roundCurrency(Math.max(0, primary.deductAmount - fractionsTotal));
-      primary.newBalance = roundCurrency(Math.max(0, primary.balanceBeforeImport - primary.deductAmount));
-    }
-
-    // --- مرحلة 3: تطبيق التغييرات ---
+    // --- مرحلة 2: تطبيق التغييرات ---
     for (const c of calcs) {
       const { member, existingForMember, balanceBeforeImport, deductAmount, newBalance } = c;
       const newStatus = newBalance <= 0 ? "FINISHED" : "ACTIVE";
@@ -554,6 +545,7 @@ async function suspendFamily(
 async function setFamilyBalance(
   baseCard: string,
   totalBalance: number,
+  expectedFamilyCount?: number,
 ): Promise<"already_correct" | { count: number }> {
   const familyMembers = await prisma.beneficiary.findMany({
     where: {
@@ -566,14 +558,12 @@ async function setFamilyBalance(
 
   if (familyMembers.length === 0) return "already_correct";
 
-  const count = familyMembers.length;
-  const perMember = roundCurrency(totalBalance / count);
-  const totalBase = roundCurrency(perMember * (count - 1));
-  const lastMemberBalance = roundCurrency(totalBalance - totalBase);
+  const divisor = Math.max(1, Number(expectedFamilyCount) || familyMembers.length);
+  const perMember = roundCurrency(totalBalance / divisor);
 
   // Check if already correct
   const alreadyCorrect = familyMembers.every((m, i) => {
-    const expected = i === count - 1 ? lastMemberBalance : perMember;
+    const expected = perMember;
     return (
       m.status === "ACTIVE" &&
       Number(m.total_balance) === expected &&
@@ -597,7 +587,7 @@ async function setFamilyBalance(
     // توزيع الرصيد وإعادة التفعيل
     for (let i = 0; i < familyMembers.length; i++) {
       const member = familyMembers[i];
-      const balance = i === count - 1 ? lastMemberBalance : perMember;
+      const balance = perMember;
       await tx.beneficiary.update({
         where: { id: member.id },
         data: {

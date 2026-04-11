@@ -15,7 +15,7 @@ export type AddTransactionState = {
 export type EditTransactionInput = {
   id: string;
   amount: number;
-  type: "MEDICINE" | "SUPPLIES";
+  type: "MEDICINE" | "SUPPLIES" | "IMPORT";
   transactionDate: string;
   facilityId?: string;
 };
@@ -89,23 +89,21 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
     return { error: "قيمة المبلغ غير صالحة" };
   }
 
-  const parsedDate = new Date(input.transactionDate);
+  const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(input.transactionDate);
+  const parsedDate = isDateOnly
+    ? new Date(`${input.transactionDate}T12:00:00`)
+    : new Date(input.transactionDate);
   if (Number.isNaN(parsedDate.getTime())) {
+    return { error: "تاريخ الحركة غير صالح" };
+  }
+
+  const minAllowedDate = new Date("1900-01-01T00:00:00");
+  if (parsedDate.getTime() < minAllowedDate.getTime()) {
     return { error: "تاريخ الحركة غير صالح" };
   }
 
   if (parsedDate.getTime() > Date.now() + 60_000) {
     return { error: "لا يمكن تحديد تاريخ حركة في المستقبل" };
-  }
-
-  const targetFacilityId = session.is_admin && input.facilityId ? input.facilityId : session.id;
-  const facility = await prisma.facility.findFirst({
-    where: { id: targetFacilityId, deleted_at: null },
-    select: { id: true },
-  });
-
-  if (!facility) {
-    return { error: "المرفق المحدد غير موجود" };
   }
 
   try {
@@ -139,6 +137,30 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
 
       if (transaction.type === "CANCELLATION") {
         throw new Error("لا يمكن تعديل حركة مصححة مباشرة");
+      }
+
+      // مالك الحركة يبقى كما هو، ولا يتحول إلى مرفق المعدّل.
+      const targetFacilityId = input.facilityId?.trim() || transaction.facility_id || null;
+      if (!targetFacilityId) {
+        throw new Error("المرفق المحدد غير موجود");
+      }
+
+      const facility = await tx.facility.findFirst({
+        where: { id: targetFacilityId, deleted_at: null },
+        select: { id: true },
+      });
+
+      if (!facility) {
+        throw new Error("المرفق المحدد غير موجود");
+      }
+
+      // غير المشرف لا يغير مصدر الحركة ولا يعدّل حركات خارج مرفقه.
+      if (!session.is_admin && transaction.facility_id !== session.id) {
+        throw new Error("غير مصرح لك بتعديل حركة خارج مرفقك");
+      }
+
+      if (!session.is_admin && targetFacilityId !== transaction.facility_id) {
+        throw new Error("غير مصرح لك بتغيير مرفق الحركة");
       }
 
       const locked = await tx.$queryRaw<Array<{ id: string; remaining_balance: number; status: string }>>`

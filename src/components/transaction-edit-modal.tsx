@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button, Input } from "@/components/ui";
 import { Loader2 } from "lucide-react";
 import { updateTransactionEntry } from "@/app/actions/transaction";
-import { DateTimeInput } from "@/components/date-input";
 
 type FacilityOption = {
   id: string;
@@ -22,6 +21,14 @@ type TransactionView = {
   is_cancelled: boolean;
 };
 
+type EditableTransactionType = "MEDICINE" | "SUPPLIES";
+
+function toMovementType(txType: string): EditableTransactionType {
+  // الجلب يكون من "نوع الحركة" لا "المصدر":
+  // IMPORT و MEDICINE كلاهما = أدوية صرف عام.
+  return txType === "SUPPLIES" ? "SUPPLIES" : "MEDICINE";
+}
+
 export function TransactionEditModal({
   transaction,
   facilities,
@@ -34,31 +41,41 @@ export function TransactionEditModal({
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [error, setError] = useState<string | null>(null);
 
-  const [nowLocal] = useState(() =>
+  const [todayLocal] = useState(() =>
     new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
       .toISOString()
-      .slice(0, 16)
+      .slice(0, 10)
   );
   const defaultDate = useMemo(() => {
     const parsed = new Date(transaction.created_at);
-    if (Number.isNaN(parsed.getTime())) return nowLocal;
+    if (Number.isNaN(parsed.getTime())) return todayLocal;
     return new Date(parsed.getTime() - parsed.getTimezoneOffset() * 60000)
       .toISOString()
-      .slice(0, 16);
-  }, [transaction.created_at, nowLocal]);
+      .slice(0, 10);
+  }, [transaction.created_at, todayLocal]);
 
   const defaultFacilityId =
     transaction.facility_id ?? facilities.find((f) => f.name === transaction.facility_name)?.id ?? facilities[0]?.id ?? "";
   const defaultFacilityName = facilities.find((f) => f.id === defaultFacilityId)?.name ?? transaction.facility_name;
 
   const [amount, setAmount] = useState(String(transaction.amount));
-  const [type, setType] = useState<"MEDICINE" | "SUPPLIES">(
-    transaction.type === "MEDICINE" ? "MEDICINE" : "SUPPLIES"
-  );
+  const [type, setType] = useState<EditableTransactionType>(toMovementType(transaction.type));
   const [transactionDate, setTransactionDate] = useState(defaultDate);
   const [facilityQuery, setFacilityQuery] = useState(defaultFacilityName);
+
+  useEffect(() => {
+    if (!open) return;
+    // إعادة مزامنة القيم عند كل فتح للنافذة حتى تظهر بيانات الحركة الحالية دائمًا.
+    setAmount(String(transaction.amount));
+    setType(toMovementType(transaction.type));
+    setTransactionDate(defaultDate);
+    setFacilityQuery(defaultFacilityName);
+    setError(null);
+  }, [open, transaction.amount, transaction.type, defaultDate, defaultFacilityName]);
 
   useEffect(() => {
     if (!open) return;
@@ -76,7 +93,7 @@ export function TransactionEditModal({
     startTransition(async () => {
       const resolvedFacilityId = facilities.find(
         (f) => f.name === facilityQuery.trim() || f.id === facilityQuery.trim()
-      )?.id;
+      )?.id ?? transaction.facility_id;
 
       if (!resolvedFacilityId) {
         setError("الرجاء اختيار مرفق صحيح من القائمة");
@@ -98,6 +115,9 @@ export function TransactionEditModal({
       }
 
       setOpen(false);
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("focus_tx", transaction.id);
+      router.replace(`${pathname}?${params.toString()}`);
       router.refresh();
     });
   };
@@ -155,7 +175,7 @@ export function TransactionEditModal({
                 <label className="mb-1 block text-xs font-black text-slate-500 dark:text-slate-400">نوع الحركة</label>
                 <select
                   value={type}
-                  onChange={(e) => setType(e.target.value as "MEDICINE" | "SUPPLIES")}
+                  onChange={(e) => setType(e.target.value as EditableTransactionType)}
                   className="flex h-10 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-200"
                 >
                   <option value="SUPPLIES">كشف عام</option>
@@ -164,8 +184,15 @@ export function TransactionEditModal({
               </div>
 
               <div>
-                <label className="mb-1 block text-xs font-black text-slate-500 dark:text-slate-400">تاريخ ووقت الحركة</label>
-                <DateTimeInput value={transactionDate} onChange={setTransactionDate} max={nowLocal} />
+                <label className="mb-1 block text-xs font-black text-slate-500 dark:text-slate-400">تاريخ الحركة</label>
+                <input
+                  type="date"
+                  value={transactionDate}
+                  onChange={(e) => setTransactionDate(e.target.value)}
+                  min="1900-01-01"
+                  max={todayLocal}
+                  className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                />
               </div>
 
               {error && <p className="text-sm font-bold text-red-600 dark:text-red-400">{error}</p>}

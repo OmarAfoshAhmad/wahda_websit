@@ -46,13 +46,13 @@ const getCachedStatusCounts = unstable_cache(
 export default async function BeneficiariesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; page?: string; pageSize?: string; view?: string; sort?: string; order?: string; status?: string; completed_via?: string }>;
+  searchParams: Promise<{ q?: string; page?: string; pageSize?: string; view?: string; sort?: string; order?: string; status?: string; completed_via?: string; focus_beneficiary?: string }>;
 }) {
   const session = await getSession();
   if (!session) redirect("/login");
   if (!canAccessAdmin(session)) redirect("/dashboard");
 
-  const { q, page: pageParam, pageSize: pageSizeParam, view, sort, order, status, completed_via: completedViaParam } = await searchParams;
+  const { q, page: pageParam, pageSize: pageSizeParam, view, sort, order, status, completed_via: completedViaParam, focus_beneficiary } = await searchParams;
   const query = (q?.trim() ?? "").slice(0, 100);
   const isDeletedView = view === "deleted";
 
@@ -118,7 +118,7 @@ export default async function BeneficiariesPage({
     }
     : baseFilter;
 
-  const [rawBeneficiaries, filteredCount, statusCounts] = await Promise.all([
+  const [rawBeneficiaries, filteredCount, statusCounts, focusedBeneficiary] = await Promise.all([
     prisma.beneficiary.findMany({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       where: where as any,
@@ -130,13 +130,24 @@ export default async function BeneficiariesPage({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     prisma.beneficiary.count({ where: where as any }),
     getCachedStatusCounts(),
+    focus_beneficiary
+      ? prisma.beneficiary.findFirst({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        where: { ...(where as any), id: focus_beneficiary },
+        include: { _count: { select: { transactions: { where: { is_cancelled: false } } } } },
+      })
+      : Promise.resolve(null),
   ]);
 
-  const beneficiaryIds = rawBeneficiaries.map((b) => b.id);
+  const orderedRawBeneficiaries = focusedBeneficiary
+    ? [focusedBeneficiary, ...rawBeneficiaries.filter((b) => b.id !== focusedBeneficiary.id)].slice(0, PAGE_SIZE)
+    : rawBeneficiaries;
+
+  const beneficiaryIds = orderedRawBeneficiaries.map((b) => b.id);
   const remainingById = await getLedgerRemainingByBeneficiaryIds(beneficiaryIds);
 
   // تحويل Decimal إلى Number لتجنب أخطاء التسلسل
-  const beneficiaries = rawBeneficiaries.map((b) => ({
+  const beneficiaries = orderedRawBeneficiaries.map((b) => ({
     ...b,
     total_balance: Number(b.total_balance),
     remaining_balance: remainingById.get(b.id) ?? 0,

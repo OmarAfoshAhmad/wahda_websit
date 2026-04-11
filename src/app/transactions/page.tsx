@@ -45,15 +45,35 @@ type TransactionRow = {
   };
 };
 
+function getMovementTypeLabel(txType: string): string {
+  if (txType === "CANCELLATION") return "—";
+  // الاستيراد المجمع يُعامل كأدوية صرف عام من ناحية نوع الحركة.
+  if (txType === "MEDICINE" || txType === "IMPORT") return "ادوية صرف عام";
+  return "كشف عام";
+}
+
+function getSourceLabel(txType: string): string {
+  if (txType === "CANCELLATION") return "—";
+  return txType === "IMPORT" ? "استيراد" : "يدوي";
+}
+
+function getTransactionStatusLabel(tx: TransactionRow): string {
+  if (tx.is_cancelled) {
+    return tx.corrections.length > 0 ? "ملغاة" : "محذوفة";
+  }
+  if (tx.type === "CANCELLATION") return "حركة مصححة";
+  return "منفذة";
+}
+
 export default async function TransactionsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ start_date?: string; end_date?: string; facility_id?: string; page?: string; pageSize?: string; q?: string; sort?: string; order?: string; status?: string; source?: string }>;
+  searchParams: Promise<{ start_date?: string; end_date?: string; facility_id?: string; page?: string; pageSize?: string; q?: string; sort?: string; order?: string; status?: string; source?: string; focus_tx?: string }>;
 }) {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const { start_date, end_date, facility_id, page: pageParam, pageSize: pageSizeParam, q, sort, order, status, source } = await searchParams;
+  const { start_date, end_date, facility_id, page: pageParam, pageSize: pageSizeParam, q, sort, order, status, source, focus_tx } = await searchParams;
   const allowedPageSizes = [10, 25, 50, 100, 200];
   const requestedPageSize = parseInt(pageSizeParam ?? "10", 10);
   const PAGE_SIZE = allowedPageSizes.includes(requestedPageSize) ? requestedPageSize : 10;
@@ -200,7 +220,7 @@ export default async function TransactionsPage({
     }
   }
 
-  const [transactions, totalCount] = await Promise.all([
+  const [transactions, totalCount, focusedTransaction] = await Promise.all([
     prisma.transaction.findMany({
       where,
       orderBy: txOrderByMap[sortCol],
@@ -226,9 +246,36 @@ export default async function TransactionsPage({
       take: PAGE_SIZE,
     }),
     prisma.transaction.count({ where }),
+    focus_tx
+      ? prisma.transaction.findFirst({
+        where: { ...where, id: focus_tx },
+        select: {
+          id: true,
+          beneficiary_id: true,
+          amount: true,
+          type: true,
+          is_cancelled: true,
+          created_at: true,
+          corrections: {
+            where: { type: "CANCELLATION", is_cancelled: false },
+            select: { id: true, amount: true, is_cancelled: true },
+            take: 1,
+          },
+          original_transaction: {
+            select: { id: true, amount: true, is_cancelled: true },
+          },
+          beneficiary: { select: { name: true, card_number: true, remaining_balance: true } },
+          facility: { select: { id: true, name: true } },
+        },
+      })
+      : Promise.resolve(null),
   ]);
 
-  const transactionRows = transactions as TransactionRow[];
+  const transactionRowsBase = transactions as TransactionRow[];
+  const focusedRow = focusedTransaction as TransactionRow | null;
+  const transactionRows = focusedRow
+    ? [focusedRow, ...transactionRowsBase.filter((tx) => tx.id !== focusedRow.id)].slice(0, PAGE_SIZE)
+    : transactionRowsBase;
   const displayedBeneficiaryIds = [...new Set(transactionRows.map((tx) => tx.beneficiary_id))];
   const maxDisplayedCreatedAt = transactionRows.reduce<Date | null>((acc, tx) => {
     if (!acc || tx.created_at > acc) return tx.created_at;
@@ -511,6 +558,8 @@ export default async function TransactionsPage({
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-base font-black text-slate-900 dark:text-white">{tx.beneficiary.name}</p>
                     <p className="mt-0.5 text-xs font-medium text-slate-400 dark:text-slate-500">بطاقة: {tx.beneficiary.card_number}</p>
+                    <p className="mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">نوع الحركة: {getMovementTypeLabel(tx.type)}</p>
+                    <p className="mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">الحالة: {getTransactionStatusLabel(tx)}</p>
                     {session.is_admin && (
                       <p className="mt-1 text-xs font-bold text-primary dark:text-blue-400">{tx.facility.name}</p>
                     )}
@@ -561,7 +610,7 @@ export default async function TransactionsPage({
                         </Link>
                       </th>
                     )}
-                    <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500">النوع</th>
+                    <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500">نوع الحركة</th>
                     <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 text-right">
                       <Link href={txSortHref("amount")} className="inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
                         القيمة المخصومة {sortCol === "amount" ? (sortDir === "asc" ? "↑" : "↓") : ""}
@@ -632,17 +681,9 @@ export default async function TransactionsPage({
                           </td>
                         )}
                         <td className="px-6 py-4">
-                          {tx.type === "CANCELLATION" ? (
-                            <Badge variant="success">إلغاء حركة</Badge>
-                          ) : tx.type === "IMPORT" ? (
-                            <Badge variant={session.is_admin ? "default" : "default"}>
-                              {session.is_admin ? "استيراد" : "ادوية صرف عام"}
-                            </Badge>
-                          ) : (
-                            <Badge variant={tx.type === "MEDICINE" ? "default" : "warning"}>
-                              {tx.type === "MEDICINE" ? "ادوية صرف عام" : "كشف عام"}
-                            </Badge>
-                          )}
+                          <span className="font-bold text-slate-700 dark:text-slate-300 text-xs text-nowrap">
+                            {getMovementTypeLabel(tx.type)}
+                          </span>
                         </td>
                         <td className="px-6 py-4 text-right">
                           {(() => {
@@ -704,25 +745,21 @@ export default async function TransactionsPage({
                         <td className="px-6 py-4 text-center">
                           {tx.is_cancelled ? (
                             tx.corrections.length > 0 ? (
-                              <span className="font-bold text-red-600 dark:text-red-400 text-xs text-nowrap">ملغاة</span>
+                              <span className="font-bold text-red-600 dark:text-red-400 text-xs text-nowrap">{getTransactionStatusLabel(tx)}</span>
                             ) : (
-                              <span className="font-bold text-slate-500 dark:text-slate-400 text-xs text-nowrap">محذوفة</span>
+                              <span className="font-bold text-slate-500 dark:text-slate-400 text-xs text-nowrap">{getTransactionStatusLabel(tx)}</span>
                             )
                           ) : tx.type === "CANCELLATION" ? (
-                            <span className="font-bold text-green-600 dark:text-green-400 text-xs text-nowrap">حركة مصححة</span>
+                            <span className="font-bold text-green-600 dark:text-green-400 text-xs text-nowrap">{getTransactionStatusLabel(tx)}</span>
                           ) : (
-                            <span className="font-bold text-slate-500 dark:text-slate-400 text-xs text-nowrap">منفذة</span>
+                            <span className="font-bold text-slate-500 dark:text-slate-400 text-xs text-nowrap">{getTransactionStatusLabel(tx)}</span>
                           )}
                         </td>
                         {session.is_admin && (
                           <td className="px-6 py-4 text-center">
-                            {tx.type === "IMPORT" ? (
-                              <span className="font-bold text-violet-600 dark:text-violet-400 text-xs text-nowrap">استيراد</span>
-                            ) : tx.type === "CANCELLATION" ? (
-                              <span className="font-bold text-slate-400 dark:text-slate-500 text-xs text-nowrap">—</span>
-                            ) : (
-                              <span className="font-bold text-sky-600 dark:text-sky-400 text-xs text-nowrap">يدوي</span>
-                            )}
+                            <span className="font-bold text-slate-600 dark:text-slate-300 text-xs text-nowrap">
+                              {getSourceLabel(tx.type)}
+                            </span>
                           </td>
                         )}
                         {(session.is_admin || canCorrect) && (
