@@ -86,6 +86,7 @@ function toSnapshot(job: {
   updated_admins: number;
   added_beneficiaries: number;
   updated_beneficiaries: number;
+  removed_beneficiaries: number;
   added_transactions: number;
   skipped_transactions: number;
   added_audit_logs: number;
@@ -924,9 +925,7 @@ async function recalcBalancesAfterRestore() {
         completed_via:
           correctStatus === "FINISHED"
             ? (ben.completed_via ?? "IMPORT")
-            : correctStatus !== "FINISHED"
-              ? null
-              : undefined,
+            : null,
       },
     });
   }
