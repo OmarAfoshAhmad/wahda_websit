@@ -4,6 +4,7 @@ import { requireActiveFacilitySession } from "@/lib/session-guard";
 import { checkRateLimit } from "@/lib/rate-limit";
 import prisma from "@/lib/prisma";
 import { logger } from "@/lib/logger";
+import { formatDateTripoli, formatTimeTripoli } from "@/lib/datetime";
 
 type SkippedImportRowReport = {
   rowNumber: number | null;
@@ -85,9 +86,9 @@ export async function GET(request: NextRequest) {
     summarySheet.addRow({ label: "معرّف المهمة", value: job.id });
     summarySheet.addRow({ label: "المنفذ", value: job.created_by });
     summarySheet.addRow({ label: "الحالة", value: job.status === "COMPLETED" ? "مكتملة" : job.status });
-    summarySheet.addRow({ label: "تاريخ الاستيراد", value: created.toLocaleDateString("en-GB") });
-    summarySheet.addRow({ label: "وقت الاستيراد", value: created.toLocaleTimeString("ar-LY") });
-    summarySheet.addRow({ label: "وقت الانتهاء", value: completed ? completed.toLocaleTimeString("ar-LY") : "-" });
+    summarySheet.addRow({ label: "تاريخ الاستيراد", value: formatDateTripoli(created, "en-GB") });
+    summarySheet.addRow({ label: "وقت الاستيراد", value: formatTimeTripoli(created, "ar-LY") });
+    summarySheet.addRow({ label: "وقت الانتهاء", value: completed ? formatTimeTripoli(completed, "ar-LY") : "-" });
     summarySheet.addRow({ label: "إجمالي الصفوف", value: job.total_rows ?? 0 });
     summarySheet.addRow({ label: "تمت إضافتهم", value: job.inserted_rows ?? 0 });
     summarySheet.addRow({ label: "مكررون / متخطون", value: job.duplicate_rows ?? 0 });
@@ -117,7 +118,7 @@ export async function GET(request: NextRequest) {
         card_number: row.card_number ?? "-",
         name: row.name ?? "-",
         birth_date: row.birth_date
-          ? new Date(row.birth_date).toLocaleDateString("en-GB")
+          ? formatDateTripoli(row.birth_date, "en-GB")
           : "-",
         reason: reasonLabel,
       });

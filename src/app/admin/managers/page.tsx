@@ -7,6 +7,7 @@ import { ManagerCreateForm } from "@/components/manager-create-form";
 import { ManagerPermissionsModal } from "@/components/manager-permissions-modal";
 import { ManagerDeleteButton } from "@/components/manager-delete-button";
 import type { ManagerPermissions } from "@/lib/auth";
+import { formatDateTripoli } from "@/lib/datetime";
 
 const PERMISSION_LABELS: Record<keyof ManagerPermissions, string> = {
   import_beneficiaries: "استيراد مستفيدين",
@@ -198,7 +199,7 @@ export default async function ManagersPage() {
 
                       {/* تاريخ الإنشاء */}
                       <p className="mt-3 text-xs text-slate-400 dark:text-slate-600 text-end">
-                        أُنشئ في {new Date(mgr.created_at).toLocaleDateString("en-GB")}
+                        أُنشئ في {formatDateTripoli(mgr.created_at, "en-GB")}
                       </p>
                     </div>
                   );

@@ -13,6 +13,7 @@ import { FacilityDeleteButton } from "@/components/facility-delete-button";
 import { FacilityImportUploader } from "@/components/facility-import-uploader";
 import { PaginationButtons } from "@/components/pagination-buttons";
 import { PrintButton } from "@/components/print-button";
+import { formatDateTripoli } from "@/lib/datetime";
 
 const PAGE_SIZE = 8;
 
@@ -123,7 +124,7 @@ export default async function FacilitiesPage({
           <img src="/logo.png" alt="Waha Health Care" className="h-16 w-auto object-contain mb-3" />
           <h1 className="text-xl font-black text-black">Waha Health Care</h1>
           <h2 className="text-lg font-bold text-black mt-1">تقرير المرافق الصحية المسجلة</h2>
-          <p className="text-sm text-black mt-1 opacity-75">تاريخ استخراج التقرير: {new Date().toLocaleDateString("en-GB")}</p>
+          <p className="text-sm text-black mt-1 opacity-75">تاريخ استخراج التقرير: {formatDateTripoli(new Date(), "en-GB")}</p>
         </div>
 
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 print:hidden">

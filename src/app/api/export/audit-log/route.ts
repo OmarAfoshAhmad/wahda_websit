@@ -4,6 +4,7 @@ import { requireActiveFacilitySession } from "@/lib/session-guard";
 import { checkRateLimit } from "@/lib/rate-limit";
 import prisma from "@/lib/prisma";
 import { logger } from "@/lib/logger";
+import { formatDateTripoli, formatTimeTripoli } from "@/lib/datetime";
 
 type TargetFilter = "all" | "beneficiaries" | "transactions" | "facilities";
 
@@ -102,9 +103,23 @@ function actionLabel(action: string) {
   }
 }
 
+function getMetadataValue(
+  metadata: Record<string, unknown>,
+  ...keys: string[]
+): unknown {
+  for (const key of keys) {
+    if (metadata[key] !== undefined && metadata[key] !== null && metadata[key] !== "") {
+      return metadata[key];
+    }
+  }
+  return "-";
+}
+
 function summarizeMetadata(action: string, metadata: unknown): string {
   if (!metadata || typeof metadata !== "object") return "-";
   const m = metadata as Record<string, unknown>;
+  const balanceBefore = getMetadataValue(m, "balance_before", "balanceBefore", "before_balance");
+  const balanceAfter = getMetadataValue(m, "balance_after", "balanceAfter", "after_balance");
 
   if (action === "CREATE_BENEFICIARY" || action === "UPDATE_BENEFICIARY") {
     return `بطاقة: ${String(m.card_number ?? "-")}`;
@@ -115,7 +130,7 @@ function summarizeMetadata(action: string, metadata: unknown): string {
   }
 
   if (action === "DEDUCT_BALANCE") {
-    return `بطاقة: ${String(m.card_number ?? "-")} · مبلغ: ${String(m.amount ?? "-")} · قبل: ${String(m.balance_before ?? "-")} · بعد: ${String(m.balance_after ?? "-")}`;
+    return `بطاقة: ${String(m.card_number ?? "-")} · مبلغ: ${String(m.amount ?? "-")} · قبل: ${String(balanceBefore)} · بعد: ${String(balanceAfter)}`;
   }
 
   if (action === "IMPORT_BENEFICIARIES_BACKGROUND") {
@@ -123,19 +138,19 @@ function summarizeMetadata(action: string, metadata: unknown): string {
   }
 
   if (action === "CANCEL_TRANSACTION") {
-    return `حركة: ${String(m.original_transaction_id ?? "-")} · مبلغ مرتجع: ${String(m.refunded_amount ?? "-")} · قبل: ${String(m.balance_before ?? "-")} · بعد: ${String(m.balance_after ?? "-")}`;
+    return `حركة: ${String(m.original_transaction_id ?? "-")} · مبلغ مرتجع: ${String(m.refunded_amount ?? "-")} · قبل: ${String(balanceBefore)} · بعد: ${String(balanceAfter)}`;
   }
 
   if (action === "REVERT_CANCELLATION") {
-    return `إلغاء: ${String(m.cancellation_transaction_id ?? "-")} · حركة أصلية: ${String(m.original_transaction_id ?? "-")} · قبل: ${String(m.balance_before ?? "-")} · بعد: ${String(m.balance_after ?? "-")}`;
+    return `إلغاء: ${String(m.cancellation_transaction_id ?? "-")} · حركة أصلية: ${String(m.original_transaction_id ?? "-")} · قبل: ${String(balanceBefore)} · بعد: ${String(balanceAfter)}`;
   }
 
   if (action === "SOFT_DELETE_TRANSACTION") {
-    return `حركة: ${String(m.transaction_id ?? "-")} · مبلغ مرتجع: ${String(m.refunded_amount ?? "-")} · قبل: ${String(m.balance_before ?? "-")} · بعد: ${String(m.balance_after ?? "-")}`;
+    return `حركة: ${String(m.transaction_id ?? "-")} · مبلغ مرتجع: ${String(m.refunded_amount ?? "-")} · قبل: ${String(balanceBefore)} · بعد: ${String(balanceAfter)}`;
   }
 
   if (action === "RESTORE_SOFT_DELETED_TRANSACTION") {
-    return `حركة: ${String(m.transaction_id ?? "-")} · مبلغ مخصوم: ${String(m.deducted_amount ?? "-")} · قبل: ${String(m.balance_before ?? "-")} · بعد: ${String(m.balance_after ?? "-")}`;
+    return `حركة: ${String(m.transaction_id ?? "-")} · مبلغ مخصوم: ${String(m.deducted_amount ?? "-")} · قبل: ${String(balanceBefore)} · بعد: ${String(balanceAfter)}`;
   }
 
   if (action === "PERMANENT_DELETE_TRANSACTION") {
@@ -275,8 +290,8 @@ export async function GET(request: NextRequest) {
         action: actionLabel(row.action),
         user: row.user,
         details: summarizeMetadata(row.action, row.metadata),
-        date: created.toLocaleDateString("en-GB"),
-        time: created.toLocaleTimeString("en-GB"),
+        date: formatDateTripoli(created, "en-GB"),
+        time: formatTimeTripoli(created, "en-GB"),
         id: row.id,
       });
     });
@@ -285,8 +300,8 @@ export async function GET(request: NextRequest) {
       const created = new Date(row.created_at);
       return getImportAppliedRows(row.action, row.metadata).map((detail) => ({
         user: row.user,
-        date: created.toLocaleDateString("en-GB"),
-        time: created.toLocaleTimeString("en-GB"),
+        date: formatDateTripoli(created, "en-GB"),
+        time: formatTimeTripoli(created, "en-GB"),
         ...detail,
       }));
     });

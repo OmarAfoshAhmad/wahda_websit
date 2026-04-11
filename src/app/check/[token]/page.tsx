@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { verifyBeneficiaryToken } from "@/lib/beneficiary-token";
 import { getLedgerRemainingByBeneficiaryId } from "@/lib/ledger-balance";
+import { formatDateTripoli } from "@/lib/datetime";
 import { Wallet, CalendarDays, ShieldX } from "lucide-react";
 
 const TYPE_LABELS: Record<string, string> = {
@@ -88,7 +89,7 @@ export default async function CheckTokenPage({
               {beneficiary.birth_date && (
                 <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-400">
                   <CalendarDays className="h-3.5 w-3.5" />
-                  {new Date(beneficiary.birth_date).toLocaleDateString("en-GB")}
+                  {formatDateTripoli(beneficiary.birth_date, "en-GB")}
                 </p>
               )}
             </div>
@@ -138,7 +139,7 @@ export default async function CheckTokenPage({
                       {TYPE_LABELS[tx.type] ?? tx.type}
                     </p>
                     <p className="mt-0.5 text-xs text-slate-400">
-                      {tx.facility.name} · {new Date(tx.created_at).toLocaleDateString("en-GB")}
+                      {tx.facility.name} · {formatDateTripoli(tx.created_at, "en-GB")}
                     </p>
                   </div>
                   <span className="font-black text-red-600">

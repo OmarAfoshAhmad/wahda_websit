@@ -6,6 +6,7 @@ import { getSession } from "@/lib/auth";
 import { getLedgerRemainingByBeneficiaryIds } from "@/lib/ledger-balance";
 import { canAccessAdmin, hasPermission } from "@/lib/session-guard";
 import { getArabicSearchTerms } from "@/lib/search";
+import { formatDateTripoli } from "@/lib/datetime";
 import { Shell } from "@/components/shell";
 import { Card, Badge } from "@/components/ui";
 import { BeneficiariesSearch } from "@/components/beneficiaries-search";
@@ -446,7 +447,7 @@ export default async function BeneficiariesPage({
                         <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-400">
                           <span className="inline-flex items-center gap-2">
                             <CalendarDays className="h-4 w-4 text-slate-400 dark:text-slate-500" />
-                            {beneficiary.birth_date ? new Date(beneficiary.birth_date).toLocaleDateString("en-GB") : "غير مسجل"}
+                            {beneficiary.birth_date ? formatDateTripoli(beneficiary.birth_date, "en-GB") : "غير مسجل"}
                           </span>
                         </td>
                         {!isDeletedView && (
@@ -474,7 +475,7 @@ export default async function BeneficiariesPage({
                         )}
                         {isDeletedView && (
                           <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">
-                            {beneficiary.deleted_at ? new Date(beneficiary.deleted_at).toLocaleDateString("en-GB") : "—"}
+                            {beneficiary.deleted_at ? formatDateTripoli(beneficiary.deleted_at, "en-GB") : "—"}
                           </td>
                         )}
                         {(canEdit || canDelete || canManageRecycleBin || session.is_admin) && (

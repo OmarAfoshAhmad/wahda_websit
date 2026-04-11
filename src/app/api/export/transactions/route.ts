@@ -5,6 +5,7 @@ import prisma from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { logger } from "@/lib/logger";
 import { getArabicSearchTerms } from "@/lib/search";
+import { formatDateTripoli, formatTimeTripoli } from "@/lib/datetime";
 import ExcelJS from "exceljs";
 
 export async function GET(request: NextRequest) {
@@ -99,8 +100,8 @@ export async function GET(request: NextRequest) {
         amount: Number(tx.amount),
         remaining_balance: Number(tx.beneficiary.remaining_balance),
         type: tx.type === "MEDICINE" ? "ادوية صرف عام" : "كشف عام",
-        date: new Date(tx.created_at).toLocaleDateString("en-GB"), // dd/mm/yyyy
-        time: new Date(tx.created_at).toLocaleTimeString("en-GB"),
+        date: formatDateTripoli(tx.created_at, "en-GB"), // dd/mm/yyyy
+        time: formatTimeTripoli(tx.created_at, "en-GB"),
         ...(session.is_admin ? { facility_name: tx.facility.name } : {}),
       });
     });

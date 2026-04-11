@@ -15,6 +15,7 @@ import { SelectAllTransactionsCheckbox } from "@/components/select-all-transacti
 import { TransactionEditModal } from "../../components/transaction-edit-modal";
 import Link from "next/link";
 import { FileInput, PlusCircle } from "lucide-react";
+import { formatDateTripoli, formatTimeTripoli } from "@/lib/datetime";
 
 type TransactionRow = {
   id: string;
@@ -320,7 +321,7 @@ export default async function TransactionsPage({
           <img src="/logo.png" alt="Waha Health Care" className="h-16 w-auto object-contain mb-2" />
           <h1 className="text-xl font-black text-black">Waha Health Care</h1>
           <h2 className="text-lg font-bold text-black mt-1">سجل الحركات (المراجعة الطبية)</h2>
-          <p className="text-sm text-black mt-1 opacity-75">تاريخ استخراج التقرير: {new Date().toLocaleDateString("en-GB")}</p>
+          <p className="text-sm text-black mt-1 opacity-75">تاريخ استخراج التقرير: {formatDateTripoli(new Date(), "en-GB")}</p>
           {session.is_admin && resolvedFacilityId && <p className="text-sm font-bold mt-1 text-black">خاص بالمرفق: {selectedFacility?.name}</p>}
         </div>
 
@@ -494,9 +495,9 @@ export default async function TransactionsPage({
                 {/* رأس الكارد */}
                 <div className="flex items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50 dark:bg-slate-800/30 px-4 py-2.5">
                   <span className="text-xs text-slate-500 dark:text-slate-400">
-                    {new Date(tx.created_at).toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" })}
+                    {new Date(tx.created_at).toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "Africa/Tripoli" })}
                     {" · "}
-                    {new Date(tx.created_at).toLocaleTimeString("ar-LY", { hour: "2-digit", minute: "2-digit" })}
+                    {formatTimeTripoli(tx.created_at, "ar-LY")}
                   </span>
                   <div className="flex items-center gap-2">
                     <Badge variant={tx.type === "MEDICINE" || tx.type === "IMPORT" ? "default" : "warning"}>
@@ -700,7 +701,7 @@ export default async function TransactionsPage({
                           <span className="mr-3 text-[10px] text-slate-400 dark:text-slate-500">د.ل</span>
                         </td>
                         <td className="px-6 py-4 text-right">
-                          <p className="text-sm text-slate-900 dark:text-slate-300">{new Date(tx.created_at).toLocaleDateString("en-GB")}</p>
+                          <p className="text-sm text-slate-900 dark:text-slate-300">{formatDateTripoli(tx.created_at, "en-GB")}</p>
                         </td>
                         <td className="px-6 py-4 text-center">
                           {tx.is_cancelled ? (

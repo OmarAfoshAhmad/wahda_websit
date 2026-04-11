@@ -8,6 +8,7 @@ import { getSession } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { Activity, Download } from "lucide-react";
 import { AuditLogClearButton } from "../../../components/audit-log-clear-button";
+import { formatDateTimeTripoli } from "@/lib/datetime";
 
 type TargetFilter = "all" | "beneficiaries" | "transactions" | "facilities" | "completed";
 
@@ -96,9 +97,23 @@ function actionLabel(action: string) {
   }
 }
 
+function getMetadataValue(
+  metadata: Record<string, unknown>,
+  ...keys: string[]
+): unknown {
+  for (const key of keys) {
+    if (metadata[key] !== undefined && metadata[key] !== null && metadata[key] !== "") {
+      return metadata[key];
+    }
+  }
+  return "-";
+}
+
 function summarizeMetadata(action: string, metadata: unknown, auditLogId?: string): React.ReactNode {
   if (!metadata || typeof metadata !== "object") return "-";
   const m = metadata as Record<string, unknown>;
+  const balanceBefore = getMetadataValue(m, "balance_before", "balanceBefore", "before_balance");
+  const balanceAfter = getMetadataValue(m, "balance_after", "balanceAfter", "after_balance");
 
   if (action === "CREATE_BENEFICIARY") {
     return (
@@ -139,8 +154,8 @@ function summarizeMetadata(action: string, metadata: unknown, auditLogId?: strin
         {name && <span className="font-bold text-slate-800 dark:text-slate-200">{name}</span>}
         <span className="text-slate-500 dark:text-slate-400">بطاقة: {String(m.card_number ?? "-")}</span>
         <span className="text-slate-500 dark:text-slate-400">مبلغ: {String(m.amount ?? "-")} د.ل</span>
-        <span className="text-slate-500 dark:text-slate-400">قبل: {String(m.balance_before ?? "-")} د.ل</span>
-        <span className="text-slate-500 dark:text-slate-400">بعد: {String(m.balance_after ?? "-")} د.ل</span>
+        <span className="text-slate-500 dark:text-slate-400">قبل: {String(balanceBefore)} د.ل</span>
+        <span className="text-slate-500 dark:text-slate-400">بعد: {String(balanceAfter)} د.ل</span>
         <span className="text-xs text-slate-400 dark:text-slate-500">({String(m.type === "MEDICINE" ? "دواء" : m.type === "SUPPLIES" ? "مستلزمات" : String(m.type ?? "-"))})</span>
         {completed && (
           <span className="inline-flex items-center rounded-md border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/30 px-1.5 py-0.5 text-xs font-bold text-emerald-700 dark:text-emerald-400">
@@ -177,8 +192,8 @@ function summarizeMetadata(action: string, metadata: unknown, auditLogId?: strin
       <span className="text-slate-500 dark:text-slate-400">
         مبلغ مرتجع: <strong className="text-slate-700 dark:text-slate-300">{String(m.refunded_amount ?? "-")} د.ل</strong>
         {m.card_number ? <span className="mr-1.5">· بطاقة: {String(m.card_number)}</span> : null}
-        <span className="mr-1.5">· قبل: {String(m.balance_before ?? "-")} د.ل</span>
-        <span className="mr-1.5">· بعد: {String(m.balance_after ?? "-")} د.ل</span>
+        <span className="mr-1.5">· قبل: {String(balanceBefore)} د.ل</span>
+        <span className="mr-1.5">· بعد: {String(balanceAfter)} د.ل</span>
       </span>
     );
   }
@@ -188,8 +203,8 @@ function summarizeMetadata(action: string, metadata: unknown, auditLogId?: strin
       <span className="text-slate-500 dark:text-slate-400">
         {m.card_number ? <span>بطاقة: {String(m.card_number)} · </span> : null}
         <span>إلغاء الإلغاء</span>
-        <span className="mr-1.5">· قبل: {String(m.balance_before ?? "-")} د.ل</span>
-        <span className="mr-1.5">· بعد: {String(m.balance_after ?? "-")} د.ل</span>
+        <span className="mr-1.5">· قبل: {String(balanceBefore)} د.ل</span>
+        <span className="mr-1.5">· بعد: {String(balanceAfter)} د.ل</span>
       </span>
     );
   }
@@ -198,8 +213,8 @@ function summarizeMetadata(action: string, metadata: unknown, auditLogId?: strin
     return (
       <span className="text-slate-500 dark:text-slate-400">
         مبلغ مرتجع: <strong className="text-slate-700 dark:text-slate-300">{String(m.refunded_amount ?? "-")} د.ل</strong>
-        <span className="mr-1.5">· قبل: {String(m.balance_before ?? "-")} د.ل</span>
-        <span className="mr-1.5">· بعد: {String(m.balance_after ?? "-")} د.ل</span>
+        <span className="mr-1.5">· قبل: {String(balanceBefore)} د.ل</span>
+        <span className="mr-1.5">· بعد: {String(balanceAfter)} د.ل</span>
       </span>
     );
   }
@@ -208,8 +223,8 @@ function summarizeMetadata(action: string, metadata: unknown, auditLogId?: strin
     return (
       <span className="text-slate-500 dark:text-slate-400">
         مبلغ مخصوم: <strong className="text-slate-700 dark:text-slate-300">{String(m.deducted_amount ?? "-")} د.ل</strong>
-        <span className="mr-1.5">· قبل: {String(m.balance_before ?? "-")} د.ل</span>
-        <span className="mr-1.5">· بعد: {String(m.balance_after ?? "-")} د.ل</span>
+        <span className="mr-1.5">· قبل: {String(balanceBefore)} د.ل</span>
+        <span className="mr-1.5">· بعد: {String(balanceAfter)} د.ل</span>
       </span>
     );
   }
@@ -487,7 +502,7 @@ export default async function AuditLogPage({
                         <td className="px-5 py-3 text-sm font-bold text-slate-800 dark:text-slate-200">{row.user}</td>
                         <td className="px-5 py-3 text-sm text-slate-600 dark:text-slate-400">{summarizeMetadata(row.action, row.metadata, row.id)}</td>
                         <td className="px-5 py-3 text-sm text-slate-500 dark:text-slate-400">
-                          {new Date(row.created_at).toLocaleString("ar-LY", {
+                          {formatDateTimeTripoli(row.created_at, "ar-LY", {
                             dateStyle: "medium",
                             timeStyle: "short",
                           })}
@@ -508,7 +523,7 @@ export default async function AuditLogPage({
                       {actionLabel(row.action)}
                     </span>
                     <span className="text-xs text-slate-400 dark:text-slate-500 shrink-0">
-                      {new Date(row.created_at).toLocaleString("ar-LY", {
+                      {formatDateTimeTripoli(row.created_at, "ar-LY", {
                         dateStyle: "short",
                         timeStyle: "short",
                       })}

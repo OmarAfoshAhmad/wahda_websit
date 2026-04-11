@@ -4,6 +4,7 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import prisma from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import ExcelJS from "exceljs";
+import { formatDateTripoli } from "@/lib/datetime";
 
 export async function GET() {
   const session = await requireActiveFacilitySession();
@@ -56,7 +57,7 @@ export async function GET() {
         username: f.username,
         role: f.is_admin ? "المبرمج" : "مرفق",
         transactions: f._count.transactions,
-        created_at: new Date(f.created_at).toLocaleDateString("en-GB"),
+         created_at: formatDateTripoli(f.created_at, "en-GB"),
       });
     });
 
