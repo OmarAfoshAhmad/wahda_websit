@@ -360,12 +360,13 @@ export default async function BeneficiariesPage({
                   {statusFilter === "FINISHED" && !isDeletedView
                     ? "حدد المستفيدين المكتملين ثم اضغط تجديد الرصيد لإعادة تفعيلهم."
                     : isDeletedView
-                    ? "يمكنك تحديد أكثر من مستفيد محذوف ثم تنفيذ الحذف النهائي الجماعي للسجلات القابلة."
+                    ? "يمكنك تحديد أكثر من مستفيد محذوف ثم تنفيذ الاستعادة الجماعية أو الحذف النهائي للسجلات القابلة."
                     : "يمكنك تحديد أكثر من مستفيد ثم تنفيذ الحذف الناعم الجماعي."}
                 </p>
                 <div className="flex items-center gap-2">
                   {statusFilter === "FINISHED" && !isDeletedView && session.is_admin && <BulkRenewalButton formId="beneficiaries-bulk-form" />}
                   {isDeletedView && canManageRecycleBin && <EmptyRecycleBinButton disabled={deletedCount === 0} />}
+                  {isDeletedView && canManageRecycleBin && <BeneficiariesBulkActionButton formId="beneficiaries-bulk-form" mode="restore" />}
                   <BeneficiariesBulkActionButton formId="beneficiaries-bulk-form" mode={isDeletedView ? "permanent" : "soft"} />
                 </div>
               </div>
@@ -431,8 +432,8 @@ export default async function BeneficiariesPage({
                               type="checkbox"
                               name="ids"
                               value={beneficiary.id}
-                              disabled={statusFilter !== "FINISHED" && beneficiary._count.transactions > 0}
-                              title={statusFilter !== "FINISHED" && beneficiary._count.transactions > 0 ? "لا يمكن تنفيذ هذا الإجراء على مستفيد لديه حركات مالية" : "تحديد المستفيد"}
+                              disabled={!isDeletedView && statusFilter !== "FINISHED" && beneficiary._count.transactions > 0}
+                              title={!isDeletedView && statusFilter !== "FINISHED" && beneficiary._count.transactions > 0 ? "لا يمكن تنفيذ هذا الإجراء على مستفيد لديه حركات مالية" : "تحديد المستفيد"}
                               className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-40"
                             />
                           </td>

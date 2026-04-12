@@ -53,6 +53,7 @@ export function BeneficiaryRestoreActions({ id, name, hasTransactions }: Props) 
     <>
       {/* زر استرجاع */}
       <button
+        type="button"
         onClick={() => { setModal("restore"); setError(null); }}
         className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 text-emerald-600 transition-colors hover:bg-emerald-100"
         title="استرجاع المستفيد"
@@ -62,6 +63,7 @@ export function BeneficiaryRestoreActions({ id, name, hasTransactions }: Props) 
 
       {/* زر حذف نهائي */}
       <button
+        type="button"
         onClick={() => { if (!hasTransactions) { setModal("delete"); setError(null); } }}
         disabled={hasTransactions}
         className={
@@ -82,10 +84,10 @@ export function BeneficiaryRestoreActions({ id, name, hasTransactions }: Props) 
         >
           <Card className="w-full max-w-sm p-6">
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-base font-black text-slate-900">
+              <h2 className="text-base font-black text-slate-900 dark:text-white">
                 {modal === "restore" ? "استرجاع المستفيد" : "حذف نهائي"}
               </h2>
-              <button onClick={() => setModal(null)} className="rounded-md p-1 text-slate-400 hover:text-slate-700">
+              <button type="button" onClick={() => setModal(null)} className="rounded-md p-1 text-slate-400 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-200">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -97,10 +99,10 @@ export function BeneficiaryRestoreActions({ id, name, hasTransactions }: Props) 
               </div>
             )}
 
-            <p className="mb-1.5 text-sm text-slate-600">
+            <p className="mb-1.5 text-sm text-slate-600 dark:text-slate-300">
               {modal === "restore" ? "هل تريد استرجاع المستفيد:" : "هل أنت متأكد من الحذف النهائي للمستفيد:"}
             </p>
-            <p className="mb-5 font-bold text-slate-900">{name}</p>
+            <p className="mb-5 font-bold text-slate-900 dark:text-slate-100">{name}</p>
 
             {error && (
               <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-700">

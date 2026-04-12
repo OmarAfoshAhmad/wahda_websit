@@ -13,7 +13,7 @@ set -euo pipefail
 # ---- Configuration ----
 DB_CONTAINER="${DB_CONTAINER:-waadapp-db}"
 DB_USER="${DB_USER:-wahda_user}"
-DB_NAME="${DB_NAME:-wahda_websit}"
+DB_NAME="${DB_NAME:-wahda_db}"
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/wahda_db}"
 KEEP_DAYS="${KEEP_DAYS:-30}"
 LOG_FILE="${BACKUP_DIR}/backup.log"

@@ -788,6 +788,69 @@ export async function bulkPermanentDeleteBeneficiaries(formData: FormData) {
   }
 }
 
+export async function bulkRestoreBeneficiaries(formData: FormData) {
+  const session = await requireActiveFacilitySession();
+  if (!session || !hasPermission(session, "manage_recycle_bin")) {
+    return { error: "غير مصرح بهذه العملية" };
+  }
+
+  const ids = [...new Set(
+    formData
+      .getAll("ids")
+      .map((value) => String(value))
+      .filter((value) => value.length > 0)
+  )];
+
+  if (ids.length === 0) {
+    return { error: "لم يتم تحديد أي مستفيد" };
+  }
+
+  try {
+    const beneficiaries = await prisma.beneficiary.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, deleted_at: true },
+    });
+
+    const restorableIds = beneficiaries
+      .filter((b) => b.deleted_at !== null)
+      .map((b) => b.id);
+
+    const skippedCount = beneficiaries.length - restorableIds.length;
+
+    if (restorableIds.length === 0) {
+      return { error: "لا توجد سجلات قابلة للاستعادة ضمن المحدد" };
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.beneficiary.updateMany({
+        where: { id: { in: restorableIds } },
+        data: { deleted_at: null },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          facility_id: session.id,
+          user: session.username,
+          action: "BULK_RESTORE_BENEFICIARY",
+          metadata: {
+            selected_count: ids.length,
+            restored_count: restorableIds.length,
+            skipped_count: skippedCount,
+            beneficiary_ids: restorableIds,
+          },
+        },
+      });
+    });
+
+    revalidatePath("/beneficiaries");
+    revalidateTag("beneficiary-counts", "max");
+    return { success: true, restoredCount: restorableIds.length, skippedCount };
+  } catch (error: unknown) {
+    logger.error("Bulk restore beneficiaries error", { error: String(error) });
+    return { error: "تعذر تنفيذ الاستعادة الجماعية" };
+  }
+}
+
 export async function bulkRenewBalance(formData: FormData) {
   const session = await requireActiveFacilitySession();
   if (!session || !session.is_admin) {
@@ -1428,41 +1491,89 @@ export async function mergeNeedsReviewBatchAction(formData: FormData) {
     return { error: "لا توجد مجموعات محددة للمعالجة" };
   }
 
+  const MAX_BATCH_GROUPS = 20;
+  const limitedPayloads = payloads.slice(0, MAX_BATCH_GROUPS);
+  const truncatedCount = Math.max(0, payloads.length - limitedPayloads.length);
+
+  let processedGroups = 0;
   let mergedGroups = 0;
   let mergedRows = 0;
+  let skippedGroups = 0;
+  let failedGroups = 0;
   let firstAuditId: string | null = null;
+  const seenBeneficiaryIds = new Set<string>();
+  const issueNotes: string[] = [];
 
-  for (const payload of payloads) {
+  for (let index = 0; index < limitedPayloads.length; index += 1) {
+    const payload = limitedPayloads[index];
     try {
       const parsed = JSON.parse(payload) as { keepId?: string; memberIds?: string[] };
       const keepId = String(parsed.keepId ?? "").trim();
       const memberIds = [...new Set((parsed.memberIds ?? []).map((x) => String(x).trim()).filter(Boolean))];
-      if (!keepId || memberIds.length <= 1) continue;
+
+      if (!keepId) {
+        skippedGroups += 1;
+        issueNotes.push(`المجموعة ${index + 1}: لا يوجد keepId صالح`);
+        continue;
+      }
+
+      const allMemberIds = [...new Set([keepId, ...memberIds])];
+      if (allMemberIds.length <= 1) {
+        skippedGroups += 1;
+        issueNotes.push(`المجموعة ${index + 1}: عدد الأعضاء غير كافٍ`);
+        continue;
+      }
+
+      const overlappingIds = allMemberIds.filter((id) => seenBeneficiaryIds.has(id));
+      if (overlappingIds.length > 0) {
+        skippedGroups += 1;
+        issueNotes.push(`المجموعة ${index + 1}: تداخل مع مجموعة سابقة`);
+        continue;
+      }
+
+      processedGroups += 1;
 
       const result = await mergeDuplicateBeneficiaries(keepId, {
         forceKeep: true,
-        explicitMergeIds: memberIds.filter((id) => id !== keepId),
-        candidateIds: memberIds,
+        explicitMergeIds: allMemberIds.filter((id) => id !== keepId),
+        candidateIds: allMemberIds,
         strategy: "ZERO_PRIORITY",
       });
 
       if (!result.error) {
         mergedGroups += 1;
         mergedRows += Number(result.mergedCount ?? 0);
+        allMemberIds.forEach((id) => seenBeneficiaryIds.add(id));
         if (!firstAuditId && (result as { mergeAuditId?: string }).mergeAuditId) {
           firstAuditId = (result as { mergeAuditId?: string }).mergeAuditId ?? null;
         }
+      } else {
+        failedGroups += 1;
+        issueNotes.push(`المجموعة ${index + 1}: ${result.error}`);
       }
     } catch {
+      failedGroups += 1;
+      issueNotes.push(`المجموعة ${index + 1}: payload غير صالح`);
       continue;
     }
   }
 
   if (mergedGroups === 0) {
-    return { error: "لم يتم دمج أي مجموعة بهذه الدفعة" };
+    const details = `المعالجة: ${processedGroups}، تخطي: ${skippedGroups}، فشل: ${failedGroups}`;
+    const firstIssue = issueNotes[0] ? ` — ${issueNotes[0]}` : "";
+    return { error: `لم يتم دمج أي مجموعة بهذه الدفعة (${details})${firstIssue}` };
   }
 
-  return { success: true, mergedGroups, mergedRows, firstAuditId };
+  return {
+    success: true,
+    processedGroups,
+    mergedGroups,
+    mergedRows,
+    skippedGroups,
+    failedGroups,
+    truncatedCount,
+    firstAuditId,
+  };
 }
 
 export async function mergeAllGlobalZeroVariantsAction() {
@@ -1533,13 +1644,18 @@ export async function mergeDuplicateBatchByConditionAction(formData: FormData) {
     return { error: "لا توجد مجموعات محددة للدمج الجماعي" };
   }
 
+  const MAX_BATCH_GROUPS = 20;
+  const limitedPayloads = groupPayloads.slice(0, MAX_BATCH_GROUPS);
+  const limitedCanonicalCards = canonicalCards.slice(0, MAX_BATCH_GROUPS);
+  const truncatedCount = Math.max(0, (groupPayloads.length + canonicalCards.length) - (limitedPayloads.length + limitedCanonicalCards.length));
+
   let mergedGroups = 0;
   let mergedRows = 0;
   let batchTotalRows = 0;
   let firstAuditId: string | null = null;
 
   // Process payloads (precise IDs)
-  for (const payloadRaw of groupPayloads) {
+  for (const payloadRaw of limitedPayloads) {
     try {
       const { keepId, memberIds } = JSON.parse(payloadRaw) as { keepId: string; memberIds: string[] };
       const res = await mergeDuplicateBeneficiaries(keepId, {
@@ -1558,7 +1674,7 @@ export async function mergeDuplicateBatchByConditionAction(formData: FormData) {
   }
 
   // Fallback to canonical re-discovery
-  for (const canonical of canonicalCards) {
+  for (const canonical of limitedCanonicalCards) {
     const fd = new FormData();
     fd.set("canonical_card", canonical);
     fd.set("strategy", strategy);
@@ -1580,6 +1696,7 @@ export async function mergeDuplicateBatchByConditionAction(formData: FormData) {
     mergedGroups,
     mergedRows,
     batchTotalRows,
+    truncatedCount,
     firstAuditId,
   };
 }

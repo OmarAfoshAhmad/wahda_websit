@@ -92,15 +92,20 @@ export default async function DuplicatesAdminPage({
     params.set("pn", pn);
     params.set("tab", tab);
 
-    const res = await mergeDuplicateBatchByConditionAction(formData);
-    if (res?.error) {
-      params.set("err", res.error);
-    } else {
-      params.set("ok", "success_batch");
-      if (res?.mergedGroups) params.set("merged", String(res.mergedGroups));
-      if (res?.batchTotalRows) params.set("before", String(res.batchTotalRows));
-      if (res?.mergedRows) params.set("after", String(res.batchTotalRows - res.mergedRows));
-      if (res?.firstAuditId) params.set("audit", res.firstAuditId);
+    try {
+      const res = await mergeDuplicateBatchByConditionAction(formData);
+      if (res?.error) {
+        params.set("err", res.error);
+      } else {
+        const truncatedCount = Number(res?.truncatedCount ?? 0);
+        params.set("ok", truncatedCount > 0 ? `success_batch_limited_${truncatedCount}` : "success_batch");
+        if (res?.mergedGroups) params.set("merged", String(res.mergedGroups));
+        if (res?.batchTotalRows) params.set("before", String(res.batchTotalRows));
+        if (res?.mergedRows) params.set("after", String(res.batchTotalRows - res.mergedRows));
+        if (res?.firstAuditId) params.set("audit", res.firstAuditId);
+      }
+    } catch {
+      params.set("err", "تعذر معالجة الدفعة حالياً. تم تقليل حجم الدفعة؛ أعد المحاولة.");
     }
     redirect(`/admin/duplicates?${params.toString()}`);
   }
@@ -126,13 +131,27 @@ export default async function DuplicatesAdminPage({
     params.set("pn", pn);
     params.set("tab", "audit");
 
-    const result = await mergeNeedsReviewBatchAction(formData);
-    if (result.error) {
-      params.set("err", result.error);
-      redirect(`/admin/duplicates?${params.toString()}`);
-    }
+    try {
+      const result = await mergeNeedsReviewBatchAction(formData);
+      if (result.error) {
+        params.set("err", result.error);
+        redirect(`/admin/duplicates?${params.toString()}`);
+      }
 
-    params.set("ok", `تمت معالجة ${result.mergedGroups ?? 0} مجموعة (${result.mergedRows ?? 0} سجلات)`);
+      const processedGroups = result.processedGroups ?? result.mergedGroups ?? 0;
+      const mergedGroups = result.mergedGroups ?? 0;
+      const mergedRows = result.mergedRows ?? 0;
+      const skippedGroups = result.skippedGroups ?? 0;
+      const failedGroups = result.failedGroups ?? 0;
+      const truncatedCount = result.truncatedCount ?? 0;
+      const truncatedSuffix = truncatedCount > 0 ? `، والمتبقي ${truncatedCount} مجموعة للدفعة التالية` : "";
+      params.set(
+        "ok",
+        `تمت معالجة ${processedGroups} مجموعة: نجح ${mergedGroups}، تخطى ${skippedGroups}، فشل ${failedGroups} (${mergedRows} سجلات)${truncatedSuffix}`
+      );
+    } catch {
+      params.set("err", "تعذر معالجة دفعة المراجعة حالياً. أعد المحاولة بدفعة أصغر.");
+    }
     redirect(`/admin/duplicates?${params.toString()}`);
   }
 
@@ -171,10 +190,13 @@ export default async function DuplicatesAdminPage({
   if (!session.is_admin) redirect("/dashboard");
 
   const { q, pz, pn, pr, ok, err, audit: _audit, undone: _undone, tab, merged, before, after } = await searchParams;
+  const isBatchSuccess = (ok ?? "").startsWith("success_batch");
+  const limitedMatch = /^success_batch_limited_(\d+)$/.exec(ok ?? "");
+  const limitedRemaining = limitedMatch ? Number(limitedMatch[1]) : 0;
   const activeTab = tab === "merged" || tab === "audit" ? tab : "review";
   const pageZero = Number.parseInt(pz ?? "1", 10) || 1;
   const pageName = Number.parseInt(pn ?? "1", 10) || 1;
-  const pageSize = 50;
+  const pageSize = 20;
 
   // High-performance lean fetch: only fields needed for grouping
   const rows = await prisma.beneficiary.findMany({
@@ -429,11 +451,11 @@ export default async function DuplicatesAdminPage({
                 )}
                 <div>
                   <p className={`text-sm font-bold ${err ? "text-red-700 dark:text-red-400" : "text-emerald-700 dark:text-emerald-400"}`}>
-                    {ok === "success_batch" ? "تم دمج الدفعة بنجاح" : (err ?? ok)}
+                    {isBatchSuccess ? "تم دمج الدفعة بنجاح" : (err ?? ok)}
                   </p>
-                  {ok === "success_batch" && (
+                  {isBatchSuccess && (
                     <p className="text-xs text-emerald-700 dark:text-emerald-400 mt-0.5">
-                      تم دمج ✨ {merged || "0"} مجموعة. الإحصائيات: {before || "؟"} سجل قبل الدمج ← {after || "؟"} سجل بعد الدمج.
+                      تم دمج ✨ {merged || "0"} مجموعة. الإحصائيات: {before || "؟"} سجل قبل الدمج ← {after || "؟"} سجل بعد الدمج{limitedRemaining > 0 ? `، والمتبقي ${limitedRemaining} مجموعة` : ""}.
                     </p>
                   )}
                 </div>

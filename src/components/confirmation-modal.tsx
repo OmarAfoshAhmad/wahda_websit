@@ -42,9 +42,9 @@ export function ConfirmationModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6 animate-in fade-in zoom-in duration-200">
-        <h3 className="text-lg font-bold text-slate-900 mb-2">{title}</h3>
-        <p className="text-slate-600 mb-4 text-sm leading-relaxed">
+      <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-lg animate-in fade-in zoom-in duration-200 dark:bg-slate-900 dark:ring-1 dark:ring-slate-700">
+        <h3 className="mb-2 text-lg font-bold text-slate-900 dark:text-slate-100">{title}</h3>
+        <p className="mb-4 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
           {description}
         </p>
         
@@ -56,14 +56,16 @@ export function ConfirmationModal({
 
         <div className="flex justify-end gap-3">
           <button
+            type="button"
             onClick={onClose}
             disabled={isLoading}
-            className="px-4 py-2 text-sm font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors disabled:opacity-50"
+            className="rounded-md bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-200 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
           >
             {cancelLabel}
           </button>
           
           <button
+            type="button"
             onClick={onConfirm}
             disabled={isLoading}
             className={`px-4 py-2 text-sm font-semibold text-white rounded-md transition-colors flex items-center gap-2 disabled:opacity-50 ${
