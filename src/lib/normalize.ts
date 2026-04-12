@@ -4,6 +4,8 @@
  * القاعدة الذهبية: أي كود يلمس اسماً أو رقم بطاقة يجب أن يستورد من هنا فقط.
  */
 
+import { normalizeCardInput } from "@/lib/card-number";
+
 /**
  * تطبيع اسم الشخص: حذف المسافات الزائدة + تحويل لأحرف كبيرة.
  * ضروري: يجب أن تكون كل الأسماء في قاعدة البيانات على هذا الشكل.
@@ -16,7 +18,7 @@ export function normalizePersonName(value: string): string {
  * تطبيع رقم البطاقة: حذف الفراغات + تحويل لأحرف كبيرة.
  */
 export function normalizeCardNumber(value: string): string {
-  return value.trim().toUpperCase();
+  return normalizeCardInput(value);
 }
 
 /**

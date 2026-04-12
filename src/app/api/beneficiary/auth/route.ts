@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { beneficiaryLogin } from "@/lib/beneficiary-auth";
 import bcrypt from "bcryptjs";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { normalizeCardInput } from "@/lib/card-number";
 
 const MAX_ATTEMPTS = 5;
 const LOCK_MINUTES = 10;
@@ -10,7 +11,7 @@ const GENERIC_AUTH_ERROR = "بيانات الدخول غير صحيحة";
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
-  const card_number = typeof body?.card_number === "string" ? body.card_number.trim().toUpperCase() : "";
+  const card_number = typeof body?.card_number === "string" ? normalizeCardInput(body.card_number) : "";
   const pin = typeof body?.pin === "string" ? body.pin.trim() : "";
 
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";

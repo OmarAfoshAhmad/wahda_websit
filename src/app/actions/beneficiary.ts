@@ -9,9 +9,10 @@ import { getLedgerRemainingByBeneficiaryId, getLedgerRemainingByBeneficiaryIds }
 import { revalidatePath, revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
 import { normalizePersonName } from "@/lib/normalize";
+import { normalizeCardInput } from "@/lib/card-number";
 
 function normalizeCardNumber(value: string) {
-  return value.trim().toUpperCase();
+  return normalizeCardInput(value);
 }
 
 function canonicalizeCardNumber(value: string) {

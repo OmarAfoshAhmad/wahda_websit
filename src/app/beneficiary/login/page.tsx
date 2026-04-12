@@ -3,6 +3,7 @@
 import { useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, ShieldAlert, CreditCard, Eye, EyeOff } from "lucide-react";
+import { normalizeCardInput } from "@/lib/card-number";
 
 type Step = "card" | "pin";
 
@@ -32,7 +33,7 @@ export default function BeneficiaryLoginPage() {
   const handleCardSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    const trimmed = cardNumber.trim().toUpperCase();
+    const trimmed = normalizeCardInput(cardNumber);
     if (!trimmed) return;
 
     setLoading(true);
@@ -90,11 +91,12 @@ export default function BeneficiaryLoginPage() {
   const submitPin = useCallback(async (fullPin: string) => {
     setLoading(true);
     setError("");
+    const normalizedCard = normalizeCardInput(cardNumber);
     try {
       const res = await fetch("/api/beneficiary/auth", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ card_number: cardNumber.trim().toUpperCase(), pin: fullPin }),
+        body: JSON.stringify({ card_number: normalizedCard, pin: fullPin }),
       });
       const data = await res.json();
 

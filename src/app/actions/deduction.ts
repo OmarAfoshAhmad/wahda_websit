@@ -8,6 +8,7 @@ import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard
 import { logger } from "@/lib/logger";
 import { emitNotification } from "@/lib/sse-notifications";
 import { formatCurrency, roundCurrency } from "@/lib/money";
+import { normalizeCardInput } from "@/lib/card-number";
 
 export async function deductBalance(formData: {
   card_number: string;
@@ -46,7 +47,12 @@ export async function deductBalance(formData: {
   const rateLimitError = await checkRateLimit(`deduct:${session.id}`, "deduct");
   if (rateLimitError) return { error: rateLimitError };
 
-  const validated = deductionSchema.safeParse(formData);
+  const normalizedCard = normalizeCardInput(formData.card_number ?? "");
+
+  const validated = deductionSchema.safeParse({
+    ...formData,
+    card_number: normalizedCard,
+  });
   if (!validated.success) {
     return { error: validated.error.issues[0].message };
   }

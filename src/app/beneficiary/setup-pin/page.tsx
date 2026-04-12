@@ -4,6 +4,7 @@ import { useRef, useState, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, ShieldAlert, ShieldCheck, Eye, EyeOff } from "lucide-react";
 import { Suspense } from "react";
+import { normalizeCardInput } from "@/lib/card-number";
 
 function SetupPinForm() {
   const router = useRouter();
@@ -71,7 +72,7 @@ function SetupPinForm() {
       const res = await fetch("/api/beneficiary/setup-pin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ card_number: cardNumber, pin: firstFull, confirm_pin: fullConfirm }),
+        body: JSON.stringify({ card_number: normalizeCardInput(cardNumber), pin: firstFull, confirm_pin: fullConfirm }),
       });
       const data = await res.json();
       if (data.status === "ok") {
