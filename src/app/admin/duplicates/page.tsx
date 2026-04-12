@@ -434,6 +434,12 @@ export default async function DuplicatesAdminPage({
   const totalDebtAmount = debtCases.reduce((sum, row) => sum + row.debtorDebtAmount, 0);
   const totalDebtDistributed = debtCases.reduce((sum, row) => sum + row.plannedDistributed, 0);
   const debtSettledCount = debtCases.filter((row) => row.isSettled).length;
+  const globalDuplicateTotal =
+    zeroVariantGroups.length +
+    sameNameGroups.length +
+    needsReviewZeroVariants.length +
+    importDuplicateCases.length +
+    debtCases.length;
   const debtExportBeforeHref = "/api/admin/duplicates/debt-over-limit/export?mode=before";
   const debtExportAfterHref = `/api/admin/duplicates/debt-over-limit/export?mode=after${debtAudit ? `&auditId=${encodeURIComponent(debtAudit)}` : ""}`;
 
@@ -533,6 +539,33 @@ export default async function DuplicatesAdminPage({
             </Link>
           </div>
         </Card>
+
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
+          <Card className="p-4">
+            <p className="text-xs font-bold text-slate-500 dark:text-slate-400">جاهزة للدمج</p>
+            <p className="mt-1 text-2xl font-black text-slate-900 dark:text-white">{zeroVariantGroups.length}</p>
+          </Card>
+          <Card className="p-4">
+            <p className="text-xs font-bold text-slate-500 dark:text-slate-400">نفس الاسم (تدقيق)</p>
+            <p className="mt-1 text-2xl font-black text-slate-900 dark:text-white">{sameNameGroups.length}</p>
+          </Card>
+          <Card className="p-4">
+            <p className="text-xs font-bold text-slate-500 dark:text-slate-400">اختلاف الأصفار (تدقيق)</p>
+            <p className="mt-1 text-2xl font-black text-amber-600 dark:text-amber-400">{needsReviewZeroVariants.length}</p>
+          </Card>
+          <Card className="p-4">
+            <p className="text-xs font-bold text-slate-500 dark:text-slate-400">تكرار IMPORT</p>
+            <p className="mt-1 text-2xl font-black text-slate-900 dark:text-white">{importDuplicateCases.length}</p>
+          </Card>
+          <Card className="p-4">
+            <p className="text-xs font-bold text-slate-500 dark:text-slate-400">مديونية تجاوز الرصيد</p>
+            <p className="mt-1 text-2xl font-black text-slate-900 dark:text-white">{debtCases.length}</p>
+          </Card>
+          <Card className="p-4 border-sky-200 dark:border-sky-800 bg-sky-50/40 dark:bg-sky-950/20">
+            <p className="text-xs font-bold text-sky-700 dark:text-sky-300">إجمالي حالات التكرارات</p>
+            <p className="mt-1 text-2xl font-black text-sky-800 dark:text-sky-200">{globalDuplicateTotal}</p>
+          </Card>
+        </div>
 
         {activeTab === "merged" && (
           <Card className="overflow-hidden">
@@ -963,6 +996,28 @@ export default async function DuplicatesAdminPage({
                 </p>
               </div>
               <div className="space-y-3 p-4 sm:p-6">
+                {reviewPage.items.length > 0 && (
+                  <form action={mergeAuditBatchAction} className="rounded-md border border-amber-200 dark:border-amber-800 p-3 bg-amber-50/30 dark:bg-amber-950/10">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-xs text-slate-700 dark:text-slate-300">معالجة جماعية لحالات اختلاف الأصفار في الصفحة الحالية</p>
+                      <div className="flex items-center gap-2">
+                        <input type="hidden" name="q" value={q ?? ""} />
+                        <input type="hidden" name="pz" value={String(reviewPage.page)} />
+                        <input type="hidden" name="pn" value={String(namePage.page)} />
+                        {reviewPage.items.map((g) => (
+                          <input
+                            key={`review-batch-${g.canonical}`}
+                            type="hidden"
+                            name="group_payload"
+                            value={JSON.stringify({ keepId: g.preferredId, memberIds: g.members.map((m) => m.id) })}
+                          />
+                        ))}
+                        <Button type="submit" className="h-9 text-xs">معالجة جماعية</Button>
+                      </div>
+                    </div>
+                  </form>
+                )}
+
                 {needsReviewZeroVariants.length === 0 ? (
                   <p className="text-sm text-slate-500 dark:text-slate-400">لا توجد حالات مطابقة.</p>
                 ) : (
@@ -973,6 +1028,20 @@ export default async function DuplicatesAdminPage({
                           <Badge variant="warning">{group.members.length} سجلات — أسماء مختلفة</Badge>
                           <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{group.canonical}</span>
                         </div>
+                        <form action={mergeAuditGroupAction}>
+                          {group.members.map((m) => (
+                            <input key={`review-member-${group.canonical}-${m.id}`} type="hidden" name="member_ids" value={m.id} />
+                          ))}
+                          {group.members.map((m) => (
+                            <input
+                              key={`review-action-${group.canonical}-${m.id}`}
+                              type="hidden"
+                              name={`action_${m.id}`}
+                              value={m.id === group.preferredId ? m.id : group.preferredId}
+                            />
+                          ))}
+                          <Button type="submit" variant="outline" className="h-8 text-xs">معالجة فردية</Button>
+                        </form>
                       </div>
 
                       <DuplicateManualMergeForm
