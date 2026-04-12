@@ -16,6 +16,8 @@ import {
   mergeAllGlobalZeroVariantsAction,
 } from "@/app/actions/beneficiary";
 import { buildDuplicateGroups, paginate } from "@/lib/duplicate-groups";
+import { getActiveImportDuplicateCases } from "@/lib/import-duplicate-cases";
+import { getOverdrawnDebtCases } from "@/lib/overdrawn-debt-settlement";
 import { RotateCcw, CheckCircle2, AlertCircle } from "lucide-react";
 import { DuplicateManualMergeForm } from "@/components/duplicate-manual-merge-form";
 import { DuplicateSameNameGroup } from "@/components/duplicate-same-name-group";
@@ -28,7 +30,7 @@ export default async function DuplicatesAdminPage({
   searchParams: Promise<{
     q?: string; pz?: string; pn?: string; pr?: string; ok?: string; err?: string;
     audit?: string; undone?: string; tab?: string;
-    merged?: string; before?: string; after?: string;
+    merged?: string; before?: string; after?: string; debtAudit?: string;
   }>;
 }) {
   async function mergeGroupAction(formData: FormData) {
@@ -196,11 +198,11 @@ export default async function DuplicatesAdminPage({
   if (!session) redirect("/login");
   if (!session.is_admin) redirect("/dashboard");
 
-  const { q, pz, pn, pr, ok, err, audit: _audit, undone: _undone, tab, merged, before, after } = await searchParams;
+  const { q, pz, pn, pr, ok, err, audit: _audit, undone: _undone, tab, merged, before, after, debtAudit } = await searchParams;
   const isBatchSuccess = (ok ?? "").startsWith("success_batch");
   const limitedMatch = /^success_batch_limited_(\d+)$/.exec(ok ?? "");
   const limitedRemaining = limitedMatch ? Number(limitedMatch[1]) : 0;
-  const activeTab = tab === "merged" || tab === "audit" ? tab : "review";
+  const activeTab = tab === "merged" || tab === "audit" || tab === "import" || tab === "debt" ? tab : "review";
   const pageZero = Number.parseInt(pz ?? "1", 10) || 1;
   const pageName = Number.parseInt(pn ?? "1", 10) || 1;
   const pageSize = 20;
@@ -327,7 +329,7 @@ export default async function DuplicatesAdminPage({
     return `/admin/duplicates?${params.toString()}`;
   };
 
-  const buildTabHref = (nextTab: "review" | "merged" | "audit") => {
+  const buildTabHref = (nextTab: "review" | "merged" | "audit" | "import" | "debt") => {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
     params.set("pz", String(pageZero));
@@ -426,6 +428,14 @@ export default async function DuplicatesAdminPage({
     keepNames.map((r) => [r.id, { name: r.name, remaining_balance: keepRemainingById.get(r.id) ?? 0 }])
   );
   const mergedNameById = new Map(mergedNames.map((r) => [r.id, r.name]));
+  const importDuplicateCases = await getActiveImportDuplicateCases();
+  const importDuplicateTotalExtra = importDuplicateCases.reduce((sum, row) => sum + row.extraAmount, 0);
+  const debtCases = await getOverdrawnDebtCases();
+  const totalDebtAmount = debtCases.reduce((sum, row) => sum + row.debtorDebtAmount, 0);
+  const totalDebtDistributed = debtCases.reduce((sum, row) => sum + row.plannedDistributed, 0);
+  const debtSettledCount = debtCases.filter((row) => row.isSettled).length;
+  const debtExportBeforeHref = "/api/admin/duplicates/debt-over-limit/export?mode=before";
+  const debtExportAfterHref = `/api/admin/duplicates/debt-over-limit/export?mode=after${debtAudit ? `&auditId=${encodeURIComponent(debtAudit)}` : ""}`;
 
   return (
     <Shell facilityName={session.name} session={session}>
@@ -443,6 +453,9 @@ export default async function DuplicatesAdminPage({
             </form>
             <Link href={exportHref} className="inline-flex">
               <Button type="button" variant="outline" className="h-10 w-full sm:w-auto">تصدير Excel</Button>
+            </Link>
+            <Link href="/api/admin/duplicates/over-limit" className="inline-flex">
+              <Button type="button" variant="outline" className="h-10 w-full sm:w-auto text-red-600 border-red-300 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20">تصدير متجاوزي الحد (600+)</Button>
             </Link>
           </div>
         </div>
@@ -472,7 +485,7 @@ export default async function DuplicatesAdminPage({
         )}
 
         <Card className="p-2">
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
             <Link href={buildTabHref("review")}>
               <Button
                 type="button"
@@ -498,6 +511,24 @@ export default async function DuplicatesAdminPage({
                 className="w-full h-10"
               >
                 حالات تحتاج تدقيق
+              </Button>
+            </Link>
+            <Link href={buildTabHref("import")}>
+              <Button
+                type="button"
+                variant={activeTab === "import" ? "primary" : "outline"}
+                className="w-full h-10"
+              >
+                حالات تكرار IMPORT
+              </Button>
+            </Link>
+            <Link href={buildTabHref("debt")}>
+              <Button
+                type="button"
+                variant={activeTab === "debt" ? "primary" : "outline"}
+                className="w-full h-10"
+              >
+                مديونية تجاوز الرصيد
               </Button>
             </Link>
           </div>
@@ -741,6 +772,156 @@ export default async function DuplicatesAdminPage({
               </div>
             </Card>
 
+          </>
+        )}
+
+        {activeTab === "import" && (
+          <>
+            <Card className="p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-3 text-sm">
+                  <Badge variant="warning">الحالات: {importDuplicateCases.length}</Badge>
+                  <Badge variant="danger">الإجمالي الزائد: {importDuplicateTotalExtra.toLocaleString("en-US")} د.ل</Badge>
+                </div>
+                <form method="post" action="/api/admin/duplicates/import-cases/fix-all">
+                  <Button type="submit" className="h-10 bg-red-600 hover:bg-red-700 text-white">
+                    معالجة IMPORT دفعة واحدة
+                  </Button>
+                </form>
+              </div>
+            </Card>
+
+            <Card className="overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-245 text-sm">
+                  <thead className="bg-slate-50 dark:bg-slate-900/40">
+                    <tr className="text-right">
+                      <th className="px-3 py-2 font-bold">الاسم</th>
+                      <th className="px-3 py-2 font-bold">رقم البطاقة</th>
+                      <th className="px-3 py-2 font-bold">عدد IMPORT</th>
+                      <th className="px-3 py-2 font-bold">الرصيد الحالي</th>
+                      <th className="px-3 py-2 font-bold">الزيادة بسبب التكرار</th>
+                      <th className="px-3 py-2 font-bold">الرصيد بعد التصحيح</th>
+                      <th className="px-3 py-2 font-bold">الحالة الحالية</th>
+                      <th className="px-3 py-2 font-bold">الحالة بعد التصحيح</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {importDuplicateCases.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="px-3 py-6 text-center text-slate-500 dark:text-slate-400">
+                          لا توجد حالات تكرار IMPORT فعّالة.
+                        </td>
+                      </tr>
+                    ) : (
+                      importDuplicateCases.map((row) => (
+                        <tr key={row.beneficiaryId} className="border-t border-slate-100 dark:border-slate-800">
+                          <td className="px-3 py-2">{row.name}</td>
+                          <td className="px-3 py-2">{row.cardNumber}</td>
+                          <td className="px-3 py-2">{row.importCount}</td>
+                          <td className="px-3 py-2">{row.currentRemaining.toLocaleString("en-US")}</td>
+                          <td className="px-3 py-2 text-red-700 dark:text-red-400 font-bold">{row.extraAmount.toLocaleString("en-US")}</td>
+                          <td className="px-3 py-2">{row.fixedRemaining.toLocaleString("en-US")}</td>
+                          <td className="px-3 py-2">{row.currentStatus}</td>
+                          <td className="px-3 py-2">{row.fixedStatus}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          </>
+        )}
+
+        {activeTab === "debt" && (
+          <>
+            <Card className="p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <Badge variant="warning">الحالات المدينة: {debtCases.length}</Badge>
+                  <Badge variant="danger">إجمالي الدين: {totalDebtAmount.toLocaleString("en-US")} د.ل</Badge>
+                  <Badge variant="success">قابل للتوزيع: {totalDebtDistributed.toLocaleString("en-US")} د.ل</Badge>
+                  <Badge variant="outline">تم التوافق: {debtSettledCount}</Badge>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Link href={debtExportBeforeHref} className="inline-flex">
+                    <Button type="button" variant="outline" className="h-10">تصدير Excel (قبل المعالجة)</Button>
+                  </Link>
+                  <Link href={debtExportAfterHref} className="inline-flex">
+                    <Button type="button" variant="outline" className="h-10">تصدير Excel (بعد المعالجة)</Button>
+                  </Link>
+                  <form method="post" action="/api/admin/duplicates/debt-over-limit/settle-all">
+                    <Button type="submit" className="h-10 bg-red-600 hover:bg-red-700 text-white">توزيع المديونية دفعة واحدة</Button>
+                  </form>
+                </div>
+              </div>
+            </Card>
+
+            <Card className="overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-245 text-sm">
+                  <thead className="bg-slate-50 dark:bg-slate-900/40">
+                    <tr className="text-right">
+                      <th className="px-3 py-2 font-bold">المستفيد المدين</th>
+                      <th className="px-3 py-2 font-bold">بطاقة المدين</th>
+                      <th className="px-3 py-2 font-bold">الدين</th>
+                      <th className="px-3 py-2 font-bold">أفراد العائلة</th>
+                      <th className="px-3 py-2 font-bold">المتاح بالعائلة</th>
+                      <th className="px-3 py-2 font-bold">المبلغ الموزع</th>
+                      <th className="px-3 py-2 font-bold">المتبقي مدين</th>
+                      <th className="px-3 py-2 font-bold">النتيجة</th>
+                      <th className="px-3 py-2 font-bold">المتأثرون</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {debtCases.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="px-3 py-6 text-center text-slate-500 dark:text-slate-400">
+                          لا توجد حالات مديونية (تجاوز رصيد) حالياً.
+                        </td>
+                      </tr>
+                    ) : (
+                      debtCases.map((row) => (
+                        <tr key={row.debtorId} className="border-t border-slate-100 dark:border-slate-800 align-top">
+                          <td className="px-3 py-2">{row.debtorName}</td>
+                          <td className="px-3 py-2">{row.debtorCard}</td>
+                          <td className="px-3 py-2 text-red-700 dark:text-red-400 font-bold">{row.debtorDebtAmount.toLocaleString("en-US")}</td>
+                          <td className="px-3 py-2">{row.familyMembersCount}</td>
+                          <td className="px-3 py-2">{row.familyAvailableTotal.toLocaleString("en-US")}</td>
+                          <td className="px-3 py-2">{row.plannedDistributed.toLocaleString("en-US")}</td>
+                          <td className="px-3 py-2">{row.residualDebtAfterDistribution.toLocaleString("en-US")}</td>
+                          <td className="px-3 py-2">
+                            {row.isSettled ? (
+                              <Badge variant="success">تم التوافق</Badge>
+                            ) : (
+                              <Badge variant="danger">ما زال مدين</Badge>
+                            )}
+                          </td>
+                          <td className="px-3 py-2">
+                            {row.shares.length === 0 ? (
+                              <span className="text-xs text-slate-500 dark:text-slate-400">لا يوجد خصم من الأسرة</span>
+                            ) : (
+                              <div className="space-y-1">
+                                {row.shares.slice(0, 3).map((s) => (
+                                  <div key={s.memberId} className="text-xs text-slate-700 dark:text-slate-300">
+                                    {s.memberName} ({s.memberCard}) — خصم {s.deductedAmount.toLocaleString("en-US")} د.ل
+                                    {s.completedViaAfter === "EXCEEDED_BALANCE" ? " — اكتمال: تجاوز رصيد" : ""}
+                                  </div>
+                                ))}
+                                {row.shares.length > 3 && (
+                                  <div className="text-xs text-slate-500 dark:text-slate-400">+{row.shares.length - 3} أشخاص آخرين</div>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
           </>
         )}
 

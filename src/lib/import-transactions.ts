@@ -379,11 +379,11 @@ async function importFamilyTransactions(
 
     const memberIds = familyMembers.map((m) => m.id);
 
+    // البحث عن أي حركة استيراد سابقة بغض النظر عن المرفق لمنع التكرار
     const existingImports = await tx.transaction.findMany({
       where: {
         beneficiary_id: { in: memberIds },
         type: TransactionType.IMPORT,
-        facility_id: facilityId,
         is_cancelled: false,
       },
       select: { id: true, beneficiary_id: true, amount: true },

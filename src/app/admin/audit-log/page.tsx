@@ -35,6 +35,7 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "BULK_CANCEL_TRANSACTION",
     "BULK_REDEDUCT_TRANSACTION",
     "IMPORT_TRANSACTIONS",
+    "SETTLE_OVERDRAWN_FAMILY_DEBT",
     "CREATE_FACILITY",
     "IMPORT_FACILITIES",
     "DELETE_FACILITY",
@@ -60,9 +61,10 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "BULK_CANCEL_TRANSACTION",
     "BULK_REDEDUCT_TRANSACTION",
     "IMPORT_TRANSACTIONS",
+    "SETTLE_OVERDRAWN_FAMILY_DEBT",
   ],
   facilities: ["CREATE_FACILITY", "IMPORT_FACILITIES", "DELETE_FACILITY"],
-  completed: ["DEDUCT_BALANCE", "IMPORT_TRANSACTIONS"],
+  completed: ["DEDUCT_BALANCE", "IMPORT_TRANSACTIONS", "SETTLE_OVERDRAWN_FAMILY_DEBT"],
 };
 
 function actionLabel(action: string) {
@@ -99,6 +101,8 @@ function actionLabel(action: string) {
       return "إعادة خصم جماعي";
     case "IMPORT_TRANSACTIONS":
       return "استيراد حركات";
+    case "SETTLE_OVERDRAWN_FAMILY_DEBT":
+      return "تسوية مديونية تجاوز الرصيد";
     case "CREATE_FACILITY":
       return "إضافة مرفق";
     case "IMPORT_FACILITIES":
@@ -409,6 +413,39 @@ function summarizeMetadata(action: string, metadata: unknown, auditLogId?: strin
     );
   }
 
+  if (action === "SETTLE_OVERDRAWN_FAMILY_DEBT") {
+    const summary = (m.summary ?? {}) as Record<string, unknown>;
+    const affectedDebtors = Number(summary.affectedDebtors ?? 0);
+    const settledDebtors = Number(summary.settledDebtors ?? 0);
+    const unresolvedDebtors = Number(summary.unresolvedDebtors ?? 0);
+    const affectedFamilyMembers = Number(summary.affectedFamilyMembers ?? 0);
+    const totalDebtBefore = Number(summary.totalDebtBefore ?? 0);
+    const totalDistributed = Number(summary.totalDistributed ?? 0);
+    const totalDebtAfter = Number(summary.totalDebtAfter ?? 0);
+
+    return (
+      <span className="flex flex-wrap gap-x-2 text-slate-500 dark:text-slate-400">
+        <span>حالات: <strong className="text-slate-700 dark:text-slate-300">{affectedDebtors}</strong></span>
+        <span>تم التوافق: <strong className="text-emerald-700 dark:text-emerald-400">{settledDebtors}</strong></span>
+        <span>متبقي: <strong className="text-red-700 dark:text-red-400">{unresolvedDebtors}</strong></span>
+        <span>متأثرون: <strong className="text-slate-700 dark:text-slate-300">{affectedFamilyMembers}</strong></span>
+        <span>الدين قبل: <strong className="text-slate-700 dark:text-slate-300">{totalDebtBefore.toLocaleString("ar-LY")}</strong></span>
+        <span>الموزع: <strong className="text-slate-700 dark:text-slate-300">{totalDistributed.toLocaleString("ar-LY")}</strong></span>
+        <span>الدين بعد: <strong className="text-slate-700 dark:text-slate-300">{totalDebtAfter.toLocaleString("ar-LY")}</strong></span>
+        {auditLogId ? (
+          <a
+            href={`/api/admin/duplicates/debt-over-limit/export?mode=after&auditId=${encodeURIComponent(auditLogId)}`}
+            target="_blank"
+            className="inline-flex items-center gap-1 rounded border border-sky-200 dark:border-sky-700 bg-sky-50 dark:bg-sky-900/30 px-2 py-0.5 text-xs font-bold text-sky-700 dark:text-sky-400 hover:bg-sky-100 dark:hover:bg-sky-900/50 transition-colors"
+            title="تصدير تقرير بعد المعالجة بصيغة Excel"
+          >
+            ↓ تقرير بعد المعالجة
+          </a>
+        ) : null}
+      </span>
+    );
+  }
+
   if (action === "CREATE_FACILITY") {
     return (
       <span>
@@ -445,6 +482,7 @@ function badgeClassForAction(action: string) {
     action.startsWith("CREATE") ||
     action === "DEDUCT_BALANCE" ||
     action === "IMPORT_TRANSACTIONS" ||
+    action === "SETTLE_OVERDRAWN_FAMILY_DEBT" ||
     action === "IMPORT_BENEFICIARIES_BACKGROUND" ||
     action === "IMPORT_FACILITIES"
   ) {
@@ -490,10 +528,9 @@ export default async function AuditLogPage({
     }
   }
 
-  // فلتر المكتملين: عمليات DEDUCT_BALANCE + IMPORT_TRANSACTIONS التي تحمل beneficiary_completed أو importedFamilies
-  const completedMetadataFilter = target === "completed"
-    ? { path: ["beneficiary_completed"], equals: true }
-    : undefined;
+  // نعتمد على نوع العملية نفسها في تبويب "المكتمل" لأن بعض العمليات
+  // (مثل تسوية مديونية تجاوز الرصيد) لا تستخدم beneficiary_completed.
+  const completedMetadataFilter = undefined;
 
   const actorMatchedFacilityIds = actorTerm
     ? (await prisma.facility.findMany({
