@@ -560,6 +560,16 @@ async function setFamilyBalance(
 
   const divisor = Math.max(1, Number(expectedFamilyCount) || familyMembers.length);
   const perMember = roundCurrency(totalBalance / divisor);
+  const memberIds = familyMembers.map((m) => m.id);
+
+  // تنظيف حركات IMPORT القديمة دائماً لمنع أي أثر قديم على الرصيد الدفتري.
+  await prisma.transaction.deleteMany({
+    where: {
+      beneficiary_id: { in: memberIds },
+      type: "IMPORT",
+      is_cancelled: false,
+    },
+  });
 
   // Check if already correct
   const alreadyCorrect = familyMembers.every((m, i) => {
@@ -572,18 +582,7 @@ async function setFamilyBalance(
   });
   if (alreadyCorrect) return "already_correct";
 
-  const memberIds = familyMembers.map((m) => m.id);
-
   await prisma.$transaction(async (tx) => {
-    // حذف حركات الاستيراد السابقة (تنظيف من عمليات خاطئة سابقة)
-    await tx.transaction.deleteMany({
-      where: {
-        beneficiary_id: { in: memberIds },
-        type: "IMPORT",
-        is_cancelled: false,
-      },
-    });
-
     // توزيع الرصيد وإعادة التفعيل
     for (let i = 0; i < familyMembers.length; i++) {
       const member = familyMembers[i];

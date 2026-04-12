@@ -46,15 +46,17 @@ const getCachedStatusCounts = unstable_cache(
 export default async function BeneficiariesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; page?: string; pageSize?: string; view?: string; sort?: string; order?: string; status?: string; completed_via?: string; focus_beneficiary?: string }>;
+  searchParams: Promise<{ q?: string; page?: string; pageSize?: string; view?: string; sort?: string; order?: string; status?: string; completed_via?: string; balance_range?: string; focus_beneficiary?: string; bulk_msg?: string; bulk_type?: string }>;
 }) {
   const session = await getSession();
   if (!session) redirect("/login");
   if (!canAccessAdmin(session)) redirect("/dashboard");
 
-  const { q, page: pageParam, pageSize: pageSizeParam, view, sort, order, status, completed_via: completedViaParam, focus_beneficiary } = await searchParams;
+  const { q, page: pageParam, pageSize: pageSizeParam, view, sort, order, status, completed_via: completedViaParam, balance_range: balanceRangeParam, focus_beneficiary, bulk_msg: bulkMsgParam, bulk_type: bulkTypeParam } = await searchParams;
   const query = (q?.trim() ?? "").slice(0, 100);
   const isDeletedView = view === "deleted";
+  const bulkMessage = (bulkMsgParam?.trim() ?? "").slice(0, 220);
+  const bulkMessageType: "success" | "error" = bulkTypeParam === "error" ? "error" : "success";
 
   const ALLOWED_STATUS_FILTER = ["all", "ACTIVE", "SUSPENDED", "FINISHED"] as const;
   type StatusFilter = typeof ALLOWED_STATUS_FILTER[number];
@@ -63,6 +65,10 @@ export default async function BeneficiariesPage({
   const ALLOWED_COMPLETED_VIA = ["all", "MANUAL", "IMPORT"] as const;
   type CompletedViaFilter = typeof ALLOWED_COMPLETED_VIA[number];
   const completedViaFilter: CompletedViaFilter = (ALLOWED_COMPLETED_VIA as ReadonlyArray<string>).includes(completedViaParam ?? "") ? completedViaParam as CompletedViaFilter : "all";
+
+  const ALLOWED_BALANCE_RANGE = ["all", "0_10"] as const;
+  type BalanceRangeFilter = typeof ALLOWED_BALANCE_RANGE[number];
+  const balanceRangeFilter: BalanceRangeFilter = (ALLOWED_BALANCE_RANGE as ReadonlyArray<string>).includes(balanceRangeParam ?? "") ? balanceRangeParam as BalanceRangeFilter : "all";
   const allowedPageSizes = [10, 25, 50, 100, 200];
   const requestedPageSize = parseInt(pageSizeParam ?? "10", 10);
   const PAGE_SIZE = allowedPageSizes.includes(requestedPageSize) ? requestedPageSize : 10;
@@ -79,6 +85,7 @@ export default async function BeneficiariesPage({
     if (isDeletedView) p.set("view", "deleted");
     if (statusFilter !== "all") p.set("status", statusFilter);
     if (completedViaFilter !== "all") p.set("completed_via", completedViaFilter);
+    if (balanceRangeFilter !== "all" && !isDeletedView) p.set("balance_range", balanceRangeFilter);
     p.set("pageSize", String(PAGE_SIZE));
     p.set("sort", sortCol);
     p.set("order", sortDir);
@@ -106,6 +113,10 @@ export default async function BeneficiariesPage({
 
   if (completedViaFilter !== "all" && !isDeletedView) {
     baseFilter.completed_via = completedViaFilter;
+  }
+
+  if (balanceRangeFilter === "0_10" && !isDeletedView) {
+    baseFilter.remaining_balance = { gte: 0, lte: 10 };
   }
 
   const where = query
@@ -190,6 +201,7 @@ export default async function BeneficiariesPage({
   if (query) exportParams.set("q", query);
   if (isDeletedView) exportParams.set("view", "deleted");
   if (statusFilter !== "all") exportParams.set("status", statusFilter);
+  if (!isDeletedView && balanceRangeFilter !== "all") exportParams.set("balance_range", balanceRangeFilter);
 
   const exportHref = `/api/export/beneficiaries?${exportParams.toString()}`;
 
@@ -314,6 +326,14 @@ export default async function BeneficiariesPage({
               <span className="rounded-full bg-red-100 dark:bg-red-900/50 px-1.5 py-0.5 text-xs font-black text-red-600 dark:text-red-400">{deletedCount}</span>
             )}
           </Link>
+          {bulkMessage && (
+            <span className={`inline-flex items-center rounded-md border px-3 py-2 text-xs font-bold ${bulkMessageType === "error"
+              ? "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300"
+              : "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-300"
+              }`}>
+              {bulkMessage}
+            </span>
+          )}
 
           {/* فلتر الحالة — يظهر فقط في عرض النشطين */}
           {!isDeletedView && (
@@ -347,6 +367,19 @@ export default async function BeneficiariesPage({
                   </Link>
                 );
               })}
+
+              <Link
+                href={buildBeneficiaryParams({
+                  balance_range: balanceRangeFilter === "0_10" ? undefined : "0_10",
+                  page: "1",
+                })}
+                className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-sm font-bold transition-colors ${balanceRangeFilter === "0_10"
+                  ? "border-fuchsia-300 dark:border-fuchsia-700 bg-fuchsia-50 dark:bg-fuchsia-900/30 text-fuchsia-700 dark:text-fuchsia-400"
+                  : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700"
+                  }`}
+              >
+                رصيد 0-10 د.ل
+              </Link>
             </>
           )}
 

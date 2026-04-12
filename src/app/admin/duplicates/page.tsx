@@ -20,6 +20,7 @@ import { RotateCcw, CheckCircle2, AlertCircle } from "lucide-react";
 import { DuplicateManualMergeForm } from "@/components/duplicate-manual-merge-form";
 import { DuplicateSameNameGroup } from "@/components/duplicate-same-name-group";
 import { BatchMergeButton } from "@/components/batch-merge-button";
+import { AutoMergeAllZeroVariantsButton } from "@/components/auto-merge-all-zero-variants-button";
 
 export default async function DuplicatesAdminPage({
   searchParams,
@@ -68,13 +69,19 @@ export default async function DuplicatesAdminPage({
 
   async function mergeAllZeroVariantsUIAction(_formData: FormData) {
     "use server";
-    const res = await mergeAllGlobalZeroVariantsAction();
-    if (res.error) {
-      redirect(`/admin/duplicates?tab=review&err=${encodeURIComponent(res.error)}`);
-    } else {
-      let params = `?tab=review&ok=تم الدمج الشامل بنجاح (${res.mergedGroups} مجموعات)`;
-      if (res.firstAuditId) params += `&audit=${res.firstAuditId}`;
-      redirect(`/admin/duplicates${params}`);
+    try {
+      const res = await mergeAllGlobalZeroVariantsAction();
+      if (res.error) {
+        redirect(`/admin/duplicates?tab=review&err=${encodeURIComponent(res.error)}`);
+      } else {
+        const remaining = Number(res.truncatedCount ?? 0);
+        const remainingSuffix = remaining > 0 ? `، والمتبقي ${remaining} مجموعة للدفعة التالية` : "";
+        let params = `?tab=review&ok=${encodeURIComponent(`تم الدمج الآمن بنجاح (${res.mergedGroups} مجموعات)${remainingSuffix}`)}`;
+        if (res.firstAuditId) params += `&audit=${res.firstAuditId}`;
+        redirect(`/admin/duplicates${params}`);
+      }
+    } catch {
+      redirect(`/admin/duplicates?tab=review&err=${encodeURIComponent("تعذر تنفيذ الدمج الآمن حالياً. أعد المحاولة، وسيتم التنفيذ على دفعات أصغر تلقائياً.")}`);
     }
   }
 
@@ -641,9 +648,7 @@ export default async function DuplicatesAdminPage({
               <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 px-4 py-3 sm:px-6">
                 <h2 className="text-sm font-black text-slate-900 dark:text-white">حالات اختلاف الأصفار (جاهزة للدمج)</h2>
                 {zeroVariantGroups.length > 0 && (
-                  <form action={mergeAllZeroVariantsUIAction}>
-                    <BatchMergeButton label="دمج آمن لجميع التكرارات" />
-                  </form>
+                  <AutoMergeAllZeroVariantsButton />
                 )}
               </div>
               <div className="space-y-4 p-4 sm:p-6">

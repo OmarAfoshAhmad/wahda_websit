@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   bulkDeleteBeneficiaries,
   bulkPermanentDeleteBeneficiaries,
@@ -21,9 +21,16 @@ export function BeneficiariesBulkActionButton({ formId, mode }: Props) {
   const [confirmText, setConfirmText] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectedCount, setSelectedCount] = useState(0);
-  const [feedback, setFeedback] = useState<string | null>(null);
-  const [feedbackType, setFeedbackType] = useState<"error" | "success">("success");
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const setPageFeedback = (message: string, type: "error" | "success") => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("bulk_msg", message);
+    params.set("bulk_type", type);
+    router.replace(`${pathname}?${params.toString()}`);
+  };
 
   useEffect(() => {
     const collect = () => {
@@ -51,8 +58,7 @@ export function BeneficiariesBulkActionButton({ formId, mode }: Props) {
     );
 
     if (checked.length === 0) {
-      setFeedbackType("error");
-      setFeedback("يرجى تحديد عنصر واحد على الأقل");
+      setPageFeedback("يرجى تحديد عنصر واحد على الأقل", "error");
       return;
     }
 
@@ -84,8 +90,7 @@ export function BeneficiariesBulkActionButton({ formId, mode }: Props) {
           : await bulkPermanentDeleteBeneficiaries(formData);
 
       if (result?.error) {
-        setFeedbackType("error");
-        setFeedback(result.error);
+        setPageFeedback(result.error, "error");
         return;
       }
 
@@ -93,14 +98,14 @@ export function BeneficiariesBulkActionButton({ formId, mode }: Props) {
       const restoredCount = "restoredCount" in result ? result.restoredCount : 0;
       const deletedCount = "deletedCount" in result ? result.deletedCount : 0;
 
-      setFeedbackType("success");
+      let successMessage = "";
       if (mode === "restore") {
-        setFeedback(`تم التنفيذ بنجاح. المستعاد: ${restoredCount} - غير المنفذ: ${skippedCount}`);
+        successMessage = `تم التنفيذ بنجاح. المستعاد: ${restoredCount} - غير المنفذ: ${skippedCount}`;
       } else {
-        setFeedback(`تم التنفيذ بنجاح. المحذوف: ${deletedCount} - غير المنفذ: ${skippedCount}`);
+        successMessage = `تم التنفيذ بنجاح. المحذوف: ${deletedCount} - غير المنفذ: ${skippedCount}`;
       }
       setConfirmOpen(false);
-      router.refresh();
+      setPageFeedback(successMessage, "success");
     });
   };
 
@@ -129,12 +134,6 @@ export function BeneficiariesBulkActionButton({ formId, mode }: Props) {
           {selectedCount}
         </span>
       </button>
-
-      {feedback && (
-        <div className={`mt-2 rounded-md px-3 py-2 text-xs font-bold ${feedbackType === "error" ? "border border-red-200 bg-red-50 text-red-700" : "border border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
-          {feedback}
-        </div>
-      )}
 
       <ConfirmationModal
         isOpen={confirmOpen}
@@ -208,8 +207,16 @@ export function SelectAllCheckbox({ formId }: { formId: string }) {
 export function EmptyRecycleBinButton({ disabled }: { disabled?: boolean }) {
   const [isPending, startTransition] = useTransition();
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const setPageFeedback = (message: string, type: "error" | "success") => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("bulk_msg", message);
+    params.set("bulk_type", type);
+    router.replace(`${pathname}?${params.toString()}`);
+  };
 
   const handleConfirm = () => {
     startTransition(async () => {
@@ -218,15 +225,13 @@ export function EmptyRecycleBinButton({ disabled }: { disabled?: boolean }) {
         const data = await res.json();
         setConfirmOpen(false);
         if (res.ok) {
-          // FIX UX-01: استبدال alert() بـ feedback banner مدمج
-          setFeedback({ type: "success", message: `تم تفريغ المحذوفات بنجاح (${data.count ?? 0} سجل)` });
-          router.refresh();
+          setPageFeedback(`تم تفريغ المحذوفات بنجاح (${data.count ?? 0} سجل)`, "success");
         } else {
-          setFeedback({ type: "error", message: data.error ?? "حدث خطأ أثناء تفريغ المحذوفات" });
+          setPageFeedback(data.error ?? "حدث خطأ أثناء تفريغ المحذوفات", "error");
         }
       } catch {
         setConfirmOpen(false);
-        setFeedback({ type: "error", message: "فشل الاتصال بالخادم" });
+        setPageFeedback("فشل الاتصال بالخادم", "error");
       }
     });
   };
@@ -236,17 +241,12 @@ export function EmptyRecycleBinButton({ disabled }: { disabled?: boolean }) {
       <div className="flex flex-col gap-1">
         <button
           type="button"
-          onClick={() => { setFeedback(null); setConfirmOpen(true); }}
+          onClick={() => { setConfirmOpen(true); }}
           disabled={isPending || disabled}
           className="inline-flex h-8 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-xs font-black text-rose-700 transition-colors hover:bg-rose-50 disabled:opacity-60"
         >
           {isPending ? "جارٍ التفريغ..." : "إفراغ المحذوفات بالكامل"}
         </button>
-        {feedback && (
-          <p className={`text-xs font-bold px-1 ${feedback.type === "success" ? "text-emerald-700" : "text-red-600"}`}>
-            {feedback.message}
-          </p>
-        )}
       </div>
 
       <ConfirmationModal

@@ -1602,11 +1602,15 @@ export async function mergeAllGlobalZeroVariantsAction() {
   const { buildDuplicateGroups } = await import("@/lib/duplicate-groups");
   const { zeroVariantGroups } = buildDuplicateGroups(rows as Parameters<typeof buildDuplicateGroups>[0]);
 
+  const MAX_BATCH_GROUPS = 10;
+  const limitedGroups = zeroVariantGroups.slice(0, MAX_BATCH_GROUPS);
+  const truncatedCount = Math.max(0, zeroVariantGroups.length - limitedGroups.length);
+
   let mergedGroups = 0;
   let mergedRows = 0;
   let firstAuditId: string | null = null;
 
-  for (const group of zeroVariantGroups) {
+  for (const group of limitedGroups) {
     try {
       const res = await mergeDuplicateBeneficiaries(group.preferredId, {
         forceKeep: true,
@@ -1627,7 +1631,7 @@ export async function mergeAllGlobalZeroVariantsAction() {
     return { error: "لا توجد تكرارات صفرية آمنة متبقية للدمج الشامل" };
   }
 
-  return { success: true, mergedGroups, mergedRows, firstAuditId };
+  return { success: true, mergedGroups, mergedRows, truncatedCount, firstAuditId };
 }
 
 export async function mergeDuplicateBatchByConditionAction(formData: FormData) {
