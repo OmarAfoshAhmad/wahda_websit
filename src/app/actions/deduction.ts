@@ -17,7 +17,7 @@ export async function deductBalance(formData: {
   facilityId?: string;
 }) {
   const session = await requireActiveFacilitySession();
-  if (!session || !hasPermission(session, "deduct_balance")) {
+  if (!session || (session.is_manager && !hasPermission(session, "deduct_balance"))) {
     return { error: "غير مصرح لك بهذه العملية (خصم الرصيد)" };
   }
 

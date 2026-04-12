@@ -343,7 +343,7 @@ export default async function TransactionsPage({
   const canCancel = hasPermission(session, "cancel_transactions");
   const canCorrect = hasPermission(session, "correct_transactions");
   const canDelete = hasPermission(session, "delete_transaction");
-  const canExport = hasPermission(session, "export_data");
+  const canExport = !session.is_manager || hasPermission(session, "export_data");
   const canImport = session.is_admin || ((session.manager_permissions as Partial<Record<string, boolean>> | null)?.import_transactions === true);
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
