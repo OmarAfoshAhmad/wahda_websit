@@ -89,11 +89,15 @@ export function BeneficiariesBulkActionButton({ formId, mode }: Props) {
         return;
       }
 
+      const skippedCount = "skippedCount" in result ? result.skippedCount : 0;
+      const restoredCount = "restoredCount" in result ? result.restoredCount : 0;
+      const deletedCount = "deletedCount" in result ? result.deletedCount : 0;
+
       setFeedbackType("success");
       if (mode === "restore") {
-        setFeedback(`تم التنفيذ بنجاح. المستعاد: ${result?.restoredCount ?? 0} - غير المنفذ: ${result?.skippedCount ?? 0}`);
+        setFeedback(`تم التنفيذ بنجاح. المستعاد: ${restoredCount} - غير المنفذ: ${skippedCount}`);
       } else {
-        setFeedback(`تم التنفيذ بنجاح. المحذوف: ${result?.deletedCount ?? 0} - غير المنفذ: ${result?.skippedCount ?? 0}`);
+        setFeedback(`تم التنفيذ بنجاح. المحذوف: ${deletedCount} - غير المنفذ: ${skippedCount}`);
       }
       setConfirmOpen(false);
       router.refresh();
