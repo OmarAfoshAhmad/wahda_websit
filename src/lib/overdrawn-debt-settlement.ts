@@ -204,14 +204,17 @@ export async function applyOverdrawnDebtSettlement(params: {
     for (const c of beforeCases) {
       if (c.shares.length === 0) continue;
 
-      await tx.beneficiary.update({
-        where: { id: c.debtorId },
-        data: {
-          status: "FINISHED",
-          completed_via: "EXCEEDED_BALANCE",
-          remaining_balance: 0,
-        },
-      });
+      // لا نعلّم المدين "مكتمل" إلا إذا تمت تغطية الدين بالكامل.
+      if (c.isSettled) {
+        await tx.beneficiary.update({
+          where: { id: c.debtorId },
+          data: {
+            status: "FINISHED",
+            completed_via: "EXCEEDED_BALANCE",
+            remaining_balance: 0,
+          },
+        });
+      }
 
       for (const share of c.shares) {
         await tx.transaction.create({

@@ -4,7 +4,7 @@ import { z } from "zod";
 import ExcelJS from "exceljs";
 import prisma from "@/lib/prisma";
 import { getCurrentInitialBalance } from "@/lib/initial-balance";
-import { personKey } from "@/lib/normalize";
+import { normalizeCardNumber, personKey } from "@/lib/normalize";
 
 const rawImportRowSchema = z.record(z.string(), z.unknown());
 
@@ -471,7 +471,7 @@ export async function processImportJob(jobId: string, username: string) {
     });
 
     for (const chunk of chunkRows(uniqueRows, 100)) {
-      const normalizedCardNumbers = [...new Set(chunk.map((row) => row.data.card_number.trim().toUpperCase()))];
+      const normalizedCardNumbers = [...new Set(chunk.map((row) => normalizeCardNumber(row.data.card_number)))];
 
       // البحث يشمل المحذوفين soft-delete لتفادي إنشاء سجل مكرر
       const existingActive = await prisma.$queryRaw<Array<{ normalized_card_number: string }>>`
@@ -522,7 +522,7 @@ export async function processImportJob(jobId: string, username: string) {
         })
         : [];
       const cardToActiveRow = new Map(
-        existingActiveRows.map((r) => [r.card_number.trim().toUpperCase(), r])
+        existingActiveRows.map((r) => [normalizeCardNumber(r.card_number), r])
       );
 
       // جلب السجلات المحذوفة soft-delete لاستعادتها بدل إنشاء سجل جديد
@@ -538,7 +538,7 @@ export async function processImportJob(jobId: string, username: string) {
         })
         : [];
       const cardToDeletedRow = new Map(
-        existingDeletedRows.map((r) => [r.card_number.trim().toUpperCase(), r])
+        existingDeletedRows.map((r) => [normalizeCardNumber(r.card_number), r])
       );
 
       const existingPersonKeys = new Set(
@@ -548,7 +548,7 @@ export async function processImportJob(jobId: string, username: string) {
       );
 
       const rowsToInsert = chunk.filter((row) => {
-        const cn = row.data.card_number.trim().toUpperCase();
+        const cn = normalizeCardNumber(row.data.card_number);
         if (activeCards.has(cn)) return false;
         if (deletedCards.has(cn)) return false; // سيُستعاد بدل الإنشاء
 
@@ -560,18 +560,18 @@ export async function processImportJob(jobId: string, username: string) {
 
       // صفوف سيتم تحديثها (رقم البطاقة موجود وحيّ)
       const rowsToUpdate = chunk.filter((row) =>
-        activeCards.has(row.data.card_number.trim().toUpperCase())
+        activeCards.has(normalizeCardNumber(row.data.card_number))
       );
 
       // صفوف محذوفة سيتم استعادتها
       const rowsToRestore = chunk.filter((row) => {
-        const cn = row.data.card_number.trim().toUpperCase();
+        const cn = normalizeCardNumber(row.data.card_number);
         return !activeCards.has(cn) && deletedCards.has(cn);
       });
 
       // صفوف مكررة (نفس الشخص، بطاقة مختلفة) — لا تزال تُتخطى
       chunk.forEach((row) => {
-        const cn = row.data.card_number.trim().toUpperCase();
+        const cn = normalizeCardNumber(row.data.card_number);
         if (activeCards.has(cn) || deletedCards.has(cn)) return;
 
         const pKey = personKey(row.data.name, row.data.birth_date);
@@ -586,7 +586,7 @@ export async function processImportJob(jobId: string, username: string) {
       });
 
       const trueDuplicates = chunk.filter((row) => {
-        const cn = row.data.card_number.trim().toUpperCase();
+        const cn = normalizeCardNumber(row.data.card_number);
         if (activeCards.has(cn) || deletedCards.has(cn)) return false;
         const pKey = personKey(row.data.name, row.data.birth_date);
         return pKey !== null && existingPersonKeys.has(pKey);
@@ -628,7 +628,7 @@ export async function processImportJob(jobId: string, username: string) {
       // SEC-FIX: استبدال Promise.all بحلقة متسلسلة لمنع deadlocks
       if (rowsToRestore.length > 0) {
         for (const row of rowsToRestore) {
-            const cn = row.data.card_number.trim().toUpperCase();
+          const cn = normalizeCardNumber(row.data.card_number);
             const deletedRow = cardToDeletedRow.get(cn);
             if (!deletedRow) continue;
 
@@ -666,7 +666,7 @@ export async function processImportJob(jobId: string, username: string) {
       if (rowsToUpdate.length > 0) {
         let successfulUpdates = 0;
         for (const row of rowsToUpdate) {
-            const cn = row.data.card_number.trim().toUpperCase();
+          const cn = normalizeCardNumber(row.data.card_number);
             const activeRow = cardToActiveRow.get(cn);
             if (!activeRow) continue;
 

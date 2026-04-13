@@ -4,7 +4,7 @@
  * يعتمد على normalizePersonName الموحدة من @/lib/normalize.
  * BeneficiaryRow يتضمن birth_date الآن لتصفية الإيجابيات الكاذبة.
  */
-import { normalizePersonName, canonicalizeCardNumber, leadingZeroScoreAfterPrefix } from "@/lib/normalize";
+import { normalizePersonName, normalizeCardNumber, canonicalizeCardNumber, leadingZeroScoreAfterPrefix } from "@/lib/normalize";
 
 /**
  * نوع صف المستفيد المستخدم داخل نافذة التكرارات.
@@ -57,7 +57,7 @@ const zeroScoreAfterPrefix = leadingZeroScoreAfterPrefix;
 export { normalizePersonName as normalizeName, canonicalizeCardNumber as canonicalCard, leadingZeroScoreAfterPrefix as zeroScoreAfterPrefix } from "@/lib/normalize";
 
 function cardShapeScore(value: string): number {
-  const v = value.trim().toUpperCase();
+  const v = normalizeCardNumber(value);
   if (!v) return -10;
 
   let score = 0;
@@ -70,7 +70,7 @@ function cardShapeScore(value: string): number {
 }
 
 export function buildDuplicateGroups(rows: BeneficiaryRow[], rawQuery?: string) {
-  const query = (rawQuery ?? "").trim().toUpperCase();
+  const query = normalizeCardNumber(rawQuery ?? "");
 
   // ── تجميع 1: اختلاف الأصفار (نفس البطاقة المعيارية) ──
   const byCanonical = new Map<string, BeneficiaryRow[]>();
@@ -84,7 +84,7 @@ export function buildDuplicateGroups(rows: BeneficiaryRow[], rawQuery?: string) 
   const zeroVariantGroupsRaw: (ZeroVariantGroup & { _nameMismatch: boolean })[] = [];
 
   for (const [canonical, members] of byCanonical.entries()) {
-    const uniqueCards = new Set(members.map((m) => m.card_number.trim().toUpperCase()));
+    const uniqueCards = new Set(members.map((m) => normalizeCardNumber(m.card_number)));
     const uniqueNames = new Set(members.map((m) => normalizeName(m.name)));
     if (members.length <= 1 || uniqueCards.size <= 1) continue;
 
@@ -105,8 +105,8 @@ export function buildDuplicateGroups(rows: BeneficiaryRow[], rawQuery?: string) 
 
   const filterByQuery = (g: ZeroVariantGroup) => {
     if (!query) return true;
-    if (g.canonical.includes(query) || g.preferredCard.toUpperCase().includes(query)) return true;
-    return g.members.some((m) => m.name.toUpperCase().includes(query) || m.card_number.toUpperCase().includes(query));
+    if (g.canonical.includes(query) || normalizeCardNumber(g.preferredCard).includes(query)) return true;
+    return g.members.some((m) => normalizePersonName(m.name).includes(query) || normalizeCardNumber(m.card_number).includes(query));
   };
 
   // اختلاف الأصفار + نفس الاسم → جاهز للدمج التلقائي
@@ -130,7 +130,7 @@ export function buildDuplicateGroups(rows: BeneficiaryRow[], rawQuery?: string) 
 
   const sameNameGroups = [...byName.entries()]
     .map(([nameKey, members]) => {
-      const uniqueCards = new Set(members.map((m) => m.card_number.trim().toUpperCase()));
+      const uniqueCards = new Set(members.map((m) => normalizeCardNumber(m.card_number)));
       const uniqueCanonicalCards = new Set(members.map((m) => canonicalCard(m.card_number)));
       
       if (members.length <= 1 || uniqueCards.size <= 1) return null;
@@ -167,7 +167,7 @@ export function buildDuplicateGroups(rows: BeneficiaryRow[], rawQuery?: string) 
     .filter((g) => {
       if (!query) return true;
       if (g.nameKey.includes(query)) return true;
-      return g.members.some((m) => m.card_number.toUpperCase().includes(query));
+      return g.members.some((m) => normalizeCardNumber(m.card_number).includes(query));
     });
 
   return { zeroVariantGroups, sameNameGroups, needsReviewZeroVariants };

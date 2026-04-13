@@ -105,7 +105,7 @@ export function DeductProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
-  const [type, setType] = useState<DeductType>("MEDICINE");
+  const [type, setType] = useState<DeductType>("SUPPLIES");
   const [showConfirm, setShowConfirm] = useState(false);
   const [deducting, setDeducting] = useState(false);
   const [recentBeneficiaries, setRecentBeneficiaries] = useState<BeneficiarySuggestion[]>([]);
@@ -188,7 +188,7 @@ export function DeductProvider({ children }: { children: React.ReactNode }) {
   const resetSearchState = useCallback(() => {
     setSearchInput(""); setCardNumber(""); setSuggestions([]);
     setShowSuggestions(false); setBeneficiary(null);
-    setAmount(""); setType("MEDICINE"); setShowConfirm(false);
+    setAmount(""); setType("SUPPLIES"); setShowConfirm(false);
     setError(null); setSuccess(null);
   }, []);
 
