@@ -127,6 +127,31 @@ export default async function DuplicatesAdminPage({
     return { ok: `تمت معالجة السجل بنجاح (${sr.mergedCount ?? 0} سجلات)` };
   }
 
+  async function mergeAuditGroupRedirectAction(formData: FormData) {
+    "use server";
+
+    const q = String(formData.get("q") ?? "");
+    const pz = String(formData.get("pz") ?? "1");
+    const pn = String(formData.get("pn") ?? "1");
+
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    params.set("pz", pz);
+    params.set("pn", pn);
+    params.set("tab", "audit");
+
+    const result = await mergeNeedsReviewGroupAction(formData);
+    if ("error" in result && result.error) {
+      params.set("err", result.error);
+      redirect(`/admin/duplicates?${params.toString()}`);
+    }
+
+    const sr = result as { mergedCount?: number; mergeAuditId?: string };
+    params.set("ok", `تمت معالجة السجل بنجاح (${sr.mergedCount ?? 0} سجلات)`);
+    if (sr.mergeAuditId) params.set("audit", sr.mergeAuditId);
+    redirect(`/admin/duplicates?${params.toString()}`);
+  }
+
   async function mergeAuditBatchAction(formData: FormData) {
     "use server";
 
@@ -1028,7 +1053,10 @@ export default async function DuplicatesAdminPage({
                           <Badge variant="warning">{group.members.length} سجلات — أسماء مختلفة</Badge>
                           <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{group.canonical}</span>
                         </div>
-                        <form action={mergeAuditGroupAction}>
+                        <form action={mergeAuditGroupRedirectAction}>
+                          <input type="hidden" name="q" value={q ?? ""} />
+                          <input type="hidden" name="pz" value={String(reviewPage.page)} />
+                          <input type="hidden" name="pn" value={String(namePage.page)} />
                           {group.members.map((m) => (
                             <input key={`review-member-${group.canonical}-${m.id}`} type="hidden" name="member_ids" value={m.id} />
                           ))}
