@@ -875,7 +875,7 @@ export default async function DuplicatesAdminPage({
                   <Badge variant="warning">الحالات المدينة: {debtCases.length}</Badge>
                   <Badge variant="danger">إجمالي الدين: {totalDebtAmount.toLocaleString("en-US")} د.ل</Badge>
                   <Badge variant="success">قابل للتوزيع: {totalDebtDistributed.toLocaleString("en-US")} د.ل</Badge>
-                  <Badge variant="outline">تم التوافق: {debtSettledCount}</Badge>
+                  <Badge variant="default">تم التوافق: {debtSettledCount}</Badge>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Link href={debtExportBeforeHref} className="inline-flex">
