@@ -69,7 +69,15 @@ export async function deductBalance(formData: {
       // On PostgreSQL, we can use SELECT ... FOR UPDATE
       const beneficiaries = await tx.$queryRaw<Array<{ id: string; name: string; remaining_balance: number; status: string }>>`
         SELECT id, name, remaining_balance, status FROM "Beneficiary" 
-        WHERE UPPER(BTRIM(card_number)) = UPPER(BTRIM(${card_number}))
+        WHERE TRANSLATE(
+          REGEXP_REPLACE(UPPER(card_number), '[^A-Z0-9٠-٩۰-۹]+', '', 'g'),
+          '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹',
+          '01234567890123456789'
+        ) = TRANSLATE(
+          REGEXP_REPLACE(UPPER(${card_number}), '[^A-Z0-9٠-٩۰-۹]+', '', 'g'),
+          '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹',
+          '01234567890123456789'
+        )
         AND "deleted_at" IS NULL
         LIMIT 1 
         FOR UPDATE

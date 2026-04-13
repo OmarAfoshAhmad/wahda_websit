@@ -199,9 +199,21 @@ export function DeductProvider({ children }: { children: React.ReactNode }) {
     setError(null);
   }, []);
 
+  const extractCardCandidate = useCallback((value: string) => {
+    const raw = value.trim();
+    if (!raw) return "";
+
+    const embeddedCard = raw.match(/(WAB[0-9A-Z٠-٩۰-۹]+)/i);
+    if (embeddedCard?.[1]) return embeddedCard[1];
+
+    const tail = raw.split(/[-–—]/).pop()?.trim();
+    return tail || raw;
+  }, []);
+
   const handleSearch = useCallback(async (e?: React.FormEvent, explicitCard?: string) => {
     e?.preventDefault();
-    const normalizedCard = explicitCard?.trim() || cardNumber.trim() || searchInput.trim();
+    const candidate = explicitCard?.trim() || cardNumber.trim() || searchInput.trim();
+    const normalizedCard = extractCardCandidate(candidate);
     if (!normalizedCard) return;
     setLoading(true); setError(null); setSuccess(null);
     setBeneficiary(null); setShowConfirm(false);
@@ -225,7 +237,7 @@ export function DeductProvider({ children }: { children: React.ReactNode }) {
       saveRecentBeneficiary({ id: b.id, card_number: b.card_number, name: b.name, remaining_balance: Number(b.remaining_balance), status: b.status });
       setTimeout(() => amountRef.current?.focus(), 100);
     }
-  }, [cardNumber, searchInput, saveRecentBeneficiary]);
+  }, [cardNumber, searchInput, saveRecentBeneficiary, extractCardCandidate]);
 
   const handlePickRecent = useCallback((item: BeneficiarySuggestion) => {
     handleSelectSuggestion(item);

@@ -13,7 +13,6 @@ import {
   mergeNeedsReviewBatchAction,
   undoMergeDuplicateBeneficiariesByAuditId,
   ignoreDuplicatePairAction,
-  mergeAllGlobalZeroVariantsAction,
 } from "@/app/actions/beneficiary";
 import { buildDuplicateGroups, paginate } from "@/lib/duplicate-groups";
 import { getActiveImportDuplicateCases } from "@/lib/import-duplicate-cases";
@@ -67,24 +66,6 @@ export default async function DuplicatesAdminPage({
     if ("error" in result && result.error) return { error: result.error };
     const sr = result as { mergedCount?: number; mergeAuditId?: string };
     return { ok: `تم الدمج المخصص بنجاح (${sr.mergedCount ?? 0} سجلات)` };
-  }
-
-  async function mergeAllZeroVariantsUIAction(_formData: FormData) {
-    "use server";
-    try {
-      const res = await mergeAllGlobalZeroVariantsAction();
-      if (res.error) {
-        redirect(`/admin/duplicates?tab=review&err=${encodeURIComponent(res.error)}`);
-      } else {
-        const remaining = Number(res.truncatedCount ?? 0);
-        const remainingSuffix = remaining > 0 ? `، والمتبقي ${remaining} مجموعة للدفعة التالية` : "";
-        let params = `?tab=review&ok=${encodeURIComponent(`تم الدمج الآمن بنجاح (${res.mergedGroups} مجموعات)${remainingSuffix}`)}`;
-        if (res.firstAuditId) params += `&audit=${res.firstAuditId}`;
-        redirect(`/admin/duplicates${params}`);
-      }
-    } catch {
-      redirect(`/admin/duplicates?tab=review&err=${encodeURIComponent("تعذر تنفيذ الدمج الآمن حالياً. أعد المحاولة، وسيتم التنفيذ على دفعات أصغر تلقائياً.")}`);
-    }
   }
 
   async function mergeBatchAction(formData: FormData) {

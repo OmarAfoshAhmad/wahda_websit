@@ -20,6 +20,13 @@ vi.mock('@/app/actions/deduction', () => ({
 describe('DeductForm Component', () => {
   const mockedGetBeneficiaryByCard = vi.mocked(getBeneficiaryByCard);
   const mockedDeductBalance = vi.mocked(deductBalance);
+  type MockBeneficiary = {
+    id: string;
+    name: string;
+    card_number: string;
+    remaining_balance: number;
+    status: 'ACTIVE' | 'INACTIVE' | 'FINISHED';
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -75,7 +82,7 @@ describe('DeductForm Component', () => {
         name: 'أحمد محمود',
         card_number: '123456',
         remaining_balance: 500,
-        status: 'ACTIVE' } as any
+        status: 'ACTIVE' } as MockBeneficiary
     });
 
     // محاكاة استجابة عملية الخصم
@@ -114,7 +121,7 @@ describe('DeductForm Component', () => {
       expect(deductBalance).toHaveBeenCalledWith({
         card_number: '123456',
         amount: 100,
-        type: 'MEDICINE'
+        type: 'SUPPLIES'
       });
     });
 
