@@ -19,6 +19,30 @@ export function BeneficiaryCard() {
 
   if (!beneficiary) return null;
 
+  const statusLabel =
+    beneficiary.status === "ACTIVE"
+      ? "نشط"
+      : beneficiary.status === "SUSPENDED"
+      ? "موقوف"
+      : "مكتمل";
+
+  const statusVariant =
+    beneficiary.status === "ACTIVE"
+      ? "success"
+      : beneficiary.status === "SUSPENDED"
+      ? "danger"
+      : "danger";
+
+  const blockedTitle =
+    beneficiary.status === "SUSPENDED"
+      ? "تم إيقاف الخصم لهذا المستفيد."
+      : "لا يوجد رصيد متبقٍ لهذا المستفيد.";
+
+  const blockedReason =
+    beneficiary.status === "SUSPENDED"
+      ? "السبب: حالة المستفيد موقوف."
+      : "تم إيقاف الخصم لأن حالة السجل مكتملة.";
+
   return (
     <Card className="p-4 sm:p-4.5">
       {/* ─── رأس البطاقة: الاسم والحالة ─── */}
@@ -35,8 +59,8 @@ export function BeneficiaryCard() {
           >
             اختيار مستفيد آخر
           </button>
-          <Badge variant={beneficiary.status === "ACTIVE" ? "success" : "danger"}>
-            {beneficiary.status === "ACTIVE" ? "نشط" : "مكتمل"}
+          <Badge variant={statusVariant}>
+            {statusLabel}
           </Badge>
         </div>
       </div>
@@ -72,10 +96,30 @@ export function BeneficiaryCard() {
       {beneficiary.status === "ACTIVE" && beneficiary.remaining_balance > 0 ? (
         <DeductionAction />
       ) : (
-        <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-4 text-center">
-          <AlertCircle className="mx-auto mb-2 h-8 w-8 text-slate-400 dark:text-slate-500" />
-          <p className="font-black text-slate-700 dark:text-slate-200">لا يوجد رصيد متبقٍ لهذا المستفيد.</p>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">تم إيقاف الخصم لأن حالة السجل مكتملة.</p>
+        <div className={cn(
+          "rounded-md border p-4 text-center",
+          beneficiary.status === "SUSPENDED"
+            ? "border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20"
+            : "border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50"
+        )}>
+          <AlertCircle className={cn(
+            "mx-auto mb-2 h-8 w-8",
+            beneficiary.status === "SUSPENDED"
+              ? "text-red-500 dark:text-red-400"
+              : "text-slate-400 dark:text-slate-500"
+          )} />
+          <p className={cn(
+            "font-black",
+            beneficiary.status === "SUSPENDED"
+              ? "text-red-700 dark:text-red-300"
+              : "text-slate-700 dark:text-slate-200"
+          )}>{blockedTitle}</p>
+          <p className={cn(
+            "mt-1 text-sm",
+            beneficiary.status === "SUSPENDED"
+              ? "text-red-600 dark:text-red-400"
+              : "text-slate-500 dark:text-slate-400"
+          )}>{blockedReason}</p>
         </div>
       )}
     </Card>

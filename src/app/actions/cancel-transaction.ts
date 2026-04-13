@@ -140,6 +140,7 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
         id: true,
         type: true,
         is_cancelled: true,
+        original_transaction_id: true,
         corrections: {
           where: { type: "CANCELLATION", is_cancelled: false },
           select: { id: true },
@@ -159,7 +160,11 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
     }
 
     if (op === "soft_delete") {
-      const deletable = selected.filter((tx) => !tx.is_cancelled && tx.type !== "CANCELLATION");
+      const deletable = selected.filter((tx) => {
+        if (tx.is_cancelled) return false;
+        // يمنع حذف أي حركة مصححة نهائياً.
+        return tx.type !== "CANCELLATION";
+      });
       if (deletable.length === 0) return;
 
       const deletableIds = deletable.map((tx) => tx.id);
@@ -170,6 +175,14 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
             where: { id: transactionId },
           });
           if (!transactionRecord) continue;
+
+          if (transactionRecord.type === "CANCELLATION") continue;
+
+          // تحديث الحركة كأنه محذوف ناعم
+          await tx.transaction.update({
+            where: { id: transactionId },
+            data: { is_cancelled: true },
+          });
 
           // جلب المستفيد مع قفل لمنع التعديل المتزامن
           const lockedBen = await tx.$queryRaw<Array<{ id: string; remaining_balance: number; status: string; completed_via: string | null }>>`
@@ -183,12 +196,6 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
           const remainingBefore = Number(beneficiary.remaining_balance);
           const refundedAmount = Number(transactionRecord.amount);
           const remainingAfter = roundCurrency(remainingBefore + refundedAmount);
-
-          // تحديث الحركة كأنه محذوف ناعم
-          await tx.transaction.update({
-            where: { id: transactionId },
-            data: { is_cancelled: true },
-          });
 
           // تحديث الرصيد الجديد للمستفيد بناءً على الرصيد القديم
           const nextStatus = beneficiary.status === "SUSPENDED" ? "SUSPENDED" : remainingAfter <= 0 ? "FINISHED" : "ACTIVE";
@@ -210,6 +217,7 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
               metadata: {
                 transaction_id: transactionId,
                 refunded_amount: refundedAmount,
+                balance_impact: refundedAmount,
                 balance_before: remainingBefore,
                 balance_after: remainingAfter,
                 message: `تم إلغاء الخصم/حذف الحركة وإرجاع المبلغ (${refundedAmount}) للرصيد المتبقي.`,

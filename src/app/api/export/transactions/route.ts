@@ -30,6 +30,10 @@ export async function GET(request: NextRequest) {
     ? (facility_id ? { facility_id } : {})
     : { facility_id: session.id };
 
+  // في التقرير: نظهر الحركات العادية المنفذة فقط ونستبعد الملغاة وحركة التصحيح.
+  where.type = { not: "CANCELLATION" };
+  where.is_cancelled = false;
+
   if (q && q.trim() !== "") {
     where.OR = getArabicSearchTerms(q.trim()).flatMap(t => [
       { beneficiary: { name: { contains: t, mode: "insensitive" as const } } },
@@ -60,13 +64,50 @@ export async function GET(request: NextRequest) {
   try {
     const transactions = await prisma.transaction.findMany({
       where,
-      orderBy: { created_at: "desc" },
+      orderBy: [{ created_at: "asc" }, { id: "asc" }],
       take: EXPORT_LIMIT,
       include: {
         beneficiary: true,
         facility: true,
       },
     });
+
+    const beneficiaryIds = [...new Set(transactions.map((tx) => tx.beneficiary_id))];
+    const remainingByTxId = new Map<string, number>();
+
+    if (beneficiaryIds.length > 0) {
+      const [beneficiaryTotals, txHistory] = await Promise.all([
+        prisma.beneficiary.findMany({
+          where: { id: { in: beneficiaryIds } },
+          select: { id: true, total_balance: true },
+        }),
+        prisma.transaction.findMany({
+          where: {
+            beneficiary_id: { in: beneficiaryIds },
+            is_cancelled: false,
+            type: { not: "CANCELLATION" },
+          },
+          select: {
+            id: true,
+            beneficiary_id: true,
+            amount: true,
+            created_at: true,
+          },
+          orderBy: [{ created_at: "asc" }, { id: "asc" }],
+        }),
+      ]);
+
+      const runningByBeneficiary = new Map<string, number>(
+        beneficiaryTotals.map((b) => [b.id, Number(b.total_balance)])
+      );
+
+      for (const tx of txHistory) {
+        const current = runningByBeneficiary.get(tx.beneficiary_id) ?? 0;
+        const next = current - Number(tx.amount);
+        runningByBeneficiary.set(tx.beneficiary_id, next);
+        remainingByTxId.set(tx.id, Math.max(0, next));
+      }
+    }
 
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet("Transactions");
@@ -98,8 +139,8 @@ export async function GET(request: NextRequest) {
         beneficiary_name: tx.beneficiary.name,
         card_number: tx.beneficiary.card_number,
         amount: Number(tx.amount),
-        remaining_balance: Number(tx.beneficiary.remaining_balance),
-        type: tx.type === "MEDICINE" ? "ادوية صرف عام" : "كشف عام",
+        remaining_balance: remainingByTxId.get(tx.id) ?? Number(tx.beneficiary.remaining_balance),
+        type: tx.type === "SUPPLIES" ? "كشف عام" : "ادوية صرف عام",
         date: formatDateTripoli(tx.created_at, "en-GB"), // dd/mm/yyyy
         time: formatTimeTripoli(tx.created_at, "en-GB"),
         ...(session.is_admin ? { facility_name: tx.facility.name } : {}),

@@ -535,6 +535,8 @@ export default async function BeneficiariesPage({
                                         card_number: beneficiary.card_number,
                                         birth_date: beneficiary.birth_date ? new Date(beneficiary.birth_date).toISOString().slice(0, 10) : "",
                                         status: beneficiary.status,
+                                        total_balance: Number(beneficiary.total_balance),
+                                        remaining_balance: Number(beneficiary.remaining_balance),
                                       }}
                                     />
                                   )}

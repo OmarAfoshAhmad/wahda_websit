@@ -20,6 +20,19 @@ export type EditTransactionInput = {
   facilityId?: string;
 };
 
+function getTripoliIsoDate(date: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Tripoli",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+function parseDateOnlyAsNoonUtc(value: string): Date {
+  return new Date(`${value}T12:00:00.000Z`);
+}
+
 export async function addTransactionFromForm(
   _prev: AddTransactionState | null,
   formData: FormData,
@@ -47,11 +60,17 @@ export async function addTransactionFromForm(
 
   let transactionDate: Date | undefined;
   if (transactionDateRaw) {
-    const parsedDate = new Date(transactionDateRaw);
+    const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(transactionDateRaw);
+    const parsedDate = isDateOnly ? parseDateOnlyAsNoonUtc(transactionDateRaw) : new Date(transactionDateRaw);
     if (Number.isNaN(parsedDate.getTime())) {
       return { error: "تاريخ الحركة غير صالح" };
     }
-    if (parsedDate.getTime() > Date.now() + 60_000) {
+    if (isDateOnly) {
+      const todayTripoli = getTripoliIsoDate();
+      if (transactionDateRaw > todayTripoli) {
+        return { error: "لا يمكن تحديد تاريخ حركة في المستقبل" };
+      }
+    } else if (parsedDate.getTime() > Date.now() + 60_000) {
       return { error: "لا يمكن تحديد تاريخ حركة في المستقبل" };
     }
     transactionDate = parsedDate;
@@ -91,7 +110,7 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
 
   const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(input.transactionDate);
   const parsedDate = isDateOnly
-    ? new Date(`${input.transactionDate}T12:00:00`)
+    ? parseDateOnlyAsNoonUtc(input.transactionDate)
     : new Date(input.transactionDate);
   if (Number.isNaN(parsedDate.getTime())) {
     return { error: "تاريخ الحركة غير صالح" };
@@ -102,7 +121,12 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
     return { error: "تاريخ الحركة غير صالح" };
   }
 
-  if (parsedDate.getTime() > Date.now() + 60_000) {
+  if (isDateOnly) {
+    const todayTripoli = getTripoliIsoDate();
+    if (input.transactionDate > todayTripoli) {
+      return { error: "لا يمكن تحديد تاريخ حركة في المستقبل" };
+    }
+  } else if (parsedDate.getTime() > Date.now() + 60_000) {
     return { error: "لا يمكن تحديد تاريخ حركة في المستقبل" };
   }
 

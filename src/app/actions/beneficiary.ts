@@ -41,30 +41,14 @@ async function findCanonicalDuplicate(
   excludeId?: string,
 ) {
   const normalizedInput = normalizeCardNumber(inputCard);
-  const canonicalInput = canonicalizeCardNumber(normalizedInput);
-
-  // للبطاقات غير القياسية: مطابقة مباشرة
-  if (!normalizedInput.startsWith("WAB2025")) {
-    return tx.beneficiary.findFirst({
-      where: {
-        ...(excludeId ? { id: { not: excludeId } } : {}),
-        card_number: { equals: normalizedInput, mode: "insensitive" },
-      },
-      select: { id: true, card_number: true },
-    });
-  }
-
-  // FIX: استبدال raw SQL بصيغة Prisma آمنة لتفادي أخطاء تركيب الاستعلامات
-  // (خطأ 42601: trailing junk after parameter)
-  const candidates = await tx.beneficiary.findMany({
+  return tx.beneficiary.findFirst({
     where: {
+      deleted_at: null,
       ...(excludeId ? { id: { not: excludeId } } : {}),
-      card_number: { startsWith: "WAB2025", mode: "insensitive" },
+      card_number: { equals: normalizedInput, mode: "insensitive" },
     },
     select: { id: true, card_number: true },
   });
-
-  return candidates.find((row) => canonicalizeCardNumber(row.card_number) === canonicalInput) ?? null;
 }
 
 // normalizePersonName مستوردة من @/lib/normalize لضمان التطابق مع الاستيراد وكشف التكرارات
@@ -375,13 +359,36 @@ export async function updateBeneficiary(data: {
 
   try {
     await prisma.$transaction(async (tx) => {
-      // قفل استشاري لمنع التحديث المتزامن بنفس رقم البطاقة
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${normalizedCardNumber}))`;
+      // SEC-FIX: جلب القيم القديمة أولاً لتحديد ما إذا كانت البطاقة تغيّرت فعلاً.
+      const oldRecord = await tx.beneficiary.findUnique({
+        where: { id: payload.id },
+        select: {
+          name: true,
+          card_number: true,
+          birth_date: true,
+          status: true,
+          completed_via: true,
+          total_balance: true,
+          remaining_balance: true,
+        },
+      });
 
-      const existing = await findCanonicalDuplicate(tx, normalizedCardNumber, payload.id);
+      if (!oldRecord) {
+        throw new Error("NOT_FOUND");
+      }
 
-      if (existing && existing.id !== payload.id) {
-        throw new Error("CARD_EXISTS");
+      const oldNormalizedCardNumber = normalizeCardNumber(oldRecord.card_number);
+      const cardChanged = oldNormalizedCardNumber !== normalizedCardNumber;
+
+      if (cardChanged) {
+        // قفل استشاري لمنع التحديث المتزامن بنفس رقم البطاقة
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${normalizedCardNumber}))`;
+
+        const existing = await findCanonicalDuplicate(tx, normalizedCardNumber, payload.id);
+
+        if (existing && existing.id !== payload.id) {
+          throw new Error("CARD_EXISTS");
+        }
       }
 
       if (parsedBirthDate) {
@@ -398,23 +405,6 @@ export async function updateBeneficiary(data: {
         if (existingPerson) {
           throw new Error("PERSON_EXISTS");
         }
-      }
-
-      // SEC-FIX: جلب القيم القديمة قبل التعديل لحفظها في سجل التدقيق
-      const oldRecord = await tx.beneficiary.findUnique({
-        where: { id: payload.id },
-        select: {
-          name: true,
-          card_number: true,
-          birth_date: true,
-          status: true,
-          total_balance: true,
-          remaining_balance: true,
-        },
-      });
-
-      if (!oldRecord) {
-        throw new Error("NOT_FOUND");
       }
 
       const spentAggregate = await tx.transaction.aggregate({
@@ -444,6 +434,7 @@ export async function updateBeneficiary(data: {
           card_number: normalizedCardNumber,
           birth_date: parsedBirthDate,
           status: payload.status,
+          completed_via: payload.status === "FINISHED" ? (oldRecord.completed_via ?? "MANUAL") : null,
           total_balance: nextTotal,
           remaining_balance: nextRemaining,
         },

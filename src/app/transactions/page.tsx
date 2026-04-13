@@ -23,6 +23,7 @@ type TransactionRow = {
   amount: unknown;
   type: string;
   is_cancelled: boolean;
+  original_transaction_id: string | null;
   created_at: Date;
   corrections: Array<{
     id: string;
@@ -61,7 +62,9 @@ function getTransactionStatusLabel(tx: TransactionRow): string {
   if (tx.is_cancelled) {
     return tx.corrections.length > 0 ? "ملغاة" : "محذوفة";
   }
-  if (tx.type === "CANCELLATION") return "حركة مصححة";
+  if (tx.type === "CANCELLATION") {
+    return tx.original_transaction_id ? "حركة مصححة" : "حركة مصححة غير مرتبطة";
+  }
   return "منفذة";
 }
 
@@ -90,9 +93,9 @@ export default async function TransactionsPage({
     ? (selectedFacility?.name ?? rawFacilityFilter)
     : session.name;
 
-  const ALLOWED_STATUS = ["all", "active", "cancelled", "cancellation", "deleted"] as const;
+  const ALLOWED_STATUS = ["active"] as const;
   type TxStatus = typeof ALLOWED_STATUS[number];
-  const statusFilter: TxStatus = (ALLOWED_STATUS as ReadonlyArray<string>).includes(status ?? "") ? status as TxStatus : "all";
+  const statusFilter: TxStatus = "active";
 
   const ALLOWED_SOURCE = ["all", "manual", "import"] as const;
   type TxSource = typeof ALLOWED_SOURCE[number];
@@ -101,7 +104,7 @@ export default async function TransactionsPage({
   const TX_SORT_COLS = ["created_at", "amount", "beneficiary_name", "facility_name", "remaining_balance"] as const;
   type TxSortCol = typeof TX_SORT_COLS[number];
   const sortCol: TxSortCol = (TX_SORT_COLS as ReadonlyArray<string>).includes(sort ?? "") ? sort as TxSortCol : "created_at";
-  const sortDir: "asc" | "desc" = order === "asc" ? "asc" : "desc";
+  const sortDir: "asc" | "desc" = order === "desc" ? "desc" : "asc";
 
   const txOrderByMap: Record<TxSortCol, object> = {
     created_at: { created_at: sortDir },
@@ -117,7 +120,7 @@ export default async function TransactionsPage({
     if (end_date) p.set("end_date", end_date);
     if (facility_id) p.set("facility_id", facility_id);
     if (q) p.set("q", q);
-    if (statusFilter !== "all") p.set("status", statusFilter);
+    p.set("status", statusFilter);
     if (sourceFilter !== "all") p.set("source", sourceFilter);
     p.set("pageSize", String(PAGE_SIZE));
     p.set("sort", sortCol);
@@ -139,29 +142,14 @@ export default async function TransactionsPage({
     ? (resolvedFacilityId ? { facility_id: resolvedFacilityId } : {})
     : { facility_id: session.id };
 
-  // فلتر الحالة
-  if (statusFilter === "active") {
-    where.is_cancelled = false;
-    where.type = { not: "CANCELLATION" };
-  } else if (statusFilter === "cancelled") {
-    where.is_cancelled = true;
-    where.corrections = { some: { type: "CANCELLATION", is_cancelled: false } };
-  } else if (statusFilter === "cancellation") {
-    where.is_cancelled = false;
-    where.type = "CANCELLATION";
-  } else if (statusFilter === "deleted") {
-    where.is_cancelled = true;
-    where.type = { not: "CANCELLATION" };
-    where.corrections = { none: { type: "CANCELLATION", is_cancelled: false } };
-  } else {
-    where.OR = [
-      { is_cancelled: false },
-      {
-        is_cancelled: true,
-        corrections: { some: { type: "CANCELLATION", is_cancelled: false } },
-      },
-    ];
-  }
+  // في الشاشة: نعرض المنفذة + الحركات الملغاة المرتبطة بتصحيح فعّال ليتضح التسلسل المالي.
+  where.OR = [
+    { is_cancelled: false },
+    {
+      is_cancelled: true,
+      corrections: { some: { type: "CANCELLATION", is_cancelled: false } },
+    },
+  ];
 
   // فلتر المصدر (يدوي / استيراد) — المبرمج فقط
   if (session.is_admin && sourceFilter === "import") {
@@ -230,6 +218,7 @@ export default async function TransactionsPage({
         amount: true,
         type: true,
         is_cancelled: true,
+        original_transaction_id: true,
         created_at: true,
         corrections: {
           where: { type: "CANCELLATION", is_cancelled: false },
@@ -255,6 +244,7 @@ export default async function TransactionsPage({
           amount: true,
           type: true,
           is_cancelled: true,
+          original_transaction_id: true,
           created_at: true,
           corrections: {
             where: { type: "CANCELLATION", is_cancelled: false },
@@ -276,8 +266,11 @@ export default async function TransactionsPage({
   const transactionRows = focusedRow
     ? [focusedRow, ...transactionRowsBase.filter((tx) => tx.id !== focusedRow.id)].slice(0, PAGE_SIZE)
     : transactionRowsBase;
-  const displayedBeneficiaryIds = [...new Set(transactionRows.map((tx) => tx.beneficiary_id))];
-  const maxDisplayedCreatedAt = transactionRows.reduce<Date | null>((acc, tx) => {
+  // حماية إضافية: لا نعرض إلا الحركات الفعلية حتى لو وصلتنا بيانات غير متوقعة.
+  // بيانات التقرير (طباعة): نظهر الحركات العادية المنفذة فقط، ونستبعد الملغاة وحركة التصحيح.
+  const visibleRows = transactionRows.filter((tx) => tx.type !== "CANCELLATION" && !tx.is_cancelled);
+  const displayedBeneficiaryIds = [...new Set(visibleRows.map((tx) => tx.beneficiary_id))];
+  const maxDisplayedCreatedAt = visibleRows.reduce<Date | null>((acc, tx) => {
     if (!acc || tx.created_at > acc) return tx.created_at;
     return acc;
   }, null);
@@ -293,14 +286,13 @@ export default async function TransactionsPage({
         where: {
           beneficiary_id: { in: displayedBeneficiaryIds },
           created_at: { lte: maxDisplayedCreatedAt },
+          is_cancelled: false,
+          type: { not: "CANCELLATION" },
         },
         select: {
           id: true,
           beneficiary_id: true,
           amount: true,
-          type: true,
-          is_cancelled: true,
-          original_transaction_id: true,
           created_at: true,
         },
         orderBy: [{ created_at: "asc" }, { id: "asc" }],
@@ -311,34 +303,36 @@ export default async function TransactionsPage({
       beneficiaryTotals.map((b) => [b.id, Number(b.total_balance)])
     );
 
-    const correctedOriginalIds = new Set(
-      historyRows
-        .filter((tx) => tx.type === "CANCELLATION" && !tx.is_cancelled && tx.original_transaction_id)
-        .map((tx) => tx.original_transaction_id as string)
-    );
-
     for (const tx of historyRows) {
-      const isActiveCancellation = tx.type === "CANCELLATION" && !tx.is_cancelled;
-      const isOriginalWithCorrection = tx.type !== "CANCELLATION" && correctedOriginalIds.has(tx.id);
-      const isActiveDeduction = tx.type !== "CANCELLATION" && !tx.is_cancelled;
-
-      if (!isActiveCancellation && !isOriginalWithCorrection && !isActiveDeduction) {
-        continue;
-      }
-
       const current = runningByBeneficiary.get(tx.beneficiary_id) ?? 0;
-      let next = current;
-
-      if (tx.type === "CANCELLATION") {
-        next = current + Math.abs(Number(tx.amount));
-      } else {
-        next = current - Number(tx.amount);
-      }
+      const next = current - Number(tx.amount);
 
       runningByBeneficiary.set(tx.beneficiary_id, next);
       historicalBalanceByTxId.set(tx.id, Math.max(0, next));
     }
   }
+
+  const reportRowsCount = visibleRows.length;
+  const reportTotalAmount = visibleRows.reduce((sum, tx) => sum + Number(tx.amount), 0);
+  const reportTotalRemaining = (() => {
+    // الإجمالي الصحيح للمتبقي: آخر رصيد لكل مستفيد داخل التقرير، وليس مجموع كل صف.
+    const latestRemainingByBeneficiary = new Map<string, number>();
+    const orderedRows = [...visibleRows].sort((a, b) => {
+      const diff = a.created_at.getTime() - b.created_at.getTime();
+      if (diff !== 0) return diff;
+      return a.id.localeCompare(b.id);
+    });
+
+    for (const tx of orderedRows) {
+      const historicalBalance = historicalBalanceByTxId.get(tx.id);
+      const shownBalance = typeof historicalBalance === "number"
+        ? historicalBalance
+        : Number(tx.beneficiary.remaining_balance);
+      latestRemainingByBeneficiary.set(tx.beneficiary_id, shownBalance);
+    }
+
+    return [...latestRemainingByBeneficiary.values()].reduce((sum, value) => sum + value, 0);
+  })();
 
   const canCancel = hasPermission(session, "cancel_transactions");
   const canCorrect = hasPermission(session, "correct_transactions");
@@ -370,6 +364,21 @@ export default async function TransactionsPage({
           <h2 className="text-lg font-bold text-black mt-1">سجل الحركات (المراجعة الطبية)</h2>
           <p className="text-sm text-black mt-1 opacity-75">تاريخ استخراج التقرير: {formatDateTripoli(new Date(), "en-GB")}</p>
           {session.is_admin && resolvedFacilityId && <p className="text-sm font-bold mt-1 text-black">خاص بالمرفق: {selectedFacility?.name}</p>}
+        </div>
+
+        <div className="hidden print:grid grid-cols-3 gap-3 border-b border-black/40 pb-3 mb-3 text-black">
+          <div className="text-center">
+            <p className="text-xs">عدد المعاملات (المعروضة)</p>
+            <p className="text-lg font-black">{reportRowsCount.toLocaleString("ar-LY")}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-xs">إجمالي المخصوم</p>
+            <p className="text-lg font-black">{reportTotalAmount.toLocaleString("ar-LY")} د.ل</p>
+          </div>
+          <div className="text-center">
+            <p className="text-xs">إجمالي المتبقي (صفوف التقرير)</p>
+            <p className="text-lg font-black">{reportTotalRemaining.toLocaleString("ar-LY")} د.ل</p>
+          </div>
         </div>
 
         <div className="print:hidden">
@@ -440,7 +449,7 @@ export default async function TransactionsPage({
           <input type="hidden" name="start_date" value={start_date ?? ""} />
           <input type="hidden" name="end_date" value={end_date ?? ""} />
           <input type="hidden" name="facility_id" value={facility_id ?? ""} />
-          {statusFilter !== "all" && <input type="hidden" name="status" value={statusFilter} />}
+          <input type="hidden" name="status" value={statusFilter} />
           {sourceFilter !== "all" && <input type="hidden" name="source" value={sourceFilter} />}
           <div className="w-full">
             <label className="block text-xs font-black text-slate-400 mb-1">بحث باسم المستفيد أو رقم البطاقة</label>
@@ -480,11 +489,7 @@ export default async function TransactionsPage({
                   defaultValue={statusFilter}
                   className="flex h-10 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
                 >
-                  <option value="all">كل الحركات</option>
                   <option value="active">منفذة فعلياً</option>
-                  <option value="cancelled">ملغاة</option>
-                  <option value="cancellation">إلغاء حركة (تصحيح)</option>
-                  <option value="deleted">محذوفة (حذف ناعم)</option>
                 </select>
               </div>
 
@@ -532,10 +537,10 @@ export default async function TransactionsPage({
 
         {/* ══ عرض الكارد — جوال فقط ══ */}
         <div className="flex flex-col gap-3 sm:hidden">
-          {transactions.length === 0 ? (
+          {transactionRows.length === 0 ? (
             <p className="py-10 text-center italic text-slate-500">لا توجد نتائج مطابقة للفلاتر الحالية.</p>
           ) : (
-            transactions.map((tx: TransactionRow) => (
+            transactionRows.map((tx: TransactionRow) => (
               <Card key={tx.id} className="overflow-hidden p-0">
                 {/* رأس الكارد */}
                 <div className="flex items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50 dark:bg-slate-800/30 px-4 py-2.5">
@@ -578,7 +583,7 @@ export default async function TransactionsPage({
         <form action={bulkTransactionSelectionAction} className="hidden sm:block">
           <Card className="overflow-hidden pb-0">
             {(session.is_admin || canCancel || canDelete) && (
-              <div className="flex items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/40 px-4 py-3 sm:px-6">
+              <div className="print:hidden flex items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/40 px-4 py-3 sm:px-6">
                 <p className="text-xs font-bold text-slate-500 dark:text-slate-400 text-nowrap">يمكنك تحديد أكثر من حركة ثم تنفيذ الإجراء الجماعي المتاح.</p>
                 <div className="flex-1" />
                 <BulkTransactionActionButton
@@ -593,41 +598,46 @@ export default async function TransactionsPage({
                 <thead className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
                   <tr>
                     {(session.is_admin || canCancel || canDelete) && (
-                      <th className="px-4 py-4 text-xs font-black text-slate-400 dark:text-slate-500">
+                      <th className="print:hidden px-4 py-4 text-xs font-black text-slate-400 dark:text-slate-500">
                         <SelectAllTransactionsCheckbox />
                       </th>
                     )}
                     <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500">#</th>
                     <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500">
-                      <Link href={txSortHref("beneficiary_name")} className="inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
+                      <Link href={txSortHref("beneficiary_name")} className="print:hidden inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
                         المستفيد {sortCol === "beneficiary_name" ? (sortDir === "asc" ? "↑" : "↓") : ""}
                       </Link>
+                      <span className="hidden print:inline">المستفيد</span>
                     </th>
                     {session.is_admin && (
                       <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500">
-                        <Link href={txSortHref("facility_name")} className="inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
+                        <Link href={txSortHref("facility_name")} className="print:hidden inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
                           المرفق {sortCol === "facility_name" ? (sortDir === "asc" ? "↑" : "↓") : ""}
                         </Link>
+                        <span className="hidden print:inline">المرفق</span>
                       </th>
                     )}
                     <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500">نوع الحركة</th>
                     <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 text-right">
-                      <Link href={txSortHref("amount")} className="inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
+                      <Link href={txSortHref("amount")} className="print:hidden inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
                         القيمة المخصومة {sortCol === "amount" ? (sortDir === "asc" ? "↑" : "↓") : ""}
                       </Link>
+                      <span className="hidden print:inline">القيمة المخصومة</span>
                     </th>
                     <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 text-right">
-                      <Link href={txSortHref("remaining_balance")} className="inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
+                      <Link href={txSortHref("remaining_balance")} className="print:hidden inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
                         الرصيد المتبقي {sortCol === "remaining_balance" ? (sortDir === "asc" ? "↑" : "↓") : ""}
                       </Link>
+                      <span className="hidden print:inline">الرصيد المتبقي</span>
                     </th>
                     <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 text-right">
-                      <Link href={txSortHref("created_at")} className="inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
+                      <Link href={txSortHref("created_at")} className="print:hidden inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
                         التاريخ {sortCol === "created_at" ? (sortDir === "asc" ? "↑" : "↓") : ""}
                       </Link>
+                      <span className="hidden print:inline">التاريخ</span>
                     </th>
                     <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 text-center">الحالة</th>
-                    {session.is_admin && <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 text-center">المصدر</th>}
+                    {session.is_admin && <th className="print:hidden px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 text-center">المصدر</th>}
                     {(session.is_admin || canCorrect) && <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 no-print">تعديل</th>}
                   </tr>
                 </thead>
@@ -645,24 +655,27 @@ export default async function TransactionsPage({
                         const balanceAfterDelete = currentBalance + amount;
 
                         return (
-                      <tr key={tx.id} className={`transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50 ${tx.is_cancelled ? "bg-red-50/50 dark:bg-red-900/10 hover:bg-red-50 dark:hover:bg-red-900/20" : ""} ${tx.type === "CANCELLATION" ? "bg-green-50/50 dark:bg-green-900/10 hover:bg-green-50 dark:hover:bg-green-900/20" : ""}`}>
+                      <tr key={tx.id} className={`transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50 ${tx.is_cancelled ? "bg-red-50/50 dark:bg-red-900/10 hover:bg-red-50 dark:hover:bg-red-900/20 print:hidden" : ""} ${tx.type === "CANCELLATION" ? "bg-green-50/50 dark:bg-green-900/10 hover:bg-green-50 dark:hover:bg-green-900/20 print:hidden" : ""}`}>
                         {(session.is_admin || canCancel || canDelete) && (
-                          <td className="px-4 py-4">
+                          <td className="print:hidden px-4 py-4">
                             <input
                               type="checkbox"
                               name="ids"
                               value={tx.id}
                               data-bulk-tx-checkbox="1"
                               data-tx-type={tx.type}
+                              data-original-transaction-id={tx.original_transaction_id ?? ""}
                               data-beneficiary-name={tx.beneficiary.name}
                               data-balance-before-delete={String(balanceBeforeDelete)}
                               data-amount={String(amount)}
                               data-balance-after-delete={String(balanceAfterDelete)}
                               disabled={
-                                tx.is_cancelled && (tx.corrections.length > 0 || statusFilter !== "deleted")
+                                tx.type === "CANCELLATION" || (tx.is_cancelled && tx.corrections.length > 0)
                               }
                               title={
-                                tx.is_cancelled && (tx.corrections.length > 0 || statusFilter !== "deleted")
+                                tx.type === "CANCELLATION"
+                                  ? "الحركة المصححة غير قابلة للحذف أو الإجراء الجماعي"
+                                  : tx.is_cancelled && tx.corrections.length > 0
                                   ? "هذه الحركة غير قابلة للإجراء الجماعي"
                                   : "تحديد الحركة"
                               }
@@ -690,31 +703,13 @@ export default async function TransactionsPage({
                           )}
                         </td>
                         <td className="px-6 py-4 text-right">
-                          {(() => {
-                            if (tx.type === "CANCELLATION") {
-                              return (
-                                <div className="inline-flex flex-col items-end">
-                                  <span className="font-black text-green-700 dark:text-green-400">
-                                    +{Math.abs(Number(tx.amount)).toLocaleString("ar-LY")}
-                                  </span>
-                                </div>
-                              );
-                            }
-
-                            if (tx.is_cancelled) {
-                              return (
-                                <div className="inline-flex flex-col items-end">
-                                  <span className="font-black text-slate-600 dark:text-slate-300">
-                                    {Number(tx.amount).toLocaleString("ar-LY")}
-                                  </span>
-                                </div>
-                              );
-                            }
-
-                            return (
-                              <span className="font-black text-slate-900 dark:text-white">{Number(tx.amount).toLocaleString("ar-LY")}</span>
-                            );
-                          })()}
+                          {tx.type === "CANCELLATION" ? (
+                            <span className="font-black text-green-700 dark:text-green-400">
+                              +{Math.abs(Number(tx.amount)).toLocaleString("ar-LY")}
+                            </span>
+                          ) : (
+                            <span className="font-black text-slate-900 dark:text-white">{Number(tx.amount).toLocaleString("ar-LY")}</span>
+                          )}
                           <span className="mr-3 text-[10px] text-slate-400 dark:text-slate-500">د.ل</span>
                         </td>
                         <td className="px-6 py-4 text-right">
@@ -747,20 +742,10 @@ export default async function TransactionsPage({
                           <p className="text-sm text-slate-900 dark:text-slate-300">{formatDateTripoli(tx.created_at, "en-GB")}</p>
                         </td>
                         <td className="px-6 py-4 text-center">
-                          {tx.is_cancelled ? (
-                            tx.corrections.length > 0 ? (
-                              <span className="font-bold text-red-600 dark:text-red-400 text-xs text-nowrap">{getTransactionStatusLabel(tx)}</span>
-                            ) : (
-                              <span className="font-bold text-slate-500 dark:text-slate-400 text-xs text-nowrap">{getTransactionStatusLabel(tx)}</span>
-                            )
-                          ) : tx.type === "CANCELLATION" ? (
-                            <span className="font-bold text-green-600 dark:text-green-400 text-xs text-nowrap">{getTransactionStatusLabel(tx)}</span>
-                          ) : (
-                            <span className="font-bold text-slate-500 dark:text-slate-400 text-xs text-nowrap">{getTransactionStatusLabel(tx)}</span>
-                          )}
+                          <span className="font-bold text-slate-500 dark:text-slate-400 text-xs text-nowrap">{getTransactionStatusLabel(tx)}</span>
                         </td>
                         {session.is_admin && (
-                          <td className="px-6 py-4 text-center">
+                          <td className="print:hidden px-6 py-4 text-center">
                             <span className="font-bold text-slate-600 dark:text-slate-300 text-xs text-nowrap">
                               {getSourceLabel(tx.type)}
                             </span>
@@ -816,7 +801,7 @@ export default async function TransactionsPage({
                 <input type="hidden" name="q" value={q ?? ""} />
                 <input type="hidden" name="sort" value={sortCol} />
                 <input type="hidden" name="order" value={sortDir} />
-                {statusFilter !== "all" && <input type="hidden" name="status" value={statusFilter} />}
+                <input type="hidden" name="status" value={statusFilter} />
                 {sourceFilter !== "all" && <input type="hidden" name="source" value={sourceFilter} />}
                 <label className="text-xs font-bold text-slate-500 dark:text-slate-400">عدد السجلات</label>
                 <select
