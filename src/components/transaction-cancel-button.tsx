@@ -1,23 +1,23 @@
 "use client";
 
 import { useState } from "react";
-import { Trash2 } from "lucide-react";
+import { Ban, RotateCcw, Link2Off } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cancelTransaction } from "@/app/actions/cancel-transaction";
-import { deleteCancellationTransaction } from "@/app/actions/restore-transaction";
+import { deleteCancellationTransaction, deleteCancellationPair } from "@/app/actions/restore-transaction";
 import { ConfirmationModal } from "@/components/confirmation-modal";
 
 interface TransactionCancelButtonProps {
   transactionId: string;
   isCancelled: boolean;
   type: string;
+  canDeletePair?: boolean;
 }
 
-export function TransactionCancelButton({ transactionId, isCancelled, type }: TransactionCancelButtonProps) {
+export function TransactionCancelButton({ transactionId, isCancelled, type, canDeletePair = false }: TransactionCancelButtonProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [undoModalOpen, setUndoModalOpen] = useState(false);
-  const [undoCancellationId, setUndoCancellationId] = useState<string | null>(null);
+  const [pairModalOpen, setPairModalOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
@@ -44,12 +44,8 @@ export function TransactionCancelButton({ transactionId, isCancelled, type }: Tr
         // Cancel transaction
         const result = await cancelTransaction(transactionId);
         if (result.success) {
-          if (result.cancellationId) {
-            setUndoCancellationId(result.cancellationId);
-            setUndoModalOpen(true);
-          }
-          router.refresh();
           setIsModalOpen(false);
+          router.refresh();
         } else {
           setError(result.error || "فشل إلغاء الحركة");
         }
@@ -63,18 +59,35 @@ export function TransactionCancelButton({ transactionId, isCancelled, type }: Tr
 
   return (
     <>
-      <button
-        onClick={() => { setIsModalOpen(true); setError(null); }}
-        disabled={isLoading}
-        className={`p-1 rounded-md transition-colors disabled:opacity-50 ${
-          isRestoreAction 
-            ? "text-slate-500 hover:bg-slate-100" 
-            : "text-red-600 hover:bg-red-50"
-        }`}
-        title={isRestoreAction ? "حذف حركة التراجع (إعادة الخصم)" : "إلغاء الحركة (استرجاع المبلغ)"}
-      >
-        <Trash2 className="h-4 w-4" />
-      </button>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => { setIsModalOpen(true); setError(null); }}
+          disabled={isLoading}
+          className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors disabled:opacity-50 ${
+            isRestoreAction
+              ? "border-slate-300 text-slate-700 hover:bg-slate-50"
+              : "border-red-300 text-red-700 hover:bg-red-50"
+          }`}
+          title={isRestoreAction ? "إعادة الخصم (إلغاء حركة التصحيح)" : "إلغاء الحركة (استرجاع المبلغ)"}
+          aria-label={isRestoreAction ? "إعادة الخصم" : "إلغاء الحركة"}
+        >
+          {isRestoreAction ? <RotateCcw className="h-4 w-4" /> : <Ban className="h-4 w-4" />}
+        </button>
+
+        {isRestoreAction && canDeletePair && (
+          <button
+            type="button"
+            onClick={() => { setPairModalOpen(true); setError(null); }}
+            disabled={isLoading}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-300 text-red-700 transition-colors hover:bg-red-50 disabled:opacity-50"
+            title="حذف زوج الإلغاء والتصحيح نهائياً"
+            aria-label="حذف زوج الإلغاء والتصحيح"
+          >
+            <Link2Off className="h-4 w-4" />
+          </button>
+        )}
+      </div>
 
       {isModalOpen && (
         <ConfirmationModal
@@ -95,26 +108,25 @@ export function TransactionCancelButton({ transactionId, isCancelled, type }: Tr
       )}
 
       <ConfirmationModal
-        isOpen={undoModalOpen}
-        onClose={() => { setUndoModalOpen(false); setUndoCancellationId(null); }}
+        isOpen={pairModalOpen}
+        onClose={() => setPairModalOpen(false)}
         onConfirm={async () => {
-          if (!undoCancellationId) return;
           setIsLoading(true);
-          const undoResult = await deleteCancellationTransaction(undoCancellationId);
-          if (!undoResult.success) {
-            setError(undoResult.error || "تعذر التراجع عن الإلغاء");
+          const result = await deleteCancellationPair(transactionId);
+          if (!result.success) {
+            setError(result.error || "تعذر حذف الزوج");
+          } else {
+            setPairModalOpen(false);
+            router.refresh();
           }
           setIsLoading(false);
-          setUndoModalOpen(false);
-          setUndoCancellationId(null);
-          router.refresh();
         }}
         isLoading={isLoading}
         error={error}
-        title="تم إلغاء الحركة"
-        description="هل تريد التراجع فوراً عن عملية الإلغاء وإعادة الخصم؟"
-        confirmLabel="نعم، تراجع الآن"
-        variant="warning"
+        title="حذف زوج الإلغاء والتصحيح"
+        description="سيتم حذف الحركة الأصلية الملغاة وحركة التصحيح المرتبطة بها نهائياً مع إعادة احتساب الرصيد تلقائياً. هذا الإجراء لا يمكن التراجع عنه."
+        confirmLabel="نعم، حذف الزوج"
+        variant="danger"
       />
     </>
   );

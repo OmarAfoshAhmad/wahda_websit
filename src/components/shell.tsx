@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { cn } from "./ui";
-import { LayoutDashboard, ListOrdered, LogOut, Users, Building2, KeyRound, DatabaseBackup, ClipboardList, UserCog } from "lucide-react";
+import { LayoutDashboard, ListOrdered, LogOut, Users, Building2, KeyRound, DatabaseBackup, ClipboardList, UserCog, Activity, Banknote, ShieldAlert } from "lucide-react";
 import { logout } from "@/app/actions/auth";
 import { ThemeSwitcher } from "./theme-switcher";
 import type { ManagerPermissions, Session } from "@/lib/auth";
@@ -31,7 +31,11 @@ const managerNavigation: Array<{ name: string; href: string; icon: typeof Layout
   { name: "سجل المراقبة", href: "/admin/audit-log", icon: ClipboardList, perm: "view_audit_log" },
 ];
 
+const cashClaimNav = { name: "كاش", href: "/cash-claim", icon: Banknote, perm: "cash_claim" as keyof ManagerPermissions };
+
 const superAdminNavigation = [
+  { name: "صحة الرصيد", href: "/admin/balance-health", icon: Activity },
+  { name: "تشوهات البيانات", href: "/admin/db-anomalies", icon: ShieldAlert },
   { name: "النسخ الاحتياطي", href: "/admin/backup", icon: DatabaseBackup },
   { name: "المديرون", href: "/admin/managers", icon: UserCog },
 ];
@@ -53,13 +57,17 @@ export function Shell({
     return checkClientPerm(session, item.perm);
   });
 
-  const allNav = isAdmin
-    ? [...baseNavigation, ...managerNavigation, ...superAdminNavigation]
-    : isManager
-      ? [...baseNavigation, ...filteredManagerNav]
-      : baseNavigation;
+  const showCashClaim = checkClientPerm(session, cashClaimNav.perm);
 
-  const roleLabel = isAdmin ? "المبرمج" : isManager ? "مدير" : "مرفق";
+  const allNav = isAdmin
+    ? [...baseNavigation, ...managerNavigation, cashClaimNav, ...superAdminNavigation]
+    : isManager
+      ? [...baseNavigation, ...filteredManagerNav, ...(showCashClaim ? [cashClaimNav] : [])]
+      : session.is_employee
+        ? [...baseNavigation, ...(showCashClaim ? [cashClaimNav] : [])]
+        : baseNavigation;
+
+  const roleLabel = isAdmin ? "المبرمج" : isManager ? "مدير" : session.is_employee ? "موظف" : "مرفق";
 
   return (
     <div suppressHydrationWarning className="page-shell min-h-screen pb-5 bg-slate-50 dark:bg-[#0b1120] text-slate-900 dark:text-slate-100 transition-colors">

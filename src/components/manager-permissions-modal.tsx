@@ -25,6 +25,7 @@ const PERMISSION_LABELS: Record<keyof ManagerPermissions, string> = {
   view_beneficiaries: "عرض قائمة المستفيدين",
   deduct_balance: "إمكانية خصم الرصيد (نقطة بيع)",
   delete_transaction: "حذف الحركات المالية (نهائياً أو مؤقتاً)",
+  cash_claim: "إمكانية الكاش العائلي",
 };
 
 interface Props {

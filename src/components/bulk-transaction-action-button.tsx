@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ConfirmationModal } from "@/components/confirmation-modal";
+import { useToast } from "@/components/toast";
 
 type Mode = "cancel" | "rededuct" | "mixed";
 
@@ -33,10 +34,12 @@ export function BulkTransactionActionButton({
   canCancel?: boolean;
   canDelete?: boolean;
 }) {
+  const { info } = useToast();
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
   const [selectedMeta, setSelectedMeta] = useState<SelectedTxMeta[]>([]);
   const [isPrimaryConfirmOpen, setIsPrimaryConfirmOpen] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const hasShownCorrectedToastRef = useRef(false);
 
   useEffect(() => {
     const collect = () => {
@@ -65,6 +68,19 @@ export function BulkTransactionActionButton({
   const count = selectedTypes.length;
   const mode = useMemo(() => computeMode(selectedTypes), [selectedTypes]);
   const hasCorrectedSelected = selectedTypes.some((t) => t === "CANCELLATION");
+
+  useEffect(() => {
+    if (hasCorrectedSelected && !hasShownCorrectedToastRef.current) {
+      info("الحركات المصححة ستُعامل كزوج (التصحيح + الأصل) عند الحذف النهائي.");
+      hasShownCorrectedToastRef.current = true;
+      return;
+    }
+
+    if (!hasCorrectedSelected) {
+      hasShownCorrectedToastRef.current = false;
+    }
+  }, [hasCorrectedSelected, info]);
+
   const firstSelected = selectedMeta[0];
   const totalAmount = selectedMeta.reduce((sum, tx) => sum + tx.amount, 0);
   const totalDeductionAmount = selectedMeta.reduce((sum, tx) => sum + Math.abs(tx.amount), 0);
@@ -190,11 +206,11 @@ export function BulkTransactionActionButton({
           {canDelete && (
             <button
               type="button"
-              disabled={count === 0 || hasCorrectedSelected}
+              disabled={count === 0}
               className="inline-flex h-8 items-center justify-center rounded-md border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/30 px-3 text-xs font-black text-red-700 dark:text-red-300 transition-colors hover:bg-red-100 dark:hover:bg-red-900/50 disabled:cursor-not-allowed disabled:opacity-50"
-              title={hasCorrectedSelected ? "لا يمكن حذف الحركات المصححة" : "حذف ناعم للحركة"}
+              title={hasCorrectedSelected ? "حذف ناعم للحركات، وحذف زوج الإلغاء عند وجود حركة مصححة" : "حذف ناعم للحركة"}
               onClick={() => {
-                if (count === 0 || hasCorrectedSelected) return;
+                if (count === 0) return;
                 setIsDeleteConfirmOpen(true);
               }}
             >
@@ -212,12 +228,6 @@ export function BulkTransactionActionButton({
       >
         إلغاء التحديد
       </button>
-
-      {hasCorrectedSelected ? (
-        <span className="text-xs font-bold text-red-600 dark:text-red-400">
-          لا يمكن حذف الحركات المصححة. أزل تحديدها أولًا.
-        </span>
-      ) : null}
 
       {/* رابط الوصول السريع للمحذوفات أو العودة لجميع الحركات */}
       {statusFilter === "deleted" ? (

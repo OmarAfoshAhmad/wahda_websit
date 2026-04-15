@@ -7,6 +7,16 @@ import { checkRateLimit, resetRateLimit } from "@/lib/rate-limit";
 import { logger } from "@/lib/logger";
 import bcrypt from "bcryptjs";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
+
+async function getClientIp(): Promise<string | null> {
+  const h = await headers();
+  return (
+    h.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+    h.get("x-real-ip") ??
+    null
+  );
+}
 
 export async function authenticate(prevState: unknown, formData: FormData) {
   const data = Object.fromEntries(formData);
@@ -48,14 +58,23 @@ export async function authenticate(prevState: unknown, formData: FormData) {
 
     // تسجيل الحدث في سجل المراجعة
     stage = "audit-login";
-    await prisma.auditLog.create({
-      data: {
-        facility_id: facility.id,
-        user: facility.username,
-        action: "LOGIN",
-        metadata: { name: facility.name },
-      },
-    });
+    try {
+      const loginIp = await getClientIp();
+      await prisma.auditLog.create({
+        data: {
+          facility_id: facility.id,
+          user: facility.username,
+          action: "LOGIN",
+          ip_address: loginIp,
+          metadata: { name: facility.name },
+        },
+      });
+    } catch (auditError) {
+      logger.warn("AUTH_LOGIN_AUDIT_FAILED", {
+        username,
+        error: String(auditError),
+      });
+    }
 
     stage = "create-session";
     await login({
@@ -64,6 +83,7 @@ export async function authenticate(prevState: unknown, formData: FormData) {
       username: facility.username,
       is_admin: facility.is_admin,
       is_manager: facility.is_manager,
+      is_employee: facility.is_employee,
       manager_permissions: facility.manager_permissions as ManagerPermissions | null,
       must_change_password: facility.must_change_password,
     });
@@ -119,11 +139,13 @@ export async function changePassword(prevState: unknown, formData: FormData) {
     data: { password_hash, must_change_password: false },
   });
 
+  const changeIp = await getClientIp();
   await prisma.auditLog.create({
     data: {
       facility_id: session.id,
       user: session.username,
       action: "CHANGE_PASSWORD",
+      ip_address: changeIp,
     },
   });
 
@@ -166,11 +188,13 @@ export async function voluntaryChangePassword(prevState: unknown, formData: Form
     data: { password_hash },
   });
 
+  const voluntaryChangeIp = await getClientIp();
   await prisma.auditLog.create({
     data: {
       facility_id: session.id,
       user: session.username,
       action: "CHANGE_PASSWORD",
+      ip_address: voluntaryChangeIp,
     },
   });
 
@@ -182,11 +206,13 @@ export async function logout() {
   try {
     const session = await getSession();
     if (session) {
+      const logoutIp = await getClientIp();
       await prisma.auditLog.create({
         data: {
           facility_id: session.id,
           user: session.username,
           action: "LOGOUT",
+          ip_address: logoutIp,
         },
       });
     }

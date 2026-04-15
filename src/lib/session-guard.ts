@@ -13,8 +13,8 @@ export async function requireActiveFacilitySession(): Promise<Session | null> {
   const session = await getSession();
   if (!session) return null;
 
-  // المشرف والمدير ليسوا ضمن جدول المرافق (Facility)، نعيدهم مباشرة
-  if (session.is_admin || session.is_manager) {
+  // المشرف والمدير والموظف ليسوا ضمن جدول المرافق العادية
+  if (session.is_admin || session.is_manager || session.is_employee) {
     return session;
   }
 
@@ -31,7 +31,7 @@ export async function requireActiveFacilitySession(): Promise<Session | null> {
  * صحيح إذا كان المستخدم مشرفاً أو مديراً (يحق له الوصول لصفحات الإدارة)
  */
 export function canAccessAdmin(session: Session): boolean {
-  return session.is_admin || session.is_manager;
+  return session.is_admin || session.is_manager || session.is_employee;
 }
 
 /**
@@ -45,7 +45,9 @@ export function hasPermission(
   permission: keyof ManagerPermissions
 ): boolean {
   if (session.is_admin) return true;
-  if (!session.is_manager) return false;
-  const perms = session.manager_permissions;
-  return perms?.[permission] === true;
+  if (session.is_manager || session.is_employee) {
+    const perms = session.manager_permissions;
+    return perms?.[permission] === true;
+  }
+  return false;
 }

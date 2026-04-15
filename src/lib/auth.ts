@@ -46,6 +46,7 @@ export type ManagerPermissions = {
   view_beneficiaries: boolean;
   deduct_balance: boolean;
   delete_transaction: boolean;
+  cash_claim: boolean;
 };
 
 export async function login(user: {
@@ -54,6 +55,7 @@ export async function login(user: {
   username: string;
   is_admin: boolean;
   is_manager: boolean;
+  is_employee: boolean;
   manager_permissions: ManagerPermissions | null;
   must_change_password: boolean;
 }) {
@@ -87,6 +89,7 @@ export interface Session {
   username: string;
   is_admin: boolean;
   is_manager: boolean;
+  is_employee: boolean;
   manager_permissions: ManagerPermissions | null;
   must_change_password: boolean;
   expires?: Date;

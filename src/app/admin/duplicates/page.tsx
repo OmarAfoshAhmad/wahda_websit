@@ -5,15 +5,6 @@ import { getSession } from "@/lib/auth";
 import { getLedgerRemainingByBeneficiaryIds } from "@/lib/ledger-balance";
 import { Shell } from "@/components/shell";
 import { Card, Badge, Input, Button } from "@/components/ui";
-import {
-  mergeDuplicateGroupByCanonicalAction,
-  mergeDuplicateManualSelectionAction,
-  mergeDuplicateBatchByConditionAction,
-  mergeNeedsReviewGroupAction,
-  mergeNeedsReviewBatchAction,
-  undoMergeDuplicateBeneficiariesByAuditId,
-  ignoreDuplicatePairAction,
-} from "@/app/actions/beneficiary";
 import { buildDuplicateGroups, paginate } from "@/lib/duplicate-groups";
 import { getActiveImportDuplicateCases } from "@/lib/import-duplicate-cases";
 import { getOverdrawnDebtCases } from "@/lib/overdrawn-debt-settlement";
@@ -22,6 +13,16 @@ import { DuplicateManualMergeForm } from "@/components/duplicate-manual-merge-fo
 import { DuplicateSameNameGroup } from "@/components/duplicate-same-name-group";
 import { BatchMergeButton } from "@/components/batch-merge-button";
 import { AutoMergeAllZeroVariantsButton } from "@/components/auto-merge-all-zero-variants-button";
+import {
+  mergeGroupAction,
+  mergeManualAction,
+  mergeBatchAction,
+  mergeAuditGroupAction,
+  mergeAuditGroupRedirectAction,
+  mergeAuditBatchAction,
+  undoMergeAction,
+  ignoreAction,
+} from "@/app/actions/duplicate-page-actions";
 
 export default async function DuplicatesAdminPage({
   searchParams,
@@ -32,174 +33,6 @@ export default async function DuplicatesAdminPage({
     merged?: string; before?: string; after?: string; debtAudit?: string;
   }>;
 }) {
-  async function mergeGroupAction(formData: FormData) {
-    "use server";
-
-    const q = String(formData.get("q") ?? "");
-    const pz = String(formData.get("pz") ?? "1");
-    const pn = String(formData.get("pn") ?? "1");
-    const tab = String(formData.get("tab") ?? "review");
-
-    const params = new URLSearchParams();
-    if (q) params.set("q", q);
-    params.set("pz", pz);
-    params.set("pn", pn);
-    params.set("tab", tab);
-
-    const result = await mergeDuplicateGroupByCanonicalAction(formData);
-    if (result.error) {
-      params.set("err", result.error);
-      redirect(`/admin/duplicates?${params.toString()}`);
-    }
-
-    const successResult = result as { mergedCount?: number; mergeAuditId?: string };
-    params.set("ok", `تم الدمج بنجاح (${successResult.mergedCount ?? 0} سجلات فرعية)`);
-    if (successResult.mergeAuditId) {
-      params.set("audit", successResult.mergeAuditId);
-    }
-    redirect(`/admin/duplicates?${params.toString()}`);
-  }
-
-  async function mergeManualAction(formData: FormData) {
-    "use server";
-    const result = await mergeDuplicateManualSelectionAction(formData);
-    if ("error" in result && result.error) return { error: result.error };
-    const sr = result as { mergedCount?: number; mergeAuditId?: string };
-    return { ok: `تم الدمج المخصص بنجاح (${sr.mergedCount ?? 0} سجلات)` };
-  }
-
-  async function mergeBatchAction(formData: FormData) {
-    "use server";
-
-    const q = String(formData.get("q") ?? "");
-    const pz = String(formData.get("pz") ?? "1");
-    const pn = String(formData.get("pn") ?? "1");
-    const tab = String(formData.get("tab") ?? "review");
-
-    const params = new URLSearchParams();
-    if (q) params.set("q", q);
-    params.set("pz", pz);
-    params.set("pn", pn);
-    params.set("tab", tab);
-
-    try {
-      const res = await mergeDuplicateBatchByConditionAction(formData);
-      if (res?.error) {
-        params.set("err", res.error);
-      } else {
-        const truncatedCount = Number(res?.truncatedCount ?? 0);
-        params.set("ok", truncatedCount > 0 ? `success_batch_limited_${truncatedCount}` : "success_batch");
-        if (res?.mergedGroups) params.set("merged", String(res.mergedGroups));
-        if (res?.batchTotalRows) params.set("before", String(res.batchTotalRows));
-        if (res?.mergedRows) params.set("after", String(res.batchTotalRows - res.mergedRows));
-        if (res?.firstAuditId) params.set("audit", res.firstAuditId);
-      }
-    } catch {
-      params.set("err", "تعذر معالجة الدفعة حالياً. تم تقليل حجم الدفعة؛ أعد المحاولة.");
-    }
-    redirect(`/admin/duplicates?${params.toString()}`);
-  }
-
-  async function mergeAuditGroupAction(formData: FormData) {
-    "use server";
-    const result = await mergeNeedsReviewGroupAction(formData);
-    if ("error" in result && result.error) return { error: result.error };
-    const sr = result as { mergedCount?: number; mergeAuditId?: string };
-    return { ok: `تمت معالجة السجل بنجاح (${sr.mergedCount ?? 0} سجلات)` };
-  }
-
-  async function mergeAuditGroupRedirectAction(formData: FormData) {
-    "use server";
-
-    const q = String(formData.get("q") ?? "");
-    const pz = String(formData.get("pz") ?? "1");
-    const pn = String(formData.get("pn") ?? "1");
-
-    const params = new URLSearchParams();
-    if (q) params.set("q", q);
-    params.set("pz", pz);
-    params.set("pn", pn);
-    params.set("tab", "audit");
-
-    const result = await mergeNeedsReviewGroupAction(formData);
-    if ("error" in result && result.error) {
-      params.set("err", result.error);
-      redirect(`/admin/duplicates?${params.toString()}`);
-    }
-
-    const sr = result as { mergedCount?: number; mergeAuditId?: string };
-    params.set("ok", `تمت معالجة السجل بنجاح (${sr.mergedCount ?? 0} سجلات)`);
-    if (sr.mergeAuditId) params.set("audit", sr.mergeAuditId);
-    redirect(`/admin/duplicates?${params.toString()}`);
-  }
-
-  async function mergeAuditBatchAction(formData: FormData) {
-    "use server";
-
-    const q = String(formData.get("q") ?? "");
-    const pz = String(formData.get("pz") ?? "1");
-    const pn = String(formData.get("pn") ?? "1");
-
-    const params = new URLSearchParams();
-    if (q) params.set("q", q);
-    params.set("pz", pz);
-    params.set("pn", pn);
-    params.set("tab", "audit");
-
-    try {
-      const result = await mergeNeedsReviewBatchAction(formData);
-      if (result.error) {
-        params.set("err", result.error);
-        redirect(`/admin/duplicates?${params.toString()}`);
-      }
-
-      const processedGroups = result.processedGroups ?? result.mergedGroups ?? 0;
-      const mergedGroups = result.mergedGroups ?? 0;
-      const mergedRows = result.mergedRows ?? 0;
-      const skippedGroups = result.skippedGroups ?? 0;
-      const failedGroups = result.failedGroups ?? 0;
-      const truncatedCount = result.truncatedCount ?? 0;
-      const truncatedSuffix = truncatedCount > 0 ? `، والمتبقي ${truncatedCount} مجموعة للدفعة التالية` : "";
-      params.set(
-        "ok",
-        `تمت معالجة ${processedGroups} مجموعة: نجح ${mergedGroups}، تخطى ${skippedGroups}، فشل ${failedGroups} (${mergedRows} سجلات)${truncatedSuffix}`
-      );
-    } catch {
-      params.set("err", "تعذر معالجة دفعة المراجعة حالياً. أعد المحاولة بدفعة أصغر.");
-    }
-    redirect(`/admin/duplicates?${params.toString()}`);
-  }
-
-  async function undoMergeAction(formData: FormData) {
-    "use server";
-
-    const q = String(formData.get("q") ?? "");
-    const pz = String(formData.get("pz") ?? "1");
-    const pn = String(formData.get("pn") ?? "1");
-
-    const params = new URLSearchParams();
-    if (q) params.set("q", q);
-    params.set("pz", pz);
-    params.set("pn", pn);
-
-    const result = await undoMergeDuplicateBeneficiariesByAuditId(formData);
-    if (result.error) {
-      params.set("err", result.error);
-      redirect(`/admin/duplicates?${params.toString()}`);
-    }
-
-    params.set("ok", "تم التراجع عن عملية الدمج بنجاح");
-    params.set("undone", "1");
-    redirect(`/admin/duplicates?${params.toString()}`);
-  }
-
-  async function _ignoreAction(formData: FormData) {
-    "use server";
-    const res = await ignoreDuplicatePairAction(formData);
-    if (res.error) return { error: res.error };
-    return { ok: "تم تعليم السجلين كأشخاص مختلفين" };
-  }
-
   const session = await getSession();
   if (!session) redirect("/login");
   if (!session.is_admin) redirect("/dashboard");

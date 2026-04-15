@@ -3,6 +3,8 @@ import { getSession } from "@/lib/auth";
 import { Shell } from "@/components/shell";
 import prisma from "@/lib/prisma";
 import { formatDateTripoli } from "@/lib/datetime";
+import { AlertTriangle } from "lucide-react";
+import { DataHygieneSweepButton } from "@/components/data-hygiene-sweep-button";
 
 type UnlinkedCorrectionRow = {
   id: string;
@@ -76,6 +78,52 @@ type AuthStateRow = {
   reset_no_login: boolean;
 };
 
+type BalanceDriftRow = {
+  id: string;
+  name: string;
+  card_number: string;
+  status: string;
+  total_balance: number;
+  stored_remaining: number;
+  computed_remaining: number;
+  drift: number;
+};
+
+type StatusAnomalyRow = {
+  id: string;
+  name: string;
+  card_number: string;
+  status: string;
+  remaining_balance: number;
+  total_balance: number;
+  anomaly_type: string;
+};
+
+type OrphanedNotificationRow = {
+  id: string;
+  beneficiary_id: string;
+  beneficiary_name: string;
+  card_number: string;
+  title: string;
+  created_at: Date;
+};
+
+type OldReadNotificationSummary = {
+  old_read_count: number;
+};
+
+type OldLoginAuditSummary = {
+  old_login_count: number;
+};
+
+type OldImportJobsSummary = {
+  old_import_jobs_count: number;
+};
+
+type OldRestoreJobsSummary = {
+  old_restore_jobs_count: number;
+};
+
 export const dynamic = "force-dynamic";
 
 function Num({ value }: { value: number }) {
@@ -108,6 +156,13 @@ export default async function DbAnomaliesPage() {
     allFacilitiesForAuth,
     loginLogs,
     resetLogs,
+    balanceDriftRows,
+    statusAnomalyRows,
+    orphanedNotificationRows,
+    oldReadNotificationSummary,
+    oldLoginAuditSummary,
+    oldImportJobsSummary,
+    oldRestoreJobsSummary,
   ] = await Promise.all([
     prisma.$queryRaw<UnlinkedCorrectionRow[]>`
       SELECT
@@ -235,6 +290,120 @@ export default async function DbAnomaliesPage() {
       orderBy: { created_at: "desc" },
       take: 50_000,
     }),
+
+    // ─── فحص انجراف الرصيد (Balance Drift) ───────────────────────────────────
+    prisma.$queryRaw<BalanceDriftRow[]>`
+      SELECT
+        b.id,
+        b.name,
+        b.card_number,
+        b.status::text,
+        b.total_balance::float8 AS total_balance,
+        b.remaining_balance::float8 AS stored_remaining,
+        GREATEST(0,
+          b.total_balance - COALESCE(
+            SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END),
+            0
+          )
+        )::float8 AS computed_remaining,
+        (b.remaining_balance - GREATEST(0,
+          b.total_balance - COALESCE(
+            SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END),
+            0
+          )
+        ))::float8 AS drift
+      FROM "Beneficiary" b
+      LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id
+      WHERE b.deleted_at IS NULL
+      GROUP BY b.id, b.name, b.card_number, b.status, b.total_balance, b.remaining_balance
+      HAVING ABS(
+        b.remaining_balance - GREATEST(0,
+          b.total_balance - COALESCE(
+            SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END),
+            0
+          )
+        )
+      ) > 0.01
+      ORDER BY ABS(
+        b.remaining_balance - GREATEST(0,
+          b.total_balance - COALESCE(
+            SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END),
+            0
+          )
+        )
+      ) DESC
+      LIMIT 300
+    `,
+
+    // ─── تناقض حالة المستفيد مع رصيده (Status Anomaly) ──────────────────────
+    prisma.$queryRaw<StatusAnomalyRow[]>`
+      SELECT
+        id,
+        name,
+        card_number,
+        status::text,
+        remaining_balance::float8,
+        total_balance::float8,
+        CASE
+          WHEN status = 'ACTIVE'   AND remaining_balance <= 0.01 THEN 'نشط برصيد صفري (يجب أن يكون مكتمل)'
+          WHEN status = 'FINISHED' AND remaining_balance > 0.01  THEN 'مكتمل برصيد موجب (يجب مراجعة)'
+          ELSE 'غير معروف'
+        END AS anomaly_type
+      FROM "Beneficiary"
+      WHERE deleted_at IS NULL
+        AND (
+          (status = 'ACTIVE'   AND remaining_balance <= 0.01)
+          OR (status = 'FINISHED' AND remaining_balance > 0.01)
+        )
+      ORDER BY card_number
+      LIMIT 300
+    `,
+
+    // ─── إشعارات يتامى (لمستفيدين محذوفين) ───────────────────────────────────
+    prisma.$queryRaw<OrphanedNotificationRow[]>`
+      SELECT
+        n.id,
+        n.beneficiary_id,
+        b.name AS beneficiary_name,
+        b.card_number,
+        n.title,
+        n.created_at
+      FROM "Notification" n
+      JOIN "Beneficiary" b ON b.id = n.beneficiary_id
+      WHERE b.deleted_at IS NOT NULL
+      ORDER BY n.created_at DESC
+      LIMIT 200
+    `,
+
+    prisma.$queryRaw<OldReadNotificationSummary[]>`
+      SELECT COUNT(*)::int AS old_read_count
+      FROM "Notification" n
+      JOIN "Beneficiary" b ON b.id = n.beneficiary_id
+      WHERE n.is_read = true
+        AND n.created_at < NOW() - INTERVAL '90 days'
+        AND b.deleted_at IS NULL
+    `,
+
+    prisma.$queryRaw<OldLoginAuditSummary[]>`
+      SELECT COUNT(*)::int AS old_login_count
+      FROM "AuditLog"
+      WHERE action IN ('LOGIN', 'LOGOUT')
+        AND created_at < NOW() - INTERVAL '180 days'
+    `,
+
+    prisma.$queryRaw<OldImportJobsSummary[]>`
+      SELECT COUNT(*)::int AS old_import_jobs_count
+      FROM "ImportJob"
+      WHERE status IN ('COMPLETED', 'FAILED', 'ROLLED_BACK')
+        AND created_at < NOW() - INTERVAL '30 days'
+    `,
+
+    prisma.$queryRaw<OldRestoreJobsSummary[]>`
+      SELECT COUNT(*)::int AS old_restore_jobs_count
+      FROM "RestoreJob"
+      WHERE status IN ('COMPLETED', 'FAILED')
+        AND created_at < NOW() - INTERVAL '30 days'
+    `,
   ]);
 
   const lastLoginByFacilityId = new Map<string, Date>();
@@ -289,13 +458,20 @@ export default async function DbAnomaliesPage() {
     never_logged_in: authStateRows.filter((row) => !row.deleted && !row.last_login_at).length,
   };
 
+  const oldReadNotifications = Number(oldReadNotificationSummary[0]?.old_read_count ?? 0);
+  const oldLoginAuditLogs = Number(oldLoginAuditSummary[0]?.old_login_count ?? 0);
+  const oldImportJobs = Number(oldImportJobsSummary[0]?.old_import_jobs_count ?? 0);
+  const oldRestoreJobs = Number(oldRestoreJobsSummary[0]?.old_restore_jobs_count ?? 0);
+  const hygieneCandidates =
+    orphanedNotificationRows.length + oldReadNotifications + oldLoginAuditLogs + oldImportJobs + oldRestoreJobs;
+
   return (
     <Shell facilityName={session.name} session={session}>
       <div className="space-y-4 pb-16">
         <header className="space-y-1">
-          <h1 className="text-2xl font-black">تشوهات قاعدة البيانات (تجريبي)</h1>
+          <h1 className="text-2xl font-black">نافذة تشوهات البيانات وتنظيف القاعدة</h1>
           <p className="text-sm text-slate-600">
-            صفحة تشخيصية تجريبية بدون تنسيق نهائي. تعرض عينات مباشرة من قاعدة البيانات.
+            نافذة فحص وتشخيص مباشر مع تنظيف آمن للسجلات اليتيمة والقديمة.
           </p>
           <p className="text-sm text-amber-700">
             ملاحظة: عدد المرافق التي يجب عليها تغيير كلمة المرور بعد إعادة التعيين = {mustChangePasswordCount.toLocaleString("ar-LY")}.
@@ -312,6 +488,151 @@ export default async function DbAnomaliesPage() {
             لم يسجل دخول إطلاقا = {authStateSummary.never_logged_in.toLocaleString("ar-LY")}
           </p>
         </header>
+
+        <Section title="تنظيف السجلات اليتيمة والقديمة" count={hygieneCandidates}>
+          <p className="text-xs text-slate-600">
+            تشمل هذه العملية: حذف الإشعارات اليتيمة، حذف الإشعارات المقروءة القديمة، تنظيف سجلات LOGIN/LOGOUT القديمة،
+            وحذف وظائف الاستيراد/الاستعادة القديمة المنتهية.
+          </p>
+          <div className="grid grid-cols-1 gap-2 text-xs text-slate-700 sm:grid-cols-2 lg:grid-cols-3">
+            <p>إشعارات يتيمة: <strong>{orphanedNotificationRows.length.toLocaleString("ar-LY")}</strong></p>
+            <p>إشعارات مقروءة قديمة: <strong>{oldReadNotifications.toLocaleString("ar-LY")}</strong></p>
+            <p>سجلات دخول/خروج قديمة: <strong>{oldLoginAuditLogs.toLocaleString("ar-LY")}</strong></p>
+            <p>وظائف استيراد قديمة: <strong>{oldImportJobs.toLocaleString("ar-LY")}</strong></p>
+            <p>وظائف استعادة قديمة: <strong>{oldRestoreJobs.toLocaleString("ar-LY")}</strong></p>
+          </div>
+          <div className="pt-2">
+            <DataHygieneSweepButton
+              counts={{
+                orphaned_notifications: orphanedNotificationRows.length,
+                old_read_notifications: oldReadNotifications,
+                old_login_audit_logs: oldLoginAuditLogs,
+                old_import_jobs: oldImportJobs,
+                old_restore_jobs: oldRestoreJobs,
+              }}
+            />
+          </div>
+        </Section>
+
+        {/* ── انجراف الرصيد ── أعلى أولوية ─────────────────────────────────── */}
+        <Section title="انجراف الرصيد — remaining_balance ≠ المحسوب" count={balanceDriftRows.length}>
+          {balanceDriftRows.length === 0 ? (
+            <p className="text-sm text-emerald-600 font-medium">✓ لا يوجد انجراف — جميع الأرصدة متطابقة مع الحركات</p>
+          ) : (
+            <>
+              <div className="flex items-center gap-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span>
+                  إجمالي الانجراف:{" "}
+                  <strong>{balanceDriftRows.reduce((s, r) => s + Math.abs(r.drift), 0).toFixed(2)} د.ل</strong>
+                  {" "} موزعة على {balanceDriftRows.length} مستفيد.
+                  شغّل <code className="text-xs bg-red-100 px-1 rounded">node scripts/recalc-balances.js --apply</code> لإصلاحها.
+                </span>
+              </div>
+              <div className="overflow-x-auto mt-2">
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b bg-slate-50 text-right">
+                      <th className="p-2">المستفيد</th>
+                      <th className="p-2">البطاقة</th>
+                      <th className="p-2">الحالة</th>
+                      <th className="p-2">الرصيد الكلي</th>
+                      <th className="p-2">المخزون</th>
+                      <th className="p-2">المحسوب</th>
+                      <th className="p-2 text-red-600">الانجراف</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {balanceDriftRows.map((row) => (
+                      <tr key={row.id} className={`border-b ${Math.abs(row.drift) > 1 ? "bg-red-50/60" : ""}`}>
+                        <td className="p-2">{row.name}</td>
+                        <td className="p-2">{row.card_number}</td>
+                        <td className="p-2">{row.status}</td>
+                        <td className="p-2 text-left ltr"><Num value={row.total_balance} /></td>
+                        <td className="p-2 text-left ltr"><Num value={row.stored_remaining} /></td>
+                        <td className="p-2 text-left ltr font-medium text-emerald-700"><Num value={row.computed_remaining} /></td>
+                        <td className={`p-2 text-left ltr font-bold ${row.drift > 0 ? "text-amber-700" : "text-red-700"}`}>
+                          {row.drift > 0 ? "+" : ""}{row.drift.toFixed(2)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </Section>
+
+        {/* ── تناقض الحالة مع الرصيد ────────────────────────────────────────── */}
+        <Section title="تناقض حالة المستفيد مع رصيده" count={statusAnomalyRows.length}>
+          {statusAnomalyRows.length === 0 ? (
+            <p className="text-sm text-emerald-600 font-medium">✓ لا توجد تناقضات — جميع الحالات متسقة مع الأرصدة</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr className="border-b bg-slate-50 text-right">
+                    <th className="p-2">المستفيد</th>
+                    <th className="p-2">البطاقة</th>
+                    <th className="p-2">الحالة المخزونة</th>
+                    <th className="p-2">الرصيد المتبقي</th>
+                    <th className="p-2">الرصيد الكلي</th>
+                    <th className="p-2">نوع التناقض</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {statusAnomalyRows.map((row) => (
+                    <tr key={row.id} className="border-b bg-amber-50/40">
+                      <td className="p-2">{row.name}</td>
+                      <td className="p-2">{row.card_number}</td>
+                      <td className="p-2 font-mono text-xs">{row.status}</td>
+                      <td className="p-2 text-left ltr"><Num value={row.remaining_balance} /></td>
+                      <td className="p-2 text-left ltr"><Num value={row.total_balance} /></td>
+                      <td className="p-2 text-amber-700 text-xs">{row.anomaly_type}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Section>
+
+        {/* ── إشعارات يتامى ─────────────────────────────────────────────────── */}
+        <Section title="إشعارات لمستفيدين محذوفين (يتامى)" count={orphanedNotificationRows.length}>
+          {orphanedNotificationRows.length === 0 ? (
+            <p className="text-sm text-emerald-600 font-medium">✓ لا توجد إشعارات يتامى</p>
+          ) : (
+            <>
+              <p className="text-xs text-slate-500">
+                هذه الإشعارات مرتبطة بمستفيدين تم حذفهم. يمكن حذفها بأمان لتنظيف قاعدة البيانات.
+              </p>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b bg-slate-50 text-right">
+                      <th className="p-2">المستفيد (محذوف)</th>
+                      <th className="p-2">البطاقة</th>
+                      <th className="p-2">عنوان الإشعار</th>
+                      <th className="p-2">التاريخ</th>
+                      <th className="p-2">id</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {orphanedNotificationRows.map((row) => (
+                      <tr key={row.id} className="border-b">
+                        <td className="p-2">{row.beneficiary_name}</td>
+                        <td className="p-2">{row.card_number}</td>
+                        <td className="p-2">{row.title}</td>
+                        <td className="p-2">{formatDateTripoli(row.created_at, "en-GB")}</td>
+                        <td className="p-2 font-mono text-xs">{row.id}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </Section>
 
         <Section title="تشخيص الدخول للمرافق (كل الحالات المشبوهة)" count={authStateRows.length}>
           <p className="text-xs text-slate-500">

@@ -28,6 +28,7 @@ const PERMISSION_LABELS: Record<keyof ManagerPermissions, string> = {
   view_beneficiaries: "المستفيدون",
   deduct_balance: "نقطة بيع",
   delete_transaction: "حذف حركات",
+  cash_claim: "كاش عائلي",
 };
 
 export default async function ManagersPage() {
@@ -37,7 +38,7 @@ export default async function ManagersPage() {
 
   const managers = await prisma.facility.findMany({
     where: {
-      OR: [{ is_manager: true }, { is_admin: true }],
+      OR: [{ is_manager: true }, { is_admin: true }, { is_employee: true }],
       deleted_at: null,
     },
     select: {
@@ -46,6 +47,7 @@ export default async function ManagersPage() {
       username: true,
       is_admin: true,
       is_manager: true,
+      is_employee: true,
       manager_permissions: true,
       must_change_password: true,
       created_at: true,
@@ -62,11 +64,11 @@ export default async function ManagersPage() {
             <UserCog className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-lg font-black text-slate-900 dark:text-white">إدارة المديرين</h1>
+            <h1 className="text-lg font-black text-slate-900 dark:text-white">إدارة الحسابات</h1>
             <p className="text-xs text-slate-500 dark:text-slate-400">
               {managers.length === 0
-                ? "لا يوجد أي مدير مسجّل"
-                : `${managers.length} مدير مسجّل`}
+                ? "لا يوجد أي حساب إدارة مسجّل"
+                : `${managers.length} حساب إدارة مسجّل`}
             </p>
           </div>
         </div>
@@ -106,6 +108,7 @@ export default async function ManagersPage() {
                     view_beneficiaries: perms.view_beneficiaries ?? true,
                     deduct_balance: perms.deduct_balance ?? false,
                     delete_transaction: perms.delete_transaction ?? false,
+                    cash_claim: perms.cash_claim ?? false,
                   };
 
                   return (
@@ -123,6 +126,10 @@ export default async function ManagersPage() {
                             {mgr.is_admin ? (
                               <span className="inline-flex items-center rounded-full bg-violet-100 dark:bg-violet-900/30 px-2 py-0.5 text-xs font-bold text-violet-700 dark:text-violet-400">
                                 المبرمج
+                              </span>
+                            ) : mgr.is_employee ? (
+                              <span className="inline-flex items-center rounded-full bg-teal-100 dark:bg-teal-900/30 px-2 py-0.5 text-xs font-bold text-teal-700 dark:text-teal-400">
+                                موظف
                               </span>
                             ) : (
                               <span className="inline-flex items-center rounded-full bg-blue-100 dark:bg-blue-900/30 px-2 py-0.5 text-xs font-bold text-blue-700 dark:text-blue-400">

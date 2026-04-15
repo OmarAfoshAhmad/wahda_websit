@@ -16,6 +16,21 @@ interface ConfirmationModalProps {
   error?: string | null;
 }
 
+const variantClass: Record<NonNullable<ConfirmationModalProps["variant"]>, string> = {
+  danger: "bg-red-600 hover:bg-red-700",
+  warning: "bg-amber-500 hover:bg-amber-600",
+  info: "bg-blue-600 hover:bg-blue-700",
+};
+
+// دالة مساعدة لجلب العناصر القابلة للتركيز داخل حاوية
+function getFocusable(container: HTMLElement): HTMLElement[] {
+  return Array.from(
+    container.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )
+  );
+}
+
 export function ConfirmationModal({
   isOpen,
   onClose,
@@ -28,28 +43,69 @@ export function ConfirmationModal({
   isLoading = false,
   error,
 }: ConfirmationModalProps) {
-  // إغلاق بمفتاح Escape
+  const dialogRef = React.useRef<HTMLDivElement>(null);
+  const priorFocusRef = React.useRef<HTMLElement | null>(null);
+  const titleId = React.useId();
+  const descId = React.useId();
+
+  // حفظ العنصر المُركَّز قبل الفتح، واستعادة التركيز عند الإغلاق
   React.useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !isLoading) onClose();
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, isLoading, onClose]);
+    if (isOpen) {
+      priorFocusRef.current = document.activeElement as HTMLElement;
+      requestAnimationFrame(() => {
+        const focusable = dialogRef.current ? getFocusable(dialogRef.current) : [];
+        focusable[0]?.focus();
+      });
+    } else {
+      priorFocusRef.current?.focus();
+      priorFocusRef.current = null;
+    }
+  }, [isOpen]);
+
+  // مصيدة التركيز + إغلاق بـ Escape
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === "Escape" && !isLoading) {
+      onClose();
+      return;
+    }
+    if (e.key !== "Tab" || !dialogRef.current) return;
+    const focusable = getFocusable(dialogRef.current);
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (e.shiftKey) {
+      if (document.activeElement === first) { e.preventDefault(); last?.focus(); }
+    } else {
+      if (document.activeElement === last) { e.preventDefault(); first?.focus(); }
+    }
+  };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-lg animate-in fade-in zoom-in duration-200 dark:bg-slate-900 dark:ring-1 dark:ring-slate-700">
-        <h3 className="mb-2 text-lg font-bold text-slate-900 dark:text-slate-100">{title}</h3>
-        <p className="mb-4 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
+    // Backdrop — ينغلق بالنقر خارج النافذة
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+      onKeyDown={handleKeyDown}
+      onClick={(e) => { if (e.target === e.currentTarget && !isLoading) onClose(); }}
+    >
+      {/* نافذة الحوار */}
+      <div
+        ref={dialogRef}
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={descId}
+        className="w-full max-w-md rounded-lg bg-white p-6 shadow-lg animate-in fade-in zoom-in duration-200 dark:bg-slate-900 dark:ring-1 dark:ring-slate-700"
+      >
+        <h3 id={titleId} className="mb-2 text-lg font-bold text-slate-900 dark:text-slate-100">
+          {title}
+        </h3>
+        <p id={descId} className="mb-4 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
           {description}
         </p>
-        
+
         {error && (
-          <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-700">
+          <div role="alert" className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-400">
             {error}
           </div>
         )}
@@ -63,18 +119,12 @@ export function ConfirmationModal({
           >
             {cancelLabel}
           </button>
-          
+
           <button
             type="button"
             onClick={onConfirm}
             disabled={isLoading}
-            className={`px-4 py-2 text-sm font-semibold text-white rounded-md transition-colors flex items-center gap-2 disabled:opacity-50 ${
-              variant === "danger" 
-                ? "bg-red-600 hover:bg-red-700" 
-                : variant === "warning" 
-                  ? "bg-amber-500 hover:bg-amber-600" 
-                  : "bg-blue-600 hover:bg-blue-700"
-            }`}
+            className={`flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-50 ${variantClass[variant]}`}
           >
             {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
             {confirmLabel}

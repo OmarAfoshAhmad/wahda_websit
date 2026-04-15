@@ -25,6 +25,29 @@ const DEFAULT_PERMISSIONS: ManagerPermissions = {
   view_beneficiaries: true,
   deduct_balance: true,
   delete_transaction: false,
+  cash_claim: false,
+};
+
+const EMPLOYEE_PERMISSIONS: ManagerPermissions = {
+  import_beneficiaries: false,
+  add_beneficiary: false,
+  edit_beneficiary: false,
+  delete_beneficiary: false,
+  add_facility: false,
+  edit_facility: false,
+  delete_facility: false,
+  cancel_transactions: false,
+  correct_transactions: false,
+  manage_recycle_bin: false,
+  export_data: false,
+  print_cards: false,
+  view_audit_log: false,
+  view_reports: false,
+  view_facilities: true,
+  view_beneficiaries: true,
+  deduct_balance: false,
+  delete_transaction: false,
+  cash_claim: true,
 };
 
 // ── إنشاء حساب مدير جديد (المبرمج فقط) ──────────────────────────────
@@ -120,6 +143,7 @@ export async function updateManagerPermissions(
     view_beneficiaries: permissions.view_beneficiaries === true,
     deduct_balance: permissions.deduct_balance === true,
     delete_transaction: permissions.delete_transaction === true,
+    cash_claim: permissions.cash_claim === true,
   };
 
   await prisma.facility.update({
@@ -187,4 +211,59 @@ export async function deleteManager(
 
   revalidatePath("/admin/managers");
   return { success: true };
+}
+
+// ── إنشاء حساب موظف جديد (المبرمج فقط) ──────────────────────────────
+export async function createEmployee(prevState: unknown, formData: FormData) {
+  const session = await requireActiveFacilitySession();
+  if (!session?.is_admin) {
+    return { error: "غير مصرح بهذه العملية — المبرمج فقط" };
+  }
+
+  const name = formData.get("name")?.toString().trim() ?? "";
+  const username = formData
+    .get("username")
+    ?.toString()
+    .trim()
+    .toLowerCase() ?? "";
+
+  if (!name || name.length < 2 || name.length > 80) {
+    return { error: "الاسم يجب أن يكون بين 2 و80 حرفاً" };
+  }
+  if (!username || !/^[a-z0-9_]+$/.test(username) || username.length > 40) {
+    return { error: "اسم المستخدم: أحرف إنجليزية صغيرة وأرقام وشرطة سفلية فقط" };
+  }
+
+  const existing = await prisma.facility.findUnique({ where: { username } });
+  if (existing) {
+    return { error: "اسم المستخدم محجوز مسبقاً، اختر اسماً آخر" };
+  }
+
+  const tempPassword = "123456";
+  const password_hash = await bcrypt.hash(tempPassword, 10);
+
+  await prisma.facility.create({
+    data: {
+      name,
+      username,
+      password_hash,
+      is_admin: false,
+      is_manager: false,
+      is_employee: true,
+      manager_permissions: EMPLOYEE_PERMISSIONS as unknown as Record<string, boolean>,
+      must_change_password: true,
+    },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      facility_id: session.id,
+      user: session.username,
+      action: "CREATE_EMPLOYEE",
+      metadata: { employee_username: username, name },
+    },
+  });
+
+  revalidatePath("/admin/managers");
+  return { success: true, tempPassword };
 }

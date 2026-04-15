@@ -16,6 +16,15 @@ export async function cancelTransaction(transactionId: string) {
     }
 
     let createdCancellationId = "";
+    let details: {
+      transaction_id: string;
+      cancellation_transaction_id: string;
+      beneficiary_name: string;
+      card_number: string;
+      amount: number;
+      balance_before: number;
+      balance_after: number;
+    } | null = null;
 
     await prisma.$transaction(async (tx) => {
       // FIX: قراءة الحركة داخل الـ transaction لإغلاق ثغرة TOCTOU
@@ -91,6 +100,7 @@ export async function cancelTransaction(transactionId: string) {
           action: "CANCEL_TRANSACTION",
           metadata: {
             original_transaction_id: transactionId,
+            beneficiary_name: transaction.beneficiary.name,
             refunded_amount: amount,
             balance_before: currentBalance,
             balance_after: newBalance,
@@ -98,13 +108,23 @@ export async function cancelTransaction(transactionId: string) {
           },
         },
       });
+
+      details = {
+        transaction_id: transactionId,
+        cancellation_transaction_id: cancellationTx.id,
+        beneficiary_name: String(transaction.beneficiary.name),
+        card_number: String(transaction.beneficiary.card_number),
+        amount,
+        balance_before: currentBalance,
+        balance_after: newBalance,
+      };
     });
 
     revalidatePath("/transactions");
     revalidatePath("/beneficiaries");
     revalidateTag("beneficiary-counts", "max");
 
-    return { success: true, cancellationId: createdCancellationId };
+    return { success: true, cancellationId: createdCancellationId, details };
   } catch (error) {
     const msg = error instanceof Error ? error.message : "";
     if (msg === "TX_NOT_FOUND") return { error: "المعاملة غير موجودة" };
@@ -138,9 +158,11 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
       where: { id: { in: ids } },
       select: {
         id: true,
+        amount: true,
         type: true,
         is_cancelled: true,
         original_transaction_id: true,
+        beneficiary: { select: { name: true, card_number: true } },
         corrections: {
           where: { type: "CANCELLATION", is_cancelled: false },
           select: { id: true },
@@ -185,8 +207,8 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
           });
 
           // جلب المستفيد مع قفل لمنع التعديل المتزامن
-          const lockedBen = await tx.$queryRaw<Array<{ id: string; remaining_balance: number; status: string; completed_via: string | null }>>`
-            SELECT id, remaining_balance, status, completed_via FROM "Beneficiary"
+          const lockedBen = await tx.$queryRaw<Array<{ id: string; name: string; card_number: string; remaining_balance: number; status: string; completed_via: string | null }>>`
+            SELECT id, name, card_number, remaining_balance, status, completed_via FROM "Beneficiary"
             WHERE id = ${transactionRecord.beneficiary_id}
             FOR UPDATE
           `;
@@ -216,6 +238,8 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
               action: "SOFT_DELETE_TRANSACTION",
               metadata: {
                 transaction_id: transactionId,
+                beneficiary_name: beneficiary.name,
+                card_number: beneficiary.card_number,
                 refunded_amount: refundedAmount,
                 balance_impact: refundedAmount,
                 balance_before: remainingBefore,
@@ -248,8 +272,8 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
           if (!transactionRecord) continue;
 
           // جلب المستفيد مع قفل لمنع التعديل المتزامن
-          const lockedBen = await tx.$queryRaw<Array<{ id: string; remaining_balance: number; status: string; completed_via: string | null }>>`
-            SELECT id, remaining_balance, status, completed_via FROM "Beneficiary"
+          const lockedBen = await tx.$queryRaw<Array<{ id: string; name: string; card_number: string; remaining_balance: number; status: string; completed_via: string | null }>>`
+            SELECT id, name, card_number, remaining_balance, status, completed_via FROM "Beneficiary"
             WHERE id = ${transactionRecord.beneficiary_id}
             FOR UPDATE
           `;
@@ -285,6 +309,8 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
               action: "RESTORE_SOFT_DELETED_TRANSACTION",
               metadata: {
                 transaction_id: transactionId,
+                beneficiary_name: beneficiary.name,
+                card_number: beneficiary.card_number,
                 deducted_amount: deductedAmount,
                 balance_before: remainingBefore,
                 balance_after: remainingAfter,
@@ -303,8 +329,18 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
     }
 
     if (op === "permanent_delete") {
-      // SEC-FIX: التحقق الأوّلي من المرشحين (pre-filter) — التحقق النهائي يتم داخل الـ transaction
-      const candidateIds = selected.filter((tx) => tx.is_cancelled && tx.type !== "CANCELLATION").map((tx) => tx.id);
+      // يسمح بالحذف النهائي للحركات الملغاة + حذف زوج (التصحيح + الأصل) عند تحديد حركة تصحيح
+      const selectedCancellationIds = selected
+        .filter((tx) => tx.type === "CANCELLATION")
+        .map((tx) => tx.id);
+      const pairedOriginalIds = selected
+        .filter((tx) => tx.type === "CANCELLATION" && tx.original_transaction_id)
+        .map((tx) => String(tx.original_transaction_id));
+      const selectedCancelledOriginalIds = selected
+        .filter((tx) => tx.is_cancelled && tx.type !== "CANCELLATION")
+        .map((tx) => tx.id);
+
+      const candidateIds = [...new Set([...selectedCancellationIds, ...pairedOriginalIds, ...selectedCancelledOriginalIds])];
       if (candidateIds.length === 0) return;
 
       await prisma.$transaction(async (tx) => {
@@ -319,13 +355,19 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
           FOR UPDATE
         `;
 
-        const validTransactions = lockedTransactions.filter((t) => t.is_cancelled && t.type !== "CANCELLATION");
-        if (validTransactions.length === 0) return;
+        const pairedOriginalSet = new Set(pairedOriginalIds);
+        const validOriginals = lockedTransactions.filter(
+          (t) => t.type !== "CANCELLATION" && (t.is_cancelled || pairedOriginalSet.has(t.id))
+        );
+        const validCancellations = lockedTransactions.filter((t) => t.type === "CANCELLATION");
 
-        const validIds = validTransactions.map((t) => t.id);
+        if (validOriginals.length === 0 && validCancellations.length === 0) return;
+
+        const validOriginalIds = validOriginals.map((t) => t.id);
+        const validCancellationIds = validCancellations.map((t) => t.id);
 
         // SEC-FIX: حفظ snapshot كامل للحركات المحذوفة في سجل التدقيق للمرجعية
-        const deletedSnapshot = validTransactions.map((t) => ({
+        const deletedSnapshot = [...validOriginals, ...validCancellations].map((t) => ({
           id: t.id,
           beneficiary_id: t.beneficiary_id,
           amount: t.amount,
@@ -336,13 +378,81 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
 
         // حركات الإلغاء المرتبطة
         await tx.transaction.deleteMany({
-          where: { original_transaction_id: { in: validIds } },
+          where: {
+            OR: [
+              { id: { in: validCancellationIds } },
+              { original_transaction_id: { in: validOriginalIds } },
+            ],
+          },
         });
 
         // الحركات نفسها
         await tx.transaction.deleteMany({
-          where: { id: { in: validIds } },
+          where: { id: { in: validOriginalIds } },
         });
+
+        // إعادة احتساب الرصيد والحالة لكل مستفيد متأثر بعد الحذف النهائي
+        const affectedBeneficiaryIds = [...new Set([...validOriginals, ...validCancellations].map((t) => t.beneficiary_id))];
+        const balanceChanges: Array<{ beneficiary_id: string; beneficiary_name: string; card_number: string; balance_before: number; balance_after: number; status_after: string }> = [];
+
+        for (const beneficiaryId of affectedBeneficiaryIds) {
+          const lockedBen = await tx.$queryRaw<Array<{ id: string; name: string; card_number: string; remaining_balance: number; status: string }>>`
+            SELECT id, name, card_number, remaining_balance, status FROM "Beneficiary"
+            WHERE id = ${beneficiaryId}
+            FOR UPDATE
+          `;
+          if (lockedBen.length === 0) continue;
+
+          const beneficiaryMeta = await tx.beneficiary.findUnique({
+            where: { id: beneficiaryId },
+            select: { total_balance: true, completed_via: true },
+          });
+          if (!beneficiaryMeta) continue;
+
+          const agg = await tx.transaction.aggregate({
+            where: {
+              beneficiary_id: beneficiaryId,
+              is_cancelled: false,
+              type: { not: "CANCELLATION" },
+            },
+            _sum: { amount: true },
+          });
+
+          const totalBalance = Number(beneficiaryMeta.total_balance);
+          const totalSpent = Number(agg._sum.amount ?? 0);
+          const newBalance = roundCurrency(Math.max(0, totalBalance - totalSpent));
+          const lockedStatus = lockedBen[0].status;
+          const newStatus = lockedStatus === "SUSPENDED" ? "SUSPENDED" : (newBalance <= 0 ? "FINISHED" : "ACTIVE");
+
+          const beneficiaryUpdateData: {
+            remaining_balance: number;
+            status: "ACTIVE" | "FINISHED" | "SUSPENDED";
+            completed_via?: "MANUAL" | "IMPORT" | null;
+          } = {
+            remaining_balance: newBalance,
+            status: newStatus,
+          };
+
+          if (newStatus === "FINISHED") {
+            beneficiaryUpdateData.completed_via = (beneficiaryMeta.completed_via as "MANUAL" | "IMPORT" | null) ?? "MANUAL";
+          } else if (newStatus !== "SUSPENDED") {
+            beneficiaryUpdateData.completed_via = null;
+          }
+
+          await tx.beneficiary.update({
+            where: { id: beneficiaryId },
+            data: beneficiaryUpdateData,
+          });
+
+          balanceChanges.push({
+            beneficiary_id: beneficiaryId,
+            beneficiary_name: lockedBen[0].name,
+            card_number: lockedBen[0].card_number,
+            balance_before: Number(lockedBen[0].remaining_balance),
+            balance_after: newBalance,
+            status_after: newStatus,
+          });
+        }
 
         // تسجيل في سجل المراقبة
         await tx.auditLog.create({
@@ -352,11 +462,12 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
             action: "PERMANENT_DELETE_TRANSACTION",
             metadata: {
               selected_count: ids.length,
-              deleted_count: validTransactions.length,
-              transaction_ids: validIds,
-              balance_impact: 0,
+              deleted_count: validOriginals.length + validCancellations.length,
+              transaction_ids: [...validOriginalIds, ...validCancellationIds],
+              balance_recalculated: true,
+              balance_changes: balanceChanges,
               deleted_snapshot: deletedSnapshot,
-              message: "تم حذف الحركات نهائياً من قاعدة البيانات بعد إلغائها سابقاً.",
+              message: "تم حذف الحركات/أزواج الإلغاء نهائياً من قاعدة البيانات.",
             },
           },
         });
@@ -381,12 +492,17 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
 
     let successCount = 0;
     let skippedCount = 0;
+    const detailedItems: Array<Record<string, unknown>> = [];
 
     if (hasCancellation) {
       for (const tx of actionable) {
         const result = await deleteCancellationTransaction(tx.id);
-        if (result.success) successCount += 1;
-        else skippedCount += 1;
+        if (result.success) {
+          successCount += 1;
+          if (result.details) {
+            detailedItems.push(result.details as Record<string, unknown>);
+          }
+        } else skippedCount += 1;
       }
 
       await prisma.auditLog.create({
@@ -400,14 +516,19 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
             rededucted_count: successCount,
             skipped_count: skippedCount,
             transaction_ids: actionable.map((item) => item.id),
+            items: detailedItems,
           },
         },
       });
     } else {
       for (const tx of actionable) {
         const result = await cancelTransaction(tx.id);
-        if (result.success) successCount += 1;
-        else skippedCount += 1;
+        if (result.success) {
+          successCount += 1;
+          if (result.details) {
+            detailedItems.push(result.details as Record<string, unknown>);
+          }
+        } else skippedCount += 1;
       }
 
       await prisma.auditLog.create({
@@ -421,6 +542,7 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
             cancelled_count: successCount,
             skipped_count: skippedCount,
             transaction_ids: actionable.map((item) => item.id),
+            items: detailedItems,
           },
         },
       });

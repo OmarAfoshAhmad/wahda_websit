@@ -13,7 +13,7 @@ import { ImportRollbackButton } from "@/components/import-rollback-button";
 import { TransactionRollbackButton } from "@/components/transaction-rollback-button";
 import { formatDateTimeTripoli } from "@/lib/datetime";
 
-type TargetFilter = "all" | "beneficiaries" | "transactions" | "facilities" | "completed";
+type TargetFilter = "all" | "beneficiaries" | "transactions" | "facilities" | "completed" | "merges" | "security";
 
 const PAGE_SIZE = 30;
 
@@ -25,6 +25,8 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "DELETE_BENEFICIARY",
     "PERMANENT_DELETE_BENEFICIARY",
     "RESTORE_BENEFICIARY",
+    "MERGE_DUPLICATE_BENEFICIARY",
+    "UNDO_MERGE_DUPLICATE_BENEFICIARY",
     "DEDUCT_BALANCE",
     "EDIT_TRANSACTION",
     "CANCEL_TRANSACTION",
@@ -38,8 +40,15 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "SETTLE_OVERDRAWN_FAMILY_DEBT",
     "CREATE_FACILITY",
     "IMPORT_FACILITIES",
+    "UPDATE_FACILITY",
     "DELETE_FACILITY",
     "ROLLBACK_IMPORT",
+    "LOGIN",
+    "LOGOUT",
+    "CHANGE_PASSWORD",
+    "CREATE_MANAGER",
+    "UPDATE_MANAGER",
+    "DELETE_MANAGER",
   ],
   beneficiaries: [
     "CREATE_BENEFICIARY",
@@ -63,8 +72,10 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "IMPORT_TRANSACTIONS",
     "SETTLE_OVERDRAWN_FAMILY_DEBT",
   ],
-  facilities: ["CREATE_FACILITY", "IMPORT_FACILITIES", "DELETE_FACILITY"],
+  facilities: ["CREATE_FACILITY", "IMPORT_FACILITIES", "UPDATE_FACILITY", "DELETE_FACILITY"],
   completed: ["DEDUCT_BALANCE", "IMPORT_TRANSACTIONS", "SETTLE_OVERDRAWN_FAMILY_DEBT"],
+  merges: ["MERGE_DUPLICATE_BENEFICIARY", "UNDO_MERGE_DUPLICATE_BENEFICIARY"],
+  security: ["LOGIN", "LOGOUT", "CHANGE_PASSWORD", "CREATE_MANAGER", "UPDATE_MANAGER", "DELETE_MANAGER"],
 };
 
 function actionLabel(action: string) {
@@ -111,6 +122,24 @@ function actionLabel(action: string) {
       return "حذف مرفق";
     case "ROLLBACK_IMPORT":
       return "تراجع عن استيراد";
+    case "MERGE_DUPLICATE_BENEFICIARY":
+      return "دمج مستفيدين مكررين";
+    case "UNDO_MERGE_DUPLICATE_BENEFICIARY":
+      return "تراجع عن الدمج";
+    case "UPDATE_FACILITY":
+      return "تعديل مرفق";
+    case "LOGIN":
+      return "تسجيل دخول";
+    case "LOGOUT":
+      return "تسجيل خروج";
+    case "CHANGE_PASSWORD":
+      return "تغيير كلمة المرور";
+    case "CREATE_MANAGER":
+      return "إضافة مدير";
+    case "UPDATE_MANAGER":
+      return "تعديل مدير";
+    case "DELETE_MANAGER":
+      return "حذف مدير";
     default:
       return action;
   }
@@ -326,10 +355,14 @@ function summarizeMetadata(action: string, metadata: unknown, auditLogId?: strin
   }
 
   if (action === "CANCEL_TRANSACTION") {
+    const beneficiaryName = getMetadataValue(m, "beneficiary_name");
+    const cardNumber = getMetadataValue(m, "card_number");
     return (
       <span className="text-slate-500 dark:text-slate-400">
+        {beneficiaryName !== "-" ? <span className="font-bold text-slate-700 dark:text-slate-300">{String(beneficiaryName)}</span> : null}
+        {beneficiaryName !== "-" ? <span className="mr-1.5">·</span> : null}
         مبلغ مرتجع: <strong className="text-slate-700 dark:text-slate-300">{String(m.refunded_amount ?? "-")} د.ل</strong>
-        {m.card_number ? <span className="mr-1.5">· بطاقة: {String(m.card_number)}</span> : null}
+        {cardNumber !== "-" ? <span className="mr-1.5">· بطاقة: {String(cardNumber)}</span> : null}
         <span className="mr-1.5">· قبل: {String(balanceBefore)} د.ل</span>
         <span className="mr-1.5">· بعد: {String(balanceAfter)} د.ل</span>
       </span>
@@ -337,9 +370,12 @@ function summarizeMetadata(action: string, metadata: unknown, auditLogId?: strin
   }
 
   if (action === "REVERT_CANCELLATION") {
+    const beneficiaryName = getMetadataValue(m, "beneficiary_name");
+    const cardNumber = getMetadataValue(m, "card_number");
     return (
       <span className="text-slate-500 dark:text-slate-400">
-        {m.card_number ? <span>بطاقة: {String(m.card_number)} · </span> : null}
+        {beneficiaryName !== "-" ? <span className="font-bold text-slate-700 dark:text-slate-300">{String(beneficiaryName)} · </span> : null}
+        {cardNumber !== "-" ? <span>بطاقة: {String(cardNumber)} · </span> : null}
         <span>إلغاء الإلغاء</span>
         <span className="mr-1.5">· قبل: {String(balanceBefore)} د.ل</span>
         <span className="mr-1.5">· بعد: {String(balanceAfter)} د.ل</span>
@@ -348,8 +384,12 @@ function summarizeMetadata(action: string, metadata: unknown, auditLogId?: strin
   }
 
   if (action === "SOFT_DELETE_TRANSACTION") {
+    const beneficiaryName = getMetadataValue(m, "beneficiary_name");
+    const cardNumber = getMetadataValue(m, "card_number");
     return (
       <span className="text-slate-500 dark:text-slate-400">
+        {beneficiaryName !== "-" ? <span className="font-bold text-slate-700 dark:text-slate-300">{String(beneficiaryName)} · </span> : null}
+        {cardNumber !== "-" ? <span>بطاقة: {String(cardNumber)} · </span> : null}
         مبلغ مرتجع: <strong className="text-slate-700 dark:text-slate-300">{String(m.refunded_amount ?? "-")} د.ل</strong>
         <span className="mr-1.5">· قبل: {String(balanceBefore)} د.ل</span>
         <span className="mr-1.5">· بعد: {String(balanceAfter)} د.ل</span>
@@ -358,8 +398,12 @@ function summarizeMetadata(action: string, metadata: unknown, auditLogId?: strin
   }
 
   if (action === "RESTORE_SOFT_DELETED_TRANSACTION") {
+    const beneficiaryName = getMetadataValue(m, "beneficiary_name");
+    const cardNumber = getMetadataValue(m, "card_number");
     return (
       <span className="text-slate-500 dark:text-slate-400">
+        {beneficiaryName !== "-" ? <span className="font-bold text-slate-700 dark:text-slate-300">{String(beneficiaryName)} · </span> : null}
+        {cardNumber !== "-" ? <span>بطاقة: {String(cardNumber)} · </span> : null}
         مبلغ مخصوم: <strong className="text-slate-700 dark:text-slate-300">{String(m.deducted_amount ?? "-")} د.ل</strong>
         <span className="mr-1.5">· قبل: {String(balanceBefore)} د.ل</span>
         <span className="mr-1.5">· بعد: {String(balanceAfter)} د.ل</span>
@@ -368,22 +412,59 @@ function summarizeMetadata(action: string, metadata: unknown, auditLogId?: strin
   }
 
   if (action === "PERMANENT_DELETE_TRANSACTION") {
+    const beneficiaryName = getMetadataValue(m, "beneficiary_name");
+    const cardNumber = getMetadataValue(m, "card_number");
+    const pairDelete = m.pair_delete === true;
+    const balanceChanges = Array.isArray(m.balance_changes) ? (m.balance_changes as Array<Record<string, unknown>>) : [];
     return (
-      <span className="text-slate-500 dark:text-slate-400">
-        تم حذف نهائي: <strong className="text-slate-700 dark:text-slate-300">{String(m.deleted_count ?? "-")}</strong>
-        <span className="mr-1.5">· تأثير الرصيد: {String(m.balance_impact ?? 0)} د.ل</span>
-      </span>
+      <div className="text-slate-500 dark:text-slate-400 space-y-1">
+        <div>
+          تم حذف نهائي: <strong className="text-slate-700 dark:text-slate-300">{String(m.deleted_count ?? "-")}</strong>
+          {pairDelete ? <span className="mr-1.5">· حذف زوج (إلغاء + أصل)</span> : null}
+          {beneficiaryName !== "-" ? <span className="mr-1.5 font-bold text-slate-700 dark:text-slate-300">· {String(beneficiaryName)}</span> : null}
+          {cardNumber !== "-" ? <span className="mr-1.5">· بطاقة: {String(cardNumber)}</span> : null}
+          {balanceBefore !== "-" ? <span className="mr-1.5">· قبل: {String(balanceBefore)} د.ل</span> : null}
+          {balanceAfter !== "-" ? <span className="mr-1.5">· بعد: {String(balanceAfter)} د.ل</span> : null}
+        </div>
+        {balanceChanges.length > 0 && (
+          <div className="text-xs text-slate-500 dark:text-slate-400">
+            {balanceChanges.slice(0, 3).map((b, idx) => (
+              <span key={idx} className="ml-2 inline-block">
+                {String(b.beneficiary_name ?? "-")} ({String(b.card_number ?? "-")})
+                {" "}قبل: {String(b.balance_before ?? "-")} · بعد: {String(b.balance_after ?? "-")}
+              </span>
+            ))}
+            {balanceChanges.length > 3 ? <span>... +{balanceChanges.length - 3}</span> : null}
+          </div>
+        )}
+      </div>
     );
   }
 
   if (action === "BULK_CANCEL_TRANSACTION" || action === "BULK_REDEDUCT_TRANSACTION") {
+    const items = Array.isArray(m.items) ? (m.items as Array<Record<string, unknown>>) : [];
     return (
-      <span className="text-slate-500 dark:text-slate-400">
-        مختارة: <strong className="text-slate-700 dark:text-slate-300">{String(m.selected_count ?? "-")}</strong>
-        <span className="mr-1.5">· منفذة: {String(m.processed_count ?? "-")}</span>
-        <span className="mr-1.5">· ناجحة: {String(m.cancelled_count ?? m.rededucted_count ?? "-")}</span>
-        <span className="mr-1.5">· متخطاة: {String(m.skipped_count ?? "-")}</span>
-      </span>
+      <div className="text-slate-500 dark:text-slate-400 space-y-1">
+        <div>
+          مختارة: <strong className="text-slate-700 dark:text-slate-300">{String(m.selected_count ?? "-")}</strong>
+          <span className="mr-1.5">· منفذة: {String(m.processed_count ?? "-")}</span>
+          <span className="mr-1.5">· ناجحة: {String(m.cancelled_count ?? m.rededucted_count ?? "-")}</span>
+          <span className="mr-1.5">· متخطاة: {String(m.skipped_count ?? "-")}</span>
+        </div>
+        {items.length > 0 && (
+          <div className="text-xs text-slate-500 dark:text-slate-400">
+            {items.slice(0, 3).map((it, idx) => (
+              <span key={idx} className="ml-2 inline-block">
+                {String(it.beneficiary_name ?? "-")} ({String(it.card_number ?? "-")})
+                {" "}· مبلغ: {String(it.amount ?? "-")} د.ل
+                {" "}· قبل: {String(it.balance_before ?? "-")} د.ل
+                {" "}· بعد: {String(it.balance_after ?? "-")} د.ل
+              </span>
+            ))}
+            {items.length > 3 ? <span>... +{items.length - 3}</span> : null}
+          </div>
+        )}
+      </div>
     );
   }
 
@@ -509,7 +590,7 @@ export default async function AuditLogPage({
   const actorTerm = actor?.trim() ?? "";
 
   const target: TargetFilter =
-    targetParam === "beneficiaries" || targetParam === "transactions" || targetParam === "facilities" || targetParam === "completed"
+    targetParam === "beneficiaries" || targetParam === "transactions" || targetParam === "facilities" || targetParam === "completed" || targetParam === "merges" || targetParam === "security"
       ? targetParam
       : "all";
 
@@ -784,6 +865,8 @@ export default async function AuditLogPage({
                 <option value="transactions">الحركات</option>
                 <option value="facilities">المرافق</option>
                 <option value="completed">المكتملون ✓</option>
+                <option value="merges">الدمج</option>
+                <option value="security">الأمان / الجلسات</option>
               </select>
             </div>
 

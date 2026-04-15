@@ -13,6 +13,7 @@ import { bulkTransactionSelectionAction } from "@/app/actions/cancel-transaction
 import { BulkTransactionActionButton } from "@/components/bulk-transaction-action-button";
 import { SelectAllTransactionsCheckbox } from "@/components/select-all-transactions-checkbox";
 import { TransactionEditModal } from "../../components/transaction-edit-modal";
+import { TransactionCancelButton } from "@/components/transaction-cancel-button";
 import Link from "next/link";
 import { FileInput, PlusCircle } from "lucide-react";
 import { formatDateTripoli, formatTimeTripoli } from "@/lib/datetime";
@@ -20,25 +21,25 @@ import { formatDateTripoli, formatTimeTripoli } from "@/lib/datetime";
 type TransactionRow = {
   id: string;
   beneficiary_id: string;
-  amount: unknown;
+  amount: Prisma.Decimal;
   type: string;
   is_cancelled: boolean;
   original_transaction_id: string | null;
   created_at: Date;
   corrections: Array<{
     id: string;
-    amount: unknown;
+    amount: Prisma.Decimal;
     is_cancelled: boolean;
   }>;
   original_transaction: {
     id: string;
-    amount: unknown;
+    amount: Prisma.Decimal;
     is_cancelled: boolean;
   } | null;
   beneficiary: {
     name: string;
     card_number: string;
-    remaining_balance: unknown;
+    remaining_balance: Prisma.Decimal;
   };
   facility: {
     id: string;
@@ -104,7 +105,7 @@ export default async function TransactionsPage({
   const TX_SORT_COLS = ["created_at", "amount", "beneficiary_name", "facility_name", "remaining_balance"] as const;
   type TxSortCol = typeof TX_SORT_COLS[number];
   const sortCol: TxSortCol = (TX_SORT_COLS as ReadonlyArray<string>).includes(sort ?? "") ? sort as TxSortCol : "created_at";
-  const sortDir: "asc" | "desc" = order === "desc" ? "desc" : "asc";
+  const sortDir: "asc" | "desc" = order === "asc" ? "asc" : "desc";
 
   const txOrderByMap: Record<TxSortCol, object> = {
     created_at: { created_at: sortDir },
@@ -334,11 +335,19 @@ export default async function TransactionsPage({
     return [...latestRemainingByBeneficiary.values()].reduce((sum, value) => sum + value, 0);
   })();
 
-  const canCancel = hasPermission(session, "cancel_transactions");
-  const canCorrect = hasPermission(session, "correct_transactions");
-  const canDelete = hasPermission(session, "delete_transaction");
+  const isReadOnlyEmployee = session.is_employee;
+  const canCancel = !isReadOnlyEmployee && hasPermission(session, "cancel_transactions");
+  const canCorrect = !isReadOnlyEmployee && hasPermission(session, "correct_transactions");
+  const canDelete = !isReadOnlyEmployee && hasPermission(session, "delete_transaction");
+  const canSingleAction = session.is_admin || canCancel || canCorrect;
   const canExport = !session.is_manager || hasPermission(session, "export_data");
-  const canImport = session.is_admin || ((session.manager_permissions as Partial<Record<string, boolean>> | null)?.import_transactions === true);
+  const canImport = !isReadOnlyEmployee && (session.is_admin || ((session.manager_permissions as Partial<Record<string, boolean>> | null)?.import_transactions === true));
+  const tableColSpan =
+    7 +
+    ((session.is_admin || canCancel || canDelete) ? 1 : 0) +
+    (session.is_admin ? 1 : 0) +
+    (session.is_admin ? 1 : 0) +
+    ((session.is_admin || canCorrect || canCancel) ? 1 : 0);
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
@@ -356,7 +365,7 @@ export default async function TransactionsPage({
     <Shell facilityName={session.name} session={session}>
       <div id="printable-report" className="space-y-4 pb-20">
 
-        {/* ترويسة الطباعة فقط */}
+        {/* Print-only header */}
         <div className="hidden print:flex flex-col items-center justify-center mb-2 text-center border-b pb-2 pt-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logo.png" alt="Waha Health Care" className="h-16 w-auto object-contain mb-2" />
@@ -391,14 +400,16 @@ export default async function TransactionsPage({
             </div>
             {/* أزرار الرأس — أيقونات فقط على الجوال، نص كامل على الشاشات الكبيرة */}
             <div className="no-print flex shrink-0 items-center gap-1.5 sm:gap-2">
-              <Link
-                href="/add-transaction"
-                title="إضافة حركة يدوية"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700 sm:w-auto sm:gap-1.5 sm:px-3"
-              >
-                <PlusCircle className="h-4 w-4 shrink-0" />
-                <span className="hidden text-sm font-bold sm:inline">إضافة حركة يدوية</span>
-              </Link>
+              {!isReadOnlyEmployee && (
+                <Link
+                  href="/add-transaction"
+                  title="إضافة حركة يدوية"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700 sm:w-auto sm:gap-1.5 sm:px-3"
+                >
+                  <PlusCircle className="h-4 w-4 shrink-0" />
+                  <span className="hidden text-sm font-bold sm:inline">إضافة حركة يدوية</span>
+                </Link>
+              )}
               {canImport && (
                 <Link
                   href="/import-transactions"
@@ -536,11 +547,33 @@ export default async function TransactionsPage({
         </Card>
 
         {/* ══ عرض الكارد — جوال فقط ══ */}
-        <div className="flex flex-col gap-3 sm:hidden">
+        <form action={bulkTransactionSelectionAction} className="flex flex-col gap-3 sm:hidden">
+          {(session.is_admin || canCancel || canDelete) && transactionRows.length > 0 && (
+            <Card className="p-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-slate-500 dark:text-slate-400">تحديد فردي أو جماعي للحركات</span>
+                <div className="flex items-center gap-2">
+                  <SelectAllTransactionsCheckbox />
+                  <BulkTransactionActionButton
+                    statusFilter={statusFilter}
+                    canCancel={canCancel || session.is_admin}
+                    canDelete={canDelete || session.is_admin}
+                  />
+                </div>
+              </div>
+            </Card>
+          )}
+
           {transactionRows.length === 0 ? (
             <p className="py-10 text-center italic text-slate-500">لا توجد نتائج مطابقة للفلاتر الحالية.</p>
           ) : (
-            transactionRows.map((tx: TransactionRow) => (
+            transactionRows.map((tx: TransactionRow) => {
+              const currentBalance = Number(tx.beneficiary.remaining_balance);
+              const amount = Number(tx.amount);
+              const balanceBeforeDelete = currentBalance;
+              const balanceAfterDelete = currentBalance + amount;
+
+              return (
               <Card key={tx.id} className="overflow-hidden p-0">
                 {/* رأس الكارد */}
                 <div className="flex items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50 dark:bg-slate-800/30 px-4 py-2.5">
@@ -574,10 +607,50 @@ export default async function TransactionsPage({
                     <p className="text-xs font-medium text-slate-400 dark:text-slate-500">دينار ليبي</p>
                   </div>
                 </div>
+
+                {(session.is_admin || canCancel || canDelete || canSingleAction) && (
+                  <div className="flex items-center justify-between gap-3 border-t border-slate-100 dark:border-slate-800/70 px-4 py-2.5">
+                    {(session.is_admin || canCancel || canDelete) && (
+                      <label className="inline-flex items-center gap-2 text-xs font-bold text-slate-500 dark:text-slate-400">
+                        <input
+                          type="checkbox"
+                          name="ids"
+                          value={tx.id}
+                          data-bulk-tx-checkbox="1"
+                          data-tx-type={tx.type}
+                          data-original-transaction-id={tx.original_transaction_id ?? ""}
+                          data-beneficiary-name={tx.beneficiary.name}
+                          data-balance-before-delete={String(balanceBeforeDelete)}
+                          data-amount={String(amount)}
+                          data-balance-after-delete={String(balanceAfterDelete)}
+                          disabled={tx.is_cancelled && tx.corrections.length > 0}
+                          title={
+                            tx.is_cancelled && tx.corrections.length > 0
+                              ? "هذه الحركة غير قابلة للإجراء الجماعي"
+                              : "تحديد الحركة"
+                          }
+                          className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-40"
+                        />
+                        تحديد
+                      </label>
+                    )}
+
+                    {canSingleAction && (
+                      <div className="mr-auto">
+                        <TransactionCancelButton
+                          transactionId={tx.id}
+                          isCancelled={tx.is_cancelled}
+                          type={tx.type}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
               </Card>
-            ))
+            );
+            })
           )}
-        </div>
+        </form>
 
         {/* ══ عرض الجدول — شاشة كبيرة فقط ══ */}
         <form action={bulkTransactionSelectionAction} className="hidden sm:block">
@@ -638,13 +711,13 @@ export default async function TransactionsPage({
                     </th>
                     <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 text-center">الحالة</th>
                     {session.is_admin && <th className="print:hidden px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 text-center">المصدر</th>}
-                    {(session.is_admin || canCorrect) && <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 no-print">تعديل</th>}
+                    {(session.is_admin || canCorrect || canCancel) && <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 no-print">إجراءات</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
                   {transactionRows.length === 0 ? (
                     <tr>
-                      <td colSpan={session.is_admin ? 12 : 8} className="px-6 py-10 text-center italic text-slate-500 dark:text-slate-400">لا توجد نتائج مطابقة للفلاتر الحالية.</td>
+                      <td colSpan={tableColSpan} className="px-6 py-10 text-center italic text-slate-500 dark:text-slate-400">لا توجد نتائج مطابقة للفلاتر الحالية.</td>
                     </tr>
                   ) : (
                     transactionRows.map((tx: TransactionRow, idx: number) => (
@@ -669,13 +742,9 @@ export default async function TransactionsPage({
                               data-balance-before-delete={String(balanceBeforeDelete)}
                               data-amount={String(amount)}
                               data-balance-after-delete={String(balanceAfterDelete)}
-                              disabled={
-                                tx.type === "CANCELLATION" || (tx.is_cancelled && tx.corrections.length > 0)
-                              }
+                              disabled={tx.is_cancelled && tx.corrections.length > 0}
                               title={
-                                tx.type === "CANCELLATION"
-                                  ? "الحركة المصححة غير قابلة للحذف أو الإجراء الجماعي"
-                                  : tx.is_cancelled && tx.corrections.length > 0
+                                tx.is_cancelled && tx.corrections.length > 0
                                   ? "هذه الحركة غير قابلة للإجراء الجماعي"
                                   : "تحديد الحركة"
                               }
@@ -751,21 +820,32 @@ export default async function TransactionsPage({
                             </span>
                           </td>
                         )}
-                        {(session.is_admin || canCorrect) && (
+                        {(session.is_admin || canCorrect || canCancel) && (
                           <td className="px-6 py-4 text-center no-print">
-                            <TransactionEditModal
-                              transaction={{
-                                id: tx.id,
-                                amount: Number(tx.amount),
-                                type: tx.type,
-                                created_at: tx.created_at.toISOString(),
-                                facility_id: tx.facility.id,
-                                facility_name: tx.facility.name,
-                                is_cancelled: tx.is_cancelled,
-                              }}
-                              facilities={facilities}
-                              datalistId={globalDatalistId}
-                            />
+                            <div className="flex items-center justify-center gap-2">
+                              {canSingleAction && (
+                                <TransactionCancelButton
+                                  transactionId={tx.id}
+                                  isCancelled={tx.is_cancelled}
+                                  type={tx.type}
+                                />
+                              )}
+                              {(session.is_admin || canCorrect) && (
+                                <TransactionEditModal
+                                  transaction={{
+                                    id: tx.id,
+                                    amount: Number(tx.amount),
+                                    type: tx.type,
+                                    created_at: tx.created_at.toISOString(),
+                                    facility_id: tx.facility.id,
+                                    facility_name: tx.facility.name,
+                                    is_cancelled: tx.is_cancelled,
+                                  }}
+                                  facilities={facilities}
+                                  datalistId={globalDatalistId}
+                                />
+                              )}
+                            </div>
                           </td>
                         )}
                       </tr>
