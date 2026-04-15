@@ -89,81 +89,108 @@ function planSharesByAvailability(
 }
 
 export async function getOverdrawnDebtCases(): Promise<OverdrawnDebtCase[]> {
-  const [beneficiaries, spentRows] = await Promise.all([
-    prisma.beneficiary.findMany({
-      where: { deleted_at: null },
-      select: {
-        id: true,
-        name: true,
-        card_number: true,
-        total_balance: true,
-        status: true,
-        completed_via: true,
-      },
-      orderBy: { card_number: "asc" },
-    }),
-    prisma.transaction.groupBy({
-      by: ["beneficiary_id"],
-      where: {
-        is_cancelled: false,
-        type: { not: TransactionType.CANCELLATION },
-      },
-      _sum: { amount: true },
-    }),
-  ]);
-
-  const spentById = new Map(spentRows.map((r) => [r.beneficiary_id, roundCurrency(Number(r._sum.amount ?? 0))]));
-
-  const beneficiaryById = new Map(
-    beneficiaries.map((b) => [
+  // استعلام SQL مُحسَّن: يجلب فقط المستفيدين الذين تجاوزوا رصيدهم
+  // مع كامل مجموعاتهم العائلية — بدلاً من جلب كل المستفيدين في الذاكرة
+  const debtorRows = await prisma.$queryRaw<Array<{
+    id: string;
+    name: string;
+    card_number: string;
+    total_balance: number;
+    status: string;
+    completed_via: string | null;
+    spent: number;
+  }>>`
+    SELECT
       b.id,
-      {
-        ...b,
-        totalBalance: roundCurrency(Number(b.total_balance)),
-        spent: spentById.get(b.id) ?? 0,
-      },
-    ])
-  );
+      b.name,
+      b.card_number,
+      b.total_balance::float8,
+      b.status::text,
+      b.completed_via,
+      COALESCE(SUM(t.amount), 0)::float8 AS spent
+    FROM "Beneficiary" b
+    LEFT JOIN "Transaction" t
+      ON t.beneficiary_id = b.id
+      AND t.is_cancelled = false
+      AND t.type <> 'CANCELLATION'
+    WHERE b.deleted_at IS NULL
+      AND NOT (b.status = 'FINISHED' AND b.completed_via = 'EXCEEDED_BALANCE')
+    GROUP BY b.id, b.name, b.card_number, b.total_balance, b.status, b.completed_via
+    HAVING COALESCE(SUM(t.amount), 0) > b.total_balance
+    ORDER BY b.card_number
+  `;
 
+  if (debtorRows.length === 0) return [];
+
+  // استخرج بادئات البطاقات العائلية لجلب الأفراد المرتبطين
+  const familyBasePrefixes = [...new Set(
+    debtorRows.map((b) => extractFamilyBaseCard(b.card_number))
+  )];
+
+  // جلب جميع أفراد العائلات المرتبطة بالمدينين (استعلام واحد فقط)
+  const familyRows = await prisma.$queryRaw<Array<{
+    id: string;
+    name: string;
+    card_number: string;
+    total_balance: number;
+    status: string;
+    completed_via: string | null;
+    spent: number;
+  }>>`
+    SELECT
+      b.id,
+      b.name,
+      b.card_number,
+      b.total_balance::float8,
+      b.status::text,
+      b.completed_via,
+      COALESCE(SUM(t.amount), 0)::float8 AS spent
+    FROM "Beneficiary" b
+    LEFT JOIN "Transaction" t
+      ON t.beneficiary_id = b.id
+      AND t.is_cancelled = false
+      AND t.type <> 'CANCELLATION'
+    WHERE b.deleted_at IS NULL
+      AND b.card_number ~ ${`^(${familyBasePrefixes.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})([WSDMFHV]\\d+)?$`}
+    GROUP BY b.id, b.name, b.card_number, b.total_balance, b.status, b.completed_via
+    ORDER BY b.card_number
+  `;
+
+  // بناء خرائط الأفراد والأرصدة
+  const allRows = familyRows;
   const remainingById = new Map<string, number>();
-  for (const b of beneficiaries) {
-    const totalBalance = roundCurrency(Number(b.total_balance));
-    const spent = spentById.get(b.id) ?? 0;
+  for (const b of allRows) {
+    const totalBalance = roundCurrency(b.total_balance);
+    const spent = roundCurrency(b.spent);
     remainingById.set(b.id, roundCurrency(Math.max(0, totalBalance - spent)));
   }
 
-  const membersByBaseCard = new Map<string, typeof beneficiaries>();
-  for (const member of beneficiaries) {
-    const base = extractFamilyBaseCard(member.card_number);
+  const membersByBaseCard = new Map<string, typeof allRows>();
+  for (const b of allRows) {
+    const base = extractFamilyBaseCard(b.card_number);
     const arr = membersByBaseCard.get(base) ?? [];
-    arr.push(member);
+    arr.push(b);
     membersByBaseCard.set(base, arr);
   }
 
   const debtCases: OverdrawnDebtCase[] = [];
 
-  for (const b of beneficiaries) {
-    const enriched = beneficiaryById.get(b.id);
-    if (!enriched) continue;
-
-    // الحالة التي تمت تسويتها سابقا عبر توزيع مديونية الأسرة لا نعيد عرضها كحالة مشكلة.
-    if (enriched.status === "FINISHED" && enriched.completed_via === "EXCEEDED_BALANCE") {
-      continue;
-    }
-
-    const debtAmount = roundCurrency(enriched.spent - enriched.totalBalance);
+  for (const b of debtorRows) {
+    const totalBalance = roundCurrency(b.total_balance);
+    const spent = roundCurrency(b.spent);
+    const debtAmount = roundCurrency(spent - totalBalance);
     if (debtAmount <= 0) continue;
 
-    const baseCard = extractFamilyBaseCard(enriched.card_number);
+    const baseCard = extractFamilyBaseCard(b.card_number);
     const allFamilyMembers = membersByBaseCard.get(baseCard) ?? [];
 
     const familyMembers = allFamilyMembers
-      .filter((m) => m.id !== enriched.id)
+      .filter((m) => m.id !== b.id)
       .map((m) => ({
         id: m.id,
         name: m.name,
         card_number: m.card_number,
-        status: m.status,
+        status: m.status as MemberStatus,
         remaining: remainingById.get(m.id) ?? 0,
       }));
 
@@ -178,14 +205,13 @@ export async function getOverdrawnDebtCases(): Promise<OverdrawnDebtCase[]> {
     const residualDebtAfterDistribution = roundCurrency(Math.max(0, debtAmount - plannedDistributed));
 
     debtCases.push({
-      debtorId: enriched.id,
-      debtorName: enriched.name,
-      debtorCard: enriched.card_number,
+      debtorId: b.id,
+      debtorName: b.name,
+      debtorCard: b.card_number,
       familyBaseCard: baseCard,
-      debtorTotalBalance: enriched.totalBalance,
-      debtorSpent: enriched.spent,
+      debtorTotalBalance: totalBalance,
+      debtorSpent: spent,
       debtorDebtAmount: debtAmount,
-      // نعرض العدد الكلي لأفراد الأسرة شاملاً صاحب البطاقة/المدين نفسه.
       familyMembersCount: allFamilyMembers.length,
       familyAvailableTotal,
       plannedDistributed,

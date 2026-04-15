@@ -53,16 +53,6 @@ type DeletedFacilityRow = {
   deleted_at: Date;
 };
 
-type AuthStateFacility = {
-  id: string;
-  name: string;
-  username: string;
-  deleted_at: Date | null;
-  must_change_password: boolean;
-  created_at: Date;
-  password_hash: string;
-};
-
 type AuthStateRow = {
   id: string;
   name: string;
@@ -149,9 +139,7 @@ export async function DataHealthContent({
     invalidPasswordFacilities,
     deletedFacilities,
     mustChangePasswordCount,
-    allFacilitiesForAuth,
-    loginLogs,
-    resetLogs,
+    authStateRows,
     balanceDriftRows,
     statusAnomalyRows,
     orphanedNotificationRows,
@@ -242,32 +230,49 @@ export async function DataHealthContent({
       },
     }),
 
-    prisma.facility.findMany({
-      select: {
-        id: true,
-        name: true,
-        username: true,
-        deleted_at: true,
-        must_change_password: true,
-        created_at: true,
-        password_hash: true,
-      },
-      orderBy: { created_at: "desc" },
-    }),
-
-    prisma.auditLog.findMany({
-      where: { action: "LOGIN" },
-      select: { facility_id: true, user: true, created_at: true },
-      orderBy: { created_at: "desc" },
-      take: 50_000,
-    }),
-
-    prisma.auditLog.findMany({
-      where: { action: "UPDATE_FACILITY" },
-      select: { metadata: true, created_at: true, user: true },
-      orderBy: { created_at: "desc" },
-      take: 50_000,
-    }),
+    // بدلاً من جلب كل المرافق + 100K سجل AuditLog في الذاكرة،
+    // نستخدم SQL واحد يحسب حالة كل مرفق مباشرة من قاعدة البيانات
+    prisma.$queryRaw<AuthStateRow[]>`
+      SELECT
+        f.id,
+        f.name,
+        f.username,
+        (f.deleted_at IS NOT NULL) AS deleted,
+        f.must_change_password,
+        (f.password_hash ~ '^\\$2[aby]\\$.{56}$') AS hash_valid_bcrypt,
+        last_login.last_login_at,
+        last_reset.last_reset_at,
+        (
+          last_reset.last_reset_at IS NOT NULL
+          AND (last_login.last_login_at IS NULL OR last_login.last_login_at < last_reset.last_reset_at)
+        ) AS reset_no_login
+      FROM "Facility" f
+      LEFT JOIN LATERAL (
+        SELECT MAX(created_at) AS last_login_at
+        FROM "AuditLog"
+        WHERE action = 'LOGIN'
+          AND (facility_id = f.id OR "user" = f.username)
+      ) last_login ON true
+      LEFT JOIN LATERAL (
+        SELECT MAX(created_at) AS last_reset_at
+        FROM "AuditLog"
+        WHERE action = 'UPDATE_FACILITY'
+          AND (metadata->>'facility_id') = f.id
+          AND (metadata->>'reset_password')::boolean = true
+      ) last_reset ON true
+      WHERE
+        f.deleted_at IS NOT NULL
+        OR f.password_hash IS NULL
+        OR BTRIM(f.password_hash) = ''
+        OR f.password_hash !~ '^\\$2[aby]\\$.{56}$'
+        OR f.must_change_password = true
+        OR last_login.last_login_at IS NULL
+        OR (
+          last_reset.last_reset_at IS NOT NULL
+          AND (last_login.last_login_at IS NULL OR last_login.last_login_at < last_reset.last_reset_at)
+        )
+      ORDER BY f.created_at DESC
+    `,
 
     prisma.$queryRaw<BalanceDriftRow[]>`
       SELECT
@@ -380,50 +385,6 @@ export async function DataHealthContent({
         AND created_at < NOW() - INTERVAL '30 days'
     `,
   ]);
-
-  const lastLoginByFacilityId = new Map<string, Date>();
-  const lastLoginByUsername = new Map<string, Date>();
-  for (const log of loginLogs) {
-    if (log.facility_id && !lastLoginByFacilityId.has(log.facility_id)) {
-      lastLoginByFacilityId.set(log.facility_id, log.created_at);
-    }
-    if (log.user && !lastLoginByUsername.has(log.user)) {
-      lastLoginByUsername.set(log.user, log.created_at);
-    }
-  }
-
-  const lastResetByFacilityId = new Map<string, Date>();
-  for (const log of resetLogs) {
-    const meta = log.metadata as Record<string, unknown> | null;
-    if (!meta) continue;
-    const facilityId = typeof meta.facility_id === "string" ? meta.facility_id : null;
-    const resetPassword = meta.reset_password === true;
-    if (facilityId && resetPassword && !lastResetByFacilityId.has(facilityId)) {
-      lastResetByFacilityId.set(facilityId, log.created_at);
-    }
-  }
-
-  const authStateRows: AuthStateRow[] = (allFacilitiesForAuth as AuthStateFacility[])
-    .map((f) => {
-      const hash = f.password_hash ?? "";
-      const hashValidBcrypt = /^\$2[aby]\$.{56}$/.test(hash);
-      const lastLogin = lastLoginByFacilityId.get(f.id) ?? lastLoginByUsername.get(f.username) ?? null;
-      const lastReset = lastResetByFacilityId.get(f.id) ?? null;
-      const resetNoLogin = Boolean(lastReset && (!lastLogin || lastLogin < lastReset));
-
-      return {
-        id: f.id,
-        name: f.name,
-        username: f.username,
-        deleted: Boolean(f.deleted_at),
-        must_change_password: f.must_change_password,
-        hash_valid_bcrypt: hashValidBcrypt,
-        last_login_at: lastLogin,
-        last_reset_at: lastReset,
-        reset_no_login: resetNoLogin,
-      };
-    })
-    .filter((row) => row.deleted || !row.hash_valid_bcrypt || row.must_change_password || row.reset_no_login || !row.last_login_at);
 
   const authStateSummary = {
     active_no_hash_problem: authStateRows.filter((row) => !row.deleted && !row.hash_valid_bcrypt).length,

@@ -50,32 +50,38 @@ export default async function DuplicatesAdminPage({
   const pageName = Number.parseInt(pn ?? "1", 10) || 1;
   const pageSize = 20;
 
-  // High-performance lean fetch: only fields needed for grouping
-  const rows = await prisma.beneficiary.findMany({
-    where: {
-      deleted_at: null,
-      ...(shouldFilterBeneficiaryTabs ? {
-        OR: [
-          { name: { contains: searchQuery, mode: "insensitive" } },
-          { card_number: { contains: searchQuery, mode: "insensitive" } }
-        ]
-      } : {})
-    },
-    select: {
-      id: true,
-      name: true,
-      card_number: true,
-      birth_date: true,
-      status: true,
-    },
-    orderBy: { card_number: "asc" },
-  });
+  // ── بيانات تبويبَي review + audit فقط عند الحاجة ──────────────────────────
+  const needsBeneficiaryData = activeTab === "review" || activeTab === "audit";
 
-  // Fetch ignored pairs
-  const ignoreLogs = await prisma.auditLog.findMany({
-    where: { action: "IGNORE_DUPLICATE_PAIR" },
-    select: { metadata: true },
-  });
+  const rows = needsBeneficiaryData
+    ? await prisma.beneficiary.findMany({
+        where: {
+          deleted_at: null,
+          ...(shouldFilterBeneficiaryTabs ? {
+            OR: [
+              { name: { contains: searchQuery, mode: "insensitive" } },
+              { card_number: { contains: searchQuery, mode: "insensitive" } }
+            ]
+          } : {})
+        },
+        select: {
+          id: true,
+          name: true,
+          card_number: true,
+          birth_date: true,
+          status: true,
+        },
+        orderBy: { card_number: "asc" },
+      })
+    : [];
+
+  // Fetch ignored pairs — only needed for review/audit tabs
+  const ignoreLogs = needsBeneficiaryData
+    ? await prisma.auditLog.findMany({
+        where: { action: "IGNORE_DUPLICATE_PAIR" },
+        select: { metadata: true },
+      })
+    : [];
 
   const ignoredPairKeys = new Set<string>();
   for (const log of ignoreLogs) {
@@ -89,10 +95,6 @@ export default async function DuplicatesAdminPage({
     }
   }
 
-  // Filter rows if they are part of an ignored pair with another row in the same potential group
-  // Actually, it's easier to filter the GROUPS after building them, or just exclude them from the grouping initial phase.
-  // Let's filter the groups after building them for better precision.
-
   const groupingRows = rows.map((row) => ({
     ...row,
     total_balance: 0,
@@ -104,8 +106,6 @@ export default async function DuplicatesAdminPage({
   const sameNameGroups = rawSameNameGroups.filter(g => {
     if (g.members.length < 2) return true;
     const ids = g.members.map(m => m.id).sort();
-    // If any pair in this group is ignored, we might want to hide the group or just those members.
-    // Simplifying: if the whole set was marked as different, skip.
     return !ignoredPairKeys.has(ids.join("-"));
   });
   const zeroPage = paginate(zeroVariantGroups, pageZero, pageSize);
@@ -113,11 +113,13 @@ export default async function DuplicatesAdminPage({
   const reviewPage = paginate(needsReviewZeroVariants, Number.parseInt(pr ?? "1", 10) || 1, pageSize);
 
   // Fetch full details ONLY for current page items to ensure performance & data accuracy
-  const visibleIds = [
-    ...zeroPage.items.flatMap(g => g.members.map(m => m.id)),
-    ...namePage.items.flatMap(g => g.members.map(m => m.id)),
-    ...reviewPage.items.flatMap(g => g.members.map(m => m.id)),
-  ];
+  const visibleIds = needsBeneficiaryData
+    ? [
+        ...zeroPage.items.flatMap(g => g.members.map(m => m.id)),
+        ...namePage.items.flatMap(g => g.members.map(m => m.id)),
+        ...reviewPage.items.flatMap(g => g.members.map(m => m.id)),
+      ]
+    : [];
 
   const visibleRemainingById = await getLedgerRemainingByBeneficiaryIds(visibleIds);
 
@@ -141,7 +143,7 @@ export default async function DuplicatesAdminPage({
     if (match) {
       headName = headNameMap.get(match[1]) ?? match[1];
     } else {
-      headName = m.name; // If no match, they are the head
+      headName = m.name;
     }
     return {
       ...m,
@@ -175,25 +177,23 @@ export default async function DuplicatesAdminPage({
 
   const exportHref = `/api/admin/duplicates/export${q ? `?q=${encodeURIComponent(q)}` : ""}`;
 
-  const recentMergeLogs = await prisma.auditLog.findMany({
-    where: { action: "MERGE_DUPLICATE_BENEFICIARY" },
-    select: {
-      id: true,
-      user: true,
-      created_at: true,
-      metadata: true,
-    },
-    orderBy: { created_at: "desc" },
-    take: 50,
-  });
-
+  // ── بيانات تبويب "مدموج" فقط عند الحاجة ───────────────────────────────────
   const parseEventTime = (value: unknown, fallback: Date) => {
     if (typeof value !== "string") return fallback;
     const d = new Date(value);
     return Number.isNaN(d.getTime()) ? fallback : d;
   };
 
-  // إظهار سجل واحد فقط لكل حالة (لكل بطاقة معيارية)، وليس تاريخًا كاملاً من السجلات المتراكمة.
+  const recentMergeLogs = activeTab === "merged"
+    ? await prisma.auditLog.findMany({
+        where: { action: "MERGE_DUPLICATE_BENEFICIARY" },
+        select: { id: true, user: true, created_at: true, metadata: true },
+        orderBy: { created_at: "desc" },
+        take: 50,
+      })
+    : [];
+
+  // إظهار سجل واحد فقط لكل حالة (لكل بطاقة معيارية)
   const latestLogByCard = new Map<string, (typeof recentMergeLogs)[number]>();
   for (const log of recentMergeLogs) {
     const m = (log.metadata ?? {}) as Record<string, unknown>;
@@ -203,7 +203,6 @@ export default async function DuplicatesAdminPage({
       latestLogByCard.set(card, log);
       continue;
     }
-
     const prevMeta = (prev.metadata ?? {}) as Record<string, unknown>;
     const prevEventAt = parseEventTime(prevMeta.undo_reverted_at ?? prevMeta.last_merged_at, prev.created_at);
     const nextEventAt = parseEventTime(m.undo_reverted_at ?? m.last_merged_at, log.created_at);
@@ -265,52 +264,59 @@ export default async function DuplicatesAdminPage({
       .filter(Boolean)
   )];
 
-  const keepNames = keepIdsFromLogs.length > 0
-    ? await prisma.beneficiary.findMany({
-      where: { id: { in: keepIdsFromLogs } },
-      select: { id: true, name: true },
-    })
-    : [];
-
-  const mergedNames = mergedIdsFromLogs.length > 0
-    ? await prisma.beneficiary.findMany({
-      where: { id: { in: mergedIdsFromLogs } },
-      select: { id: true, name: true },
-    })
-    : [];
+  const [keepNames, mergedNames] = await Promise.all([
+    keepIdsFromLogs.length > 0
+      ? prisma.beneficiary.findMany({
+          where: { id: { in: keepIdsFromLogs } },
+          select: { id: true, name: true },
+        })
+      : Promise.resolve([]),
+    mergedIdsFromLogs.length > 0
+      ? prisma.beneficiary.findMany({
+          where: { id: { in: mergedIdsFromLogs } },
+          select: { id: true, name: true },
+        })
+      : Promise.resolve([]),
+  ]);
 
   const keepRemainingById = await getLedgerRemainingByBeneficiaryIds(keepNames.map((row) => row.id));
   const keepInfoById = new Map(
     keepNames.map((r) => [r.id, { name: r.name, remaining_balance: keepRemainingById.get(r.id) ?? 0 }])
   );
   const mergedNameById = new Map(mergedNames.map((r) => [r.id, r.name]));
-  const importDuplicateCasesRaw = await getActiveImportDuplicateCases();
+
+  // ── بيانات تبويب "تكرار IMPORT" فقط عند الحاجة ────────────────────────────
+  const importDuplicateCasesRaw = activeTab === "import"
+    ? await getActiveImportDuplicateCases()
+    : [];
   const importDuplicateCases =
     activeTab === "import" && normalizedSearchQuery.length > 0
       ? importDuplicateCasesRaw.filter((row) =>
-        row.name.toLowerCase().includes(normalizedSearchQuery) ||
-        row.cardNumber.toLowerCase().includes(normalizedSearchQuery)
-      )
+          row.name.toLowerCase().includes(normalizedSearchQuery) ||
+          row.cardNumber.toLowerCase().includes(normalizedSearchQuery)
+        )
       : importDuplicateCasesRaw;
   const importDuplicateTotalExtra = importDuplicateCases.reduce((sum, row) => sum + row.extraAmount, 0);
 
-  const debtCasesRaw = await getOverdrawnDebtCases();
+  // ── بيانات تبويب "مديونية" فقط عند الحاجة ─────────────────────────────────
+  const debtCasesRaw = activeTab === "debt"
+    ? await getOverdrawnDebtCases()
+    : [];
   const debtCases =
     activeTab === "debt" && normalizedSearchQuery.length > 0
       ? debtCasesRaw.filter((row) =>
-        row.debtorName.toLowerCase().includes(normalizedSearchQuery) ||
-        row.debtorCard.toLowerCase().includes(normalizedSearchQuery)
-      )
+          row.debtorName.toLowerCase().includes(normalizedSearchQuery) ||
+          row.debtorCard.toLowerCase().includes(normalizedSearchQuery)
+        )
       : debtCasesRaw;
   const totalDebtAmount = debtCases.reduce((sum, row) => sum + row.debtorDebtAmount, 0);
   const totalDebtDistributed = debtCases.reduce((sum, row) => sum + row.plannedDistributed, 0);
   const debtSettledCount = debtCases.filter((row) => row.isSettled).length;
+  // الإجمالي يحسب فقط من التبويبات التي تم تحميل بياناتها
   const globalDuplicateTotal =
-    zeroVariantGroups.length +
-    sameNameGroups.length +
-    needsReviewZeroVariants.length +
-    importDuplicateCases.length +
-    debtCases.length;
+    (needsBeneficiaryData ? zeroVariantGroups.length + sameNameGroups.length + needsReviewZeroVariants.length : 0) +
+    (activeTab === "import" ? importDuplicateCases.length : 0) +
+    (activeTab === "debt" ? debtCases.length : 0);
   const debtExportBeforeHref = "/api/admin/duplicates/debt-over-limit/export?mode=before";
   const debtExportAfterHref = `/api/admin/duplicates/debt-over-limit/export?mode=after${debtAudit ? `&auditId=${encodeURIComponent(debtAudit)}` : ""}`;
 

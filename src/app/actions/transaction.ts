@@ -58,6 +58,21 @@ export async function addTransactionFromForm(
     return { error: "نوع الحركة مطلوب" };
   }
 
+  const beneficiary = await prisma.beneficiary.findFirst({
+    where: {
+      card_number: cardNumber,
+      deleted_at: null,
+    },
+    select: {
+      status: true,
+      remaining_balance: true,
+    },
+  });
+
+  if (beneficiary && (beneficiary.status === "FINISHED" || Number(beneficiary.remaining_balance) <= 0)) {
+    return { error: "لا يمكن إضافة حركة: رصيد المستفيد منتهي أو حالته مكتمل" };
+  }
+
   let transactionDate: Date | undefined;
   if (transactionDateRaw) {
     const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(transactionDateRaw);

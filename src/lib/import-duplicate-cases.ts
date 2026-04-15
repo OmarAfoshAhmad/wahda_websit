@@ -1,5 +1,6 @@
 import { TransactionType } from "@prisma/client";
 import prisma from "@/lib/prisma";
+import { getLedgerRemainingByBeneficiaryIds } from "@/lib/ledger-balance";
 
 export type ImportDuplicateCase = {
   beneficiaryId: string;
@@ -32,16 +33,18 @@ export async function getActiveImportDuplicateCases(): Promise<ImportDuplicateCa
 
   const beneficiaryIds = duplicateRows.map((row) => row.beneficiary_id);
 
-  const beneficiaries = await prisma.beneficiary.findMany({
-    where: { id: { in: beneficiaryIds } },
-    select: {
-      id: true,
-      name: true,
-      card_number: true,
-      remaining_balance: true,
-      status: true,
-    },
-  });
+  const [beneficiaries, ledgerRemainingById] = await Promise.all([
+    prisma.beneficiary.findMany({
+      where: { id: { in: beneficiaryIds } },
+      select: {
+        id: true,
+        name: true,
+        card_number: true,
+        status: true,
+      },
+    }),
+    getLedgerRemainingByBeneficiaryIds(beneficiaryIds),
+  ]);
 
   const transactions = await prisma.transaction.findMany({
     where: {
@@ -78,7 +81,7 @@ export async function getActiveImportDuplicateCases(): Promise<ImportDuplicateCa
     const keepTx = txs[0];
     const deleteTxs = txs.slice(1);
     const extraAmount = round2(deleteTxs.reduce((sum, tx) => sum + Number(tx.amount), 0));
-    const currentRemaining = round2(Number(beneficiary.remaining_balance));
+    const currentRemaining = round2(ledgerRemainingById.get(beneficiary.id) ?? 0);
     const fixedRemaining = round2(currentRemaining + extraAmount);
     const fixedStatus = fixedRemaining <= 0 ? "FINISHED" : "ACTIVE";
 
@@ -118,8 +121,9 @@ export async function applyActiveImportDuplicateFix(params: { user: string; faci
     for (const item of cases) {
       if (item.deleteTransactionIds.length === 0) continue;
 
-      await tx.transaction.deleteMany({
+      await tx.transaction.updateMany({
         where: { id: { in: item.deleteTransactionIds } },
+        data: { is_cancelled: true },
       });
       removedTransactions += item.deleteTransactionIds.length;
 
