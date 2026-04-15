@@ -19,6 +19,16 @@ type ImportAppliedRow = {
   balanceAfter: number;
 };
 
+type BulkDetailRow = {
+  action: string;
+  beneficiaryName: string;
+  cardNumber: string;
+  amount: number | string;
+  beforeValue: number | string;
+  afterValue: number | string;
+  result: string;
+};
+
 const EXPORT_LIMIT = 50_000;
 
 const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
@@ -29,6 +39,13 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "DELETE_BENEFICIARY",
     "PERMANENT_DELETE_BENEFICIARY",
     "RESTORE_BENEFICIARY",
+    "BULK_DELETE_BENEFICIARY",
+    "BULK_PERMANENT_DELETE_BENEFICIARY",
+    "BULK_RESTORE_BENEFICIARY",
+    "BULK_RENEW_BALANCE",
+    "UNDO_BULK_RENEW_BALANCE",
+    "UNDO_BULK_DELETE_BENEFICIARY",
+    "UNDO_BULK_RESTORE_BENEFICIARY",
     "DEDUCT_BALANCE",
     "EDIT_TRANSACTION",
     "CANCEL_TRANSACTION",
@@ -39,6 +56,7 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "BULK_CANCEL_TRANSACTION",
     "BULK_REDEDUCT_TRANSACTION",
     "IMPORT_TRANSACTIONS",
+    "ROLLBACK_IMPORT_TRANSACTIONS",
     "CREATE_FACILITY",
     "IMPORT_FACILITIES",
     "DELETE_FACILITY",
@@ -52,6 +70,13 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "DELETE_BENEFICIARY",
     "PERMANENT_DELETE_BENEFICIARY",
     "RESTORE_BENEFICIARY",
+    "BULK_DELETE_BENEFICIARY",
+    "BULK_PERMANENT_DELETE_BENEFICIARY",
+    "BULK_RESTORE_BENEFICIARY",
+    "BULK_RENEW_BALANCE",
+    "UNDO_BULK_RENEW_BALANCE",
+    "UNDO_BULK_DELETE_BENEFICIARY",
+    "UNDO_BULK_RESTORE_BENEFICIARY",
   ],
   transactions: [
     "DEDUCT_BALANCE",
@@ -64,6 +89,7 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "BULK_CANCEL_TRANSACTION",
     "BULK_REDEDUCT_TRANSACTION",
     "IMPORT_TRANSACTIONS",
+    "ROLLBACK_IMPORT_TRANSACTIONS",
   ],
   facilities: ["CREATE_FACILITY", "IMPORT_FACILITIES", "DELETE_FACILITY"],
 };
@@ -82,6 +108,20 @@ function actionLabel(action: string) {
       return "حذف نهائي لمستفيد";
     case "RESTORE_BENEFICIARY":
       return "استرجاع مستفيد";
+    case "BULK_DELETE_BENEFICIARY":
+      return "حذف جماعي لمستفيدين";
+    case "BULK_PERMANENT_DELETE_BENEFICIARY":
+      return "حذف نهائي جماعي لمستفيدين";
+    case "BULK_RESTORE_BENEFICIARY":
+      return "استرجاع جماعي لمستفيدين";
+    case "BULK_RENEW_BALANCE":
+      return "تجديد جماعي للأرصدة";
+    case "UNDO_BULK_RENEW_BALANCE":
+      return "تراجع عن التجديد الجماعي";
+    case "UNDO_BULK_DELETE_BENEFICIARY":
+      return "تراجع عن الحذف الجماعي";
+    case "UNDO_BULK_RESTORE_BENEFICIARY":
+      return "تراجع عن الاسترجاع الجماعي";
     case "DEDUCT_BALANCE":
       return "إضافة حركة خصم";
     case "EDIT_TRANSACTION":
@@ -110,6 +150,8 @@ function actionLabel(action: string) {
       return "حذف مرفق";
     case "ROLLBACK_IMPORT":
       return "تراجع عن استيراد";
+    case "ROLLBACK_IMPORT_TRANSACTIONS":
+      return "تراجع عن استيراد الحركات";
     default:
       return action;
   }
@@ -151,6 +193,22 @@ function summarizeMetadata(action: string, metadata: unknown): string {
     return `مستفيد: ${String(m.beneficiary_id ?? "-")}`;
   }
 
+  if (action === "BULK_DELETE_BENEFICIARY" || action === "BULK_PERMANENT_DELETE_BENEFICIARY" || action === "BULK_RESTORE_BENEFICIARY") {
+    return `محدد: ${String(m.selected_count ?? "-")} · ناجح: ${String(m.deleted_count ?? m.restored_count ?? "-")} · متخطى: ${String(m.skipped_count ?? "-")}`;
+  }
+
+  if (action === "BULK_RENEW_BALANCE") {
+    return `مستفيدون: ${String(m.beneficiary_count ?? "-")} · قيمة التجديد: ${String(m.renewal_amount ?? "-")}`;
+  }
+
+  if (action === "UNDO_BULK_RENEW_BALANCE") {
+    return `عملية أصلية: ${String(m.original_audit_log_id ?? "-")} · مستفيدون مُرجعون: ${String(m.reverted_count ?? "-")}`;
+  }
+
+  if (action === "UNDO_BULK_DELETE_BENEFICIARY" || action === "UNDO_BULK_RESTORE_BENEFICIARY") {
+    return `عملية أصلية: ${String(m.original_audit_log_id ?? "-")} · عناصر مُرجعة: ${String(m.reverted_count ?? "-")}`;
+  }
+
   if (action === "DEDUCT_BALANCE") {
     return `بطاقة: ${String(m.card_number ?? "-")} · مبلغ: ${String(m.amount ?? "-")} · قبل: ${String(balanceBefore)} · بعد: ${String(balanceAfter)}`;
   }
@@ -185,6 +243,10 @@ function summarizeMetadata(action: string, metadata: unknown): string {
 
   if (action === "IMPORT_TRANSACTIONS") {
     return `تمت إضافة: ${String(m.added ?? "-")} · متخطاة: ${String(m.skipped ?? "-")}`;
+  }
+
+  if (action === "ROLLBACK_IMPORT_TRANSACTIONS") {
+    return `عملية أصلية: ${String(m.originalLogId ?? "-")} · مستفيدون مُسترجعون: ${String(m.restoredBeneficiaries ?? "-")} · حركات محذوفة: ${String(m.deletedTransactions ?? "-")}`;
   }
 
   if (action === "CREATE_FACILITY") {
@@ -226,6 +288,33 @@ function getImportAppliedRows(action: string, metadata: unknown): ImportAppliedR
       } satisfies ImportAppliedRow;
     })
     .filter((row): row is ImportAppliedRow => row !== null);
+}
+
+function getBulkDetailRows(action: string, metadata: unknown): BulkDetailRow[] {
+  if (!metadata || typeof metadata !== "object") return [];
+  const m = metadata as Record<string, unknown>;
+
+  const sourceRows =
+    Array.isArray(m.items) ? m.items
+      : Array.isArray(m.details) ? m.details
+        : Array.isArray(m.balance_changes) ? m.balance_changes
+          : [];
+
+  return sourceRows
+    .map((row) => {
+      if (!row || typeof row !== "object") return null;
+      const item = row as Record<string, unknown>;
+      return {
+        action: actionLabel(action),
+        beneficiaryName: String(item.beneficiary_name ?? item.name ?? "-"),
+        cardNumber: String(item.card_number ?? "-"),
+        amount: (item.amount ?? item.refunded_amount ?? item.deducted_amount ?? item.renewal_amount ?? "-") as number | string,
+        beforeValue: (item.balance_before ?? item.remaining_before ?? item.total_before ?? item.before_deleted_at ?? "-") as number | string,
+        afterValue: (item.balance_after ?? item.remaining_after ?? item.total_after ?? item.after_deleted_at ?? "-") as number | string,
+        result: String(item.result ?? item.status_after ?? "-"),
+      } satisfies BulkDetailRow;
+    })
+    .filter((row): row is BulkDetailRow => row !== null);
 }
 
 export async function GET(request: NextRequest) {
@@ -343,6 +432,18 @@ export async function GET(request: NextRequest) {
     const importDetails = rows.flatMap((row) => {
       const created = new Date(row.created_at);
       return getImportAppliedRows(row.action, row.metadata).map((detail) => ({
+        logId: row.id,
+        user: row.user,
+        date: formatDateTripoli(created, "en-GB"),
+        time: formatTimeTripoli(created, "en-GB"),
+        ...detail,
+      }));
+    });
+
+    const bulkDetails = rows.flatMap((row) => {
+      const created = new Date(row.created_at);
+      return getBulkDetailRows(row.action, row.metadata).map((detail) => ({
+        logId: row.id,
         user: row.user,
         date: formatDateTripoli(created, "en-GB"),
         time: formatTimeTripoli(created, "en-GB"),
@@ -356,6 +457,7 @@ export async function GET(request: NextRequest) {
 
       detailsSheet.columns = [
         { header: "#", key: "index", width: 8 },
+        { header: "معرّف السجل", key: "logId", width: 34 },
         { header: "المنفذ", key: "user", width: 20 },
         { header: "التاريخ", key: "date", width: 14 },
         { header: "الوقت", key: "time", width: 12 },
@@ -373,6 +475,36 @@ export async function GET(request: NextRequest) {
       detailsSheet.getRow(1).alignment = { vertical: "middle", horizontal: "center" };
 
       importDetails.forEach((row, idx) => {
+        detailsSheet.addRow({
+          index: idx + 1,
+          ...row,
+        });
+      });
+    }
+
+    if (bulkDetails.length > 0) {
+      const detailsSheet = workbook.addWorksheet("تفاصيل العمليات الجماعية");
+      detailsSheet.views = [{ rightToLeft: true }];
+
+      detailsSheet.columns = [
+        { header: "#", key: "index", width: 8 },
+        { header: "معرّف السجل", key: "logId", width: 34 },
+        { header: "العملية", key: "action", width: 28 },
+        { header: "المنفذ", key: "user", width: 20 },
+        { header: "التاريخ", key: "date", width: 14 },
+        { header: "الوقت", key: "time", width: 12 },
+        { header: "اسم المستفيد", key: "beneficiaryName", width: 28 },
+        { header: "رقم البطاقة", key: "cardNumber", width: 24 },
+        { header: "القيمة", key: "amount", width: 16 },
+        { header: "قبل", key: "beforeValue", width: 24 },
+        { header: "بعد", key: "afterValue", width: 24 },
+        { header: "النتيجة", key: "result", width: 20 },
+      ];
+
+      detailsSheet.getRow(1).font = { bold: true, size: 12 };
+      detailsSheet.getRow(1).alignment = { vertical: "middle", horizontal: "center" };
+
+      bulkDetails.forEach((row, idx) => {
         detailsSheet.addRow({
           index: idx + 1,
           ...row,

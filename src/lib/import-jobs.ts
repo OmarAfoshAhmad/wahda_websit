@@ -389,6 +389,7 @@ export async function processImportJob(jobId: string, username: string) {
   const rollbackCreatedIds: string[] = [];
   const rollbackBeforeSnapshots: Array<{
     id: string;
+    card_number: string;
     name: string;
     birth_date: string | null;
     total_balance: string;
@@ -502,8 +503,13 @@ export async function processImportJob(jobId: string, username: string) {
             birth_date: { in: birthDates },
           },
           select: {
+            id: true,
+            card_number: true,
             name: true,
             birth_date: true,
+            total_balance: true,
+            remaining_balance: true,
+            status: true,
           },
         })
         : [];
@@ -547,6 +553,15 @@ export async function processImportJob(jobId: string, username: string) {
           .filter((key): key is string => Boolean(key))
       );
 
+      const personKeyToActiveRows = new Map<string, typeof existingActiveRows>();
+      for (const row of existingPersons) {
+        const key = personKey(row.name, row.birth_date);
+        if (!key) continue;
+        const arr = personKeyToActiveRows.get(key) ?? [];
+        arr.push(row);
+        personKeyToActiveRows.set(key, arr);
+      }
+
       const rowsToInsert = chunk.filter((row) => {
         const cn = normalizeCardNumber(row.data.card_number);
         if (activeCards.has(cn)) return false;
@@ -569,13 +584,26 @@ export async function processImportJob(jobId: string, username: string) {
         return !activeCards.has(cn) && deletedCards.has(cn);
       });
 
-      // صفوف مكررة (نفس الشخص، بطاقة مختلفة) — لا تزال تُتخطى
+      // صفوف نفس الشخص ببطاقة مختلفة — يتم تصحيح البطاقة تلقائياً إذا كان التطابق فريداً
+      const rowsToFixCardByPerson = chunk.filter((row) => {
+        const cn = normalizeCardNumber(row.data.card_number);
+        if (activeCards.has(cn) || deletedCards.has(cn)) return false;
+
+        const pKey = personKey(row.data.name, row.data.birth_date);
+        if (!pKey) return false;
+
+        const matches = personKeyToActiveRows.get(pKey) ?? [];
+        return matches.length === 1;
+      });
+
+      // صفوف مكررة (نفس الشخص، بطاقة مختلفة) — تُتخطى فقط إذا كان التطابق غير فريد
       chunk.forEach((row) => {
         const cn = normalizeCardNumber(row.data.card_number);
         if (activeCards.has(cn) || deletedCards.has(cn)) return;
 
         const pKey = personKey(row.data.name, row.data.birth_date);
-        if (pKey && existingPersonKeys.has(pKey)) {
+        const matches = pKey ? (personKeyToActiveRows.get(pKey) ?? []) : [];
+        if (pKey && existingPersonKeys.has(pKey) && matches.length !== 1) {
           skippedRows.push(createSkippedRowReport({
             reason: "duplicate_person",
             rowNumber: row.rowNumber,
@@ -589,7 +617,9 @@ export async function processImportJob(jobId: string, username: string) {
         const cn = normalizeCardNumber(row.data.card_number);
         if (activeCards.has(cn) || deletedCards.has(cn)) return false;
         const pKey = personKey(row.data.name, row.data.birth_date);
-        return pKey !== null && existingPersonKeys.has(pKey);
+        if (!pKey || !existingPersonKeys.has(pKey)) return false;
+        const matches = personKeyToActiveRows.get(pKey) ?? [];
+        return matches.length !== 1;
       }).length;
 
       duplicateRows += trueDuplicates;
@@ -635,6 +665,7 @@ export async function processImportJob(jobId: string, username: string) {
             // حفظ snapshot قبل الاستعادة
             rollbackBeforeSnapshots.push({
               id: deletedRow.id,
+              card_number: deletedRow.card_number,
               name: deletedRow.name,
               birth_date: deletedRow.birth_date?.toISOString() ?? null,
               total_balance: String(deletedRow.total_balance),
@@ -673,6 +704,7 @@ export async function processImportJob(jobId: string, username: string) {
             // حفظ snapshot قبل التحديث
             rollbackBeforeSnapshots.push({
               id: activeRow.id,
+              card_number: activeRow.card_number,
               name: activeRow.name,
               birth_date: activeRow.birth_date?.toISOString() ?? null,
               total_balance: String(activeRow.total_balance),
@@ -704,6 +736,55 @@ export async function processImportJob(jobId: string, username: string) {
             successfulUpdates++;
         }
         updatedRows += successfulUpdates;
+      }
+
+      // تصحيح البطاقة تلقائياً لنفس الشخص (تطابق فريد)
+      if (rowsToFixCardByPerson.length > 0) {
+        let successfulCardFixes = 0;
+        for (const row of rowsToFixCardByPerson) {
+          const pKey = personKey(row.data.name, row.data.birth_date);
+          if (!pKey) continue;
+
+          const matches = personKeyToActiveRows.get(pKey) ?? [];
+          if (matches.length !== 1) continue;
+
+          const targetRow = matches[0];
+
+          rollbackBeforeSnapshots.push({
+            id: targetRow.id,
+            card_number: targetRow.card_number,
+            name: targetRow.name,
+            birth_date: targetRow.birth_date?.toISOString() ?? null,
+            total_balance: String(targetRow.total_balance),
+            remaining_balance: String(targetRow.remaining_balance),
+            status: targetRow.status,
+            deleted_at: null,
+          });
+
+          const updateData: Record<string, unknown> = {
+            card_number: row.data.card_number,
+            name: row.data.name,
+            birth_date: row.data.birth_date,
+          };
+
+          if (opts.updateBalance) {
+            updateData.total_balance = initialBalance;
+            updateData.remaining_balance = initialBalance;
+          }
+
+          if (opts.reactivate && targetRow.status !== "ACTIVE") {
+            updateData.status = "ACTIVE";
+          }
+
+          await prisma.beneficiary.update({
+            where: { id: targetRow.id },
+            data: updateData,
+          });
+
+          successfulCardFixes++;
+        }
+
+        updatedRows += successfulCardFixes;
       }
 
       await prisma.importJob.update({
@@ -804,6 +885,7 @@ export async function processImportJob(jobId: string, username: string) {
           await prisma.beneficiary.update({
             where: { id: snap.id },
             data: {
+              card_number: snap.card_number,
               name: snap.name,
               birth_date: snap.birth_date ? new Date(snap.birth_date) : null,
               total_balance: parseFloat(snap.total_balance),
@@ -820,6 +902,7 @@ export async function processImportJob(jobId: string, username: string) {
           await prisma.beneficiary.update({
             where: { id: snap.id },
             data: {
+              card_number: snap.card_number,
               name: snap.name,
               birth_date: snap.birth_date ? new Date(snap.birth_date) : null,
               total_balance: parseFloat(snap.total_balance),
@@ -929,6 +1012,7 @@ type RollbackData = {
   restoredIds: string[];
   beforeSnapshots: Array<{
     id: string;
+    card_number: string;
     name: string;
     birth_date: string | null;
     total_balance: string;
@@ -977,6 +1061,7 @@ export async function rollbackImportJob(jobId: string, username: string) {
         await prisma.beneficiary.update({
           where: { id: snap.id },
           data: {
+            card_number: snap.card_number,
             name: snap.name,
             birth_date: snap.birth_date ? new Date(snap.birth_date) : null,
             total_balance: parseFloat(snap.total_balance),
@@ -995,6 +1080,7 @@ export async function rollbackImportJob(jobId: string, username: string) {
       await prisma.beneficiary.update({
         where: { id: snap.id },
         data: {
+          card_number: snap.card_number,
           name: snap.name,
           birth_date: snap.birth_date ? new Date(snap.birth_date) : null,
           total_balance: parseFloat(snap.total_balance),

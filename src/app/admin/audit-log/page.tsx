@@ -11,6 +11,7 @@ import { Activity, Download } from "lucide-react";
 // import { AuditLogClearButton } from "../../../components/audit-log-clear-button";
 import { ImportRollbackButton } from "@/components/import-rollback-button";
 import { TransactionRollbackButton } from "@/components/transaction-rollback-button";
+import { BulkBeneficiaryRollbackButton } from "@/components/bulk-beneficiary-rollback-button";
 import { formatDateTimeTripoli } from "@/lib/datetime";
 
 type TargetFilter = "all" | "beneficiaries" | "transactions" | "facilities" | "completed" | "merges" | "security";
@@ -25,6 +26,13 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "DELETE_BENEFICIARY",
     "PERMANENT_DELETE_BENEFICIARY",
     "RESTORE_BENEFICIARY",
+    "BULK_DELETE_BENEFICIARY",
+    "BULK_PERMANENT_DELETE_BENEFICIARY",
+    "BULK_RESTORE_BENEFICIARY",
+    "BULK_RENEW_BALANCE",
+    "UNDO_BULK_RENEW_BALANCE",
+    "UNDO_BULK_DELETE_BENEFICIARY",
+    "UNDO_BULK_RESTORE_BENEFICIARY",
     "MERGE_DUPLICATE_BENEFICIARY",
     "UNDO_MERGE_DUPLICATE_BENEFICIARY",
     "DEDUCT_BALANCE",
@@ -37,6 +45,7 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "BULK_CANCEL_TRANSACTION",
     "BULK_REDEDUCT_TRANSACTION",
     "IMPORT_TRANSACTIONS",
+    "ROLLBACK_IMPORT_TRANSACTIONS",
     "SETTLE_OVERDRAWN_FAMILY_DEBT",
     "CREATE_FACILITY",
     "IMPORT_FACILITIES",
@@ -58,6 +67,13 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "DELETE_BENEFICIARY",
     "PERMANENT_DELETE_BENEFICIARY",
     "RESTORE_BENEFICIARY",
+    "BULK_DELETE_BENEFICIARY",
+    "BULK_PERMANENT_DELETE_BENEFICIARY",
+    "BULK_RESTORE_BENEFICIARY",
+    "BULK_RENEW_BALANCE",
+    "UNDO_BULK_RENEW_BALANCE",
+    "UNDO_BULK_DELETE_BENEFICIARY",
+    "UNDO_BULK_RESTORE_BENEFICIARY",
   ],
   transactions: [
     "DEDUCT_BALANCE",
@@ -70,10 +86,19 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "BULK_CANCEL_TRANSACTION",
     "BULK_REDEDUCT_TRANSACTION",
     "IMPORT_TRANSACTIONS",
+    "ROLLBACK_IMPORT_TRANSACTIONS",
     "SETTLE_OVERDRAWN_FAMILY_DEBT",
   ],
   facilities: ["CREATE_FACILITY", "IMPORT_FACILITIES", "UPDATE_FACILITY", "DELETE_FACILITY"],
-  completed: ["DEDUCT_BALANCE", "IMPORT_TRANSACTIONS", "SETTLE_OVERDRAWN_FAMILY_DEBT"],
+  completed: [
+    "DEDUCT_BALANCE",
+    "IMPORT_TRANSACTIONS",
+    "SETTLE_OVERDRAWN_FAMILY_DEBT",
+    "BULK_RENEW_BALANCE",
+    "UNDO_BULK_RENEW_BALANCE",
+    "UNDO_BULK_DELETE_BENEFICIARY",
+    "UNDO_BULK_RESTORE_BENEFICIARY",
+  ],
   merges: ["MERGE_DUPLICATE_BENEFICIARY", "UNDO_MERGE_DUPLICATE_BENEFICIARY"],
   security: ["LOGIN", "LOGOUT", "CHANGE_PASSWORD", "CREATE_MANAGER", "UPDATE_MANAGER", "DELETE_MANAGER"],
 };
@@ -92,6 +117,20 @@ function actionLabel(action: string) {
       return "حذف نهائي لمستفيد";
     case "RESTORE_BENEFICIARY":
       return "استرجاع مستفيد";
+    case "BULK_DELETE_BENEFICIARY":
+      return "حذف جماعي لمستفيدين";
+    case "BULK_PERMANENT_DELETE_BENEFICIARY":
+      return "حذف نهائي جماعي لمستفيدين";
+    case "BULK_RESTORE_BENEFICIARY":
+      return "استرجاع جماعي لمستفيدين";
+    case "BULK_RENEW_BALANCE":
+      return "تجديد جماعي للأرصدة";
+    case "UNDO_BULK_RENEW_BALANCE":
+      return "تراجع عن التجديد الجماعي";
+    case "UNDO_BULK_DELETE_BENEFICIARY":
+      return "تراجع عن الحذف الجماعي";
+    case "UNDO_BULK_RESTORE_BENEFICIARY":
+      return "تراجع عن الاسترجاع الجماعي";
     case "DEDUCT_BALANCE":
       return "إضافة حركة خصم";
     case "EDIT_TRANSACTION":
@@ -122,6 +161,8 @@ function actionLabel(action: string) {
       return "حذف مرفق";
     case "ROLLBACK_IMPORT":
       return "تراجع عن استيراد";
+    case "ROLLBACK_IMPORT_TRANSACTIONS":
+      return "تراجع عن استيراد الحركات";
     case "MERGE_DUPLICATE_BENEFICIARY":
       return "دمج مستفيدين مكررين";
     case "UNDO_MERGE_DUPLICATE_BENEFICIARY":
@@ -464,7 +505,112 @@ function summarizeMetadata(action: string, metadata: unknown, auditLogId?: strin
             {items.length > 3 ? <span>... +{items.length - 3}</span> : null}
           </div>
         )}
+        {auditLogId && items.length > 0 ? (
+          <a
+            href={`/api/export/audit-log?log_id=${encodeURIComponent(auditLogId)}`}
+            target="_blank"
+            className="inline-flex items-center gap-1 rounded border border-sky-200 dark:border-sky-700 bg-sky-50 dark:bg-sky-900/30 px-2 py-0.5 text-xs font-bold text-sky-700 dark:text-sky-400 hover:bg-sky-100 dark:hover:bg-sky-900/50 transition-colors"
+            title="تصدير تفاصيل هذه العملية بصيغة Excel"
+          >
+            ↓ تقرير تفصيلي ({items.length})
+          </a>
+        ) : null}
       </div>
+    );
+  }
+
+  if (
+    action === "BULK_DELETE_BENEFICIARY"
+    || action === "BULK_PERMANENT_DELETE_BENEFICIARY"
+    || action === "BULK_RESTORE_BENEFICIARY"
+  ) {
+    const details = Array.isArray(m.details) ? (m.details as Array<Record<string, unknown>>) : [];
+    const isRolledBack = Boolean(m.undo_reverted_at);
+    const successCount = details.filter((d) => String(d.result ?? "") !== "skipped").length;
+    const skippedCount = details.filter((d) => String(d.result ?? "") === "skipped").length;
+
+    return (
+      <div className="text-slate-500 dark:text-slate-400 space-y-1">
+        <div>
+          مختارة: <strong className="text-slate-700 dark:text-slate-300">{String(m.selected_count ?? "-")}</strong>
+          <span className="mr-1.5">· منفذة: {String(successCount)}</span>
+          <span className="mr-1.5">· متخطاة: {String(skippedCount)}</span>
+        </div>
+        {details.length > 0 && (
+          <div className="text-xs text-slate-500 dark:text-slate-400">
+            {details.slice(0, 3).map((it, idx) => (
+              <span key={idx} className="ml-2 inline-block">
+                {String(it.beneficiary_name ?? "-")} ({String(it.card_number ?? "-")})
+                {" "}· النتيجة: {String(it.result ?? "-")}
+              </span>
+            ))}
+            {details.length > 3 ? <span>... +{details.length - 3}</span> : null}
+          </div>
+        )}
+        {auditLogId && details.length > 0 ? (
+          <a
+            href={`/api/export/audit-log?log_id=${encodeURIComponent(auditLogId)}`}
+            target="_blank"
+            className="inline-flex items-center gap-1 rounded border border-sky-200 dark:border-sky-700 bg-sky-50 dark:bg-sky-900/30 px-2 py-0.5 text-xs font-bold text-sky-700 dark:text-sky-400 hover:bg-sky-100 dark:hover:bg-sky-900/50 transition-colors"
+            title="تصدير تفاصيل هذه العملية بصيغة Excel"
+          >
+            ↓ تقرير تفصيلي ({details.length})
+          </a>
+        ) : null}
+        {auditLogId && action !== "BULK_PERMANENT_DELETE_BENEFICIARY" ? (
+          <BulkBeneficiaryRollbackButton logId={auditLogId} rolledBack={isRolledBack} />
+        ) : null}
+      </div>
+    );
+  }
+
+  if (action === "BULK_RENEW_BALANCE") {
+    const details = Array.isArray(m.details) ? (m.details as Array<Record<string, unknown>>) : [];
+    const isRolledBack = Boolean(m.undo_reverted_at);
+    return (
+      <span className="flex flex-wrap gap-x-2 text-slate-500 dark:text-slate-400">
+        <span>مستفيدون: <strong className="text-slate-700 dark:text-slate-300">{String(m.beneficiary_count ?? details.length)}</strong></span>
+        <span>قيمة التجديد: <strong className="text-slate-700 dark:text-slate-300">{String(m.renewal_amount ?? "-")} د.ل</strong></span>
+        {auditLogId && details.length > 0 ? (
+          <a
+            href={`/api/export/audit-log?log_id=${encodeURIComponent(auditLogId)}`}
+            target="_blank"
+            className="inline-flex items-center gap-1 rounded border border-sky-200 dark:border-sky-700 bg-sky-50 dark:bg-sky-900/30 px-2 py-0.5 text-xs font-bold text-sky-700 dark:text-sky-400 hover:bg-sky-100 dark:hover:bg-sky-900/50 transition-colors"
+            title="تصدير تفاصيل هذه العملية بصيغة Excel"
+          >
+            ↓ تقرير تفصيلي ({details.length})
+          </a>
+        ) : null}
+        {auditLogId ? <BulkBeneficiaryRollbackButton logId={auditLogId} rolledBack={isRolledBack} /> : null}
+      </span>
+    );
+  }
+
+  if (action === "UNDO_BULK_RENEW_BALANCE") {
+    return (
+      <span className="text-slate-500 dark:text-slate-400">
+        عملية أصلية: <strong className="text-slate-700 dark:text-slate-300">{String(m.original_audit_log_id ?? "-")}</strong>
+        <span className="mr-1.5">· مستفيدون مُرجعون: {String(m.reverted_count ?? "-")}</span>
+      </span>
+    );
+  }
+
+  if (action === "UNDO_BULK_DELETE_BENEFICIARY" || action === "UNDO_BULK_RESTORE_BENEFICIARY") {
+    return (
+      <span className="text-slate-500 dark:text-slate-400">
+        عملية أصلية: <strong className="text-slate-700 dark:text-slate-300">{String(m.original_audit_log_id ?? "-")}</strong>
+        <span className="mr-1.5">· عناصر مُرجعة: {String(m.reverted_count ?? "-")}</span>
+      </span>
+    );
+  }
+
+  if (action === "ROLLBACK_IMPORT_TRANSACTIONS") {
+    return (
+      <span className="text-slate-500 dark:text-slate-400">
+        عملية أصلية: <strong className="text-slate-700 dark:text-slate-300">{String(m.originalLogId ?? "-")}</strong>
+        <span className="mr-1.5">· مستفيدون مُسترجعون: {String(m.restoredBeneficiaries ?? "-")}</span>
+        <span className="mr-1.5">· حركات محذوفة: {String(m.deletedTransactions ?? "-")}</span>
+      </span>
     );
   }
 
@@ -563,6 +709,10 @@ function badgeClassForAction(action: string) {
     action.startsWith("CREATE") ||
     action === "DEDUCT_BALANCE" ||
     action === "IMPORT_TRANSACTIONS" ||
+    action === "BULK_RENEW_BALANCE" ||
+    action === "UNDO_BULK_RENEW_BALANCE" ||
+    action === "UNDO_BULK_DELETE_BENEFICIARY" ||
+    action === "UNDO_BULK_RESTORE_BENEFICIARY" ||
     action === "SETTLE_OVERDRAWN_FAMILY_DEBT" ||
     action === "IMPORT_BENEFICIARIES_BACKGROUND" ||
     action === "IMPORT_FACILITIES"

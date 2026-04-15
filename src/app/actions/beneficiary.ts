@@ -692,6 +692,19 @@ export async function bulkDeleteBeneficiaries(formData: FormData) {
         data: { deleted_at: deletedAt },
       });
 
+      const details = beneficiaries.map((b) => {
+        const canDelete = b.deleted_at === null && b._count.transactions === 0;
+        return {
+          beneficiary_id: b.id,
+          beneficiary_name: b.name,
+          card_number: b.card_number,
+          transactions_count: b._count.transactions,
+          before_deleted_at: b.deleted_at ? b.deleted_at.toISOString() : null,
+          after_deleted_at: canDelete ? deletedAt.toISOString() : (b.deleted_at ? b.deleted_at.toISOString() : null),
+          result: canDelete ? "deleted" : "skipped",
+        };
+      });
+
       await tx.auditLog.create({
         data: {
           facility_id: session.id,
@@ -702,6 +715,7 @@ export async function bulkDeleteBeneficiaries(formData: FormData) {
             deleted_count: deletableIds.length,
             skipped_count: skippedCount,
             beneficiary_ids: deletableIds,
+            details,
           },
         },
       });
@@ -738,6 +752,8 @@ export async function bulkPermanentDeleteBeneficiaries(formData: FormData) {
       where: { id: { in: ids } },
       select: {
         id: true,
+        name: true,
+        card_number: true,
         deleted_at: true,
         _count: { select: { transactions: true } },
       },
@@ -756,6 +772,19 @@ export async function bulkPermanentDeleteBeneficiaries(formData: FormData) {
     await prisma.$transaction(async (tx) => {
       await tx.beneficiary.deleteMany({ where: { id: { in: deletableIds } } });
 
+      const details = beneficiaries.map((b) => {
+        const canDelete = b.deleted_at !== null && b._count.transactions === 0;
+        return {
+          beneficiary_id: b.id,
+          beneficiary_name: b.name,
+          card_number: b.card_number,
+          transactions_count: b._count.transactions,
+          before_deleted_at: b.deleted_at ? b.deleted_at.toISOString() : null,
+          after_deleted_at: canDelete ? "PERMANENTLY_DELETED" : (b.deleted_at ? b.deleted_at.toISOString() : null),
+          result: canDelete ? "permanently_deleted" : "skipped",
+        };
+      });
+
       await tx.auditLog.create({
         data: {
           facility_id: session.id,
@@ -766,6 +795,7 @@ export async function bulkPermanentDeleteBeneficiaries(formData: FormData) {
             deleted_count: deletableIds.length,
             skipped_count: skippedCount,
             beneficiary_ids: deletableIds,
+            details,
           },
         },
       });
@@ -800,7 +830,7 @@ export async function bulkRestoreBeneficiaries(formData: FormData) {
   try {
     const beneficiaries = await prisma.beneficiary.findMany({
       where: { id: { in: ids } },
-      select: { id: true, deleted_at: true },
+      select: { id: true, name: true, card_number: true, deleted_at: true },
     });
 
     const restorableIds = beneficiaries
@@ -819,6 +849,18 @@ export async function bulkRestoreBeneficiaries(formData: FormData) {
         data: { deleted_at: null },
       });
 
+      const details = beneficiaries.map((b) => {
+        const canRestore = b.deleted_at !== null;
+        return {
+          beneficiary_id: b.id,
+          beneficiary_name: b.name,
+          card_number: b.card_number,
+          before_deleted_at: b.deleted_at ? b.deleted_at.toISOString() : null,
+          after_deleted_at: canRestore ? null : null,
+          result: canRestore ? "restored" : "skipped",
+        };
+      });
+
       await tx.auditLog.create({
         data: {
           facility_id: session.id,
@@ -829,6 +871,7 @@ export async function bulkRestoreBeneficiaries(formData: FormData) {
             restored_count: restorableIds.length,
             skipped_count: skippedCount,
             beneficiary_ids: restorableIds,
+            details,
           },
         },
       });
