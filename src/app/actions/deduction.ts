@@ -86,7 +86,7 @@ export async function deductBalance(formData: {
             newBalance: Number(beneficiary?.remaining_balance ?? 0),
             beneficiaryId: existing.beneficiary_id,
             notificationId: "",
-            transaction: null,
+            transaction: undefined,
           };
         }
       }
