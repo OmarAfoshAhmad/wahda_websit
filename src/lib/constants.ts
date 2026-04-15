@@ -102,6 +102,7 @@ export const AUDIT_ACTIONS = {
   DELETE_MANAGER: "DELETE_MANAGER",
   // ─── صحة الرصيد ───────────────────────────────────────────────────────────
   BALANCE_DRIFT_FIX: "BALANCE_DRIFT_FIX",
+  STATUS_ANOMALIES_FIX: "STATUS_ANOMALIES_FIX",
   DATA_HYGIENE_SWEEP: "DATA_HYGIENE_SWEEP",
 } as const;
 

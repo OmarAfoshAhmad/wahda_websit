@@ -82,16 +82,16 @@ export function BulkRenewalButton({ formId }: Props) {
         type="button"
         onClick={handleClick}
         disabled={isPending}
-        className="inline-flex h-8 items-center justify-center rounded-md border border-emerald-300 bg-emerald-50 px-3 text-xs font-black text-emerald-700 transition-colors hover:bg-emerald-100 disabled:opacity-60"
+        className="inline-flex h-8 items-center justify-center rounded-md border border-emerald-300 bg-emerald-50 px-3 text-xs font-black text-emerald-700 transition-colors hover:bg-emerald-100 disabled:opacity-60 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
       >
         {isPending ? "جارٍ التنفيذ..." : "تجديد رصيد المحدد"}
-        <span className="mr-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-white/80 px-1 text-[10px] font-black text-slate-700">
+        <span className="mr-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-white/80 px-1 text-[10px] font-black text-slate-700 dark:bg-slate-800 dark:text-slate-200">
           {selectedCount}
         </span>
       </button>
 
       {feedback && (
-        <div className={`mt-2 rounded-md px-3 py-2 text-xs font-bold ${feedbackType === "error" ? "border border-red-200 bg-red-50 text-red-700" : "border border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
+        <div className={`mt-2 rounded-md px-3 py-2 text-xs font-bold ${feedbackType === "error" ? "border border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-400" : "border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-400"}`}>
           {feedback}
         </div>
       )}

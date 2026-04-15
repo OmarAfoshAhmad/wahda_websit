@@ -6,6 +6,14 @@ import { requireActiveFacilitySession } from "@/lib/session-guard";
 import { revalidatePath } from "next/cache";
 import type { ManagerPermissions } from "@/lib/auth";
 
+function isManagementOrEmployeeAccount(account: {
+  is_manager: boolean;
+  is_admin: boolean;
+  manager_permissions: unknown;
+}) {
+  return account.is_manager || account.is_admin || account.manager_permissions !== null;
+}
+
 const DEFAULT_PERMISSIONS: ManagerPermissions = {
   import_beneficiaries: false,
   add_beneficiary: false,
@@ -117,10 +125,10 @@ export async function updateManagerPermissions(
 
   const manager = await prisma.facility.findUnique({
     where: { id: managerId },
-    select: { id: true, is_manager: true, deleted_at: true },
+    select: { id: true, is_manager: true, is_admin: true, manager_permissions: true, deleted_at: true },
   });
 
-  if (!manager || !manager.is_manager || manager.deleted_at) {
+  if (!manager || !isManagementOrEmployeeAccount(manager) || manager.deleted_at) {
     return { error: "الحساب غير موجود أو ليس حساب مدير" };
   }
 
@@ -179,32 +187,134 @@ export async function deleteManager(
 
   const manager = await prisma.facility.findUnique({
     where: { id: managerId },
-    select: { id: true, is_manager: true, is_admin: true, deleted_at: true, name: true, _count: { select: { transactions: true } } },
+    select: {
+      id: true,
+      is_manager: true,
+      is_admin: true,
+      manager_permissions: true,
+      deleted_at: true,
+      name: true,
+      _count: { select: { transactions: true } },
+    },
   });
 
-  if (!manager || (!manager.is_manager && !manager.is_admin)) {
+  if (!manager || !isManagementOrEmployeeAccount(manager)) {
     return { error: "الحساب غير موجود أو ليس حساب إدارة" };
   }
 
-  // Smart Deletion: Hard delete if safe, otherwise soft delete
-  if (manager._count.transactions > 0) {
-    if (manager.deleted_at) return { error: "حساب المدير معطل مسبقاً (يمتلك حركات مالية لا يمكن مسحها جيذرياً)" };
-
-    await prisma.facility.update({
-      where: { id: managerId },
-      data: { deleted_at: new Date() },
-    });
-  } else {
-    await prisma.facility.delete({
-      where: { id: managerId },
-    });
+  if (manager.deleted_at) {
+    return { error: "الحساب محذوف ناعما بالفعل" };
   }
+
+  // حسب السياسة الجديدة: الحذف من شاشة الإدارة = حذف ناعم فقط
+  await prisma.facility.update({
+    where: { id: managerId },
+    data: { deleted_at: new Date() },
+  });
 
   await prisma.auditLog.create({
     data: {
       facility_id: session.id,
       user: session.username,
       action: "DELETE_MANAGER",
+      metadata: { manager_id: managerId, name: manager.name },
+    },
+  });
+
+  revalidatePath("/admin/managers");
+  return { success: true };
+}
+
+export async function restoreManager(
+  managerId: string
+): Promise<{ error?: string; success?: boolean }> {
+  const session = await requireActiveFacilitySession();
+  if (!session?.is_admin) {
+    return { error: "غير مصرح بهذه العملية — المبرمج فقط" };
+  }
+
+  const manager = await prisma.facility.findUnique({
+    where: { id: managerId },
+    select: {
+      id: true,
+      is_manager: true,
+      is_admin: true,
+      manager_permissions: true,
+      deleted_at: true,
+      name: true,
+    },
+  });
+
+  if (!manager || !isManagementOrEmployeeAccount(manager)) {
+    return { error: "الحساب غير موجود أو ليس حساب إدارة/موظف" };
+  }
+  if (!manager.deleted_at) {
+    return { error: "الحساب غير محذوف" };
+  }
+
+  await prisma.facility.update({
+    where: { id: managerId },
+    data: { deleted_at: null },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      facility_id: session.id,
+      user: session.username,
+      action: "RESTORE_MANAGER",
+      metadata: { manager_id: managerId, name: manager.name },
+    },
+  });
+
+  revalidatePath("/admin/managers");
+  return { success: true };
+}
+
+export async function permanentlyDeleteManager(
+  managerId: string
+): Promise<{ error?: string; success?: boolean }> {
+  const session = await requireActiveFacilitySession();
+  if (!session?.is_admin) {
+    return { error: "غير مصرح بهذه العملية — المبرمج فقط" };
+  }
+
+  if (managerId === session.id) {
+    return { error: "لا يمكن حذف الحساب الحالي" };
+  }
+
+  const manager = await prisma.facility.findUnique({
+    where: { id: managerId },
+    select: {
+      id: true,
+      is_manager: true,
+      is_admin: true,
+      manager_permissions: true,
+      deleted_at: true,
+      name: true,
+      _count: { select: { transactions: true } },
+    },
+  });
+
+  if (!manager || !isManagementOrEmployeeAccount(manager)) {
+    return { error: "الحساب غير موجود أو ليس حساب إدارة/موظف" };
+  }
+  if (!manager.deleted_at) {
+    return { error: "يجب تنفيذ الحذف الناعم أولا" };
+  }
+  if (manager._count.transactions > 0) {
+    return { error: `لا يمكن الحذف النهائي — يوجد ${manager._count.transactions} معاملات مرتبطة` };
+  }
+
+  const deleted = await prisma.facility.deleteMany({ where: { id: managerId } });
+  if (deleted.count === 0) {
+    return { error: "تعذر تنفيذ الحذف النهائي" };
+  }
+
+  await prisma.auditLog.create({
+    data: {
+      facility_id: session.id,
+      user: session.username,
+      action: "PERMANENT_DELETE_MANAGER",
       metadata: { manager_id: managerId, name: manager.name },
     },
   });
@@ -249,7 +359,6 @@ export async function createEmployee(prevState: unknown, formData: FormData) {
       password_hash,
       is_admin: false,
       is_manager: false,
-      is_employee: true,
       manager_permissions: EMPLOYEE_PERMISSIONS as unknown as Record<string, boolean>,
       must_change_password: true,
     },

@@ -58,7 +58,7 @@ export function ManagerDeleteButton({ id, name }: Props) {
             <p className="mb-1.5 text-sm text-slate-600 dark:text-slate-400">هل أنت متأكد من حذف حساب المدير:</p>
             <p className="mb-4 font-black text-slate-900 dark:text-white">{name}</p>
             <p className="mb-5 text-xs text-slate-500 dark:text-slate-500">
-              سيتم حذف الحساب نهائياً ولن يتمكن المدير من تسجيل الدخول بعد الآن.
+              سيتم نقل الحساب إلى المحذوفات (حذف ناعم). يمكنك استعادته أو حذفه نهائيا لاحقا من شاشة المحذوفات.
             </p>
 
             {error && (

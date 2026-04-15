@@ -39,6 +39,17 @@ export async function authenticate(prevState: unknown, formData: FormData) {
     stage = "find-facility";
     const facility = await prisma.facility.findUnique({
       where: { username },
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        password_hash: true,
+        deleted_at: true,
+        is_admin: true,
+        is_manager: true,
+        manager_permissions: true,
+        must_change_password: true,
+      },
     });
 
     // مرفق غير موجود أو محذوف
@@ -176,7 +187,10 @@ export async function voluntaryChangePassword(prevState: unknown, formData: Form
 
   const { currentPassword, newPassword } = validated.data;
 
-  const facility = await prisma.facility.findUnique({ where: { id: session.id } });
+  const facility = await prisma.facility.findUnique({
+    where: { id: session.id },
+    select: { id: true, password_hash: true },
+  });
   if (!facility) return { error: "الحساب غير موجود" };
 
   const passwordMatch = await bcrypt.compare(currentPassword, facility.password_hash);

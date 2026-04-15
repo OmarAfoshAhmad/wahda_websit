@@ -31,34 +31,34 @@ export function SettingsPageClient({ initialBalance, canManageInitialBalance }: 
               <KeyRound className="h-8 w-8 text-primary" />
             </div>
             <div>
-              <p className="text-base font-black text-slate-900">Waha Health Care</p>
+              <p className="text-base font-black text-slate-900 dark:text-white">Waha Health Care</p>
             </div>
           </div>
-          <h2 className="section-title text-2xl font-black text-slate-950">الإعدادات</h2>
-          <p className="mt-2 text-sm font-medium text-slate-500">إدارة كلمة المرور والإعدادات العامة للنظام.</p>
+          <h2 className="section-title text-2xl font-black text-slate-950 dark:text-white">الإعدادات</h2>
+          <p className="mt-2 text-sm font-medium text-slate-500 dark:text-slate-400">إدارة كلمة المرور والإعدادات العامة للنظام.</p>
         </div>
 
         {canManageInitialBalance ? (
           <Card className="p-6">
             <div className="mb-4 flex items-center gap-2">
               <Wallet className="h-5 w-5 text-emerald-600" />
-              <h3 className="text-lg font-black text-slate-900">الرصيد الابتدائي للمستفيد الجديد</h3>
+              <h3 className="text-lg font-black text-slate-900 dark:text-white">الرصيد الابتدائي للمستفيد الجديد</h3>
             </div>
 
-            <p className="mb-4 text-sm text-slate-600">
-              القيمة الحالية: <span className="font-black text-slate-900">{formatCurrency(currentBalance)} د.ل</span>
+            <p className="mb-4 text-sm text-slate-600 dark:text-slate-300">
+              القيمة الحالية: <span className="font-black text-slate-900 dark:text-white">{formatCurrency(currentBalance)} د.ل</span>
             </p>
-            <p className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">
+            <p className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
               تنبيه: أي تغيير هنا يطبق على السجلات الجديدة فقط، ولا يغير أرصدة المستفيدين المضافين سابقاً.
             </p>
 
             <form action={balanceAction} className="space-y-4">
               {balanceState?.error ? (
-                <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{balanceState.error}</div>
+                <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-400">{balanceState.error}</div>
               ) : null}
 
               {balanceState?.success ? (
-                <div className="rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">{balanceState.success}</div>
+                <div className="rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950/20 dark:text-green-400">{balanceState.success}</div>
               ) : null}
 
               <div className="space-y-2">
@@ -93,7 +93,7 @@ export function SettingsPageClient({ initialBalance, canManageInitialBalance }: 
           {passwordState?.success ? (
             <div className="flex flex-col items-center gap-4 py-4 text-center">
               <CheckCircle2 className="h-12 w-12 text-green-500" />
-              <p className="font-bold text-slate-800">{passwordState.success}</p>
+              <p className="font-bold text-slate-800 dark:text-slate-100">{passwordState.success}</p>
               <Link href="/dashboard" className="mt-2 text-sm font-semibold text-primary hover:underline">
                 العودة إلى الرئيسية
               </Link>
@@ -101,7 +101,7 @@ export function SettingsPageClient({ initialBalance, canManageInitialBalance }: 
           ) : (
             <form action={passwordAction} className="space-y-5">
               {passwordState?.error ? (
-                <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{passwordState.error}</div>
+                <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-400">{passwordState.error}</div>
               ) : null}
 
               <div className="space-y-2">
@@ -115,7 +115,7 @@ export function SettingsPageClient({ initialBalance, canManageInitialBalance }: 
                     className="h-12 pl-12 text-sm"
                     required
                   />
-                  <button type="button" onClick={() => setShowCurrent(!showCurrent)} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" tabIndex={-1}>
+                  <button type="button" onClick={() => setShowCurrent(!showCurrent)} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300" tabIndex={-1}>
                     {showCurrent ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                   </button>
                 </div>
@@ -133,7 +133,7 @@ export function SettingsPageClient({ initialBalance, canManageInitialBalance }: 
                     required
                     minLength={8}
                   />
-                  <button type="button" onClick={() => setShowNew(!showNew)} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" tabIndex={-1}>
+                  <button type="button" onClick={() => setShowNew(!showNew)} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300" tabIndex={-1}>
                     {showNew ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                   </button>
                 </div>
@@ -150,7 +150,7 @@ export function SettingsPageClient({ initialBalance, canManageInitialBalance }: 
                     className="h-12 pl-12 text-sm"
                     required
                   />
-                  <button type="button" onClick={() => setShowConfirm(!showConfirm)} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" tabIndex={-1}>
+                  <button type="button" onClick={() => setShowConfirm(!showConfirm)} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300" tabIndex={-1}>
                     {showConfirm ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                   </button>
                 </div>
@@ -168,7 +168,7 @@ export function SettingsPageClient({ initialBalance, canManageInitialBalance }: 
               </Button>
 
               <div className="text-center">
-                <Link href="/dashboard" className="text-xs font-semibold text-slate-400 hover:text-slate-600 hover:underline">
+                <Link href="/dashboard" className="text-xs font-semibold text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:underline">
                   إلغاء والعودة
                 </Link>
               </div>

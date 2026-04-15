@@ -249,7 +249,12 @@ export function DeductProvider({ children }: { children: React.ReactNode }) {
     setDeducting(true); setError(null);
     let result;
     try {
-      result = await deductBalance({ card_number: beneficiary.card_number, amount: parseFloat(amount), type });
+      result = await deductBalance({
+        card_number: beneficiary.card_number,
+        amount: parseFloat(amount),
+        type,
+        requestId: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
+      });
     } catch { setDeducting(false); setShowConfirm(false); setError("خطأ في الاتصال. حاول مرة أخرى."); return; }
     setDeducting(false); setShowConfirm(false);
     if ("error" in result) {

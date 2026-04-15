@@ -72,6 +72,7 @@ model Transaction {
   beneficiary_id String
   facility_id    String
   amount         Decimal
+  idempotency_key String?
   type           TransactionType
   is_cancelled            Boolean      @default(false)
   created_at              DateTime     @default(now())
@@ -86,6 +87,7 @@ model Transaction {
   @@index([facility_id, created_at])
   @@index([created_at])
   @@index([original_transaction_id])
+  @@unique([idempotency_key])
   @@index([beneficiary_id, is_cancelled, type])
   @@index([beneficiary_id, created_at, is_cancelled])
 }

@@ -24,7 +24,7 @@ export function BeneficiaryLinkButton({ beneficiaryId }: { beneficiaryId: string
     <button
       onClick={handleCopy}
       title="نسخ رابط الاستعلام"
-      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-colors hover:border-primary/30 hover:bg-primary-light hover:text-primary"
+      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-colors hover:border-primary/30 hover:bg-primary-light hover:text-primary dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-primary/20"
     >
       {copied ? (
         <Check className="h-4 w-4 text-emerald-600" />

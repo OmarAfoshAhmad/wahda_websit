@@ -15,22 +15,22 @@ export default function ChangePasswordPage() {
       <div className="w-full max-w-md">
         <div className="mb-6 text-center">
           <div className="mb-4 flex flex-col items-center gap-3">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-amber-300 bg-amber-50">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30">
               <KeyRound className="h-8 w-8 text-amber-600" />
             </div>
             <div>
-              <p className="text-base font-black text-slate-900">Waha Health Care</p>
+              <p className="text-base font-black text-slate-900 dark:text-white">Waha Health Care</p>
             </div>
           </div>
-          <h2 className="section-title text-2xl font-black text-slate-950">تغيير كلمة المرور</h2>
-          <p className="mt-2 text-sm font-medium text-slate-500">
+          <h2 className="section-title text-2xl font-black text-slate-950 dark:text-white">تغيير كلمة المرور</h2>
+          <p className="mt-2 text-sm font-medium text-slate-500 dark:text-slate-400">
             يجب عليك تغيير كلمة المرور الافتراضية قبل المتابعة.
           </p>
         </div>
 
         <Card className="p-6">
           <form action={action} className="space-y-5">
-            <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
               <p className="font-bold">⚠ إجراء أمني مطلوب</p>
               <p className="mt-0.5 text-xs">تم تفعيل حسابك بكلمة مرور افتراضية. يجب تغييرها الآن لحماية بياناتك.</p>
             </div>
@@ -49,7 +49,7 @@ export default function ChangePasswordPage() {
                   required
                   minLength={8}
                 />
-                <button type="button" onClick={() => setShowNew(!showNew)} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" tabIndex={-1}>
+                <button type="button" onClick={() => setShowNew(!showNew)} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300" tabIndex={-1}>
                   {showNew ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                 </button>
               </div>
@@ -69,7 +69,7 @@ export default function ChangePasswordPage() {
                   required
                   minLength={8}
                 />
-                <button type="button" onClick={() => setShowConfirm(!showConfirm)} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" tabIndex={-1}>
+                <button type="button" onClick={() => setShowConfirm(!showConfirm)} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300" tabIndex={-1}>
                   {showConfirm ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                 </button>
               </div>
@@ -88,10 +88,10 @@ export default function ChangePasswordPage() {
           </form>
         </Card>
 
-        <div className="mt-4 rounded-md border border-slate-200 bg-white p-3 text-center text-xs text-slate-500">
+        <div className="mt-4 rounded-md border border-slate-200 bg-white p-3 text-center text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
           <div className="mb-1 flex items-center justify-center gap-2">
             <ShieldCheck className="h-4 w-4 text-primary" />
-            <span className="font-bold text-slate-700">بعد التغيير ستنتقل تلقائياً للوحة التحكم</span>
+            <span className="font-bold text-slate-700 dark:text-slate-200">بعد التغيير ستنتقل تلقائياً للوحة التحكم</span>
           </div>
         </div>
       </div>

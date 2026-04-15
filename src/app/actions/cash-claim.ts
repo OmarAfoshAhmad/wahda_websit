@@ -8,6 +8,7 @@ import { logger } from "@/lib/logger";
 import { emitNotification } from "@/lib/sse-notifications";
 import { formatCurrency, roundCurrency } from "@/lib/money";
 import { normalizeCardInput } from "@/lib/card-number";
+import { assertBeneficiariesBalanceInvariant, buildIdempotencyKey } from "@/lib/tx-balance-guard";
 
 // ─── استخراج قاعدة رقم بطاقة العائلة ────────────────────────────────
 function extractFamilyBaseCard(cardNumber: string): string {
@@ -120,6 +121,7 @@ export async function executeCashClaim(input: {
   allocations: ClaimAllocation[];
   invoiceTotal: number;
   facilityId?: string;
+  requestId?: string;
 }): Promise<{ error?: string; success?: string }> {
   const session = await requireActiveFacilitySession();
   if (!session || !hasPermission(session, "cash_claim")) {
@@ -127,6 +129,7 @@ export async function executeCashClaim(input: {
   }
 
   const { allocations, invoiceTotal } = input;
+  const cashClaimKey = buildIdempotencyKey("cash-claim", session.id, input.requestId);
 
   // التحقق من صحة البيانات
   if (!allocations || allocations.length === 0) {
@@ -182,6 +185,23 @@ export async function executeCashClaim(input: {
 
   try {
     const result = await prisma.$transaction(async (tx) => {
+      if (cashClaimKey && allocations.length > 0) {
+        const firstAllocationKey = `${cashClaimKey}:${allocations[0].beneficiary_id}:${allocations[0].amount}`;
+        const existing = await tx.transaction.findFirst({
+          where: { idempotency_key: firstAllocationKey } as never,
+          select: { id: true },
+        });
+        if (existing) {
+          return [] as Array<{
+            beneficiaryId: string;
+            beneficiaryName: string;
+            notificationId: string;
+            transactionId: string;
+            amount: number;
+          }>;
+        }
+      }
+
       const beneficiaryIds = allocations.map((a) => a.beneficiary_id);
 
       // قفل صفوف المستفيدين (FOR UPDATE)
@@ -244,6 +264,9 @@ export async function executeCashClaim(input: {
             facility_id: effectiveFacilityId,
             amount: alloc.amount,
             type: "MEDICINE",
+            ...(cashClaimKey
+              ? { idempotency_key: `${cashClaimKey}:${alloc.beneficiary_id}:${alloc.amount}` }
+              : {}),
           },
         });
 
@@ -285,6 +308,12 @@ export async function executeCashClaim(input: {
         },
       });
 
+      await assertBeneficiariesBalanceInvariant(
+        tx,
+        allocations.map((a) => a.beneficiary_id),
+        "executeCashClaim",
+      );
+
       return results;
     });
 
@@ -302,6 +331,10 @@ export async function executeCashClaim(input: {
     revalidatePath("/cash-claim");
     revalidatePath("/transactions");
     revalidatePath("/dashboard");
+
+    if (result.length === 0) {
+      return { success: "تم تجاهل إعادة الإرسال: الطلب منفذ مسبقاً" };
+    }
 
     return {
       success: `تم خصم الفاتورة بنجاح (${formatCurrency(invoiceTotal)} د.ل) من ${result.length} عضو`,

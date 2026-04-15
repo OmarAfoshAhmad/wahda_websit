@@ -267,6 +267,7 @@ export function CashClaimForm({ facilities, showFacilityPicker }: Props) {
         allocations,
         invoiceTotal: invoiceValue,
         facilityId: selectedFacility?.id,
+        requestId: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
       });
 
       if (res.error) {

@@ -173,6 +173,75 @@ export async function deleteFacility(id: string): Promise<{ error?: string; succ
   return { success: true };
 }
 
+export async function restoreFacility(id: string): Promise<{ error?: string; success?: boolean }> {
+  const session = await requireActiveFacilitySession();
+  if (!session?.is_admin) return { error: "غير مصرح لك بهذه العملية" };
+  if (!id) return { error: "معرّف المرفق غير صالح" };
+
+  const facility = await prisma.facility.findUnique({
+    where: { id },
+    select: { id: true, deleted_at: true, name: true },
+  });
+  if (!facility) return { error: "المرفق غير موجود" };
+  if (!facility.deleted_at) return { error: "المرفق غير محذوف" };
+
+  await prisma.facility.update({
+    where: { id },
+    data: { deleted_at: null },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      facility_id: session.id,
+      user: session.username,
+      action: "RESTORE_FACILITY",
+      metadata: { restored_facility_id: id, name: facility.name },
+    },
+  });
+
+  revalidatePath("/admin/facilities");
+  return { success: true };
+}
+
+export async function permanentlyDeleteFacility(id: string): Promise<{ error?: string; success?: boolean }> {
+  const session = await requireActiveFacilitySession();
+  if (!session?.is_admin) return { error: "غير مصرح لك بهذه العملية" };
+  if (!id) return { error: "معرّف المرفق غير صالح" };
+
+  const facility = await prisma.facility.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      deleted_at: true,
+      name: true,
+      _count: { select: { transactions: true } },
+    },
+  });
+
+  if (!facility) return { error: "المرفق غير موجود" };
+  if (!facility.deleted_at) return { error: "يجب حذف المرفق حذفا ناعما أولا" };
+  if (facility._count.transactions > 0) {
+    return { error: `لا يمكن الحذف النهائي — يوجد ${facility._count.transactions} معاملات مرتبطة` };
+  }
+
+  const deleted = await prisma.facility.deleteMany({ where: { id } });
+  if (deleted.count === 0) {
+    return { error: "تعذر تنفيذ الحذف النهائي" };
+  }
+
+  await prisma.auditLog.create({
+    data: {
+      facility_id: session.id,
+      user: session.username,
+      action: "PERMANENT_DELETE_FACILITY",
+      metadata: { facility_id: id, name: facility.name },
+    },
+  });
+
+  revalidatePath("/admin/facilities");
+  return { success: true };
+}
+
 export async function importFacilitiesFromExcel(formData: FormData): Promise<{
   created?: number;
   skipped?: number;

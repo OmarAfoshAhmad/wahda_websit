@@ -71,16 +71,16 @@ export function BeneficiaryDeleteButton({ id, name, hasTransactions }: Props) {
         >
           <Card className="w-full max-w-sm p-6">
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-base font-black text-slate-900">تأكيد الحذف</h2>
-              <button type="button" onClick={() => setOpen(false)} className="rounded-md p-1 text-slate-400 hover:text-slate-700">
+              <h2 className="text-base font-black text-slate-900 dark:text-white">تأكيد الحذف</h2>
+              <button type="button" onClick={() => setOpen(false)} className="rounded-md p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-300">
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <p className="mb-1.5 text-sm text-slate-600">
+            <p className="mb-1.5 text-sm text-slate-600 dark:text-slate-300">
               هل أنت متأكد من حذف المستفيد:
             </p>
-            <p className="mb-4 font-bold text-slate-900">{name}</p>
-            <p className="mb-5 text-xs text-slate-500">
+            <p className="mb-4 font-bold text-slate-900 dark:text-slate-100">{name}</p>
+            <p className="mb-5 text-xs text-slate-500 dark:text-slate-400">
               سيتم إخفاء المستفيد من النظام (حذف ناعم) مع الحفاظ على سجل حركاته.
             </p>
 

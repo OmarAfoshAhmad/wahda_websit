@@ -13,11 +13,11 @@ const TYPE_LABELS: Record<string, string> = {
 };
 
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
-  ACTIVE: { label: "نشط", color: "bg-emerald-100 text-emerald-700" },
-  FINISHED: { label: "مكتمل", color: "bg-slate-100 text-slate-600" },
-  FINISHED_MANUAL: { label: "مكتمل (خصم)", color: "bg-slate-100 text-slate-600" },
-  FINISHED_IMPORT: { label: "مكتمل (استيراد)", color: "bg-slate-100 text-slate-600" },
-  SUSPENDED: { label: "موقوف", color: "bg-amber-100 text-amber-700" },
+  ACTIVE: { label: "نشط", color: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300" },
+  FINISHED: { label: "مكتمل", color: "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-200" },
+  FINISHED_MANUAL: { label: "مكتمل (خصم)", color: "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-200" },
+  FINISHED_IMPORT: { label: "مكتمل (استيراد)", color: "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-200" },
+  SUSPENDED: { label: "موقوف", color: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" },
 };
 
 export default async function CheckTokenPage({
@@ -31,10 +31,10 @@ export default async function CheckTokenPage({
   // رابط غير صالح أو مزوّر
   if (!beneficiaryId) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-50 px-4 text-center" dir="rtl">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-50 px-4 text-center dark:bg-slate-950" dir="rtl">
         <ShieldX className="h-12 w-12 text-red-400" />
-        <h1 className="text-xl font-black text-slate-800">رابط غير صالح</h1>
-        <p className="text-sm text-slate-500">
+        <h1 className="text-xl font-black text-slate-800 dark:text-slate-100">رابط غير صالح</h1>
+        <p className="text-sm text-slate-500 dark:text-slate-400">
           هذا الرابط غير صحيح. تواصل مع شركة الواحة للحصول على رابطك الخاص.
         </p>
       </div>
@@ -77,23 +77,23 @@ export default async function CheckTokenPage({
   const statusInfo = STATUS_MAP[statusKey] ?? STATUS_MAP.ACTIVE;
 
   return (
-    <div className="min-h-screen bg-slate-50 px-4 py-8" dir="rtl">
+    <div className="min-h-screen bg-slate-50 px-4 py-8 dark:bg-slate-950" dir="rtl">
       <div className="mx-auto max-w-xl space-y-5">
 
         <div className="text-center">
-          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
+          <p className="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">
             شركة الواحة للرعاية الصحية
           </p>
         </div>
 
         {/* بيانات المستفيد */}
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h2 className="text-xl font-black text-slate-900">{beneficiary.name}</h2>
-              <p className="mt-0.5 font-mono text-sm text-slate-500">{beneficiary.card_number}</p>
+              <h2 className="text-xl font-black text-slate-900 dark:text-white">{beneficiary.name}</h2>
+              <p className="mt-0.5 font-mono text-sm text-slate-500 dark:text-slate-400">{beneficiary.card_number}</p>
               {beneficiary.birth_date && (
-                <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-400">
+                <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500">
                   <CalendarDays className="h-3.5 w-3.5" />
                   {formatDateTripoli(beneficiary.birth_date, "en-GB")}
                 </p>
@@ -105,46 +105,46 @@ export default async function CheckTokenPage({
           </div>
 
           {/* الرصيد */}
-          <div className="mt-5 grid grid-cols-3 divide-x divide-x-reverse divide-slate-100 rounded-lg border border-slate-100 bg-slate-50 text-center">
+          <div className="mt-5 grid grid-cols-3 divide-x divide-x-reverse divide-slate-100 rounded-lg border border-slate-100 bg-slate-50 text-center dark:divide-slate-700 dark:border-slate-700 dark:bg-slate-800/50">
             <div className="px-3 py-3">
-              <p className="text-xs font-bold text-slate-400">الرصيد الكلي</p>
-              <p className="mt-1 text-lg font-black text-slate-800">{totalBalance.toLocaleString("ar-LY")}</p>
-              <p className="text-[11px] text-slate-400">د.ل</p>
+              <p className="text-xs font-bold text-slate-400 dark:text-slate-500">الرصيد الكلي</p>
+              <p className="mt-1 text-lg font-black text-slate-800 dark:text-slate-100">{totalBalance.toLocaleString("ar-LY")}</p>
+              <p className="text-[11px] text-slate-400 dark:text-slate-500">د.ل</p>
             </div>
             <div className="px-3 py-3">
-              <p className="text-xs font-bold text-slate-400">المستخدم</p>
+              <p className="text-xs font-bold text-slate-400 dark:text-slate-500">المستخدم</p>
               <p className="mt-1 text-lg font-black text-red-600">{usedBalance.toLocaleString("ar-LY")}</p>
-              <p className="text-[11px] text-slate-400">د.ل</p>
+              <p className="text-[11px] text-slate-400 dark:text-slate-500">د.ل</p>
             </div>
             <div className="px-3 py-3">
-              <p className="text-xs font-bold text-slate-400">المتبقي</p>
+              <p className="text-xs font-bold text-slate-400 dark:text-slate-500">المتبقي</p>
               <p className="mt-1 text-lg font-black text-emerald-600">{remainingBalance.toLocaleString("ar-LY")}</p>
-              <p className="text-[11px] text-slate-400">د.ل</p>
+              <p className="text-[11px] text-slate-400 dark:text-slate-500">د.ل</p>
             </div>
           </div>
         </div>
 
         {/* الحركات */}
-        <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-3.5">
-            <Wallet className="h-4 w-4 text-slate-400" />
-            <h3 className="font-black text-slate-800">سجل الحركات</h3>
-            <span className="mr-auto rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-500">
+        <div className="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-3.5 dark:border-slate-800">
+            <Wallet className="h-4 w-4 text-slate-400 dark:text-slate-500" />
+            <h3 className="font-black text-slate-800 dark:text-slate-100">سجل الحركات</h3>
+            <span className="mr-auto rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-500 dark:bg-slate-800 dark:text-slate-300">
               {beneficiary.transactions.length}
             </span>
           </div>
 
           {beneficiary.transactions.length === 0 ? (
-            <p className="px-5 py-8 text-center text-sm text-slate-400">لا توجد حركات مسجلة.</p>
+            <p className="px-5 py-8 text-center text-sm text-slate-400 dark:text-slate-500">لا توجد حركات مسجلة.</p>
           ) : (
-            <ul className="divide-y divide-slate-50">
+            <ul className="divide-y divide-slate-50 dark:divide-slate-800">
               {beneficiary.transactions.map((tx) => (
                 <li key={tx.id} className="flex items-center justify-between px-5 py-3.5">
                   <div>
-                    <p className="text-sm font-bold text-slate-800">
+                    <p className="text-sm font-bold text-slate-800 dark:text-slate-100">
                       {TYPE_LABELS[tx.type] ?? tx.type}
                     </p>
-                    <p className="mt-0.5 text-xs text-slate-400">
+                    <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">
                       {tx.facility.name} · {formatDateTripoli(tx.created_at, "en-GB")}
                     </p>
                   </div>

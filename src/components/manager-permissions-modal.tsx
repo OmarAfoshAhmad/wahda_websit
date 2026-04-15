@@ -119,7 +119,7 @@ export function ManagerPermissionsModal({ managerId, managerName, permissions }:
                       }`}
                   >
                     <span
-                      className={`absolute h-4.5 w-4.5 rounded-full bg-white shadow-md transition-transform duration-300 right-1 ${current[key] ? "-translate-x-[22px]" : "translate-x-0"
+                      className={`absolute h-4.5 w-4.5 rounded-full bg-white shadow-md transition-transform duration-300 right-1 ${current[key] ? "-translate-x-5.5" : "translate-x-0"
                         }`}
                     />
                   </button>

@@ -98,6 +98,7 @@ export async function getOverdrawnDebtCases(): Promise<OverdrawnDebtCase[]> {
         card_number: true,
         total_balance: true,
         status: true,
+        completed_via: true,
       },
       orderBy: { card_number: "asc" },
     }),
@@ -144,6 +145,11 @@ export async function getOverdrawnDebtCases(): Promise<OverdrawnDebtCase[]> {
   for (const b of beneficiaries) {
     const enriched = beneficiaryById.get(b.id);
     if (!enriched) continue;
+
+    // الحالة التي تمت تسويتها سابقا عبر توزيع مديونية الأسرة لا نعيد عرضها كحالة مشكلة.
+    if (enriched.status === "FINISHED" && enriched.completed_via === "EXCEEDED_BALANCE") {
+      continue;
+    }
 
     const debtAmount = roundCurrency(enriched.spent - enriched.totalBalance);
     if (debtAmount <= 0) continue;
@@ -194,9 +200,36 @@ export async function getOverdrawnDebtCases(): Promise<OverdrawnDebtCase[]> {
 
 export async function applyOverdrawnDebtSettlement(params: {
   user: string;
-  facilityId: string;
+  facilityId?: string | null;
 }): Promise<DebtSettlementRun> {
   const beforeCases = await getOverdrawnDebtCases();
+
+  const requestedFacilityId = typeof params.facilityId === "string" ? params.facilityId.trim() : "";
+  let effectiveFacilityId: string | null = null;
+
+  if (requestedFacilityId) {
+    const directFacility = await prisma.facility.findFirst({
+      where: { id: requestedFacilityId, deleted_at: null },
+      select: { id: true },
+    });
+    if (directFacility) {
+      effectiveFacilityId = directFacility.id;
+    }
+  }
+
+  if (!effectiveFacilityId) {
+    const fallbackFacility = await prisma.facility.findFirst({
+      where: { deleted_at: null },
+      select: { id: true },
+      orderBy: { created_at: "asc" },
+    });
+
+    if (!fallbackFacility) {
+      throw new Error("لا يوجد مرفق صالح لتسجيل حركة التوزيع");
+    }
+
+    effectiveFacilityId = fallbackFacility.id;
+  }
 
   let affectedFamilyMembers = 0;
 
@@ -220,7 +253,7 @@ export async function applyOverdrawnDebtSettlement(params: {
         await tx.transaction.create({
           data: {
             beneficiary_id: share.memberId,
-            facility_id: params.facilityId,
+            facility_id: effectiveFacilityId,
             amount: share.deductedAmount,
             type: TransactionType.IMPORT,
           },
@@ -250,7 +283,7 @@ export async function applyOverdrawnDebtSettlement(params: {
 
   const audit = await prisma.auditLog.create({
     data: {
-      facility_id: params.facilityId,
+      facility_id: effectiveFacilityId,
       user: params.user,
       action: "SETTLE_OVERDRAWN_FAMILY_DEBT",
       metadata: {

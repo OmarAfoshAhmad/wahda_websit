@@ -27,10 +27,11 @@ export async function POST(request: Request) {
     redirectUrl.searchParams.set("debtAudit", result.auditId);
 
     return NextResponse.redirect(redirectUrl, { status: 303 });
-  } catch {
+  } catch (error) {
     const redirectUrl = new URL("/admin/duplicates", request.url);
     redirectUrl.searchParams.set("tab", "debt");
-    redirectUrl.searchParams.set("err", "تعذر تنفيذ تسوية المديونية حالياً");
+    const message = error instanceof Error ? error.message : "تعذر تنفيذ تسوية المديونية حالياً";
+    redirectUrl.searchParams.set("err", `تعذر تنفيذ تسوية المديونية: ${message}`);
     return NextResponse.redirect(redirectUrl, { status: 303 });
   }
 }

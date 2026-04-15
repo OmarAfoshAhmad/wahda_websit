@@ -1,27 +1,15 @@
 import { getSession } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { Shell } from "@/components/shell";
-import { hasPermission } from "@/lib/session-guard";
 import { CashClaimForm } from "@/components/cash-claim-form";
-import prisma from "@/lib/prisma";
 
 export default async function CashClaimPage() {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  if (!hasPermission(session, "cash_claim")) {
+  if (!session.is_employee) {
     redirect("/dashboard");
   }
-
-  // جلب قائمة المرافق (للمشرف والمدير فقط)
-  const facilities =
-    session.is_admin || session.is_manager
-      ? await prisma.facility.findMany({
-          where: { deleted_at: null, is_admin: false },
-          select: { id: true, name: true },
-          orderBy: { name: "asc" },
-        })
-      : [];
 
   return (
     <Shell facilityName={session.name} session={session}>
@@ -33,8 +21,8 @@ export default async function CashClaimPage() {
           </p>
         </div>
         <CashClaimForm
-          facilities={facilities}
-          showFacilityPicker={session.is_admin || session.is_manager}
+          facilities={[]}
+          showFacilityPicker={false}
         />
       </div>
     </Shell>

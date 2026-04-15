@@ -9,6 +9,7 @@ import { logger } from "@/lib/logger";
 import { emitNotification } from "@/lib/sse-notifications";
 import { formatCurrency, roundCurrency } from "@/lib/money";
 import { normalizeCardInput } from "@/lib/card-number";
+import { assertBeneficiaryBalanceInvariant, buildIdempotencyKey } from "@/lib/tx-balance-guard";
 
 export async function deductBalance(formData: {
   card_number: string;
@@ -16,6 +17,7 @@ export async function deductBalance(formData: {
   type: "MEDICINE" | "SUPPLIES";
   transactionDate?: Date;
   facilityId?: string;
+  requestId?: string;
 }) {
   const session = await requireActiveFacilitySession();
   if (!session || (session.is_manager && !hasPermission(session, "deduct_balance"))) {
@@ -62,9 +64,33 @@ export async function deductBalance(formData: {
     formData.transactionDate instanceof Date && !Number.isNaN(formData.transactionDate.getTime())
       ? formData.transactionDate
       : null;
+  const idempotencyKey = buildIdempotencyKey("deduct", session.id, formData.requestId);
 
   try {
     const result = await prisma.$transaction(async (tx) => {
+      if (idempotencyKey) {
+        const existing = await tx.transaction.findUnique({
+          where: { idempotency_key: idempotencyKey },
+          select: { id: true, beneficiary_id: true },
+        });
+
+        if (existing) {
+          const beneficiary = await tx.beneficiary.findUnique({
+            where: { id: existing.beneficiary_id },
+            select: { remaining_balance: true },
+          });
+
+          return {
+            success: true,
+            duplicated: true,
+            newBalance: Number(beneficiary?.remaining_balance ?? 0),
+            beneficiaryId: existing.beneficiary_id,
+            notificationId: "",
+            transaction: null,
+          };
+        }
+      }
+
       // 1. Get beneficiary with row-level lock (using raw sql as Prisma interactive tx isn't always enough for specific locking locks)
       // On PostgreSQL, we can use SELECT ... FOR UPDATE
       const beneficiaries = await tx.$queryRaw<Array<{ id: string; name: string; remaining_balance: number; status: string }>>`
@@ -122,6 +148,7 @@ export async function deductBalance(formData: {
           facility_id: effectiveFacilityId,
           amount,
           type,
+          ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
           ...(manualTransactionDate ? { created_at: manualTransactionDate } : {}),
         },
       });
@@ -158,8 +185,11 @@ export async function deductBalance(formData: {
         },
       });
 
+      await assertBeneficiaryBalanceInvariant(tx, beneficiary.id, "deductBalance");
+
       return {
         success: true,
+        duplicated: false,
         newBalance,
         beneficiaryId: beneficiary.id,
         notificationId: notification.id,
@@ -173,15 +203,17 @@ export async function deductBalance(formData: {
       };
     });
 
-    emitNotification(result.beneficiaryId, {
-      id: result.notificationId,
-      title: "تم خصم من رصيدك",
-      message: `تم خصم ${formatCurrency(Number(amount))} د.ل من رصيدك لدى ${effectiveFacilityName}`,
-      amount,
-      remaining_balance: result.newBalance,
-      created_at: new Date().toISOString(),
-      transaction: result.transaction,
-    });
+    if (!result.duplicated) {
+      emitNotification(result.beneficiaryId, {
+        id: result.notificationId,
+        title: "تم خصم من رصيدك",
+        message: `تم خصم ${formatCurrency(Number(amount))} د.ل من رصيدك لدى ${effectiveFacilityName}`,
+        amount,
+        remaining_balance: result.newBalance,
+        created_at: new Date().toISOString(),
+        transaction: result.transaction,
+      });
+    }
 
     revalidatePath("/dashboard");
     revalidatePath("/transactions");

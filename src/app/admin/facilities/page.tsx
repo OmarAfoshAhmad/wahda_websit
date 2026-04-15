@@ -10,6 +10,7 @@ import { Card, Badge, Input, Button } from "@/components/ui";
 import { CreateFacilityForm } from "./create-form";
 import { FacilityEditModal } from "@/components/facility-edit-modal";
 import { FacilityDeleteButton } from "@/components/facility-delete-button";
+import { FacilityRecycleActions } from "@/components/facility-recycle-actions";
 import { FacilityImportUploader } from "@/components/facility-import-uploader";
 import { PaginationButtons } from "@/components/pagination-buttons";
 import { PrintButton } from "@/components/print-button";
@@ -20,7 +21,7 @@ const PAGE_SIZE = 8;
 export default async function FacilitiesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; page?: string; sort?: string; order?: string }>;
+  searchParams: Promise<{ q?: string; page?: string; sort?: string; order?: string; view?: string }>;
 }) {
   const session = await getSession();
   if (!session) redirect("/login");
@@ -28,8 +29,9 @@ export default async function FacilitiesPage({
     redirect("/dashboard");
   }
 
-  const { q, page: pageParam, sort, order } = await searchParams;
+  const { q, page: pageParam, sort, order, view } = await searchParams;
   const page = Math.max(1, parseInt(pageParam ?? "1", 10) || 1);
+  const isDeletedView = view === "deleted";
 
   const ALLOWED_SORT = ["name", "username", "created_at", "transactions"] as const;
   type SortCol = typeof ALLOWED_SORT[number];
@@ -37,7 +39,7 @@ export default async function FacilitiesPage({
   const sortDir: "asc" | "desc" = order === "desc" ? "desc" : "asc";
 
   const where = {
-    deleted_at: null,
+    deleted_at: isDeletedView ? { not: null } : null,
     is_admin: false,
     is_manager: false,
     ...(q && q.trim()
@@ -51,7 +53,7 @@ export default async function FacilitiesPage({
   };
 
   const allWhere = {
-    deleted_at: null,
+    deleted_at: isDeletedView ? { not: null } : null,
     is_admin: false,
     is_manager: false,
   };
@@ -72,6 +74,7 @@ export default async function FacilitiesPage({
         must_change_password: true,
         created_at: true,
         _count: { select: { transactions: true } },
+        deleted_at: true,
       },
     }),
     prisma.facility.count({ where }),
@@ -85,6 +88,7 @@ export default async function FacilitiesPage({
         is_admin: true,
         created_at: true,
         _count: { select: { transactions: true } },
+        deleted_at: true,
       },
     }),
   ]);
@@ -99,6 +103,7 @@ export default async function FacilitiesPage({
   const buildHref = (p: number) => {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
+    if (isDeletedView) params.set("view", "deleted");
     params.set("sort", sortCol);
     params.set("order", sortDir);
     params.set("page", String(p));
@@ -108,6 +113,7 @@ export default async function FacilitiesPage({
   const sortHref = (col: SortCol) => {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
+    if (isDeletedView) params.set("view", "deleted");
     params.set("sort", col);
     params.set("order", sortCol === col && sortDir === "asc" ? "desc" : "asc");
     params.set("page", "1");
@@ -130,9 +136,19 @@ export default async function FacilitiesPage({
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 print:hidden">
           <div>
             <h1 className="section-title text-2xl font-black text-slate-950 dark:text-white">إدارة المرافق الصحية</h1>
-            <p className="mt-1.5 text-sm text-slate-600 dark:text-slate-400">قائمة بالمرافق الصحية المسجلة في النظام.</p>
+            <p className="mt-1.5 text-sm text-slate-600 dark:text-slate-400">
+              {isDeletedView
+                ? "قائمة بالمرافق المحذوفة ناعما."
+                : "قائمة بالمرافق الصحية النشطة فقط (غير المحذوفة) في النظام."}
+            </p>
           </div>
           <div className="no-print flex items-center gap-2">
+            <Link
+              href={isDeletedView ? "/admin/facilities" : "/admin/facilities?view=deleted"}
+              className="inline-flex items-center gap-2 rounded-md bg-[#0f2a4a] px-4 py-2 text-sm font-black text-white! transition-colors hover:bg-[#0b1f38] h-10"
+            >
+              {isDeletedView ? "العودة للنشطين" : "المحذوفات"}
+            </Link>
             {canExport && (
               <a
                 href="/api/export/facilities"
@@ -213,9 +229,16 @@ export default async function FacilitiesPage({
                               <div className="flex items-center justify-center gap-2">
                                 {!f.is_admin && (
                                   <>
-                                    {canEdit && <FacilityEditModal facility={{ id: f.id, name: f.name, username: f.username }} />}
-                                    {canDelete && f.id !== session.id && (
+                                    {!isDeletedView && canEdit && <FacilityEditModal facility={{ id: f.id, name: f.name, username: f.username }} />}
+                                    {!isDeletedView && canDelete && f.id !== session.id && (
                                       <FacilityDeleteButton
+                                        id={f.id}
+                                        name={f.name}
+                                        transactionCount={f._count.transactions}
+                                      />
+                                    )}
+                                    {isDeletedView && (
+                                      <FacilityRecycleActions
                                         id={f.id}
                                         name={f.name}
                                         transactionCount={f._count.transactions}
@@ -235,9 +258,9 @@ export default async function FacilitiesPage({
                     {allFacilities.map((f, idx) => (
                       <tr key={f.id} className="hover:bg-slate-50">
                         <td className="px-5 py-3 text-sm font-bold text-slate-500 text-center font-mono">{idx + 1}</td>
-                        <td className="px-5 py-3 text-sm font-bold text-slate-900 text-center">{f.name}</td>
+                        <td className="px-5 py-3 text-sm font-bold text-slate-900 dark:text-white text-center">{f.name}</td>
                         <td className="px-5 py-3 text-sm font-mono text-slate-600 text-center">{f.username}</td>
-                        <td className="px-5 py-3 text-sm text-slate-900 text-center">{f._count.transactions}</td>
+                        <td className="px-5 py-3 text-sm text-slate-900 dark:text-white text-center">{f._count.transactions}</td>
                         <td className="px-5 py-3 text-center">
                           {f.is_admin ? (
                             <span className="inline-flex items-center rounded-md bg-green-50 px-2 py-1 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-600/20">المبرمج</span>

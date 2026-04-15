@@ -4,6 +4,7 @@ import prisma from "@/lib/prisma";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
 import { roundCurrency } from "@/lib/money";
+import { assertBeneficiaryBalanceInvariant } from "@/lib/tx-balance-guard";
 
 import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 
@@ -141,6 +142,12 @@ export async function deleteCancellationTransaction(cancellationId: string) {
         },
       });
 
+      await assertBeneficiaryBalanceInvariant(
+        tx,
+        cancellationTransaction.beneficiary_id,
+        "deleteCancellationTransaction",
+      );
+
       details = {
         transaction_id: cancellationTransaction.id,
         original_transaction_id: String(cancellationTransaction.original_transaction_id),
@@ -264,6 +271,8 @@ export async function deleteCancellationPair(cancellationId: string) {
         where: { id: cancellation.beneficiary_id },
         data: beneficiaryUpdateData,
       });
+
+      await assertBeneficiaryBalanceInvariant(tx, cancellation.beneficiary_id, "deleteCancellationPair");
 
       await tx.auditLog.create({
         data: {

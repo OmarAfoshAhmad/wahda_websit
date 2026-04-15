@@ -5,6 +5,7 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
 import { deleteCancellationTransaction } from "@/app/actions/restore-transaction";
 import { roundCurrency } from "@/lib/money";
+import { assertBeneficiaryBalanceInvariant } from "@/lib/tx-balance-guard";
 
 import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 
@@ -113,6 +114,8 @@ export async function cancelTransaction(transactionId: string) {
           },
         },
       });
+
+      await assertBeneficiaryBalanceInvariant(tx, transaction.beneficiary_id, "cancelTransaction");
 
       details = {
         transaction_id: transactionId,
@@ -253,6 +256,8 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
               },
             },
           });
+
+          await assertBeneficiaryBalanceInvariant(tx, beneficiary.id, "bulkTransactionSelectionAction:soft_delete");
         }
       });
 
@@ -324,6 +329,8 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
               },
             },
           });
+
+          await assertBeneficiaryBalanceInvariant(tx, beneficiary.id, "bulkTransactionSelectionAction:restore_delete");
         }
       });
 
@@ -448,6 +455,8 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
             where: { id: beneficiaryId },
             data: beneficiaryUpdateData,
           });
+
+          await assertBeneficiaryBalanceInvariant(tx, beneficiaryId, "bulkTransactionSelectionAction:permanent_delete");
 
           balanceChanges.push({
             beneficiary_id: beneficiaryId,

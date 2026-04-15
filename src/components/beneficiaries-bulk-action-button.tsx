@@ -117,10 +117,10 @@ export function BeneficiariesBulkActionButton({ formId, mode }: Props) {
         disabled={isPending}
         className={
           mode === "soft"
-            ? "inline-flex h-8 items-center justify-center rounded-md border border-red-300 bg-red-50 px-3 text-xs font-black text-red-700 transition-colors hover:bg-red-100 disabled:opacity-60"
+            ? "inline-flex h-8 items-center justify-center rounded-md border border-red-300 bg-red-50 px-3 text-xs font-black text-red-700 transition-colors hover:bg-red-100 disabled:opacity-60 dark:border-red-900 dark:bg-red-950/20 dark:text-red-400 dark:hover:bg-red-950/40"
             : mode === "restore"
-            ? "inline-flex h-8 items-center justify-center rounded-md border border-emerald-300 bg-emerald-50 px-3 text-xs font-black text-emerald-700 transition-colors hover:bg-emerald-100 disabled:opacity-60"
-            : "inline-flex h-8 items-center justify-center rounded-md border border-red-400 bg-red-100 px-3 text-xs font-black text-red-800 transition-colors hover:bg-red-200 disabled:opacity-60"
+            ? "inline-flex h-8 items-center justify-center rounded-md border border-emerald-300 bg-emerald-50 px-3 text-xs font-black text-emerald-700 transition-colors hover:bg-emerald-100 disabled:opacity-60 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
+            : "inline-flex h-8 items-center justify-center rounded-md border border-red-400 bg-red-100 px-3 text-xs font-black text-red-800 transition-colors hover:bg-red-200 disabled:opacity-60 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300 dark:hover:bg-red-950/50"
         }
       >
         {isPending
@@ -130,7 +130,7 @@ export function BeneficiariesBulkActionButton({ formId, mode }: Props) {
           : mode === "restore"
           ? "استعادة المحدد"
           : "حذف نهائي للمحدد"}
-        <span className="mr-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-white/80 px-1 text-[10px] font-black text-slate-700">
+        <span className="mr-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-white/80 px-1 text-[10px] font-black text-slate-700 dark:bg-slate-800 dark:text-slate-200">
           {selectedCount}
         </span>
       </button>
@@ -243,7 +243,7 @@ export function EmptyRecycleBinButton({ disabled }: { disabled?: boolean }) {
           type="button"
           onClick={() => { setConfirmOpen(true); }}
           disabled={isPending || disabled}
-          className="inline-flex h-8 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-xs font-black text-rose-700 transition-colors hover:bg-rose-50 disabled:opacity-60"
+          className="inline-flex h-8 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-xs font-black text-rose-700 transition-colors hover:bg-rose-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-rose-400 dark:hover:bg-rose-950/30"
         >
           {isPending ? "جارٍ التفريغ..." : "إفراغ المحذوفات بالكامل"}
         </button>

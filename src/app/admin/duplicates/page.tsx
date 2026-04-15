@@ -13,6 +13,7 @@ import { DuplicateManualMergeForm } from "@/components/duplicate-manual-merge-fo
 import { DuplicateSameNameGroup } from "@/components/duplicate-same-name-group";
 import { BatchMergeButton } from "@/components/batch-merge-button";
 import { AutoMergeAllZeroVariantsButton } from "@/components/auto-merge-all-zero-variants-button";
+import { DataHealthContent } from "@/components/admin/data-health-content";
 import {
   mergeGroupAction,
   mergeManualAction,
@@ -41,7 +42,10 @@ export default async function DuplicatesAdminPage({
   const isBatchSuccess = (ok ?? "").startsWith("success_batch");
   const limitedMatch = /^success_batch_limited_(\d+)$/.exec(ok ?? "");
   const limitedRemaining = limitedMatch ? Number(limitedMatch[1]) : 0;
-  const activeTab = tab === "merged" || tab === "audit" || tab === "import" || tab === "debt" ? tab : "review";
+  const activeTab = tab === "merged" || tab === "audit" || tab === "import" || tab === "debt" || tab === "health" ? tab : "review";
+  const searchQuery = (q ?? "").trim();
+  const normalizedSearchQuery = searchQuery.toLowerCase();
+  const shouldFilterBeneficiaryTabs = normalizedSearchQuery.length > 0 && (activeTab === "review" || activeTab === "audit");
   const pageZero = Number.parseInt(pz ?? "1", 10) || 1;
   const pageName = Number.parseInt(pn ?? "1", 10) || 1;
   const pageSize = 20;
@@ -50,10 +54,10 @@ export default async function DuplicatesAdminPage({
   const rows = await prisma.beneficiary.findMany({
     where: {
       deleted_at: null,
-      ...(q?.trim() ? {
+      ...(shouldFilterBeneficiaryTabs ? {
         OR: [
-          { name: { contains: q, mode: "insensitive" } },
-          { card_number: { contains: q, mode: "insensitive" } }
+          { name: { contains: searchQuery, mode: "insensitive" } },
+          { card_number: { contains: searchQuery, mode: "insensitive" } }
         ]
       } : {})
     },
@@ -62,6 +66,7 @@ export default async function DuplicatesAdminPage({
       name: true,
       card_number: true,
       birth_date: true,
+      status: true,
     },
     orderBy: { card_number: "asc" },
   });
@@ -90,7 +95,6 @@ export default async function DuplicatesAdminPage({
 
   const groupingRows = rows.map((row) => ({
     ...row,
-    status: "ACTIVE",
     total_balance: 0,
     remaining_balance: 0,
   }));
@@ -115,14 +119,6 @@ export default async function DuplicatesAdminPage({
     ...reviewPage.items.flatMap(g => g.members.map(m => m.id)),
   ];
 
-  const fullDetails = await prisma.beneficiary.findMany({
-    where: { id: { in: visibleIds } },
-    select: {
-      id: true,
-      status: true,
-    }
-  });
-
   const visibleRemainingById = await getLedgerRemainingByBeneficiaryIds(visibleIds);
 
   const visibleBaseCards = new Set<string>();
@@ -132,13 +128,13 @@ export default async function DuplicatesAdminPage({
     if (match) visibleBaseCards.add(match[1]);
   }
 
-  const heads = visibleBaseCards.size > 0 ? await prisma.beneficiary.findMany({
-    where: { card_number: { in: Array.from(visibleBaseCards) }, deleted_at: null },
-    select: { card_number: true, name: true },
-  }) : [];
-  const headNameMap = new Map(heads.map(h => [h.card_number, h.name]));
+  const exactCardNameMap = new Map(rows.map((row) => [row.card_number, row.name]));
+  const headNameMap = new Map<string, string>();
+  for (const baseCard of visibleBaseCards) {
+    const headName = exactCardNameMap.get(baseCard);
+    if (headName) headNameMap.set(baseCard, headName);
+  }
 
-  const detailsMap = new Map(fullDetails.map(d => [d.id, d]));
   const enrich = (m: (typeof zeroPage.items)[number]["members"][number]) => {
     let headName = null;
     const match = m.card_number.match(/^(.*?)([WSDMFHV])(\d+)$/i);
@@ -150,7 +146,7 @@ export default async function DuplicatesAdminPage({
     return {
       ...m,
       head_of_household: headName,
-      status: detailsMap.get(m.id)?.status ?? "ACTIVE",
+      status: m.status ?? "ACTIVE",
       remaining_balance: visibleRemainingById.get(m.id) ?? 0,
     };
   };
@@ -168,7 +164,7 @@ export default async function DuplicatesAdminPage({
     return `/admin/duplicates?${params.toString()}`;
   };
 
-  const buildTabHref = (nextTab: "review" | "merged" | "audit" | "import" | "debt") => {
+  const buildTabHref = (nextTab: "review" | "merged" | "audit" | "import" | "debt" | "health") => {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
     params.set("pz", String(pageZero));
@@ -222,6 +218,27 @@ export default async function DuplicatesAdminPage({
     const aEventAt = parseEventTime(am.undo_reverted_at ?? am.last_merged_at, a.created_at);
     const bEventAt = parseEventTime(bm.undo_reverted_at ?? bm.last_merged_at, b.created_at);
     return bEventAt.getTime() - aEventAt.getTime();
+  }).filter((log) => {
+    if (activeTab !== "merged" || normalizedSearchQuery.length === 0) return true;
+    const meta = (log.metadata ?? {}) as Record<string, unknown>;
+    const card = String(meta.card_number ?? "").toLowerCase();
+    const keepName = String(meta.keep_beneficiary_name ?? "").toLowerCase();
+    const keepCard = String(meta.chosen_keep_card_number ?? "").toLowerCase();
+    const snapshot = (meta.undo_snapshot ?? null) as Record<string, unknown> | null;
+    const mergedBefore = Array.isArray(snapshot?.merged_before) ? snapshot.merged_before : [];
+    const mergedText = mergedBefore
+      .map((row) => {
+        if (!row || typeof row !== "object") return "";
+        const item = row as Record<string, unknown>;
+        return `${String(item.name ?? "")} ${String(item.card_number ?? "")}`.toLowerCase();
+      })
+      .join(" ");
+    return (
+      card.includes(normalizedSearchQuery) ||
+      keepName.includes(normalizedSearchQuery) ||
+      keepCard.includes(normalizedSearchQuery) ||
+      mergedText.includes(normalizedSearchQuery)
+    );
   });
 
   const mergedIdsFromLogs = [...new Set(
@@ -267,9 +284,24 @@ export default async function DuplicatesAdminPage({
     keepNames.map((r) => [r.id, { name: r.name, remaining_balance: keepRemainingById.get(r.id) ?? 0 }])
   );
   const mergedNameById = new Map(mergedNames.map((r) => [r.id, r.name]));
-  const importDuplicateCases = await getActiveImportDuplicateCases();
+  const importDuplicateCasesRaw = await getActiveImportDuplicateCases();
+  const importDuplicateCases =
+    activeTab === "import" && normalizedSearchQuery.length > 0
+      ? importDuplicateCasesRaw.filter((row) =>
+        row.name.toLowerCase().includes(normalizedSearchQuery) ||
+        row.cardNumber.toLowerCase().includes(normalizedSearchQuery)
+      )
+      : importDuplicateCasesRaw;
   const importDuplicateTotalExtra = importDuplicateCases.reduce((sum, row) => sum + row.extraAmount, 0);
-  const debtCases = await getOverdrawnDebtCases();
+
+  const debtCasesRaw = await getOverdrawnDebtCases();
+  const debtCases =
+    activeTab === "debt" && normalizedSearchQuery.length > 0
+      ? debtCasesRaw.filter((row) =>
+        row.debtorName.toLowerCase().includes(normalizedSearchQuery) ||
+        row.debtorCard.toLowerCase().includes(normalizedSearchQuery)
+      )
+      : debtCasesRaw;
   const totalDebtAmount = debtCases.reduce((sum, row) => sum + row.debtorDebtAmount, 0);
   const totalDebtDistributed = debtCases.reduce((sum, row) => sum + row.plannedDistributed, 0);
   const debtSettledCount = debtCases.filter((row) => row.isSettled).length;
@@ -289,12 +321,16 @@ export default async function DuplicatesAdminPage({
           <div>
             <h1 className="section-title text-2xl font-black text-slate-950 dark:text-white">إدارة التكرارات</h1>
             <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-              استكشاف حالات التكرار ومعالجتها داخل المنظومة. الدمج يعتمد تلقائياً البطاقة التي تحتوي أصفاراً بعد 2025.
+              استكشاف حالات التكرار ومعالجتها داخل المنظومة.
             </p>
           </div>
           <div className="w-full sm:w-auto flex flex-col sm:flex-row gap-2 sm:items-center">
             <form className="w-full sm:w-80">
-              <Input name="q" defaultValue={q ?? ""} placeholder="بحث بالاسم أو البطاقة أو canonical" autoComplete="off" />
+              <input type="hidden" name="tab" value={activeTab} />
+              <input type="hidden" name="pz" value="1" />
+              <input type="hidden" name="pn" value="1" />
+              <input type="hidden" name="pr" value="1" />
+              <Input name="q" defaultValue={q ?? ""} placeholder="بحث بالاسم أو رقم البطاقة" autoComplete="off" />
             </form>
             <Link href={exportHref} className="inline-flex">
               <Button type="button" variant="outline" className="h-10 w-full sm:w-auto">تصدير Excel</Button>
@@ -330,7 +366,7 @@ export default async function DuplicatesAdminPage({
         )}
 
         <Card className="p-2">
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-6">
             <Link href={buildTabHref("review")}>
               <Button
                 type="button"
@@ -374,6 +410,15 @@ export default async function DuplicatesAdminPage({
                 className="w-full h-10"
               >
                 مديونية تجاوز الرصيد
+              </Button>
+            </Link>
+            <Link href={buildTabHref("health")}>
+              <Button
+                type="button"
+                variant={activeTab === "health" ? "primary" : "outline"}
+                className="w-full h-10"
+              >
+                صحة البيانات
               </Button>
             </Link>
           </div>
@@ -998,6 +1043,12 @@ export default async function DuplicatesAdminPage({
               </div>
             </Card>
           </>
+        )}
+
+        {activeTab === "health" && (
+          <Card className="p-4 sm:p-6">
+            <DataHealthContent withinDuplicatesTab searchQuery={searchQuery} />
+          </Card>
         )}
       </div>
     </Shell>

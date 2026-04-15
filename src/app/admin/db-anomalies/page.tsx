@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { getSession } from "@/lib/auth";
 import { Shell } from "@/components/shell";
 import prisma from "@/lib/prisma";
@@ -132,8 +133,8 @@ function Num({ value }: { value: number }) {
 
 function Section({ title, count, children }: { title: string; count: number; children: React.ReactNode }) {
   return (
-    <section className="space-y-2 rounded border border-slate-200 bg-white p-4">
-      <h2 className="text-lg font-bold">
+    <section className="space-y-2 rounded border border-slate-200 bg-white p-4 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+      <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
         {title} ({count.toLocaleString("ar-LY")})
       </h2>
       {children}
@@ -469,9 +470,12 @@ export default async function DbAnomaliesPage() {
     <Shell facilityName={session.name} session={session}>
       <div className="space-y-4 pb-16">
         <header className="space-y-1">
-          <h1 className="text-2xl font-black">نافذة تشوهات البيانات وتنظيف القاعدة</h1>
+          <h1 className="text-2xl font-black">نافذة صحة البيانات وتنظيف القاعدة</h1>
           <p className="text-sm text-slate-600">
             نافذة فحص وتشخيص مباشر مع تنظيف آمن للسجلات اليتيمة والقديمة.
+          </p>
+          <p className="text-xs text-slate-500">
+            ضمن إدارة التكرارات: <Link href="/admin/duplicates?tab=health" className="font-bold text-primary hover:underline">تبويب صحة البيانات</Link>
           </p>
           <p className="text-sm text-amber-700">
             ملاحظة: عدد المرافق التي يجب عليها تغيير كلمة المرور بعد إعادة التعيين = {mustChangePasswordCount.toLocaleString("ar-LY")}.

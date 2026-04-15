@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { Loader2, RefreshCcw, ShieldCheck } from "lucide-react";
 import { ConfirmationModal } from "@/components/confirmation-modal";
 import {
@@ -11,6 +11,10 @@ import {
 
 type Props = {
   counts?: {
+    unlinked_corrections?: number;
+    duplicate_movements?: number;
+    invalid_password_facilities?: number;
+    deleted_facilities?: number;
     orphaned_notifications: number;
     old_read_notifications: number;
     old_login_audit_logs: number;
@@ -19,8 +23,36 @@ type Props = {
   };
 };
 
+type HygieneCounts = {
+  unlinked_corrections: number;
+  duplicate_movements: number;
+  invalid_password_facilities: number;
+  deleted_facilities: number;
+  orphaned_notifications: number;
+  old_read_notifications: number;
+  old_login_audit_logs: number;
+  old_import_jobs: number;
+  old_restore_jobs: number;
+};
+
+const ZERO_COUNTS: HygieneCounts = {
+  unlinked_corrections: 0,
+  duplicate_movements: 0,
+  invalid_password_facilities: 0,
+  deleted_facilities: 0,
+  orphaned_notifications: 0,
+  old_read_notifications: 0,
+  old_login_audit_logs: 0,
+  old_import_jobs: 0,
+  old_restore_jobs: 0,
+};
+
 const MODE_LABELS: Record<DataHygieneMode, string> = {
   all: "الكل",
+  unlinked_corrections: "الحركات غير المرتبطة",
+  duplicate_movements: "تكرارات الحركات",
+  invalid_password_facilities: "مرافق كلمة مرور غير صالحة",
+  deleted_facilities: "مرافق محذوفة",
   orphaned_notifications: "الإشعارات اليتيمة",
   old_read_notifications: "الإشعارات المقروءة القديمة",
   old_login_audit_logs: "سجلات الدخول/الخروج القديمة",
@@ -34,6 +66,17 @@ export function DataHygieneSweepButton({ counts }: Props) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [result, setResult] = useState<DataHygieneSweepResult | null>(null);
   const [pendingMode, setPendingMode] = useState<DataHygieneMode>("all");
+  const [liveCounts, setLiveCounts] = useState<HygieneCounts>({
+    ...ZERO_COUNTS,
+    ...(counts ?? {}),
+  });
+
+  useEffect(() => {
+    setLiveCounts({
+      ...ZERO_COUNTS,
+      ...(counts ?? {}),
+    });
+  }, [counts]);
 
   const runSweep = (mode: DataHygieneMode, dryRun: boolean) => {
     setError(null);
@@ -44,23 +87,33 @@ export function DataHygieneSweepButton({ counts }: Props) {
         return;
       }
       setResult(res);
+      setLiveCounts({
+        unlinked_corrections: res.unlinked_corrections,
+        duplicate_movements: res.duplicate_movements,
+        invalid_password_facilities: res.invalid_password_facilities,
+        deleted_facilities: res.deleted_facilities,
+        orphaned_notifications: res.orphaned_notifications,
+        old_read_notifications: res.old_read_notifications,
+        old_login_audit_logs: res.old_login_audit_logs,
+        old_import_jobs: res.old_import_jobs,
+        old_restore_jobs: res.old_restore_jobs,
+      });
       if (!dryRun) setConfirmOpen(false);
     });
   };
 
   const candidateCountByMode = (mode: DataHygieneMode) => {
-    if (!counts) return 0;
     if (mode === "all") {
       return (
-        counts.orphaned_notifications +
-        counts.old_read_notifications +
-        counts.old_login_audit_logs +
-        counts.old_import_jobs +
-        counts.old_restore_jobs
+        liveCounts.orphaned_notifications +
+        liveCounts.old_read_notifications +
+        liveCounts.old_login_audit_logs +
+        liveCounts.old_import_jobs +
+        liveCounts.old_restore_jobs
       );
     }
 
-    return counts[mode] ?? 0;
+    return liveCounts[mode] ?? 0;
   };
 
   const totalAffected = result
@@ -93,7 +146,7 @@ export function DataHygieneSweepButton({ counts }: Props) {
           type="button"
           onClick={() => openConfirm("all")}
           disabled={isPending}
-          className="inline-flex items-center gap-2 rounded-md bg-emerald-600 px-3 py-2 text-sm font-bold text-white transition-colors hover:bg-emerald-700 disabled:opacity-60"
+          className="inline-flex items-center gap-2 rounded-md bg-[#0f2a4a] px-3 py-2 text-sm font-bold text-white transition-colors hover:bg-[#0b1f38] disabled:opacity-60"
         >
           {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
           تنظيف السجلات القديمة واليتيمة
@@ -103,7 +156,7 @@ export function DataHygieneSweepButton({ counts }: Props) {
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
         <button
           type="button"
-          disabled={isPending || candidateCountByMode("orphaned_notifications") === 0}
+          disabled={isPending}
           onClick={() => openConfirm("orphaned_notifications")}
           className="rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
         >
@@ -111,7 +164,7 @@ export function DataHygieneSweepButton({ counts }: Props) {
         </button>
         <button
           type="button"
-          disabled={isPending || candidateCountByMode("old_read_notifications") === 0}
+          disabled={isPending}
           onClick={() => openConfirm("old_read_notifications")}
           className="rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
         >
@@ -119,7 +172,7 @@ export function DataHygieneSweepButton({ counts }: Props) {
         </button>
         <button
           type="button"
-          disabled={isPending || candidateCountByMode("old_login_audit_logs") === 0}
+          disabled={isPending}
           onClick={() => openConfirm("old_login_audit_logs")}
           className="rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
         >
@@ -127,7 +180,7 @@ export function DataHygieneSweepButton({ counts }: Props) {
         </button>
         <button
           type="button"
-          disabled={isPending || candidateCountByMode("old_import_jobs") === 0}
+          disabled={isPending}
           onClick={() => openConfirm("old_import_jobs")}
           className="rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
         >
@@ -135,7 +188,7 @@ export function DataHygieneSweepButton({ counts }: Props) {
         </button>
         <button
           type="button"
-          disabled={isPending || candidateCountByMode("old_restore_jobs") === 0}
+          disabled={isPending}
           onClick={() => openConfirm("old_restore_jobs")}
           className="rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
         >

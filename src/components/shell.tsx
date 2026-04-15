@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { cn } from "./ui";
-import { LayoutDashboard, ListOrdered, LogOut, Users, Building2, KeyRound, DatabaseBackup, ClipboardList, UserCog, Activity, Banknote, ShieldAlert } from "lucide-react";
+import { LayoutDashboard, ListOrdered, LogOut, Users, Building2, KeyRound, DatabaseBackup, ClipboardList, UserCog, Banknote, TriangleAlert, Wrench } from "lucide-react";
 import { logout } from "@/app/actions/auth";
 import { ThemeSwitcher } from "./theme-switcher";
 import type { ManagerPermissions, Session } from "@/lib/auth";
@@ -31,12 +31,14 @@ const managerNavigation: Array<{ name: string; href: string; icon: typeof Layout
   { name: "سجل المراقبة", href: "/admin/audit-log", icon: ClipboardList, perm: "view_audit_log" },
 ];
 
-const cashClaimNav = { name: "كاش", href: "/cash-claim", icon: Banknote, perm: "cash_claim" as keyof ManagerPermissions };
+const cashClaimNav = { name: "كاش", href: "/cash-claim", icon: Banknote };
+
+const maintenanceNavigation = [
+  { name: "النسخ الاحتياطي", href: "/admin/backup", icon: DatabaseBackup },
+  { name: "إدارة المشاكل", href: "/admin/duplicates", icon: TriangleAlert },
+];
 
 const superAdminNavigation = [
-  { name: "صحة الرصيد", href: "/admin/balance-health", icon: Activity },
-  { name: "تشوهات البيانات", href: "/admin/db-anomalies", icon: ShieldAlert },
-  { name: "النسخ الاحتياطي", href: "/admin/backup", icon: DatabaseBackup },
   { name: "المديرون", href: "/admin/managers", icon: UserCog },
 ];
 
@@ -57,14 +59,14 @@ export function Shell({
     return checkClientPerm(session, item.perm);
   });
 
-  const showCashClaim = checkClientPerm(session, cashClaimNav.perm);
+  const showEmployeeCashClaim = session.is_employee;
 
   const allNav = isAdmin
-    ? [...baseNavigation, ...managerNavigation, cashClaimNav, ...superAdminNavigation]
+    ? [...baseNavigation, ...managerNavigation, ...superAdminNavigation]
     : isManager
-      ? [...baseNavigation, ...filteredManagerNav, ...(showCashClaim ? [cashClaimNav] : [])]
+      ? [...baseNavigation, ...filteredManagerNav]
       : session.is_employee
-        ? [...baseNavigation, ...(showCashClaim ? [cashClaimNav] : [])]
+        ? [...(showEmployeeCashClaim ? [cashClaimNav] : []), ...baseNavigation]
         : baseNavigation;
 
   const roleLabel = isAdmin ? "المبرمج" : isManager ? "مدير" : session.is_employee ? "موظف" : "مرفق";
@@ -95,22 +97,57 @@ export function Shell({
             </div>
 
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-              <div className="flex gap-1 overflow-x-auto pb-1 lg:pb-0 scrollbar-hide">
-                {allNav.map((item) => (
-                  <Link
-                    key={item.name}
-                    href={item.href}
-                    className={cn(
-                      "inline-flex min-w-fit items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-bold transition-colors",
-                      pathname === item.href || pathname.startsWith(item.href + "/")
-                        ? "border border-primary/20 bg-primary/10 text-primary dark:border-primary/30 dark:bg-primary/20 dark:text-blue-400"
-                        : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200"
-                    )}
-                  >
-                    <item.icon className="h-3.5 w-3.5" />
-                    {item.name}
-                  </Link>
-                ))}
+              <div className="flex items-center gap-1 pb-1 lg:pb-0">
+                <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto scrollbar-hide">
+                  {allNav.map((item) => (
+                    <Link
+                      key={item.name}
+                      href={item.href}
+                      className={cn(
+                        "inline-flex min-w-fit items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-bold transition-colors",
+                        pathname === item.href || pathname.startsWith(item.href + "/")
+                          ? "border border-primary/20 bg-primary/10 text-primary dark:border-primary/30 dark:bg-primary/20 dark:text-blue-400"
+                          : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200"
+                      )}
+                    >
+                      <item.icon className="h-3.5 w-3.5" />
+                      {item.name}
+                    </Link>
+                  ))}
+                </div>
+
+                {isAdmin && (
+                  <details className="group relative shrink-0">
+                    <summary
+                      className={cn(
+                        "inline-flex min-w-fit cursor-pointer list-none items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-bold transition-colors [&::-webkit-details-marker]:hidden",
+                        pathname.startsWith("/admin/backup") || pathname.startsWith("/admin/duplicates")
+                          ? "border border-primary/20 bg-primary/10 text-primary dark:border-primary/30 dark:bg-primary/20 dark:text-blue-400"
+                          : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200"
+                      )}
+                    >
+                      <Wrench className="h-3.5 w-3.5" />
+                      صيانة
+                    </summary>
+                    <div className="absolute right-0 top-full z-50 mt-2 min-w-48 rounded-md border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900">
+                      {maintenanceNavigation.map((item) => (
+                        <Link
+                          key={item.name}
+                          href={item.href}
+                          className={cn(
+                            "flex items-center gap-2 rounded-md px-2 py-2 text-[13px] font-bold transition-colors",
+                            pathname === item.href || pathname.startsWith(item.href + "/")
+                              ? "bg-primary/10 text-primary dark:bg-primary/20 dark:text-blue-400"
+                              : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                          )}
+                        >
+                          <item.icon className="h-3.5 w-3.5" />
+                          {item.name}
+                        </Link>
+                      ))}
+                    </div>
+                  </details>
+                )}
               </div>
 
               <div className="flex items-center justify-between gap-3 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-2.5 py-1.5 lg:min-w-48.75">
