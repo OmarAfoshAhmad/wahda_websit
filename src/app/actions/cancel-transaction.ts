@@ -8,6 +8,11 @@ import { roundCurrency } from "@/lib/money";
 
 import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 
+type BulkActionResult = {
+  success?: boolean;
+  details?: Record<string, unknown> | null;
+};
+
 export async function cancelTransaction(transactionId: string) {
   try {
     const session = await requireActiveFacilitySession();
@@ -496,11 +501,11 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
 
     if (hasCancellation) {
       for (const tx of actionable) {
-        const result = await deleteCancellationTransaction(tx.id);
+        const result = (await deleteCancellationTransaction(tx.id)) as BulkActionResult;
         if (result.success) {
           successCount += 1;
           if (result.details) {
-            detailedItems.push(result.details as Record<string, unknown>);
+            detailedItems.push(result.details);
           }
         } else skippedCount += 1;
       }
@@ -522,11 +527,11 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
       });
     } else {
       for (const tx of actionable) {
-        const result = await cancelTransaction(tx.id);
+        const result = (await cancelTransaction(tx.id)) as BulkActionResult;
         if (result.success) {
           successCount += 1;
           if (result.details) {
-            detailedItems.push(result.details as Record<string, unknown>);
+            detailedItems.push(result.details);
           }
         } else skippedCount += 1;
       }
