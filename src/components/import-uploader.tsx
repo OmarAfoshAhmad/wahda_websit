@@ -290,12 +290,12 @@ export function ImportUploader() {
                       تراجع
                     </button>
                   )}
-                  {hasSkippedRows && (
+                  {(hasSkippedRows || hasUpdates || job.insertedRows > 0) && (
                     <a
                       href={`/api/import-jobs/${job.id}/skipped-file`}
                       className="inline-flex h-9 items-center justify-center rounded-md border border-current/20 bg-white/70 dark:bg-black/20 px-3 text-sm font-bold"
                     >
-                      تنزيل غير المستورد
+                      تنزيل تقرير الاستيراد
                     </a>
                   )}
                   <button

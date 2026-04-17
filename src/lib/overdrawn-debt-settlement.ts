@@ -17,6 +17,8 @@ type FamilyMemberShare = {
   completedViaAfter: string | null;
 };
 
+const DEBT_SETTLE_IDEMPOTENCY_PREFIX = "DEBT_SETTLE";
+
 export type OverdrawnDebtCase = {
   debtorId: string;
   debtorName: string;
@@ -47,7 +49,7 @@ export type DebtSettlementRun = {
 };
 
 function extractFamilyBaseCard(cardNumber: string): string {
-  const match = cardNumber.match(/^(.*?)([WSDMFHV])(\d+)$/i);
+  const match = cardNumber.match(/^(.*?)([WSDMFHV])(\d*)$/i);
   return match ? match[1] : cardNumber;
 }
 
@@ -59,12 +61,40 @@ function planSharesByAvailability(
     .filter((m) => m.status === "ACTIVE" && m.remaining > 0)
     .sort((a, b) => b.remaining - a.remaining);
 
-  let remainingDebt = roundCurrency(debtAmount);
+  const normalizedDebt = roundCurrency(Math.max(0, debtAmount));
+  let remainingDebt = normalizedDebt;
   const shares: FamilyMemberShare[] = [];
 
+  if (candidates.length === 0 || normalizedDebt <= 0) return shares;
+
+  // التوزيع الأساسي: حصة متساوية لكل فرد (بنفس النسبة)
+  const baseShare = Math.floor(normalizedDebt / candidates.length);
+  const remainder = Math.max(0, Math.round(normalizedDebt - baseShare * candidates.length));
+
+  const allocated = new Map<string, number>();
+  for (let i = 0; i < candidates.length; i++) {
+    const member = candidates[i];
+    const target = i === 0 ? baseShare + remainder : baseShare;
+    const firstDeduct = roundCurrency(Math.min(member.remaining, target));
+    allocated.set(member.id, firstDeduct);
+    remainingDebt = roundCurrency(remainingDebt - firstDeduct);
+  }
+
+  // إعادة توزيع المتبقي على من يملك سعة إضافية
+  if (remainingDebt > 0) {
+    for (const member of candidates) {
+      if (remainingDebt <= 0) break;
+      const current = allocated.get(member.id) ?? 0;
+      const extraCapacity = roundCurrency(Math.max(0, member.remaining - current));
+      if (extraCapacity <= 0) continue;
+      const extra = roundCurrency(Math.min(extraCapacity, remainingDebt));
+      allocated.set(member.id, roundCurrency(current + extra));
+      remainingDebt = roundCurrency(remainingDebt - extra);
+    }
+  }
+
   for (const member of candidates) {
-    if (remainingDebt <= 0) break;
-    const deduct = roundCurrency(Math.min(member.remaining, remainingDebt));
+    const deduct = roundCurrency(allocated.get(member.id) ?? 0);
     if (deduct <= 0) continue;
 
     const afterRemaining = roundCurrency(member.remaining - deduct);
@@ -82,7 +112,6 @@ function planSharesByAvailability(
       completedViaAfter: statusAfter === "FINISHED" ? "EXCEEDED_BALANCE" : null,
     });
 
-    remainingDebt = roundCurrency(remainingDebt - deduct);
   }
 
   return shares;
@@ -122,6 +151,43 @@ export async function getOverdrawnDebtCases(): Promise<OverdrawnDebtCase[]> {
 
   if (debtorRows.length === 0) return [];
 
+  const debtorIds = debtorRows.map((row) => row.id);
+
+  // تتبع ما تم توزيعه سابقًا لكل مدين/فرد عبر idempotency_key
+  const priorSettlementRows = debtorIds.length > 0
+    ? await prisma.$queryRaw<Array<{
+        debtor_id: string;
+        member_id: string;
+        distributed_amount: number;
+      }>>`
+        SELECT
+          split_part(t.idempotency_key, ':', 2) AS debtor_id,
+          split_part(t.idempotency_key, ':', 3) AS member_id,
+          COALESCE(SUM(t.amount), 0)::float8 AS distributed_amount
+        FROM "Transaction" t
+        WHERE t.is_cancelled = false
+          AND t.type = 'IMPORT'
+          AND t.idempotency_key IS NOT NULL
+          AND t.idempotency_key LIKE ${`${DEBT_SETTLE_IDEMPOTENCY_PREFIX}:%`}
+          AND split_part(t.idempotency_key, ':', 2) = ANY(${debtorIds}::text[])
+        GROUP BY split_part(t.idempotency_key, ':', 2), split_part(t.idempotency_key, ':', 3)
+      `
+    : [];
+
+  const priorDistributedByDebtor = new Map<string, number>();
+  const priorDistributedMemberByDebtor = new Map<string, Set<string>>();
+  for (const row of priorSettlementRows) {
+    const amount = roundCurrency(Number(row.distributed_amount) || 0);
+    priorDistributedByDebtor.set(
+      row.debtor_id,
+      roundCurrency((priorDistributedByDebtor.get(row.debtor_id) ?? 0) + amount),
+    );
+    if (!priorDistributedMemberByDebtor.has(row.debtor_id)) {
+      priorDistributedMemberByDebtor.set(row.debtor_id, new Set());
+    }
+    priorDistributedMemberByDebtor.get(row.debtor_id)!.add(row.member_id);
+  }
+
   // استخرج بادئات البطاقات العائلية لجلب الأفراد المرتبطين
   const familyBasePrefixes = [...new Set(
     debtorRows.map((b) => extractFamilyBaseCard(b.card_number))
@@ -151,7 +217,7 @@ export async function getOverdrawnDebtCases(): Promise<OverdrawnDebtCase[]> {
       AND t.is_cancelled = false
       AND t.type <> 'CANCELLATION'
     WHERE b.deleted_at IS NULL
-      AND b.card_number ~ ${`^(${familyBasePrefixes.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})([WSDMFHV]\\d+)?$`}
+      AND b.card_number ~ ${`^(${familyBasePrefixes.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})([WSDMFHV]\\d*)?$`}
     GROUP BY b.id, b.name, b.card_number, b.total_balance, b.status, b.completed_via
     ORDER BY b.card_number
   `;
@@ -178,14 +244,19 @@ export async function getOverdrawnDebtCases(): Promise<OverdrawnDebtCase[]> {
   for (const b of debtorRows) {
     const totalBalance = roundCurrency(b.total_balance);
     const spent = roundCurrency(b.spent);
-    const debtAmount = roundCurrency(spent - totalBalance);
-    if (debtAmount <= 0) continue;
+    const debtAmountRaw = roundCurrency(spent - totalBalance);
+    if (debtAmountRaw <= 0) continue;
+
+    const alreadyDistributed = roundCurrency(priorDistributedByDebtor.get(b.id) ?? 0);
+    const debtAmount = roundCurrency(Math.max(0, debtAmountRaw - alreadyDistributed));
 
     const baseCard = extractFamilyBaseCard(b.card_number);
     const allFamilyMembers = membersByBaseCard.get(baseCard) ?? [];
+    const alreadyUsedMembers = priorDistributedMemberByDebtor.get(b.id) ?? new Set<string>();
 
     const familyMembers = allFamilyMembers
       .filter((m) => m.id !== b.id)
+      .filter((m) => !alreadyUsedMembers.has(m.id))
       .map((m) => ({
         id: m.id,
         name: m.name,
@@ -216,7 +287,7 @@ export async function getOverdrawnDebtCases(): Promise<OverdrawnDebtCase[]> {
       familyAvailableTotal,
       plannedDistributed,
       residualDebtAfterDistribution,
-      isSettled: residualDebtAfterDistribution <= 0,
+      isSettled: debtAmount <= 0 || residualDebtAfterDistribution <= 0,
       shares,
     });
   }
@@ -261,8 +332,6 @@ export async function applyOverdrawnDebtSettlement(params: {
 
   await prisma.$transaction(async (tx) => {
     for (const c of beforeCases) {
-      if (c.shares.length === 0) continue;
-
       // لا نعلّم المدين "مكتمل" إلا إذا تمت تغطية الدين بالكامل.
       if (c.isSettled) {
         await tx.beneficiary.update({
@@ -275,12 +344,24 @@ export async function applyOverdrawnDebtSettlement(params: {
         });
       }
 
+      if (c.shares.length === 0) continue;
+
       for (const share of c.shares) {
-        await tx.transaction.create({
-          data: {
+        const idempotencyKey = `${DEBT_SETTLE_IDEMPOTENCY_PREFIX}:${c.debtorId}:${share.memberId}`;
+
+        await tx.transaction.upsert({
+          where: { idempotency_key: idempotencyKey },
+          update: {
+            // في التشغيلات اللاحقة لا نعيد توزيع نفس الفرد؛ لكن upsert يحمي من السباقات.
+            amount: share.deductedAmount,
+            facility_id: effectiveFacilityId,
+            is_cancelled: false,
+          },
+          create: {
             beneficiary_id: share.memberId,
             facility_id: effectiveFacilityId,
             amount: share.deductedAmount,
+            idempotency_key: idempotencyKey,
             type: TransactionType.IMPORT,
           },
         });

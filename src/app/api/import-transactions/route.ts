@@ -40,7 +40,10 @@ export async function POST(request: Request) {
   try {
     const formData = await request.formData();
     const file = formData.get("file");
-    const facilityIdRaw = String(formData.get("facility_id") ?? "").trim();
+    // intentionally ignored: الاستيراد ينفذ باسم المستخدم المسجل دخول فقط
+    void formData.get("facility_id");
+    const replaceOldImportsRaw = String(formData.get("replace_old_imports") ?? "true").toLowerCase();
+    const replaceOldImports = replaceOldImportsRaw !== "false";
 
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "لم يتم إرسال ملف صالح." }, { status: 400 });
@@ -77,7 +80,8 @@ export async function POST(request: Request) {
     const { result, error } = await processTransactionImport(
       buffer,
       session.username,
-      facilityIdRaw || undefined,
+      session.id,
+      { replaceOldImports },
     );
 
     if (error) {

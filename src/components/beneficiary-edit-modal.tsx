@@ -3,7 +3,7 @@
 import { useState, useTransition, useEffect } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button, Input } from "@/components/ui";
-import { Loader2 } from "lucide-react";
+import { Loader2, Pencil } from "lucide-react";
 import { updateBeneficiary } from "@/app/actions/beneficiary";
 import { DateInput } from "@/components/date-input";
 
@@ -17,9 +17,10 @@ interface BeneficiaryEditModalProps {
     total_balance?: number;
     remaining_balance?: number;
   };
+  iconOnly?: boolean;
 }
 
-export function BeneficiaryEditModal({ beneficiary }: BeneficiaryEditModalProps) {
+export function BeneficiaryEditModal({ beneficiary, iconOnly = false }: BeneficiaryEditModalProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -83,10 +84,12 @@ export function BeneficiaryEditModal({ beneficiary }: BeneficiaryEditModalProps)
       <Button
         type="button"
         variant="outline"
-        className="h-8 px-3 text-xs"
+        className={iconOnly ? "h-8 w-8 p-0" : "h-8 px-3 text-xs"}
         onClick={() => setOpen(true)}
+        title="تعديل المستفيد"
+        aria-label="تعديل المستفيد"
       >
-        تعديل
+        {iconOnly ? <Pencil className="h-4 w-4" /> : "تعديل"}
       </Button>
 
       {open && (

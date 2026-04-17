@@ -11,6 +11,7 @@ import React from "react";
 import { CreditCard, DollarSign, Loader2 } from "lucide-react";
 import { Button, Input } from "@/components/ui";
 import { useDeductContext } from "./DeductContext";
+import { MAX_DEDUCTION_AMOUNT, MAX_AMOUNT_POLICY_ERROR } from "@/lib/validation";
 
 export function DeductionAction() {
   const {
@@ -23,6 +24,9 @@ export function DeductionAction() {
   if (!beneficiary || beneficiary.status !== "ACTIVE" || beneficiary.remaining_balance <= 0) {
     return null;
   }
+
+  const amountValue = Number(amount);
+  const amountExceedsMax = Number.isFinite(amountValue) && amountValue > MAX_DEDUCTION_AMOUNT;
 
   return (
     <div className="space-y-3">
@@ -37,12 +41,23 @@ export function DeductionAction() {
             <Input
               type="number"
               step="0.01"
+              max={String(MAX_DEDUCTION_AMOUNT)}
               placeholder="0.00"
               className="h-10 pr-9 text-sm font-black"
               value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+              onChange={(e) => {
+                const raw = e.target.value;
+                if (raw === "") {
+                  setAmount("");
+                  return;
+                }
+                setAmount(raw);
+              }}
             />
           </div>
+          {amountExceedsMax && (
+            <p className="text-xs font-bold text-red-600 dark:text-red-400">{MAX_AMOUNT_POLICY_ERROR}</p>
+          )}
         </div>
 
         {/* ─── نوع الخصم ─── */}
@@ -66,7 +81,7 @@ export function DeductionAction() {
         <Button
           className="h-10 w-full text-sm"
           onClick={() => amount && setShowConfirm(true)}
-          disabled={!amount || parseFloat(amount) <= 0}
+          disabled={!amount || parseFloat(amount) <= 0 || amountExceedsMax}
         >
           <CreditCard className="h-4 w-4" />
           <span className="mr-2">مراجعة الخصم</span>

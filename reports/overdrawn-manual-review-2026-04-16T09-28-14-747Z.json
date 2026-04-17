@@ -1,0 +1,113 @@
+{
+  "generatedAt": "2026-04-16T09:28:14.747Z",
+  "totalCases": 3,
+  "summary": {
+    "totalDebt": 620.75,
+    "totalPlannedDistributed": 207,
+    "totalResidual": 413.75,
+    "noFamilySupportCount": 2,
+    "partialSupportCount": 1,
+    "fullyCoverableCount": 0
+  },
+  "cases": [
+    {
+      "debtorId": "cmnfndwgu08txn2107ydzanmg",
+      "debtorName": "منى على عبدالمولى جربوع",
+      "debtorCard": "WAB2025003874",
+      "familyBaseCard": "WAB2025003874",
+      "debtorTotalBalance": 600,
+      "debtorSpent": 1090.75,
+      "debtorDebtAmount": 490.75,
+      "familyMembersCount": 2,
+      "familyAvailableTotal": 207,
+      "plannedDistributed": 207,
+      "residualDebtAfterDistribution": 283.75,
+      "isSettled": false,
+      "shares": [
+        {
+          "memberId": "cmnfndymk09z7n210lyl9xwsx",
+          "memberName": "وسام انور يوسف التائب",
+          "memberCard": "WAB2025003874S1",
+          "beforeRemaining": 207,
+          "deductedAmount": 207,
+          "afterRemaining": 0,
+          "statusBefore": "ACTIVE",
+          "statusAfter": "FINISHED",
+          "completedViaAfter": "EXCEEDED_BALANCE"
+        }
+      ],
+      "debtorStatus": "FINISHED",
+      "completedVia": "IMPORT",
+      "txBreakdown": {
+        "importAmount": 207,
+        "medicineAmount": 738.75,
+        "suppliesAmount": 145,
+        "otherAmount": 0,
+        "activeNonCancelAmount": 1090.75,
+        "activeNonCancelCount": 9,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "الرصيد العائلي المتاح غير كافٍ لتغطية كامل الدين | الخصومات اليدوية تشكل الجزء الأكبر من إجمالي الصرف",
+      "manualAction": "توزيع يدوي من الأسرة حسب المتاح ثم اعتماد معالجة المتبقي يدويا",
+      "suggestedHelpers": "WAB2025003874S1:207"
+    },
+    {
+      "debtorId": "cmnfndnnn03r3n210s9f9d6bb",
+      "debtorName": "زهرة علي ابراهيم الغناي",
+      "debtorCard": "WAB202502288",
+      "familyBaseCard": "WAB202502288",
+      "debtorTotalBalance": 600,
+      "debtorSpent": 665,
+      "debtorDebtAmount": 65,
+      "familyMembersCount": 1,
+      "familyAvailableTotal": 0,
+      "plannedDistributed": 0,
+      "residualDebtAfterDistribution": 65,
+      "isSettled": false,
+      "shares": [],
+      "debtorStatus": "FINISHED",
+      "completedVia": "IMPORT",
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 600,
+        "suppliesAmount": 0,
+        "otherAmount": 0,
+        "activeNonCancelAmount": 665,
+        "activeNonCancelCount": 2,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "لا يوجد رصيد متاح لدى أفراد الأسرة النشطين لتغطية الدين | الاستيراد يشكل الجزء الأكبر من إجمالي الصرف | الخصومات اليدوية تشكل الجزء الأكبر من إجمالي الصرف",
+      "manualAction": "تجميد الحساب مؤقتا + قيد تسوية يدوي خارج الأسرة (إداري/مالي)",
+      "suggestedHelpers": ""
+    },
+    {
+      "debtorId": "cmnfndpc604sin210xzrifl7k",
+      "debtorName": "صالح محمد حمد الزياني",
+      "debtorCard": "WAB2025477",
+      "familyBaseCard": "WAB2025477",
+      "debtorTotalBalance": 0,
+      "debtorSpent": 65,
+      "debtorDebtAmount": 65,
+      "familyMembersCount": 1,
+      "familyAvailableTotal": 0,
+      "plannedDistributed": 0,
+      "residualDebtAfterDistribution": 65,
+      "isSettled": false,
+      "shares": [],
+      "debtorStatus": "SUSPENDED",
+      "completedVia": null,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 0,
+        "suppliesAmount": 0,
+        "otherAmount": 0,
+        "activeNonCancelAmount": 65,
+        "activeNonCancelCount": 1,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "لا يوجد رصيد متاح لدى أفراد الأسرة النشطين لتغطية الدين | الاستيراد يشكل الجزء الأكبر من إجمالي الصرف",
+      "manualAction": "تجميد الحساب مؤقتا + قيد تسوية يدوي خارج الأسرة (إداري/مالي)",
+      "suggestedHelpers": ""
+    }
+  ]
+}

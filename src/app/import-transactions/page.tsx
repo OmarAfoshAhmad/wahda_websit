@@ -3,20 +3,11 @@ import { redirect } from "next/navigation";
 import { Shell } from "@/components/shell";
 import { TransactionImportUploader } from "@/components/transaction-import-uploader";
 import { Badge } from "@/components/ui";
-import prisma from "@/lib/prisma";
 
 export default async function ImportTransactionsPage() {
   const session = await getSession();
   if (!session) redirect("/login");
   if (!session.is_admin) redirect("/dashboard");
-
-  const facilities = await prisma.facility.findMany({
-    where: { deleted_at: null },
-    select: { id: true, name: true },
-    orderBy: { name: "asc" },
-  });
-  const companyFacilityId = process.env.WAAD_FACILITY_ID;
-  const defaultFacilityId = facilities.find((f) => f.id === companyFacilityId)?.id ?? session.id;
 
   return (
     <Shell facilityName={session.name} session={session}>
@@ -30,7 +21,7 @@ export default async function ImportTransactionsPage() {
           </p>
         </div>
 
-        <TransactionImportUploader facilities={facilities} defaultFacilityId={defaultFacilityId} />
+        <TransactionImportUploader currentActorName={session.name} />
       </div>
     </Shell>
   );

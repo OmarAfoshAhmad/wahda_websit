@@ -16,6 +16,7 @@ import { BeneficiaryDeleteButton } from "@/components/beneficiary-delete-button"
 import { BeneficiaryRestoreActions } from "@/components/beneficiary-restore-actions";
 import { BeneficiaryResetPinButton } from "@/components/beneficiary-reset-pin-button";
 import { BeneficiaryMergeDuplicatesButton } from "@/components/beneficiary-merge-duplicates-button";
+import { BeneficiaryTransactionsPanelButton } from "@/components/beneficiary-transactions-panel-button";
 import { PaginationButtons } from "@/components/pagination-buttons";
 import { BeneficiariesBulkActionButton, SelectAllCheckbox, EmptyRecycleBinButton } from "@/components/beneficiaries-bulk-action-button";
 import { BulkRenewalButton } from "@/components/bulk-renewal-button";
@@ -519,6 +520,11 @@ export default async function BeneficiariesPage({
                                 )
                               ) : (
                                 <>
+                                  <BeneficiaryTransactionsPanelButton
+                                    beneficiaryId={beneficiary.id}
+                                    beneficiaryName={beneficiary.name}
+                                    hasTransactions={beneficiary._count.transactions > 0}
+                                  />
                                   {canEdit && beneficiary.pin_hash && <BeneficiaryResetPinButton beneficiaryId={beneficiary.id} />}
                                   {canEdit && duplicateCardCount[normalizeCardKey(beneficiary.card_number)] > 1 && (
                                     <BeneficiaryMergeDuplicatesButton
@@ -529,6 +535,7 @@ export default async function BeneficiariesPage({
                                   )}
                                   {canEdit && (
                                     <BeneficiaryEditModal
+                                      iconOnly
                                       beneficiary={{
                                         id: beneficiary.id,
                                         name: beneficiary.name,

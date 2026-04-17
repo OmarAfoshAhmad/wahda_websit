@@ -1,5 +1,24 @@
 import { z } from "zod";
 
+const AMOUNT_EPSILON = 1e-9;
+export const MAX_DEDUCTION_AMOUNT = 600;
+
+export function normalizeMoneyAmount(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+export function isAllowedDeductionAmount(value: number): boolean {
+  if (!Number.isFinite(value) || value <= 0) return false;
+  const normalized = normalizeMoneyAmount(value);
+  // Reject numbers with more than 2 decimal digits.
+  if (Math.abs(value - normalized) > AMOUNT_EPSILON) return false;
+  if (normalized >= 1) return true;
+  return Math.abs(normalized - 0.25) < AMOUNT_EPSILON || Math.abs(normalized - 0.5) < AMOUNT_EPSILON;
+}
+
+export const AMOUNT_POLICY_ERROR = "القيم الأقل من 1 المسموح بها فقط: 0.25 أو 0.50";
+export const MAX_AMOUNT_POLICY_ERROR = `الحد الأقصى لقيمة الخصم هو ${MAX_DEDUCTION_AMOUNT}`;
+
 export const loginSchema = z.object({
   username: z.string().min(1, "اسم المستخدم مطلوب").max(50, "اسم المستخدم طويل جداً"),
   password: z.string().min(1, "كلمة المرور مطلوبة").max(128, "كلمة المرور طويلة جداً"),
@@ -7,7 +26,11 @@ export const loginSchema = z.object({
 
 export const deductionSchema = z.object({
   card_number: z.string().min(1, "رقم البطاقة مطلوب").max(50, "رقم البطاقة طويل جداً").regex(/^[A-Za-z0-9\u0600-\u06FF\s\-_]+$/, "رقم البطاقة يحتوي على أحرف غير مسموحة"),
-  amount: z.coerce.number().positive("يجب أن يكون المبلغ أكبر من الصفر").max(999_999, "المبلغ كبير جداً"),
+  amount: z.coerce
+    .number()
+    .positive("يجب أن يكون المبلغ أكبر من الصفر")
+    .max(MAX_DEDUCTION_AMOUNT, MAX_AMOUNT_POLICY_ERROR)
+    .refine(isAllowedDeductionAmount, AMOUNT_POLICY_ERROR),
   type: z.enum(["MEDICINE", "SUPPLIES"], {
     message: "يرجى اختيار نوع العملية",
   }),

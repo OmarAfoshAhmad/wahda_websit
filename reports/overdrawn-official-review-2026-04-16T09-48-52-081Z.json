@@ -1,0 +1,1192 @@
+{
+  "generatedAt": "2026-04-16T09:48:52.081Z",
+  "totalCases": 59,
+  "summary": {
+    "totalDebt": 4252.75,
+    "zeroTotalBalanceCount": 1,
+    "activeStatusCount": 0,
+    "exceededBalanceTaggedCount": 53
+  },
+  "cases": [
+    {
+      "id": "cmnfndwgu08txn2107ydzanmg",
+      "card_number": "WAB2025003874",
+      "name": "منى على عبدالمولى جربوع",
+      "status": "FINISHED",
+      "completed_via": "IMPORT",
+      "total_balance": 600,
+      "spent_non_cancel": 1090.75,
+      "debt_amount": 490.75,
+      "txBreakdown": {
+        "importAmount": 207,
+        "medicineAmount": 738.75,
+        "suppliesAmount": 145,
+        "otherAmount": 0,
+        "activeNonCancelCount": 9,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية على دفعات + مراجعة مصدر الدين (IMPORT مقابل خصومات يدوية)"
+    },
+    {
+      "id": "cmnfndz630a9jn2102xeb498u",
+      "card_number": "WAB2025105946F1",
+      "name": "يونس عبدالجواد سعد",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 957,
+      "debt_amount": 357,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 892,
+        "suppliesAmount": 0,
+        "otherAmount": 0,
+        "activeNonCancelCount": 4,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية على دفعات + مراجعة مصدر الدين (IMPORT مقابل خصومات يدوية)"
+    },
+    {
+      "id": "cmnfndlvv02lfn210m29tdlv0",
+      "card_number": "WAB2025009987",
+      "name": "حنان احمد العمامي",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 898,
+      "debt_amount": 298,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 833,
+        "suppliesAmount": 0,
+        "otherAmount": 0,
+        "activeNonCancelCount": 4,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية على دفعات + مراجعة مصدر الدين (IMPORT مقابل خصومات يدوية)"
+    },
+    {
+      "id": "cmnfndte8078hn210jhsgb9wh",
+      "card_number": "WAB202504133M1",
+      "name": "لطفية الفيتوري علي بالخير",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 769,
+      "debt_amount": 169,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 404,
+        "suppliesAmount": 300,
+        "otherAmount": 0,
+        "activeNonCancelCount": 4,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية على دفعات + مراجعة مصدر الدين (IMPORT مقابل خصومات يدوية)"
+    },
+    {
+      "id": "cmnfndygj09w4n210czjuu782",
+      "card_number": "WAB2025104908M1",
+      "name": "هنية عبدالسم علي",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 747,
+      "debt_amount": 147,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 682,
+        "suppliesAmount": 0,
+        "otherAmount": 0,
+        "activeNonCancelCount": 3,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية على دفعات + مراجعة مصدر الدين (IMPORT مقابل خصومات يدوية)"
+    },
+    {
+      "id": "cmnfnds1m06fjn210na2053fa",
+      "card_number": "WAB202509857D1",
+      "name": "فاطمة الزهراء حمدي محمد بوشناف",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 742,
+      "debt_amount": 142,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 348,
+        "suppliesAmount": 329,
+        "otherAmount": 0,
+        "activeNonCancelCount": 7,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية على دفعات + مراجعة مصدر الدين (IMPORT مقابل خصومات يدوية)"
+    },
+    {
+      "id": "cmnfndo9g0445n2100snkfjok",
+      "card_number": "WAB2025009664M1",
+      "name": "ست الكل احميده عطيه الفلاح",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 734,
+      "debt_amount": 134,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 669,
+        "suppliesAmount": 0,
+        "otherAmount": 0,
+        "activeNonCancelCount": 3,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية على دفعات + مراجعة مصدر الدين (IMPORT مقابل خصومات يدوية)"
+    },
+    {
+      "id": "cmnfndpc604ubn210d582hjtp",
+      "card_number": "WAB202511607W1",
+      "name": "صالحه مفتاح عبدالمولى عثمان",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 733,
+      "debt_amount": 133,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 400,
+        "suppliesAmount": 268,
+        "otherAmount": 0,
+        "activeNonCancelCount": 6,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية على دفعات + مراجعة مصدر الدين (IMPORT مقابل خصومات يدوية)"
+    },
+    {
+      "id": "cmnfndml2030rn2102do55y97",
+      "card_number": "WAB202504971W1",
+      "name": "رابحة علي سليمان",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 718,
+      "debt_amount": 118,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 508,
+        "suppliesAmount": 145,
+        "otherAmount": 0,
+        "activeNonCancelCount": 6,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية على دفعات + مراجعة مصدر الدين (IMPORT مقابل خصومات يدوية)"
+    },
+    {
+      "id": "cmnfndvrf08ftn210w50w57qg",
+      "card_number": "WAB202504021W1",
+      "name": "مريم هدية محمد العمامي",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 675,
+      "debt_amount": 75,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 280,
+        "suppliesAmount": 330,
+        "otherAmount": 0,
+        "activeNonCancelCount": 5,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndub307onn2102339h5go",
+      "card_number": "WAB202500295",
+      "name": "محمد بلعيد عبدالكريم بالخير",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 665,
+      "debt_amount": 65,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 600,
+        "suppliesAmount": 0,
+        "otherAmount": 0,
+        "activeNonCancelCount": 3,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndppl0534n2104xu44xt8",
+      "card_number": "WAB2025005096W1",
+      "name": "عائشة المرغني قنان",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 665,
+      "debt_amount": 65,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 600,
+        "suppliesAmount": 0,
+        "otherAmount": 0,
+        "activeNonCancelCount": 2,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmn9d6qmi00mznz1n8q9rhclb",
+      "card_number": "WAB2025009631W1",
+      "name": "نسيم يوسف عبدالله",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 665,
+      "debt_amount": 65,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 520,
+        "suppliesAmount": 80,
+        "otherAmount": 0,
+        "activeNonCancelCount": 5,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndnnn03r3n210s9f9d6bb",
+      "card_number": "WAB202502288",
+      "name": "زهرة علي ابراهيم الغناي",
+      "status": "FINISHED",
+      "completed_via": "IMPORT",
+      "total_balance": 600,
+      "spent_non_cancel": 665,
+      "debt_amount": 65,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 600,
+        "suppliesAmount": 0,
+        "otherAmount": 0,
+        "activeNonCancelCount": 2,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfnds1n06gvn210yheztfjw",
+      "card_number": "WAB202502853D1",
+      "name": "فاطمة جمال مفتاح",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 665,
+      "debt_amount": 65,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 550,
+        "suppliesAmount": 50,
+        "otherAmount": 0,
+        "activeNonCancelCount": 4,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndwgu08tln210znyf6po9",
+      "card_number": "WAB202502853D2",
+      "name": "منى جمال مفتاح",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 665,
+      "debt_amount": 65,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 550,
+        "suppliesAmount": 50,
+        "otherAmount": 0,
+        "activeNonCancelCount": 5,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndxqs09jun210uv2xo64m",
+      "card_number": "WAB202509017",
+      "name": "نوارة فرج عبدالسلام القعاني",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 665,
+      "debt_amount": 65,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 600,
+        "suppliesAmount": 0,
+        "otherAmount": 0,
+        "activeNonCancelCount": 2,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndpgn04vxn210vbmgh6lv",
+      "card_number": "WAB2025104296D2",
+      "name": "صفاء عبدالمنعم نصر علي",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 665,
+      "debt_amount": 65,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 600,
+        "suppliesAmount": 0,
+        "otherAmount": 0,
+        "activeNonCancelCount": 2,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndxvw09n3n210mnfr6v93",
+      "card_number": "WAB2025104308W1",
+      "name": "نورهان عبدالله بشير الغزال",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 665,
+      "debt_amount": 65,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 600,
+        "suppliesAmount": 0,
+        "otherAmount": 0,
+        "activeNonCancelCount": 2,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnhkve7l0028n20o7v6ruk8r",
+      "card_number": "WAB2025104337S2",
+      "name": "خالد محمد الفيتوري",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 665,
+      "debt_amount": 65,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 550,
+        "suppliesAmount": 50,
+        "otherAmount": 0,
+        "activeNonCancelCount": 3,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnhkve7l0029n20o6txkprry",
+      "card_number": "WAB2025104337S3",
+      "name": "أبي محمد الفيتوري",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 665,
+      "debt_amount": 65,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 550,
+        "suppliesAmount": 50,
+        "otherAmount": 0,
+        "activeNonCancelCount": 4,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndub207n3n210w2o4y3sm",
+      "card_number": "WAB2025104455F1",
+      "name": "محمد المبروك امحمد علي",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 665,
+      "debt_amount": 65,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 600,
+        "suppliesAmount": 0,
+        "otherAmount": 0,
+        "activeNonCancelCount": 2,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndlnr02fmn21023wbcb19",
+      "card_number": "WAB2025104787F1",
+      "name": "حسين مصطفى محمد الكردي",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 665,
+      "debt_amount": 65,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 600,
+        "suppliesAmount": 0,
+        "otherAmount": 0,
+        "activeNonCancelCount": 2,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndpu1054ln210wnh8unyu",
+      "card_number": "WAB202512032",
+      "name": "عائشة صالح حسن عامر",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 665,
+      "debt_amount": 65,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 0,
+        "suppliesAmount": 600,
+        "otherAmount": 0,
+        "activeNonCancelCount": 3,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndpc604sin210xzrifl7k",
+      "card_number": "WAB2025477",
+      "name": "صالح محمد حمد الزياني",
+      "status": "SUSPENDED",
+      "completed_via": null,
+      "total_balance": 0,
+      "spent_non_cancel": 65,
+      "debt_amount": 65,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 0,
+        "suppliesAmount": 0,
+        "otherAmount": 0,
+        "activeNonCancelCount": 1,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "الرصيد الكلي صفري أو سالب بينما توجد حركات صرف | الاستيراد مساهم رئيسي في الصرف",
+      "manualAction": "إعادة تقييم total_balance للحالة أو إلغاء حركة/حركات خاطئة"
+    },
+    {
+      "id": "cmnfndw1h08mmn210yyqp693n",
+      "card_number": "WAB2025105008",
+      "name": "معلي عبدالمجيد فرج بن حميدة",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 662,
+      "debt_amount": 62,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 597,
+        "suppliesAmount": 0,
+        "otherAmount": 0,
+        "activeNonCancelCount": 2,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndjjy00wgn210nie8bjtj",
+      "card_number": "WAB2025009961F1",
+      "name": "المهدي عبدالله بالعيد قريصه",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 661,
+      "debt_amount": 61,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 546,
+        "suppliesAmount": 50,
+        "otherAmount": 0,
+        "activeNonCancelCount": 6,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmn9d6qow00u2nz1nelgl2kvl",
+      "card_number": "WAB2025003019",
+      "name": "عبدالونيس ابريك محمد المبروك",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 660,
+      "debt_amount": 60,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 595,
+        "suppliesAmount": 0,
+        "otherAmount": 0,
+        "activeNonCancelCount": 5,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmn9d6qmi00m6nz1nq5i6k3jk",
+      "card_number": "WAB2025005085",
+      "name": "عبدالقادر جمعة المبروك",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 660,
+      "debt_amount": 60,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 560,
+        "suppliesAmount": 35,
+        "otherAmount": 0,
+        "activeNonCancelCount": 6,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndkd601hun210j92sfgu2",
+      "card_number": "WAB2025104944",
+      "name": "إدريس خالد أدريس المهدي",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 660,
+      "debt_amount": 60,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 595,
+        "suppliesAmount": 0,
+        "otherAmount": 0,
+        "activeNonCancelCount": 4,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndsgb06oqn2109ungqa3k",
+      "card_number": "WAB2025105154D1",
+      "name": "فاطمة هيثم عبدالله الشريف",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 657,
+      "debt_amount": 57,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 542,
+        "suppliesAmount": 50,
+        "otherAmount": 0,
+        "activeNonCancelCount": 3,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndxlm09h3n210szaiut9a",
+      "card_number": "WAB2025104649M1",
+      "name": "نعيمة صالح محمد الفيتوري",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 656,
+      "debt_amount": 56,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 453,
+        "suppliesAmount": 138,
+        "otherAmount": 0,
+        "activeNonCancelCount": 6,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndjyd0170n210wex7wg8k",
+      "card_number": "WAB202504300",
+      "name": "اميمة رمضان على السويحلى",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 653,
+      "debt_amount": 53,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 455,
+        "suppliesAmount": 133,
+        "otherAmount": 0,
+        "activeNonCancelCount": 6,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndyrs0a2mn210zqgx4fqe",
+      "card_number": "WAB2025105651",
+      "name": "ياسر صالح علي العمروني",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 653,
+      "debt_amount": 53,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 240,
+        "suppliesAmount": 348,
+        "otherAmount": 0,
+        "activeNonCancelCount": 3,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndodl047gn210wj3p9zh9",
+      "card_number": "WAB202503283W1",
+      "name": "سعاد موسى لامين",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 652,
+      "debt_amount": 52,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 427,
+        "suppliesAmount": 160,
+        "otherAmount": 0,
+        "activeNonCancelCount": 6,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfnds1n06gln2108t5h2zql",
+      "card_number": "WAB2025105501",
+      "name": "معتز محمد عبدالسلام",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 652,
+      "debt_amount": 52,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 587,
+        "suppliesAmount": 0,
+        "otherAmount": 0,
+        "activeNonCancelCount": 2,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndu5607lan2108olrx5vv",
+      "card_number": "WAB2025104097",
+      "name": "محمد احمد محمد عبدالله العمامي",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 651,
+      "debt_amount": 51,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 468,
+        "suppliesAmount": 118,
+        "otherAmount": 0,
+        "activeNonCancelCount": 7,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndw6j08nnn2109ktdrbyn",
+      "card_number": "WAB202505088",
+      "name": "مفتاح عبدالمولى مفتاح عبدالمولى",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 649,
+      "debt_amount": 49,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 584,
+        "suppliesAmount": 0,
+        "otherAmount": 0,
+        "activeNonCancelCount": 5,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndtuk07gnn210bpbs8kgr",
+      "card_number": "WAB2025105638M1",
+      "name": "مبروكة عبدالله محمد كريم",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 649,
+      "debt_amount": 49,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 584,
+        "suppliesAmount": 0,
+        "otherAmount": 0,
+        "activeNonCancelCount": 2,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmn97s4lj00jenz1nxntnd4ok",
+      "card_number": "WAB2025003473D2",
+      "name": "ايناس سليمان مسعود محمد",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 648,
+      "debt_amount": 48,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 533,
+        "suppliesAmount": 50,
+        "otherAmount": 0,
+        "activeNonCancelCount": 4,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndv700859n21080rwqamb",
+      "card_number": "WAB2025105285",
+      "name": "محمد يوسف خليفة صالح",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 645,
+      "debt_amount": 45,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 580,
+        "suppliesAmount": 0,
+        "otherAmount": 0,
+        "activeNonCancelCount": 2,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndte70789n210nrdwyz28",
+      "card_number": "WAB2025106005D1",
+      "name": "لجين محمد بوبكر",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 643,
+      "debt_amount": 43,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 578,
+        "suppliesAmount": 0,
+        "otherAmount": 0,
+        "activeNonCancelCount": 3,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndm4502qxn2106rdug47z",
+      "card_number": "WAB2025105551",
+      "name": "خالد فرج علي البركي",
+      "status": "FINISHED",
+      "completed_via": null,
+      "total_balance": 600,
+      "spent_non_cancel": 640.5,
+      "debt_amount": 40.5,
+      "txBreakdown": {
+        "importAmount": 60,
+        "medicineAmount": 580.5,
+        "suppliesAmount": 0,
+        "otherAmount": 0,
+        "activeNonCancelCount": 4,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndodl0481n210esrm2lzn",
+      "card_number": "WAB2025105234",
+      "name": "سعد توفيق الاوجلي",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 637,
+      "debt_amount": 37,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 572,
+        "suppliesAmount": 0,
+        "otherAmount": 0,
+        "activeNonCancelCount": 2,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndkka01n3n210v2eidvut",
+      "card_number": "WAB202509904",
+      "name": "أشرف سالم صالح ابراهيم الجراري",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 627,
+      "debt_amount": 27,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 537,
+        "suppliesAmount": 25,
+        "otherAmount": 0,
+        "activeNonCancelCount": 7,
+        "cancelledCount": 2
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndr4u05von2102hf4nbp4",
+      "card_number": "WAB2025105093W1",
+      "name": "عزيزه سعيد موسى",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 627,
+      "debt_amount": 27,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 472,
+        "suppliesAmount": 90,
+        "otherAmount": 0,
+        "activeNonCancelCount": 5,
+        "cancelledCount": 2
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndjra010pn210lqlvu21c",
+      "card_number": "WAB202509389",
+      "name": "امانى عبدالغنى صالح محمد العبيدى",
+      "status": "FINISHED",
+      "completed_via": null,
+      "total_balance": 600,
+      "spent_non_cancel": 626.5,
+      "debt_amount": 26.5,
+      "txBreakdown": {
+        "importAmount": 58,
+        "medicineAmount": 518.5,
+        "suppliesAmount": 50,
+        "otherAmount": 0,
+        "activeNonCancelCount": 4,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndqqr05pcn210eompxydc",
+      "card_number": "WAB202509408F1",
+      "name": "عبدالمنعم ابراهيم بالتمر",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 626,
+      "debt_amount": 26,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 561,
+        "suppliesAmount": 0,
+        "otherAmount": 0,
+        "activeNonCancelCount": 2,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndodl048hn2107nd9bxx1",
+      "card_number": "WAB202509915",
+      "name": "سعد شعيب حمد",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 618,
+      "debt_amount": 18,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 553,
+        "suppliesAmount": 0,
+        "otherAmount": 0,
+        "activeNonCancelCount": 5,
+        "cancelledCount": 1
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndszi070in210sahmx0qv",
+      "card_number": "WAB2025104613M1",
+      "name": "فطامة رحومة محمد القماطي",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 616,
+      "debt_amount": 16,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 551,
+        "suppliesAmount": 0,
+        "otherAmount": 0,
+        "activeNonCancelCount": 3,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndub307own21012fw5j2a",
+      "card_number": "WAB20251044169S1",
+      "name": "محمد جاسر محمد البكوش",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 615,
+      "debt_amount": 15,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 355,
+        "suppliesAmount": 195,
+        "otherAmount": 0,
+        "activeNonCancelCount": 4,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndjg500s7n210ksi2uk93",
+      "card_number": "WAB2025104429F1",
+      "name": "السنوسي محمد رجب ابوزقية",
+      "status": "FINISHED",
+      "completed_via": null,
+      "total_balance": 600,
+      "spent_non_cancel": 615,
+      "debt_amount": 15,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 550,
+        "suppliesAmount": 0,
+        "otherAmount": 0,
+        "activeNonCancelCount": 2,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndnrs03ugn2107oro7qtk",
+      "card_number": "WAB202509870M1",
+      "name": "زينب يونس خليل المسلاتي",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 614,
+      "debt_amount": 14,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 486,
+        "suppliesAmount": 63,
+        "otherAmount": 0,
+        "activeNonCancelCount": 3,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndodl0488n210anw1s8fe",
+      "card_number": "WAB202509397F1",
+      "name": "سعد حسن الأريل",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 610,
+      "debt_amount": 10,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 545,
+        "suppliesAmount": 0,
+        "otherAmount": 0,
+        "activeNonCancelCount": 4,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndt4f0722n210s8w3iqga",
+      "card_number": "WAB2025104861M1",
+      "name": "فوزية احميدة محمد ابوغريس",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 610,
+      "debt_amount": 10,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 0,
+        "suppliesAmount": 545,
+        "otherAmount": 0,
+        "activeNonCancelCount": 2,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndtuk07g1n210ct7peiwy",
+      "card_number": "WAB2025004816",
+      "name": "مبروكة جمعة علي علي",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 608,
+      "debt_amount": 8,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 50,
+        "suppliesAmount": 493,
+        "otherAmount": 0,
+        "activeNonCancelCount": 3,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndk9l01ekn210e4kc6fhd",
+      "card_number": "WAB2025106201W1",
+      "name": "ايمان محمود عبدالله محمد",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 608,
+      "debt_amount": 8,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 121,
+        "suppliesAmount": 422,
+        "otherAmount": 0,
+        "activeNonCancelCount": 4,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndn1n03cun210rk2897i8",
+      "card_number": "WAB2025104058",
+      "name": "رمزي رمضلن عبدالسلام علي",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 604,
+      "debt_amount": 4,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 539,
+        "suppliesAmount": 0,
+        "otherAmount": 0,
+        "activeNonCancelCount": 3,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    },
+    {
+      "id": "cmnfndlrs02inn210bgafw70e",
+      "card_number": "WAB2025105617",
+      "name": "حمد محمد حمد عبدالرحيم",
+      "status": "FINISHED",
+      "completed_via": "EXCEEDED_BALANCE",
+      "total_balance": 600,
+      "spent_non_cancel": 601,
+      "debt_amount": 1,
+      "txBreakdown": {
+        "importAmount": 65,
+        "medicineAmount": 536,
+        "suppliesAmount": 0,
+        "otherAmount": 0,
+        "activeNonCancelCount": 2,
+        "cancelledCount": 0
+      },
+      "diagnosisReason": "موسوم مسبقا كحالة تجاوز رصيد | الخصومات اليدوية مساهم رئيسي في الصرف",
+      "manualAction": "تسوية يدوية مباشرة للدين الصغير ثم إعادة فحص"
+    }
+  ]
+}

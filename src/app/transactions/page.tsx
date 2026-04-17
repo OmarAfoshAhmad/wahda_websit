@@ -14,6 +14,7 @@ import { BulkTransactionActionButton } from "@/components/bulk-transaction-actio
 import { SelectAllTransactionsCheckbox } from "@/components/select-all-transactions-checkbox";
 import { TransactionEditModal } from "../../components/transaction-edit-modal";
 import { TransactionCancelButton } from "@/components/transaction-cancel-button";
+import { ImportSourceBadgeWithPanel } from "@/components/import-source-badge-with-panel";
 import Link from "next/link";
 import { FileInput, PlusCircle } from "lucide-react";
 import { formatDateTripoli, formatTimeTripoli } from "@/lib/datetime";
@@ -54,9 +55,8 @@ function getMovementTypeLabel(txType: string): string {
   return "كشف عام";
 }
 
-function getSourceLabel(txType: string): string {
-  if (txType === "CANCELLATION") return "—";
-  return txType === "IMPORT" ? "استيراد" : "يدوي";
+function getSourceType(txType: string): "import" | "manual" {
+  return txType === "IMPORT" ? "import" : "manual";
 }
 
 function getTransactionStatusLabel(tx: TransactionRow): string {
@@ -77,7 +77,7 @@ export default async function TransactionsPage({
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const { start_date, end_date, facility_id, page: pageParam, pageSize: pageSizeParam, q, sort, order, status, source, focus_tx } = await searchParams;
+  const { start_date, end_date, facility_id, page: pageParam, pageSize: pageSizeParam, q, sort, order, status: _status, source, focus_tx } = await searchParams;
   const allowedPageSizes = [10, 25, 50, 100, 200];
   const requestedPageSize = parseInt(pageSizeParam ?? "10", 10);
   const PAGE_SIZE = allowedPageSizes.includes(requestedPageSize) ? requestedPageSize : 10;
@@ -94,9 +94,7 @@ export default async function TransactionsPage({
     ? (selectedFacility?.name ?? rawFacilityFilter)
     : session.name;
 
-  const ALLOWED_STATUS = ["active"] as const;
-  type TxStatus = typeof ALLOWED_STATUS[number];
-  const statusFilter: TxStatus = "active";
+  const statusFilter = "active" as const;
 
   const ALLOWED_SOURCE = ["all", "manual", "import"] as const;
   type TxSource = typeof ALLOWED_SOURCE[number];
@@ -587,7 +585,10 @@ export default async function TransactionsPage({
                       {tx.type === "MEDICINE" ? "ادوية صرف عام" : tx.type === "IMPORT" ? (session.is_admin ? "استيراد" : "ادوية صرف عام") : "كشف عام"}
                     </Badge>
                     {session.is_admin && tx.type === "IMPORT" && (
-                      <span className="text-[10px] font-bold text-violet-600 dark:text-violet-400">استيراد</span>
+                      <ImportSourceBadgeWithPanel source="import" transactionId={tx.id} />
+                    )}
+                    {session.is_admin && tx.type !== "IMPORT" && tx.type !== "CANCELLATION" && (
+                      <ImportSourceBadgeWithPanel source="manual" />
                     )}
                   </div>
                 </div>
@@ -815,9 +816,11 @@ export default async function TransactionsPage({
                         </td>
                         {session.is_admin && (
                           <td className="print:hidden px-6 py-4 text-center">
-                            <span className="font-bold text-slate-600 dark:text-slate-300 text-xs text-nowrap">
-                              {getSourceLabel(tx.type)}
-                            </span>
+                            {tx.type === "CANCELLATION" ? (
+                              <span className="font-bold text-slate-500 dark:text-slate-400 text-xs text-nowrap">—</span>
+                            ) : (
+                              <ImportSourceBadgeWithPanel source={getSourceType(tx.type)} transactionId={tx.id} />
+                            )}
                           </td>
                         )}
                         {(session.is_admin || canCorrect || canCancel) && (

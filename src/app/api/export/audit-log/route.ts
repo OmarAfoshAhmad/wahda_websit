@@ -61,6 +61,10 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "IMPORT_FACILITIES",
     "DELETE_FACILITY",
     "ROLLBACK_IMPORT",
+    "FIX_PARENT_CARD_PATTERNS",
+    "UNDO_FIX_PARENT_CARD_PATTERNS",
+    "NORMALIZE_IMPORT_INTEGER_DISTRIBUTION",
+    "UNDO_NORMALIZE_IMPORT_INTEGER_DISTRIBUTION",
   ],
   beneficiaries: [
     "CREATE_BENEFICIARY",
@@ -77,6 +81,10 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "UNDO_BULK_RENEW_BALANCE",
     "UNDO_BULK_DELETE_BENEFICIARY",
     "UNDO_BULK_RESTORE_BENEFICIARY",
+    "FIX_PARENT_CARD_PATTERNS",
+    "UNDO_FIX_PARENT_CARD_PATTERNS",
+    "NORMALIZE_IMPORT_INTEGER_DISTRIBUTION",
+    "UNDO_NORMALIZE_IMPORT_INTEGER_DISTRIBUTION",
   ],
   transactions: [
     "DEDUCT_BALANCE",
@@ -152,6 +160,14 @@ function actionLabel(action: string) {
       return "تراجع عن استيراد";
     case "ROLLBACK_IMPORT_TRANSACTIONS":
       return "تراجع عن استيراد الحركات";
+    case "FIX_PARENT_CARD_PATTERNS":
+      return "تحويل نمط بطاقات الأب/الأم";
+    case "UNDO_FIX_PARENT_CARD_PATTERNS":
+      return "تراجع عن تحويل نمط البطاقات";
+    case "NORMALIZE_IMPORT_INTEGER_DISTRIBUTION":
+      return "تصحيح توزيع الاستيراد المجمع";
+    case "UNDO_NORMALIZE_IMPORT_INTEGER_DISTRIBUTION":
+      return "تراجع عن تصحيح توزيع الاستيراد";
     default:
       return action;
   }
@@ -261,6 +277,22 @@ function summarizeMetadata(action: string, metadata: unknown): string {
     return `معرف المرفق: ${String(m.deleted_facility_id ?? "-")}`;
   }
 
+  if (action === "FIX_PARENT_CARD_PATTERNS") {
+    return `النمط: ${String(m.mode ?? "-")} · منفذ: ${String(m.processed_count ?? "-")} · متخطى: ${String(m.skipped_count ?? "-")} · تضارب: ${String(m.conflict_count ?? "-")} · H2: ${String(m.h2_fixed_count ?? "-")} · M/F: ${String(m.parent_suffix_normalized_count ?? "-")}`;
+  }
+
+  if (action === "UNDO_FIX_PARENT_CARD_PATTERNS") {
+    return `عملية أصلية: ${String(m.original_audit_log_id ?? "-")} · عناصر مُرجعة: ${String(m.reverted_count ?? "-")} · النوع: ${m.selective ? "انتقائي" : "كامل"}`;
+  }
+
+  if (action === "NORMALIZE_IMPORT_INTEGER_DISTRIBUTION") {
+    return `عائلات: ${String(m.processed_families ?? "-")} · أفراد: ${String(m.processed_members ?? "-")} · تحديث: ${String(m.updated_transactions ?? "-")} · إنشاء: ${String(m.created_transactions ?? "-")} · إلغاء تكرارات: ${String(m.cancelled_transactions ?? "-")}`;
+  }
+
+  if (action === "UNDO_NORMALIZE_IMPORT_INTEGER_DISTRIBUTION") {
+    return `عملية أصلية: ${String(m.original_audit_log_id ?? "-")} · عناصر مُرجعة: ${String(m.reverted_count ?? "-")}`;
+  }
+
   return "-";
 }
 
@@ -307,10 +339,10 @@ function getBulkDetailRows(action: string, metadata: unknown): BulkDetailRow[] {
       return {
         action: actionLabel(action),
         beneficiaryName: String(item.beneficiary_name ?? item.name ?? "-"),
-        cardNumber: String(item.card_number ?? "-"),
+        cardNumber: String(item.card_number ?? item.old_card_number ?? "-"),
         amount: (item.amount ?? item.refunded_amount ?? item.deducted_amount ?? item.renewal_amount ?? "-") as number | string,
-        beforeValue: (item.balance_before ?? item.remaining_before ?? item.total_before ?? item.before_deleted_at ?? "-") as number | string,
-        afterValue: (item.balance_after ?? item.remaining_after ?? item.total_after ?? item.after_deleted_at ?? "-") as number | string,
+        beforeValue: (item.balance_before ?? item.remaining_before ?? item.total_before ?? item.before_deleted_at ?? item.old_card_number ?? "-") as number | string,
+        afterValue: (item.balance_after ?? item.remaining_after ?? item.total_after ?? item.after_deleted_at ?? item.new_card_number ?? "-") as number | string,
         result: String(item.result ?? item.status_after ?? "-"),
       } satisfies BulkDetailRow;
     })

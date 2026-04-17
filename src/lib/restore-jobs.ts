@@ -118,6 +118,19 @@ function isUserCancelledError(message: string | null | undefined) {
   return message === USER_CANCEL_MESSAGE;
 }
 
+function sanitizeBeneficiaryBalances(totalBalanceRaw: unknown, remainingBalanceRaw: unknown) {
+  const totalBalance = roundCurrency(Math.max(0, Number(totalBalanceRaw) || 0));
+  const remainingBalance = roundCurrency(
+    Math.min(totalBalance, Math.max(0, Number(remainingBalanceRaw) || 0)),
+  );
+  return { totalBalance, remainingBalance };
+}
+
+function normalizeBeneficiaryStatus(statusRaw: unknown, remainingBalance: number): "ACTIVE" | "FINISHED" | "SUSPENDED" {
+  if (statusRaw === "SUSPENDED") return "SUSPENDED";
+  return remainingBalance <= 0 ? "FINISHED" : "ACTIVE";
+}
+
 async function updateProgress(jobId: string, input: {
   completedSteps?: number;
   currentPhase?: string;
@@ -497,6 +510,11 @@ export async function processRestoreJob(jobId: string, username: string) {
         const normalizedCardNumber = normalizeCardNumber(provider.card_number);
         const normalizedProviderName = normalizePersonName(provider.name);
         const providerBirthDate = provider.birth_date ? new Date(provider.birth_date) : null;
+        const { totalBalance, remainingBalance } = sanitizeBeneficiaryBalances(
+          provider.total_balance,
+          provider.remaining_balance,
+        );
+        const normalizedStatus = normalizeBeneficiaryStatus(provider.status, remainingBalance);
 
         const matchedByCard = cardMap.get(normalizedCardNumber);
         const matchedByPerson = providerBirthDate
@@ -514,9 +532,9 @@ export async function processRestoreJob(jobId: string, username: string) {
               card_number: normalizedCardNumber,
               name: normalizedProviderName,
               birth_date: providerBirthDate,
-              status: provider.status,
-              total_balance: provider.total_balance,
-              remaining_balance: provider.remaining_balance,
+              status: normalizedStatus,
+              total_balance: totalBalance,
+              remaining_balance: remainingBalance,
               ...(provider.pin_hash && !existing.pin_hash ? { pin_hash: provider.pin_hash } : {}),
               deleted_at: provider.deleted_at ? new Date(provider.deleted_at) : null,
             },
@@ -530,9 +548,9 @@ export async function processRestoreJob(jobId: string, username: string) {
               card_number: normalizedCardNumber,
               name: normalizedProviderName,
               birth_date: providerBirthDate,
-              total_balance: provider.total_balance,
-              remaining_balance: provider.remaining_balance,
-              status: provider.status,
+              total_balance: totalBalance,
+              remaining_balance: remainingBalance,
+              status: normalizedStatus,
               pin_hash: provider.pin_hash ?? null,
               failed_attempts: provider.failed_attempts ?? 0,
               locked_until: provider.locked_until ? new Date(provider.locked_until) : null,

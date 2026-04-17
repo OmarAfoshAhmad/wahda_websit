@@ -1,11 +1,13 @@
 "use server";
 
+import { TransactionType } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { updateBeneficiarySchema, createBeneficiarySchema } from "@/lib/validation";
 import { getCurrentInitialBalance } from "@/lib/initial-balance";
 import { getLedgerRemainingByBeneficiaryId, getLedgerRemainingByBeneficiaryIds } from "@/lib/ledger-balance";
+import { roundCurrency } from "@/lib/money";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
 import { normalizePersonName } from "@/lib/normalize";
@@ -59,6 +61,51 @@ function parseBirthDate(value?: string) {
   const d = new Date(value);
   if (isNaN(d.getTime())) return null;
   return d;
+}
+
+function extractFamilyBaseCard(cardNumber: string): string {
+  return String(cardNumber || "").replace(/([WSDMFHV][0-9]*)$/i, "");
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function familySuffixRegex(baseCard: string): string {
+  return `^${escapeRegex(baseCard)}[WSDMFHV][0-9]*$`;
+}
+
+function chooseRemainderRecipientIndex(
+  recipients: Array<{ status: string; availableBalance: number }>,
+  remainder: number,
+): number {
+  if (recipients.length === 0) return 0;
+  if (remainder <= 0) return 0;
+
+  let bestIndex = 0;
+  let bestIsActive = false;
+  let bestHasBalance = false;
+  let bestBalance = Number.NEGATIVE_INFINITY;
+
+  for (let i = 0; i < recipients.length; i++) {
+    const recipient = recipients[i];
+    const isActive = recipient.status === "ACTIVE";
+    const balance = Number(recipient.availableBalance ?? 0);
+    const hasBalance = balance > 0;
+
+    if (
+      (isActive && hasBalance && !(bestIsActive && bestHasBalance)) ||
+      (isActive === bestIsActive && hasBalance && !bestHasBalance) ||
+      (isActive === bestIsActive && hasBalance === bestHasBalance && balance > bestBalance)
+    ) {
+      bestIsActive = isActive;
+      bestHasBalance = hasBalance;
+      bestBalance = balance;
+      bestIndex = i;
+    }
+  }
+
+  return bestIndex;
 }
 
 function groupIdsBySource(rows: Array<{ id: string; beneficiary_id: string }>) {
@@ -189,15 +236,15 @@ export async function getBeneficiaryByCard(card_number: string) {
 export async function searchBeneficiaries(query: string) {
   const session = await requireActiveFacilitySession();
   if (!session) {
-    return { error: "غير مصرح", items: [] as Array<{ id: string; name: string; card_number: string; remaining_balance: number; status: string }> };
+    return { error: "غير مصرح", items: [] as Array<{ id: string; name: string; card_number: string; remaining_balance: number; status: string; has_manual_deduction: boolean; has_import_deduction: boolean }> };
   }
 
   const rateLimitError = await checkRateLimit(`search:${session.id}`, "search");
-  if (rateLimitError) return { error: rateLimitError, items: [] as Array<{ id: string; name: string; card_number: string; remaining_balance: number; status: string }> };
+  if (rateLimitError) return { error: rateLimitError, items: [] as Array<{ id: string; name: string; card_number: string; remaining_balance: number; status: string; has_manual_deduction: boolean; has_import_deduction: boolean }> };
 
   const q = query.trim();
   if (q.length < 2 || q.length > 100) {
-    return { items: [] as Array<{ id: string; name: string; card_number: string; remaining_balance: number; status: string }> };
+    return { items: [] as Array<{ id: string; name: string; card_number: string; remaining_balance: number; status: string; has_manual_deduction: boolean; has_import_deduction: boolean }> };
   }
 
   try {
@@ -209,13 +256,30 @@ export async function searchBeneficiaries(query: string) {
       card_number: string;
       remaining_balance: number;
       status: string;
+      has_manual_deduction: boolean;
+      has_import_deduction: boolean;
     }>>`
       SELECT
         id,
         name,
         card_number,
         remaining_balance::float8,
-        status
+        status,
+        EXISTS (
+          SELECT 1
+          FROM "Transaction" t
+          WHERE t.beneficiary_id = "Beneficiary".id
+            AND t.is_cancelled = false
+            AND t.type <> 'CANCELLATION'
+            AND t.type <> 'IMPORT'
+        ) AS has_manual_deduction,
+        EXISTS (
+          SELECT 1
+          FROM "Transaction" t
+          WHERE t.beneficiary_id = "Beneficiary".id
+            AND t.is_cancelled = false
+            AND t.type = 'IMPORT'
+        ) AS has_import_deduction
       FROM "Beneficiary"
       WHERE deleted_at IS NULL
         AND (
@@ -230,7 +294,7 @@ export async function searchBeneficiaries(query: string) {
     `;
 
     const ids = rows.map((r) => r.id);
-    if (ids.length === 0) return { items: [] as Array<{ id: string; name: string; card_number: string; remaining_balance: number; status: string }> };
+    if (ids.length === 0) return { items: [] as Array<{ id: string; name: string; card_number: string; remaining_balance: number; status: string; has_manual_deduction: boolean; has_import_deduction: boolean }> };
 
     const remainingById = await getLedgerRemainingByBeneficiaryIds(ids);
 
@@ -244,8 +308,151 @@ export async function searchBeneficiaries(query: string) {
     return { items };
   } catch (error: unknown) {
     logger.error("Search beneficiaries error", { error: String(error) });
-    return { error: "تعذر تنفيذ البحث", items: [] as Array<{ id: string; name: string; card_number: string; remaining_balance: number; status: string }> };
+    return { error: "تعذر تنفيذ البحث", items: [] as Array<{ id: string; name: string; card_number: string; remaining_balance: number; status: string; has_manual_deduction: boolean; has_import_deduction: boolean }> };
   }
+}
+
+export async function getBeneficiaryFamilyImportInsights(beneficiaryId: string) {
+  const session = await requireActiveFacilitySession();
+  if (!session) {
+    return { error: "غير مصرح" };
+  }
+
+  const rateLimitError = await checkRateLimit(`search:${session.id}`, "search");
+  if (rateLimitError) return { error: rateLimitError };
+
+  const cleanId = String(beneficiaryId ?? "").trim();
+  if (!cleanId) {
+    return { error: "معرف المستفيد غير صالح" };
+  }
+
+  try {
+    await ensureFamilyImportArchiveTable();
+
+    const beneficiary = await prisma.beneficiary.findFirst({
+      where: { id: cleanId, deleted_at: null },
+      select: { id: true, card_number: true },
+    });
+
+    if (!beneficiary) {
+      return { error: "المستفيد غير موجود" };
+    }
+
+    const familyBaseCard = beneficiary.card_number.replace(/([A-Z]\d+)$/, "");
+
+    const members = await prisma.$queryRaw<Array<{
+      id: string;
+      name: string;
+      card_number: string;
+      status: string;
+      total_balance: number;
+      remaining_balance: number;
+      manual_deducted: number;
+      import_deducted: number;
+      consumed_total: number;
+    }>>`
+      SELECT
+        b.id,
+        b.name,
+        b.card_number,
+        b.status::text,
+        b.total_balance::float8,
+        b.remaining_balance::float8,
+        COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' AND t.type <> 'IMPORT' THEN t.amount ELSE 0 END), 0)::float8 AS manual_deducted,
+        COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type = 'IMPORT' THEN t.amount ELSE 0 END), 0)::float8 AS import_deducted,
+        COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END), 0)::float8 AS consumed_total
+      FROM "Beneficiary" b
+      LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id
+      WHERE b.deleted_at IS NULL
+        AND b.card_number LIKE ${familyBaseCard + "%"}
+      GROUP BY b.id, b.name, b.card_number, b.status, b.total_balance, b.remaining_balance
+      ORDER BY b.card_number ASC
+    `;
+
+    const archiveRows = await prisma.$queryRaw<Array<{
+      family_count_from_file: number;
+      total_balance_from_file: number;
+      used_balance_from_file: number;
+    }>>`
+      SELECT
+        "family_count_from_file"::int AS family_count_from_file,
+        "total_balance_from_file"::float8 AS total_balance_from_file,
+        "used_balance_from_file"::float8 AS used_balance_from_file
+      FROM "FamilyImportArchive"
+      WHERE "family_base_card" = ${familyBaseCard}
+      LIMIT 1
+    `;
+
+    const archive = archiveRows[0];
+    const familyImportTotal = archive
+      ? Number(archive.used_balance_from_file ?? 0)
+      : members.reduce((sum, m) => sum + Number(m.import_deducted ?? 0), 0);
+    const familyConsumedTotal = members.reduce((sum, m) => sum + Number(m.consumed_total ?? 0), 0);
+
+    const expectedCountRows = await prisma.$queryRaw<Array<{ family_size: number }>>`
+      SELECT (elem->>'familySize')::int AS family_size
+      FROM "AuditLog" a,
+      LATERAL jsonb_array_elements(COALESCE(a.metadata->'appliedRows', '[]'::jsonb)) AS elem
+      WHERE a.action = 'IMPORT_TRANSACTIONS'
+        AND (elem->>'familyBaseCard') = ${familyBaseCard}
+      ORDER BY a.created_at DESC
+      LIMIT 1
+    `;
+
+    const expectedFamilyCount = archive
+      ? Number(archive.family_count_from_file ?? 0) || null
+      : Number(expectedCountRows[0]?.family_size ?? 0) || null;
+    const foundInSystemCount = members.length;
+
+    return {
+      item: {
+        family_base_card: familyBaseCard,
+        expected_family_count: expectedFamilyCount,
+        family_total_balance_from_file: archive ? round2(Number(archive.total_balance_from_file ?? 0)) : null,
+        found_in_system_count: foundInSystemCount,
+        distributed_on_count: foundInSystemCount,
+        family_import_total: round2(familyImportTotal),
+        family_consumed_total: round2(familyConsumedTotal),
+        members: members.map((m) => ({
+          id: m.id,
+          name: m.name,
+          card_number: m.card_number,
+          status: m.status,
+          total_balance: Number(m.total_balance),
+          remaining_balance: Number(m.remaining_balance),
+          manual_deducted: round2(Number(m.manual_deducted)),
+          import_deducted: round2(Number(m.import_deducted)),
+          consumed_total: round2(Number(m.consumed_total)),
+          import_share_percent: familyImportTotal > 0
+            ? round2((Number(m.import_deducted) / familyImportTotal) * 100)
+            : 0,
+        })),
+      },
+    };
+  } catch (error: unknown) {
+    logger.error("Family import insights error", { error: String(error) });
+    return { error: "تعذر جلب تفاصيل الاستيراد العائلي" };
+  }
+}
+
+async function ensureFamilyImportArchiveTable() {
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "FamilyImportArchive" (
+      "family_base_card" TEXT PRIMARY KEY,
+      "family_count_from_file" INTEGER NOT NULL DEFAULT 0,
+      "total_balance_from_file" NUMERIC(12, 2) NOT NULL DEFAULT 0,
+      "used_balance_from_file" NUMERIC(12, 2) NOT NULL DEFAULT 0,
+      "source_row_number" INTEGER,
+      "imported_by" TEXT,
+      "last_imported_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 
 export async function createBeneficiary(data: {
@@ -270,6 +477,8 @@ export async function createBeneficiary(data: {
   const initialBalance = await getCurrentInitialBalance();
 
   try {
+    await ensureFamilyImportArchiveTable();
+
     await prisma.$transaction(async (tx) => {
       // قفل استشاري لمنع الإنشاء المتزامن بنفس رقم البطاقة
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${normalizedCardNumber}))`;
@@ -305,6 +514,104 @@ export async function createBeneficiary(data: {
           status: "ACTIVE",
         },
       });
+
+      // تطبيق حصة العضو الجديد من أرشيف الاستيراد (إن وُجد) لمنع تضخم حصة الموجودين.
+      const familyBaseCard = extractFamilyBaseCard(normalizedCardNumber);
+      const archiveRows = await tx.$queryRaw<Array<{
+        family_count_from_file: number;
+        total_balance_from_file: number;
+        used_balance_from_file: number;
+        last_imported_at: Date;
+      }>>`
+        SELECT
+          "family_count_from_file"::int AS family_count_from_file,
+          "total_balance_from_file"::float8 AS total_balance_from_file,
+          "used_balance_from_file"::float8 AS used_balance_from_file,
+          "last_imported_at"
+        FROM "FamilyImportArchive"
+        WHERE "family_base_card" = ${familyBaseCard}
+        LIMIT 1
+      `;
+
+      const archive = archiveRows[0];
+      if (archive) {
+        const expectedCount = Math.max(0, Math.floor(Number(archive.family_count_from_file) || 0));
+
+        if (expectedCount > 0) {
+          const familyMembers = await tx.$queryRaw<Array<{
+            id: string;
+            card_number: string;
+            status: string;
+            remaining_balance: number;
+          }>>`
+            SELECT id, card_number, status::text, remaining_balance::float8
+            FROM "Beneficiary"
+            WHERE deleted_at IS NULL
+              AND (
+                card_number = ${familyBaseCard}
+                OR card_number ~ ${familySuffixRegex(familyBaseCard)}
+              )
+            ORDER BY card_number ASC
+          `;
+
+          const newMemberIndex = familyMembers.findIndex((m) => m.id === beneficiary.id);
+          if (newMemberIndex >= 0 && familyMembers.length <= expectedCount) {
+            const totalFromFile = Math.max(0, Math.round(Number(archive.total_balance_from_file) || 0));
+            const usedFromFile = Math.max(0, Math.round(Number(archive.used_balance_from_file) || 0));
+
+            const totalBaseShare = Math.floor(totalFromFile / expectedCount);
+            const totalRemainder = totalFromFile - totalBaseShare * expectedCount;
+            const totalRemainderRecipient = chooseRemainderRecipientIndex(
+              familyMembers.map((m) => ({
+                status: String(m.status ?? ""),
+                availableBalance: Number(m.remaining_balance ?? 0),
+              })),
+              totalRemainder,
+            );
+
+            const usedBaseShare = Math.floor(usedFromFile / expectedCount);
+            const usedRemainder = usedFromFile - usedBaseShare * expectedCount;
+            const usedRemainderRecipient = totalRemainderRecipient;
+
+            const targetTotal =
+              totalBaseShare + (newMemberIndex === totalRemainderRecipient ? totalRemainder : 0);
+            const plannedUsed =
+              usedBaseShare + (newMemberIndex === usedRemainderRecipient ? usedRemainder : 0);
+            const importDeduction = roundCurrency(Math.min(targetTotal, Math.max(0, plannedUsed)));
+            const newRemaining = roundCurrency(Math.max(0, targetTotal - importDeduction));
+            const newStatus: "ACTIVE" | "FINISHED" = newRemaining <= 0 ? "FINISHED" : "ACTIVE";
+
+            await tx.beneficiary.update({
+              where: { id: beneficiary.id },
+              data: {
+                total_balance: targetTotal,
+                remaining_balance: newRemaining,
+                status: newStatus,
+                completed_via: newStatus === "FINISHED" ? "IMPORT" : null,
+              },
+            });
+
+            if (importDeduction > 0) {
+              const idempotencyKey = `FAMILY_IMPORT_SHARE:${familyBaseCard}:${beneficiary.id}:${archive.last_imported_at.getTime()}`;
+              await tx.transaction.upsert({
+                where: { idempotency_key: idempotencyKey },
+                update: {
+                  amount: importDeduction,
+                  is_cancelled: false,
+                  facility_id: session.id,
+                },
+                create: {
+                  beneficiary_id: beneficiary.id,
+                  facility_id: session.id,
+                  amount: importDeduction,
+                  type: TransactionType.IMPORT,
+                  idempotency_key: idempotencyKey,
+                },
+              });
+            }
+          }
+        }
+      }
 
       await tx.auditLog.create({
         data: {

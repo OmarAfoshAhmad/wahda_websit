@@ -33,6 +33,9 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "UNDO_BULK_RENEW_BALANCE",
     "UNDO_BULK_DELETE_BENEFICIARY",
     "UNDO_BULK_RESTORE_BENEFICIARY",
+    "UNDO_FIX_PARENT_CARD_PATTERNS",
+    "NORMALIZE_IMPORT_INTEGER_DISTRIBUTION",
+    "UNDO_NORMALIZE_IMPORT_INTEGER_DISTRIBUTION",
     "MERGE_DUPLICATE_BENEFICIARY",
     "UNDO_MERGE_DUPLICATE_BENEFICIARY",
     "DEDUCT_BALANCE",
@@ -52,6 +55,8 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "UPDATE_FACILITY",
     "DELETE_FACILITY",
     "ROLLBACK_IMPORT",
+    "FIX_PARENT_CARD_PATTERNS",
+    "NORMALIZE_IMPORT_INTEGER_DISTRIBUTION",
     "LOGIN",
     "LOGOUT",
     "CHANGE_PASSWORD",
@@ -74,6 +79,7 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "UNDO_BULK_RENEW_BALANCE",
     "UNDO_BULK_DELETE_BENEFICIARY",
     "UNDO_BULK_RESTORE_BENEFICIARY",
+    "FIX_PARENT_CARD_PATTERNS",
   ],
   transactions: [
     "DEDUCT_BALANCE",
@@ -98,6 +104,8 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "UNDO_BULK_RENEW_BALANCE",
     "UNDO_BULK_DELETE_BENEFICIARY",
     "UNDO_BULK_RESTORE_BENEFICIARY",
+    "UNDO_FIX_PARENT_CARD_PATTERNS",
+    "UNDO_NORMALIZE_IMPORT_INTEGER_DISTRIBUTION",
   ],
   merges: ["MERGE_DUPLICATE_BENEFICIARY", "UNDO_MERGE_DUPLICATE_BENEFICIARY"],
   security: ["LOGIN", "LOGOUT", "CHANGE_PASSWORD", "CREATE_MANAGER", "UPDATE_MANAGER", "DELETE_MANAGER"],
@@ -163,6 +171,14 @@ function actionLabel(action: string) {
       return "تراجع عن استيراد";
     case "ROLLBACK_IMPORT_TRANSACTIONS":
       return "تراجع عن استيراد الحركات";
+    case "FIX_PARENT_CARD_PATTERNS":
+      return "تحويل نمط بطاقات الأب/الأم";
+    case "UNDO_FIX_PARENT_CARD_PATTERNS":
+      return "تراجع عن تحويل نمط البطاقات";
+    case "NORMALIZE_IMPORT_INTEGER_DISTRIBUTION":
+      return "تصحيح توزيع الاستيراد المجمع";
+    case "UNDO_NORMALIZE_IMPORT_INTEGER_DISTRIBUTION":
+      return "تراجع عن تصحيح توزيع الاستيراد";
     case "MERGE_DUPLICATE_BENEFICIARY":
       return "دمج مستفيدين مكررين";
     case "UNDO_MERGE_DUPLICATE_BENEFICIARY":
@@ -581,7 +597,7 @@ function summarizeMetadata(action: string, metadata: unknown, auditLogId?: strin
             ↓ تقرير تفصيلي ({details.length})
           </a>
         ) : null}
-        {auditLogId ? <BulkBeneficiaryRollbackButton logId={auditLogId} rolledBack={isRolledBack} /> : null}
+        {auditLogId ? <BulkBeneficiaryRollbackButton logId={auditLogId} rolledBack={isRolledBack} allowSelective /> : null}
       </span>
     );
   }
@@ -596,6 +612,75 @@ function summarizeMetadata(action: string, metadata: unknown, auditLogId?: strin
   }
 
   if (action === "UNDO_BULK_DELETE_BENEFICIARY" || action === "UNDO_BULK_RESTORE_BENEFICIARY") {
+    return (
+      <span className="text-slate-500 dark:text-slate-400">
+        عملية أصلية: <strong className="text-slate-700 dark:text-slate-300">{String(m.original_audit_log_id ?? "-")}</strong>
+        <span className="mr-1.5">· عناصر مُرجعة: {String(m.reverted_count ?? "-")}</span>
+      </span>
+    );
+  }
+
+  if (action === "FIX_PARENT_CARD_PATTERNS") {
+    const details = Array.isArray(m.details) ? (m.details as Array<Record<string, unknown>>) : [];
+    const isRolledBack = Boolean(m.undo_reverted_at);
+    return (
+      <span className="flex flex-wrap gap-x-2 text-slate-500 dark:text-slate-400">
+        <span>النمط: <strong className="text-slate-700 dark:text-slate-300">{String(m.mode ?? "-")}</strong></span>
+        <span>منفذ: <strong className="text-slate-700 dark:text-slate-300">{String(m.processed_count ?? "-")}</strong></span>
+        <span>متخطى: <strong className="text-slate-700 dark:text-slate-300">{String(m.skipped_count ?? "-")}</strong></span>
+        <span>تضارب: <strong className="text-slate-700 dark:text-slate-300">{String(m.conflict_count ?? "-")}</strong></span>
+        <span>تصحيح H2: <strong className="text-slate-700 dark:text-slate-300">{String(m.h2_fixed_count ?? "-")}</strong></span>
+        <span>تحويل M/F: <strong className="text-slate-700 dark:text-slate-300">{String(m.parent_suffix_normalized_count ?? "-")}</strong></span>
+        {auditLogId && details.length > 0 ? (
+          <a
+            href={`/api/export/audit-log?log_id=${encodeURIComponent(auditLogId)}`}
+            target="_blank"
+            className="inline-flex items-center gap-1 rounded border border-sky-200 dark:border-sky-700 bg-sky-50 dark:bg-sky-900/30 px-2 py-0.5 text-xs font-bold text-sky-700 dark:text-sky-400 hover:bg-sky-100 dark:hover:bg-sky-900/50 transition-colors"
+            title="تصدير تفاصيل هذه العملية بصيغة Excel"
+          >
+            ↓ تقرير تفصيلي ({details.length})
+          </a>
+        ) : null}
+        {auditLogId ? <BulkBeneficiaryRollbackButton logId={auditLogId} rolledBack={isRolledBack} /> : null}
+      </span>
+    );
+  }
+
+  if (action === "UNDO_FIX_PARENT_CARD_PATTERNS") {
+    return (
+      <span className="text-slate-500 dark:text-slate-400">
+        عملية أصلية: <strong className="text-slate-700 dark:text-slate-300">{String(m.original_audit_log_id ?? "-")}</strong>
+        <span className="mr-1.5">· عناصر مُرجعة: {String(m.reverted_count ?? "-")}</span>
+      </span>
+    );
+  }
+
+  if (action === "NORMALIZE_IMPORT_INTEGER_DISTRIBUTION") {
+    const details = Array.isArray(m.details) ? (m.details as Array<Record<string, unknown>>) : [];
+    const isRolledBack = Boolean(m.undo_reverted_at);
+    return (
+      <span className="flex flex-wrap gap-x-2 text-slate-500 dark:text-slate-400">
+        <span>عائلات: <strong className="text-slate-700 dark:text-slate-300">{String(m.processed_families ?? "-")}</strong></span>
+        <span>أفراد: <strong className="text-slate-700 dark:text-slate-300">{String(m.processed_members ?? "-")}</strong></span>
+        <span>تحديث حركات: <strong className="text-slate-700 dark:text-slate-300">{String(m.updated_transactions ?? "-")}</strong></span>
+        <span>إنشاء: <strong className="text-slate-700 dark:text-slate-300">{String(m.created_transactions ?? "-")}</strong></span>
+        <span>إلغاء تكرارات: <strong className="text-slate-700 dark:text-slate-300">{String(m.cancelled_transactions ?? "-")}</strong></span>
+        {auditLogId && details.length > 0 ? (
+          <a
+            href={`/api/export/audit-log?log_id=${encodeURIComponent(auditLogId)}`}
+            target="_blank"
+            className="inline-flex items-center gap-1 rounded border border-sky-200 dark:border-sky-700 bg-sky-50 dark:bg-sky-900/30 px-2 py-0.5 text-xs font-bold text-sky-700 dark:text-sky-400 hover:bg-sky-100 dark:hover:bg-sky-900/50 transition-colors"
+            title="تصدير تفاصيل هذه العملية بصيغة Excel"
+          >
+            ↓ تقرير تفصيلي ({details.length})
+          </a>
+        ) : null}
+        {auditLogId ? <BulkBeneficiaryRollbackButton logId={auditLogId} rolledBack={isRolledBack} /> : null}
+      </span>
+    );
+  }
+
+  if (action === "UNDO_NORMALIZE_IMPORT_INTEGER_DISTRIBUTION") {
     return (
       <span className="text-slate-500 dark:text-slate-400">
         عملية أصلية: <strong className="text-slate-700 dark:text-slate-300">{String(m.original_audit_log_id ?? "-")}</strong>
@@ -713,6 +798,10 @@ function badgeClassForAction(action: string) {
     action === "UNDO_BULK_RENEW_BALANCE" ||
     action === "UNDO_BULK_DELETE_BENEFICIARY" ||
     action === "UNDO_BULK_RESTORE_BENEFICIARY" ||
+    action === "UNDO_FIX_PARENT_CARD_PATTERNS" ||
+    action === "FIX_PARENT_CARD_PATTERNS" ||
+    action === "NORMALIZE_IMPORT_INTEGER_DISTRIBUTION" ||
+    action === "UNDO_NORMALIZE_IMPORT_INTEGER_DISTRIBUTION" ||
     action === "SETTLE_OVERDRAWN_FAMILY_DEBT" ||
     action === "IMPORT_BENEFICIARIES_BACKGROUND" ||
     action === "IMPORT_FACILITIES"

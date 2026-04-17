@@ -12,6 +12,8 @@ import { StatusAnomaliesCheckButton } from "@/components/status-anomalies-check-
 import { OrphanedNotificationsCheckButton } from "@/components/orphaned-notifications-check-button";
 import { StatusAnomaliesFixButton } from "@/components/status-anomalies-fix-button";
 import { OrphanedNotificationsFixButton } from "@/components/orphaned-notifications-fix-button";
+import { ParentCardPatternFixButton } from "@/components/parent-card-pattern-fix-button";
+import { NormalizeImportIntegerDistributionButton } from "../normalize-import-integer-distribution-button";
 
 type UnlinkedCorrectionRow = {
   id: string;
@@ -111,6 +113,31 @@ type OldRestoreJobsSummary = {
   old_restore_jobs_count: number;
 };
 
+type ParentCardPatternRow = {
+  id: string;
+  name: string;
+  card_number: string;
+  pattern_type: string;
+};
+
+type LegacyFractionalImportRow = {
+  family_base_card: string;
+  members_count: number;
+  import_transactions_count: number;
+  family_total_import_amount: number;
+};
+
+type LegacyFractionalImportMemberRow = {
+  family_base_card: string;
+  beneficiary_id: string;
+  beneficiary_name: string;
+  card_number: string;
+  member_import_transactions_count: number;
+  member_total_import_amount: number;
+  member_total_balance: number;
+  member_remaining_balance: number;
+};
+
 function Num({ value }: { value: number }) {
   return <span>{value.toLocaleString("ar-LY")}</span>;
 }
@@ -147,6 +174,9 @@ export async function DataHealthContent({
     oldLoginAuditSummary,
     oldImportJobsSummary,
     oldRestoreJobsSummary,
+    parentCardPatternRows,
+    legacyFractionalImportRows,
+    legacyFractionalImportMemberRows,
   ] = await Promise.all([
     prisma.$queryRaw<UnlinkedCorrectionRow[]>`
       SELECT
@@ -384,7 +414,93 @@ export async function DataHealthContent({
       WHERE status IN ('COMPLETED', 'FAILED')
         AND created_at < NOW() - INTERVAL '30 days'
     `,
+
+    prisma.$queryRaw<ParentCardPatternRow[]>`
+      SELECT
+        b.id,
+        b.name,
+        b.card_number,
+        CASE
+          WHEN b.card_number ~ '^WAB2025[0-9]+H2$' THEN 'زوج ثاني غير صالح (H2)'
+          WHEN b.card_number ~ '^WAB2025[0-9]+M$' THEN 'أم بدون ترقيم (M)'
+          WHEN b.card_number ~ '^WAB2025[0-9]+F$' THEN 'أب بدون ترقيم (F)'
+          WHEN b.card_number ~ '^WAB2025[0-9]+M1$' THEN 'أم مرقمة (M1)'
+          WHEN b.card_number ~ '^WAB2025[0-9]+F1$' THEN 'أب مرقم (F1)'
+          ELSE 'أخرى'
+        END AS pattern_type
+      FROM "Beneficiary" b
+      WHERE b.deleted_at IS NULL
+        AND (
+          b.card_number ~ '^WAB2025[0-9]+M$'
+          OR b.card_number ~ '^WAB2025[0-9]+M1$'
+          OR b.card_number ~ '^WAB2025[0-9]+F$'
+          OR b.card_number ~ '^WAB2025[0-9]+F1$'
+          OR b.card_number ~ '^WAB2025[0-9]+H2$'
+        )
+      ORDER BY b.card_number
+      LIMIT 400
+    `,
+
+    prisma.$queryRaw<LegacyFractionalImportRow[]>`
+      SELECT
+        REGEXP_REPLACE(b.card_number, '([A-Z][0-9]+)$', '') AS family_base_card,
+        COUNT(DISTINCT b.id)::int AS members_count,
+        COUNT(t.id)::int AS import_transactions_count,
+        ROUND(SUM(t.amount)::numeric, 2)::float8 AS family_total_import_amount
+      FROM "Transaction" t
+      JOIN "Beneficiary" b ON b.id = t.beneficiary_id
+      WHERE t.type = 'IMPORT'
+        AND t.is_cancelled = false
+        AND b.deleted_at IS NULL
+        AND ABS(t.amount - ROUND(t.amount)) > 0.000001
+      GROUP BY REGEXP_REPLACE(b.card_number, '([A-Z][0-9]+)$', '')
+      ORDER BY family_total_import_amount DESC
+      LIMIT 300
+    `,
+
+    prisma.$queryRaw<LegacyFractionalImportMemberRow[]>`
+      SELECT
+        REGEXP_REPLACE(b.card_number, '([A-Z][0-9]+)$', '') AS family_base_card,
+        b.id AS beneficiary_id,
+        b.name AS beneficiary_name,
+        b.card_number,
+        COUNT(t.id)::int AS member_import_transactions_count,
+        ROUND(SUM(t.amount)::numeric, 2)::float8 AS member_total_import_amount,
+        b.total_balance::float8 AS member_total_balance,
+        b.remaining_balance::float8 AS member_remaining_balance
+      FROM "Transaction" t
+      JOIN "Beneficiary" b ON b.id = t.beneficiary_id
+      WHERE t.type = 'IMPORT'
+        AND t.is_cancelled = false
+        AND b.deleted_at IS NULL
+        AND ABS(t.amount - ROUND(t.amount)) > 0.000001
+      GROUP BY
+        REGEXP_REPLACE(b.card_number, '([A-Z][0-9]+)$', ''),
+        b.id,
+        b.name,
+        b.card_number,
+        b.total_balance,
+        b.remaining_balance
+      ORDER BY family_base_card, b.card_number
+      LIMIT 2000
+    `,
   ]);
+
+  const legacyMembersByFamily = legacyFractionalImportMemberRows.reduce<Record<string, LegacyFractionalImportMemberRow[]>>((acc, row) => {
+    if (!acc[row.family_base_card]) {
+      acc[row.family_base_card] = [];
+    }
+    acc[row.family_base_card].push(row);
+    return acc;
+  }, {});
+
+  const familyAggregateBalanceByBaseCard = Object.entries(legacyMembersByFamily).reduce<Record<string, { total: number; remaining: number }>>((acc, [baseCard, members]) => {
+    acc[baseCard] = {
+      total: members.reduce((sum, m) => sum + Number(m.member_total_balance), 0),
+      remaining: members.reduce((sum, m) => sum + Number(m.member_remaining_balance), 0),
+    };
+    return acc;
+  }, {});
 
   const authStateSummary = {
     active_no_hash_problem: authStateRows.filter((row) => !row.deleted && !row.hash_valid_bcrypt).length,
@@ -445,8 +561,23 @@ export async function DataHealthContent({
     (sum, row) => sum + Math.max(0, Number(row.duplicate_count ?? 0) - 1),
     0
   );
+  const filteredParentCardPatternRows = hasSearchQuery
+    ? parentCardPatternRows.filter(
+      (row) =>
+        row.name.toLowerCase().includes(normalizedSearchQuery) ||
+        row.card_number.toLowerCase().includes(normalizedSearchQuery)
+    )
+    : parentCardPatternRows;
+  const invalidH2Count = parentCardPatternRows.filter((row) => /H2$/i.test(row.card_number)).length;
+  const motherPlainCount = parentCardPatternRows.filter((row) => /M$/i.test(row.card_number)).length;
+  const fatherPlainCount = parentCardPatternRows.filter((row) => /F$/i.test(row.card_number)).length;
+  const motherNumberedCount = parentCardPatternRows.filter((row) => /M1$/i.test(row.card_number)).length;
+  const fatherNumberedCount = parentCardPatternRows.filter((row) => /F1$/i.test(row.card_number)).length;
   const hygieneCandidates =
     orphanedNotificationRows.length + oldReadNotifications + oldLoginAuditLogs + oldImportJobs + oldRestoreJobs;
+  const filteredLegacyFractionalImportRows = hasSearchQuery
+    ? legacyFractionalImportRows.filter((row) => row.family_base_card.toLowerCase().includes(normalizedSearchQuery))
+    : legacyFractionalImportRows;
 
   return (
     <div className="space-y-4 pb-16">
@@ -485,6 +616,135 @@ export async function DataHealthContent({
             }}
           />
         </div>
+      </Section>
+
+      <Section title="حالات أنماط بطاقة الأب/الأم (M/F/H2)" count={filteredParentCardPatternRows.length}>
+        <p className="text-xs text-slate-600 dark:text-slate-300">
+          الإحصائيات بالأعلى تمثل كل النظام، بينما "الظاهر في الجدول" يتأثر بالبحث الحالي فقط.
+        </p>
+        <ParentCardPatternFixButton
+          totalCount={parentCardPatternRows.length}
+          visibleCount={filteredParentCardPatternRows.length}
+          invalidH2Count={invalidH2Count}
+          motherPlainCount={motherPlainCount}
+          fatherPlainCount={fatherPlainCount}
+          motherNumberedCount={motherNumberedCount}
+          fatherNumberedCount={fatherNumberedCount}
+        />
+        {filteredParentCardPatternRows.length === 0 ? (
+          <p className="text-sm font-medium text-emerald-600">✓ لا توجد حالات تحتاج تحويل في نمط بطاقات الأب/الأم.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b bg-slate-50 text-right dark:border-slate-700 dark:bg-slate-800/60">
+                  <th className="p-2">الاسم</th>
+                  <th className="p-2">رقم البطاقة</th>
+                  <th className="p-2">نوع الحالة</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredParentCardPatternRows.map((row) => (
+                  <tr key={row.id} className="border-b dark:border-slate-800">
+                    <td className="p-2">{row.name}</td>
+                    <td className="p-2 font-mono text-xs">{row.card_number}</td>
+                    <td className="p-2 text-xs text-slate-700 dark:text-slate-300">{row.pattern_type}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
+
+      <Section title="استيراد مجمع قديم بتوزيع كسور" count={filteredLegacyFractionalImportRows.length}>
+        <p className="text-xs text-slate-600 dark:text-slate-300">
+          هذه الحالات فيها خصومات استيراد مجمعة بمبالغ عشرية لكل فرد. المعالجة ستحولها إلى توزيع صحيح بالأعداد الصحيحة فقط،
+          مع إسناد المتبقي لفرد واحد داخل الأسرة، وتسجيل كامل في سجل المراقبة مع إمكانية التراجع.
+        </p>
+        <NormalizeImportIntegerDistributionButton
+          totalFamilies={legacyFractionalImportRows.length}
+          visibleFamilies={filteredLegacyFractionalImportRows.length}
+        />
+        {filteredLegacyFractionalImportRows.length === 0 ? (
+          <p className="text-sm font-medium text-emerald-600">✓ لا توجد حالات استيراد مجمعة عشرية تحتاج معالجة.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b bg-slate-50 text-right dark:border-slate-700 dark:bg-slate-800/60">
+                  <th className="p-2">بطاقة العائلة الأساسية</th>
+                  <th className="p-2">عدد الأفراد</th>
+                  <th className="p-2">عدد حركات الاستيراد</th>
+                  <th className="p-2">إجمالي الخصم (قبل التصحيح)</th>
+                  <th className="p-2">الرصيد المجمع الحالي</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredLegacyFractionalImportRows.map((row) => {
+                  const familyMembers = legacyMembersByFamily[row.family_base_card] ?? [];
+                  const aggregateBalances = familyAggregateBalanceByBaseCard[row.family_base_card] ?? { total: 0, remaining: 0 };
+
+                  return [
+                    <tr key={`${row.family_base_card}-summary`} className="border-b dark:border-slate-800">
+                        <td className="p-2 font-mono text-xs">{row.family_base_card}</td>
+                        <td className="p-2"><Num value={row.members_count} /></td>
+                        <td className="p-2"><Num value={row.import_transactions_count} /></td>
+                        <td className="p-2 text-left ltr"><Num value={row.family_total_import_amount} /></td>
+                        <td className="p-2 text-left ltr font-bold text-emerald-700 dark:text-emerald-400"><Num value={aggregateBalances.remaining} /></td>
+                    </tr>,
+                    <tr key={`${row.family_base_card}-members`} className="border-b bg-slate-50/60 dark:border-slate-800 dark:bg-slate-800/20">
+                        <td colSpan={5} className="p-3">
+                          <div className="mb-2 flex flex-wrap gap-2 text-xs">
+                            <span className="rounded border border-slate-300 bg-white px-2 py-1 dark:border-slate-700 dark:bg-slate-900">
+                              إجمالي رصيد الأسرة: <strong className="ltr">{aggregateBalances.total.toLocaleString("ar-LY")}</strong>
+                            </span>
+                            <span className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300">
+                              المتبقي المجمع: <strong className="ltr">{aggregateBalances.remaining.toLocaleString("ar-LY")}</strong>
+                            </span>
+                          </div>
+
+                          {familyMembers.length === 0 ? (
+                            <p className="text-xs text-slate-500 dark:text-slate-400">لا توجد تفاصيل أفراد لهذه العائلة.</p>
+                          ) : (
+                            <div className="space-y-2">
+                              {familyMembers.map((member) => (
+                                <div key={member.beneficiary_id} className="rounded border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-900">
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div>
+                                      <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{member.beneficiary_name}</p>
+                                      <p className="font-mono text-[11px] text-slate-500 dark:text-slate-400">{member.card_number}</p>
+                                    </div>
+                                    <span className="rounded border border-sky-200 bg-sky-50 px-2 py-1 text-xs font-bold text-sky-700 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-300">
+                                      خصم الفرد: {member.member_total_import_amount.toLocaleString("ar-LY")} د.ل
+                                    </span>
+                                  </div>
+                                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                                    <div className="rounded border border-slate-200 bg-slate-50 px-2 py-1 dark:border-slate-700 dark:bg-slate-800/40">
+                                      عدد الحركات: <strong>{member.member_import_transactions_count.toLocaleString("ar-LY")}</strong>
+                                    </div>
+                                    <div className="rounded border border-slate-200 bg-slate-50 px-2 py-1 dark:border-slate-700 dark:bg-slate-800/40">
+                                      الرصيد الكلي: <strong className="ltr">{member.member_total_balance.toLocaleString("ar-LY")}</strong>
+                                    </div>
+                                    <div className="rounded border border-slate-200 bg-slate-50 px-2 py-1 dark:border-slate-700 dark:bg-slate-800/40">
+                                      الرصيد المتبقي: <strong className="ltr">{member.member_remaining_balance.toLocaleString("ar-LY")}</strong>
+                                    </div>
+                                    <div className="rounded border border-slate-200 bg-slate-50 px-2 py-1 dark:border-slate-700 dark:bg-slate-800/40">
+                                      نسبة الخصم من العائلة: <strong>{row.family_total_import_amount > 0 ? ((member.member_total_import_amount / row.family_total_import_amount) * 100).toLocaleString("ar-LY", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : "0.0"}%</strong>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </td>
+                    </tr>,
+                  ];
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Section>
 
       <Section title="انجراف الرصيد — remaining_balance ≠ المحسوب" count={filteredBalanceDriftRows.length}>

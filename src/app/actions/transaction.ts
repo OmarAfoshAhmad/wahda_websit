@@ -5,6 +5,12 @@ import prisma from "@/lib/prisma";
 import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { formatCurrency, roundCurrency } from "@/lib/money";
+import {
+  AMOUNT_POLICY_ERROR,
+  isAllowedDeductionAmount,
+  MAX_DEDUCTION_AMOUNT,
+  MAX_AMOUNT_POLICY_ERROR,
+} from "@/lib/validation";
 
 export type AddTransactionState = {
   success?: string;
@@ -52,6 +58,14 @@ export async function addTransactionFromForm(
 
   if (!Number.isFinite(amount) || amount <= 0) {
     return { error: "قيمة المبلغ غير صالحة" };
+  }
+
+  if (amount > MAX_DEDUCTION_AMOUNT) {
+    return { error: MAX_AMOUNT_POLICY_ERROR };
+  }
+
+  if (!isAllowedDeductionAmount(amount)) {
+    return { error: AMOUNT_POLICY_ERROR };
   }
 
   if (!type) {
@@ -121,6 +135,14 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
 
   if (!Number.isFinite(input.amount) || input.amount <= 0) {
     return { error: "قيمة المبلغ غير صالحة" };
+  }
+
+  if (input.amount > MAX_DEDUCTION_AMOUNT) {
+    return { error: MAX_AMOUNT_POLICY_ERROR };
+  }
+
+  if (!isAllowedDeductionAmount(input.amount)) {
+    return { error: AMOUNT_POLICY_ERROR };
   }
 
   const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(input.transactionDate);

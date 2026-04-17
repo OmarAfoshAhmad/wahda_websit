@@ -662,6 +662,21 @@ export async function processImportJob(jobId: string, username: string) {
             const deletedRow = cardToDeletedRow.get(cn);
             if (!deletedRow) continue;
 
+            const restorePersonKey = personKey(row.data.name, row.data.birth_date);
+            if (restorePersonKey) {
+              const activeMatches = personKeyToActiveRows.get(restorePersonKey) ?? [];
+              if (activeMatches.length > 0) {
+                duplicateRows += 1;
+                skippedRows.push(createSkippedRowReport({
+                  reason: "duplicate_person",
+                  rowNumber: row.rowNumber,
+                  rawRow: row.rawRow,
+                  normalized: row.data,
+                }));
+                continue;
+              }
+            }
+
             // حفظ snapshot قبل الاستعادة
             rollbackBeforeSnapshots.push({
               id: deletedRow.id,
@@ -700,6 +715,22 @@ export async function processImportJob(jobId: string, username: string) {
           const cn = normalizeCardNumber(row.data.card_number);
             const activeRow = cardToActiveRow.get(cn);
             if (!activeRow) continue;
+
+            const updatePersonKey = personKey(row.data.name, row.data.birth_date);
+            if (updatePersonKey) {
+              const activeMatches = personKeyToActiveRows.get(updatePersonKey) ?? [];
+              const hasConflict = activeMatches.some((m) => m.id !== activeRow.id);
+              if (hasConflict) {
+                duplicateRows += 1;
+                skippedRows.push(createSkippedRowReport({
+                  reason: "duplicate_person",
+                  rowNumber: row.rowNumber,
+                  rawRow: row.rawRow,
+                  normalized: row.data,
+                }));
+                continue;
+              }
+            }
 
             // حفظ snapshot قبل التحديث
             rollbackBeforeSnapshots.push({
@@ -943,7 +974,11 @@ export async function getImportJobSkippedRowsWorkbook(jobId: string, username?: 
     select: {
       id: true,
       created_at: true,
+      inserted_rows: true,
+      duplicate_rows: true,
+      failed_rows: true,
       skipped_rows_report: true,
+      rollback_data: true,
     },
   });
 
@@ -952,21 +987,187 @@ export async function getImportJobSkippedRowsWorkbook(jobId: string, username?: 
   }
 
   let skippedRows: SkippedImportRowReport[] = [];
+  let updatedRowsCount = 0;
   if (Array.isArray(job.skipped_rows_report)) {
     skippedRows = job.skipped_rows_report as unknown as SkippedImportRowReport[];
   } else if (job.skipped_rows_report && typeof job.skipped_rows_report === "object" && "rows" in job.skipped_rows_report) {
     skippedRows = (job.skipped_rows_report as Record<string, unknown>).rows as SkippedImportRowReport[];
+    const maybeUpdatedRows = (job.skipped_rows_report as Record<string, unknown>).updatedRows;
+    if (typeof maybeUpdatedRows === "number") {
+      updatedRowsCount = maybeUpdatedRows;
+    }
   }
 
-  if (skippedRows.length === 0) {
+  const rollback = (job.rollback_data && typeof job.rollback_data === "object")
+    ? (job.rollback_data as {
+      createdIds?: string[];
+      restoredIds?: string[];
+      beforeSnapshots?: Array<{
+        id: string;
+        card_number: string;
+        name: string;
+        birth_date: string | null;
+        total_balance: string;
+        remaining_balance: string;
+        status: string;
+        deleted_at: string | null;
+      }>;
+    })
+    : {};
+
+  const createdIds = Array.isArray(rollback.createdIds) ? rollback.createdIds : [];
+  const restoredIds = Array.isArray(rollback.restoredIds) ? rollback.restoredIds : [];
+  const beforeSnapshots = Array.isArray(rollback.beforeSnapshots) ? rollback.beforeSnapshots : [];
+
+  const importedIds = [...new Set([...createdIds, ...restoredIds])];
+  const updatedIds = [...new Set(beforeSnapshots.map((s) => s.id).filter((id) => !restoredIds.includes(id)))];
+  const impactedIds = [...new Set([...importedIds, ...updatedIds])];
+
+  const hasSummaryEvidence =
+    (job.inserted_rows ?? 0) > 0
+    || updatedRowsCount > 0
+    || (job.duplicate_rows ?? 0) > 0
+    || (job.failed_rows ?? 0) > 0;
+
+  if (skippedRows.length === 0 && importedIds.length === 0 && updatedIds.length === 0 && !hasSummaryEvidence) {
     return { empty: true as const };
   }
 
+  const currentRows = impactedIds.length > 0
+    ? await prisma.beneficiary.findMany({
+      where: { id: { in: impactedIds } },
+      select: {
+        id: true,
+        card_number: true,
+        name: true,
+        birth_date: true,
+        total_balance: true,
+        remaining_balance: true,
+        status: true,
+      },
+    })
+    : [];
+  const currentById = new Map(currentRows.map((r) => [r.id, r]));
+  const beforeById = new Map(beforeSnapshots.map((s) => [s.id, s]));
+
   const workbook = new ExcelJS.Workbook();
-  const worksheet = workbook.addWorksheet("الحالات غير المستوردة");
+
+  const summary = workbook.addWorksheet("الملخص");
+  summary.views = [{ rightToLeft: true }];
+  summary.columns = [
+    { header: "البيان", key: "label", width: 28 },
+    { header: "القيمة", key: "value", width: 18 },
+  ];
+  summary.getRow(1).font = { bold: true, size: 12 };
+  summary.addRow({ label: "رقم المهمة", value: job.id });
+  summary.addRow({ label: "إجمالي المدخلين", value: importedIds.length || job.inserted_rows || 0 });
+  summary.addRow({ label: "إجمالي المحدّثين", value: updatedRowsCount || updatedIds.length });
+  summary.addRow({ label: "إجمالي الفاشلين/المتخطين", value: skippedRows.length || ((job.duplicate_rows ?? 0) + (job.failed_rows ?? 0)) });
+
+  const insertedSheet = workbook.addWorksheet("الذين دخلوا");
+  insertedSheet.views = [{ rightToLeft: true }];
+  insertedSheet.columns = [
+    { header: "#", key: "index", width: 8 },
+    { header: "النوع", key: "importType", width: 16 },
+    { header: "المعرف", key: "id", width: 30 },
+    { header: "رقم البطاقة", key: "card_number", width: 22 },
+    { header: "الاسم", key: "name", width: 32 },
+    { header: "تاريخ الميلاد", key: "birth_date", width: 16 },
+    { header: "الرصيد الكلي", key: "total_balance", width: 16 },
+    { header: "الرصيد المتبقي", key: "remaining_balance", width: 16 },
+    { header: "الحالة", key: "status", width: 14 },
+  ];
+  insertedSheet.getRow(1).font = { bold: true, size: 12 };
+  insertedSheet.getRow(1).alignment = { vertical: "middle", horizontal: "center" };
+  importedIds.forEach((id, idx) => {
+    const current = currentById.get(id);
+    insertedSheet.addRow({
+      index: idx + 1,
+      importType: restoredIds.includes(id) ? "مستعاد" : "جديد",
+      id,
+      card_number: current?.card_number ?? "-",
+      name: current?.name ?? "-",
+      birth_date: current?.birth_date ? current.birth_date.toISOString().slice(0, 10) : "-",
+      total_balance: current ? Number(current.total_balance) : "-",
+      remaining_balance: current ? Number(current.remaining_balance) : "-",
+      status: current?.status ?? "-",
+    });
+  });
+
+  if (importedIds.length === 0 && (job.inserted_rows ?? 0) > 0) {
+    insertedSheet.addRow({
+      index: 1,
+      importType: "ملخص فقط",
+      id: "-",
+      card_number: "-",
+      name: "لا تتوفر تفاصيل صفية لهذه المهمة (تم الاحتفاظ بالعداد فقط)",
+      birth_date: "-",
+      total_balance: "-",
+      remaining_balance: "-",
+      status: "-",
+    });
+  }
+
+  const updatedSheet = workbook.addWorksheet("المحدثون قبل وبعد");
+  updatedSheet.views = [{ rightToLeft: true }];
+  updatedSheet.columns = [
+    { header: "#", key: "index", width: 8 },
+    { header: "المعرف", key: "id", width: 30 },
+    { header: "البطاقة قبل", key: "before_card", width: 22 },
+    { header: "البطاقة بعد", key: "after_card", width: 22 },
+    { header: "الاسم قبل", key: "before_name", width: 30 },
+    { header: "الاسم بعد", key: "after_name", width: 30 },
+    { header: "الميلاد قبل", key: "before_birth", width: 16 },
+    { header: "الميلاد بعد", key: "after_birth", width: 16 },
+    { header: "المتبقي قبل", key: "before_remaining", width: 16 },
+    { header: "المتبقي بعد", key: "after_remaining", width: 16 },
+    { header: "الحالة قبل", key: "before_status", width: 14 },
+    { header: "الحالة بعد", key: "after_status", width: 14 },
+  ];
+  updatedSheet.getRow(1).font = { bold: true, size: 12 };
+  updatedSheet.getRow(1).alignment = { vertical: "middle", horizontal: "center" };
+  updatedIds.forEach((id, idx) => {
+    const before = beforeById.get(id);
+    const current = currentById.get(id);
+    updatedSheet.addRow({
+      index: idx + 1,
+      id,
+      before_card: before?.card_number ?? "-",
+      after_card: current?.card_number ?? "-",
+      before_name: before?.name ?? "-",
+      after_name: current?.name ?? "-",
+      before_birth: before?.birth_date ? before.birth_date.slice(0, 10) : "-",
+      after_birth: current?.birth_date ? current.birth_date.toISOString().slice(0, 10) : "-",
+      before_remaining: before ? Number(before.remaining_balance) : "-",
+      after_remaining: current ? Number(current.remaining_balance) : "-",
+      before_status: before?.status ?? "-",
+      after_status: current?.status ?? "-",
+    });
+  });
+
+  if (updatedIds.length === 0 && updatedRowsCount > 0) {
+    updatedSheet.addRow({
+      index: 1,
+      id: "-",
+      before_card: "-",
+      after_card: "-",
+      before_name: "لا تتوفر تفاصيل قبل/بعد لهذه المهمة (تم الاحتفاظ بعدد التحديثات فقط)",
+      after_name: "-",
+      before_birth: "-",
+      after_birth: "-",
+      before_remaining: "-",
+      after_remaining: "-",
+      before_status: "-",
+      after_status: "-",
+    });
+  }
+
+  const worksheet = workbook.addWorksheet("الذين فشل دخولهم");
+  worksheet.views = [{ rightToLeft: true }];
   const dynamicKeys = Array.from(new Set(skippedRows.flatMap((row) => Object.keys(row.rawRow ?? {}))));
 
   worksheet.columns = [
+    { header: "#", key: "index", width: 8 },
     { header: "رقم الصف", key: "rowNumber", width: 12 },
     { header: "سبب عدم الاستيراد", key: "reasonLabel", width: 28 },
     { header: "رقم البطاقة", key: "card_number", width: 20 },
@@ -975,8 +1176,9 @@ export async function getImportJobSkippedRowsWorkbook(jobId: string, username?: 
     ...dynamicKeys.map((key) => ({ header: key, key: `raw:${key}`, width: 24 })),
   ];
 
-  skippedRows.forEach((row) => {
+  skippedRows.forEach((row, idx) => {
     const sheetRow: Record<string, unknown> = {
+      index: idx + 1,
       rowNumber: row.rowNumber ?? "",
       reasonLabel: row.reasonLabel,
       card_number: row.card_number,
@@ -993,7 +1195,7 @@ export async function getImportJobSkippedRowsWorkbook(jobId: string, username?: 
   });
 
   const headerRow = worksheet.getRow(1);
-  headerRow.font = { bold: true };
+  headerRow.font = { bold: true, size: 12 };
   headerRow.alignment = { horizontal: "center" };
 
   const buffer = await workbook.xlsx.writeBuffer();
@@ -1002,7 +1204,7 @@ export async function getImportJobSkippedRowsWorkbook(jobId: string, username?: 
   return {
     empty: false as const,
     buffer: Buffer.from(buffer),
-    fileName: `import-skipped-rows-${job.id}-${datePart}.xlsx`,
+    fileName: `import-report-${job.id}-${datePart}.xlsx`,
   };
 }
 

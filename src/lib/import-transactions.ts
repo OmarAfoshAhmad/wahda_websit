@@ -12,16 +12,16 @@ function getWaadFacilityId(): string | undefined {
 }
 
 async function resolveImportFacilityId(username: string, selectedFacilityId?: string): Promise<string> {
-  if (selectedFacilityId) {
-    const selectedFacility = await prisma.facility.findFirst({
-      where: { id: selectedFacilityId, deleted_at: null },
-      select: { id: true },
-    });
-    if (!selectedFacility) {
-      throw new Error("Selected facility does not exist");
-    }
-    return selectedFacility.id;
-  }
+  // نثبت الاستيراد باسم/معرف المستخدم الحالي فقط (المسجل دخول)
+  // حتى لا يتم نسب الحركات إلى مرفق آخر عبر اختيار يدوي من الواجهة.
+  void selectedFacilityId;
+
+  const actorFacility = await prisma.facility.findFirst({
+    where: { username, deleted_at: null },
+    select: { id: true },
+  });
+
+  if (actorFacility?.id) return actorFacility.id;
 
   const configuredId = getWaadFacilityId();
   if (configuredId) {
@@ -35,20 +35,19 @@ async function resolveImportFacilityId(username: string, selectedFacilityId?: st
     }
   }
 
-  const actorFacility = await prisma.facility.findFirst({
-    where: { username, deleted_at: null },
-    select: { id: true },
-  });
-
-  if (actorFacility?.id) return actorFacility.id;
-
   throw new Error("WAAD_FACILITY_ID points to non-existing facility");
 }
 
 // ─── Types ───────────────────────────────────────────────────────
 
 export type TransactionImportResult = {
+  auditLogId: string;
+  importMode: "replace_old_imports" | "incremental_update";
+  cleanupDeletedImportTransactions: number;
+  cleanupCancelledImportTransactions: number;
+  cleanupTouchedBeneficiaries: number;
   totalRows: number;
+  duplicateCardCount: number;
   importedFamilies: number;
   importedTransactions: number;
   updatedFamilies: number;
@@ -57,9 +56,75 @@ export type TransactionImportResult = {
   skippedAlreadySuspended: number;
   balanceSetFamilies: number;
   skippedAlreadyCorrect: number;
+  preImportBalanceAdjustedFamilies: number;
+  preImportBalanceAlreadyCorrect: number;
   skippedNotFound: number;
   skippedAlreadyImported: number;
   notFoundRows: NotFoundRow[];
+  detailedReport: ImportDetailedReport;
+};
+
+type BeneficiaryBalanceSnapshot = {
+  beneficiaryId: string;
+  beneficiaryName: string;
+  cardNumber: string;
+  totalBalance: number;
+  remainingBalance: number;
+  status: "ACTIVE" | "FINISHED" | "SUSPENDED";
+  completedVia: string | null;
+};
+
+type DeletedImportTransactionSnapshot = {
+  id: string;
+  beneficiaryId: string;
+  facilityId: string;
+  amount: number;
+  type: "IMPORT";
+  isCancelled: boolean;
+  createdAt: string;
+  originalTransactionId: string | null;
+  idempotencyKey: string | null;
+};
+
+type FamilyImportArchiveSnapshot = {
+  familyBaseCard: string;
+  familyCountFromFile: number;
+  totalBalanceFromFile: number;
+  usedBalanceFromFile: number;
+  sourceRowNumber: number | null;
+  importedBy: string | null;
+  lastImportedAt: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ImportDetailedReport = {
+  snapshotBefore: {
+    affectedFamilies: string[];
+    affectedMembersCount: number;
+    members: BeneficiaryBalanceSnapshot[];
+    familyArchiveBefore: FamilyImportArchiveSnapshot[];
+  };
+  cleanup: {
+    mode: "hard_delete";
+    deletedImportTransactionsCount: number;
+    deletedImportTransactions: DeletedImportTransactionSnapshot[];
+    touchedBeneficiaries: number;
+  };
+  execution: {
+    appliedRows: ImportAppliedRow[];
+  };
+  snapshotAfter: {
+    members: BeneficiaryBalanceSnapshot[];
+    familyArchiveAfter: FamilyImportArchiveSnapshot[];
+  };
+  rollbackSnapshot: {
+    affectedFamilies: string[];
+    affectedMemberIds: string[];
+    membersBefore: BeneficiaryBalanceSnapshot[];
+    deletedOldImportTransactions: DeletedImportTransactionSnapshot[];
+    familyArchiveBefore: FamilyImportArchiveSnapshot[];
+  };
 };
 
 export type NotFoundRow = {
@@ -83,6 +148,18 @@ type ImportAppliedRow = {
   balanceAfter: number;
 };
 
+type ImportTxRow = {
+  id: string;
+  beneficiary_id: string;
+  facility_id: string;
+  amount: number;
+  type: string;
+  is_cancelled: boolean;
+  created_at: Date;
+  original_transaction_id: string | null;
+  idempotency_key: string | null;
+};
+
 type ParsedRow = {
   rowNumber: number;
   cardNumber: string;
@@ -91,6 +168,19 @@ type ParsedRow = {
   totalBalance: number;
   usedBalance: number;
 };
+
+export type TransactionImportProgress = {
+  phase: "parsing" | "categorizing" | "cleanup" | "suspend" | "balance" | "import" | "audit" | "done";
+  totalRows: number;
+  processedRows: number;
+  progressPercent: number;
+  message: string;
+};
+
+function familySuffixRegex(baseCard: string): string {
+  // Match family-member suffixes with or without numeric index (M/F/H or M1/F1/H2...).
+  return `^${baseCard}[WSDMFHV][0-9]*$`;
+}
 
 // ─── Card Number Lookup ──────────────────────────────────────────
 
@@ -169,19 +259,55 @@ export async function processTransactionImport(
   fileBuffer: Buffer,
   username: string,
   selectedFacilityId?: string,
+  options?: { replaceOldImports?: boolean; onProgress?: (progress: TransactionImportProgress) => void | Promise<void> },
 ): Promise<{ result?: TransactionImportResult; error?: string }> {
   try {
+    const reportProgress = async (
+      phase: TransactionImportProgress["phase"],
+      totalRows: number,
+      processedRows: number,
+      message: string,
+    ) => {
+      if (!options?.onProgress) return;
+      const safeTotal = Math.max(1, totalRows);
+      const safeProcessed = Math.max(0, Math.min(processedRows, safeTotal));
+      await options.onProgress({
+        phase,
+        totalRows,
+        processedRows: safeProcessed,
+        progressPercent: Math.max(0, Math.min(100, Math.round((safeProcessed / safeTotal) * 100))),
+        message,
+      });
+    };
+
+    await ensureFamilyImportArchiveTable();
+
     // 1. Parse file
     const workbook = new ExcelJS.Workbook();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await workbook.xlsx.load(fileBuffer as any);
     const rows = parseExcelRows(workbook);
+    await reportProgress("parsing", Math.max(1, rows.length), 1, "تم تحليل ملف Excel");
 
     if (rows.length === 0) {
       return { error: "الملف لا يحتوي على بيانات." };
     }
 
+    // كشف البطاقات المكررة وتجميعها (الصف الأخير يُعتمد)
+    const cardRowMap = new Map<string, ParsedRow>();
+    let duplicateCardCount = 0;
+    for (const row of rows) {
+      const key = row.cardNumber.trim();
+      if (cardRowMap.has(key)) {
+        duplicateCardCount++;
+      }
+      cardRowMap.set(key, row);
+    }
+    const deduplicatedRows = Array.from(cardRowMap.values());
+    await reportProgress("categorizing", Math.max(1, rows.length), Math.max(1, Math.round(rows.length * 0.15)), "جارٍ تصنيف الصفوف");
+
     const importFacilityId = await resolveImportFacilityId(username, selectedFacilityId);
+    const replaceOldImports = options?.replaceOldImports !== false;
 
     // 2. Build lookup
     const lookup = await buildCardLookup();
@@ -191,8 +317,9 @@ export async function processTransactionImport(
     const toImport: Array<{ row: ParsedRow; baseCard: string }> = [];
     const toSuspend: Array<{ row: ParsedRow; baseCard: string }> = [];
     const toSetBalance: Array<{ row: ParsedRow; baseCard: string }> = [];
+    const archiveByBaseCard = new Map<string, ParsedRow>();
 
-    for (const row of rows) {
+    for (const row of deduplicatedRows) {
       // القاعدة: (الرصيد الكلي = 0 && الرصيد المستخدم = 0) → تصفير الأسرة وإيقافها
       if (row.totalBalance === 0 && row.usedBalance === 0) {
         const baseCard = resolveCardNumber(row.cardNumber, lookup);
@@ -207,6 +334,7 @@ export async function processTransactionImport(
           });
         } else {
           toSuspend.push({ row, baseCard });
+          archiveByBaseCard.set(baseCard, row);
         }
         continue;
       }
@@ -225,6 +353,7 @@ export async function processTransactionImport(
           });
         } else {
           toSetBalance.push({ row, baseCard });
+          archiveByBaseCard.set(baseCard, row);
         }
         continue;
       }
@@ -243,7 +372,50 @@ export async function processTransactionImport(
       }
 
       toImport.push({ row, baseCard });
+      archiveByBaseCard.set(baseCard, row);
     }
+
+    await reportProgress("categorizing", Math.max(1, rows.length), Math.max(1, Math.round(rows.length * 0.3)), "اكتمل تصنيف الصفوف");
+
+    const targetBaseCards = Array.from(new Set([
+      ...toImport.map((x) => x.baseCard),
+      ...toSetBalance.map((x) => x.baseCard),
+      ...toSuspend.map((x) => x.baseCard),
+    ]));
+
+    const snapshotBeforeMembers = targetBaseCards.length > 0
+      ? await loadFamilyMembersSnapshot(targetBaseCards)
+      : [];
+    const snapshotBeforeArchive = targetBaseCards.length > 0
+      ? await loadFamilyArchiveSnapshot(targetBaseCards)
+      : [];
+
+    let cleanupDeletedImportTransactions = 0;
+    let cleanupCancelledImportTransactions = 0;
+    let cleanupTouchedBeneficiaries = 0;
+    let deletedImportTransactions: DeletedImportTransactionSnapshot[] = [];
+    if (replaceOldImports && targetBaseCards.length > 0) {
+      await reportProgress("cleanup", Math.max(1, rows.length), Math.max(1, Math.round(rows.length * 0.4)), "جارٍ حذف IMPORT القديمة فعلياً");
+      const cleanup = await cleanupActiveImportsAndRestoreLedgerState(targetBaseCards);
+      cleanupDeletedImportTransactions = cleanup.deletedImportTransactions;
+      cleanupCancelledImportTransactions = cleanup.cancelledImportTransactions;
+      cleanupTouchedBeneficiaries = cleanup.touchedBeneficiaries;
+      deletedImportTransactions = cleanup.deletedImportTransactionRows;
+    }
+
+    // حفظ أرشيف القيم القادمة من ملف الاستيراد لكل عائلة (آخر قيمة مستوردة)
+    for (const [baseCard, row] of archiveByBaseCard.entries()) {
+      await upsertFamilyImportArchive({
+        familyBaseCard: baseCard,
+        familyCount: row.familyCount,
+        totalBalanceFromFile: row.totalBalance,
+        usedBalanceFromFile: row.usedBalance,
+        sourceRowNumber: row.rowNumber,
+        importedBy: username,
+      });
+    }
+
+    await reportProgress("cleanup", Math.max(1, rows.length), Math.max(1, Math.round(rows.length * 0.5)), "تم حفظ أرشيف الاستيراد");
 
     // 4a. Suspend families with totalBalance = 0
     let suspendedFamilies = 0;
@@ -256,6 +428,14 @@ export async function processTransactionImport(
       } else {
         suspendedFamilies++;
       }
+      const suspendDone = suspendedFamilies + skippedAlreadySuspended;
+      const suspendTotal = Math.max(1, toSuspend.length);
+      await reportProgress(
+        "suspend",
+        Math.max(1, rows.length),
+        Math.max(1, Math.round(rows.length * (0.5 + (suspendDone / suspendTotal) * 0.1))),
+        `إيقاف الأسر: ${suspendDone}/${toSuspend.length}`,
+      );
     }
 
     // 4b. Set balance for families with usedBalance = 0 and totalBalance > 0
@@ -269,6 +449,14 @@ export async function processTransactionImport(
       } else {
         balanceSetFamilies++;
       }
+      const balanceDone = balanceSetFamilies + skippedAlreadyCorrect;
+      const balanceTotal = Math.max(1, toSetBalance.length);
+      await reportProgress(
+        "balance",
+        Math.max(1, rows.length),
+        Math.max(1, Math.round(rows.length * (0.6 + (balanceDone / balanceTotal) * 0.1))),
+        `ضبط الأرصدة: ${balanceDone}/${toSetBalance.length}`,
+      );
     }
 
     // 4c. Process imports
@@ -277,58 +465,143 @@ export async function processTransactionImport(
     const skippedAlreadyImported = 0;
     let updatedFamilies = 0;
     let updatedTransactions = 0;
+    let preImportBalanceAdjustedFamilies = 0;
+    let preImportBalanceAlreadyCorrect = 0;
     const appliedRows: ImportAppliedRow[] = [];
 
     for (const { row, baseCard } of toImport) {
+      // مهم: تحديد ما إذا كانت الأسرة لديها استيراد سابق قبل أي إعادة ضبط للأرصدة
+      // لأن setFamilyBalance قد ينظف IMPORT القديمة، مما يجعل كل عملية تبدو كأنها "إضافة جديدة".
+      const hadExistingImportBeforeRows = await prisma.$queryRaw<Array<{ id: string }>>`
+        SELECT t.id
+        FROM "Transaction" t
+        JOIN "Beneficiary" b ON b.id = t.beneficiary_id
+        WHERE t.type = 'IMPORT'
+          AND t.is_cancelled = false
+          AND b.deleted_at IS NULL
+          AND (
+            b.card_number = ${baseCard}
+            OR b.card_number ~ ${familySuffixRegex(baseCard)}
+          )
+        LIMIT 1
+      `;
+      const hadExistingImportBefore = hadExistingImportBeforeRows.length > 0;
+
       // إذا كان هناك رصيد كلي بالملف، يجب ضبط رصيد الأسرة أولاً
       // ثم تطبيق الخصم (usedBalance) حتى لا نعتمد على أرصدة قديمة.
       if (row.totalBalance > 0) {
         const setResult = await setFamilyBalance(baseCard, row.totalBalance, row.familyCount);
         if (setResult === "already_correct") {
-          skippedAlreadyCorrect++;
+          preImportBalanceAlreadyCorrect++;
         } else {
-          balanceSetFamilies++;
+          preImportBalanceAdjustedFamilies++;
         }
       }
 
       const familyResult = await importFamilyTransactions(baseCard, row.usedBalance, importFacilityId, row.familyCount);
       appliedRows.push(...familyResult.appliedRows);
 
-      if (familyResult.mode === "updated") {
+      if (hadExistingImportBefore) {
         updatedFamilies++;
         updatedTransactions += familyResult.count;
       } else {
         importedFamilies++;
         importedTransactions += familyResult.count;
       }
+
+      const importDone = importedFamilies + updatedFamilies;
+      const importTotal = Math.max(1, toImport.length);
+      await reportProgress(
+        "import",
+        Math.max(1, rows.length),
+        Math.max(1, Math.round(rows.length * (0.7 + (importDone / importTotal) * 0.25))),
+        `تطبيق خصم الاستيراد: ${importDone}/${toImport.length}`,
+      );
     }
 
+    await reportProgress("audit", Math.max(1, rows.length), Math.max(1, Math.round(rows.length * 0.97)), "جارٍ حفظ سجل المراقبة");
+
+    const snapshotAfterMembers = targetBaseCards.length > 0
+      ? await loadFamilyMembersSnapshot(targetBaseCards)
+      : [];
+    const snapshotAfterArchive = targetBaseCards.length > 0
+      ? await loadFamilyArchiveSnapshot(targetBaseCards)
+      : [];
+
+    const detailedReport: ImportDetailedReport = {
+      snapshotBefore: {
+        affectedFamilies: targetBaseCards,
+        affectedMembersCount: snapshotBeforeMembers.length,
+        members: snapshotBeforeMembers,
+        familyArchiveBefore: snapshotBeforeArchive,
+      },
+      cleanup: {
+        mode: "hard_delete",
+        deletedImportTransactionsCount: cleanupDeletedImportTransactions,
+        deletedImportTransactions,
+        touchedBeneficiaries: cleanupTouchedBeneficiaries,
+      },
+      execution: {
+        appliedRows,
+      },
+      snapshotAfter: {
+        members: snapshotAfterMembers,
+        familyArchiveAfter: snapshotAfterArchive,
+      },
+      rollbackSnapshot: {
+        affectedFamilies: targetBaseCards,
+        affectedMemberIds: Array.from(new Set(snapshotBeforeMembers.map((m) => m.beneficiaryId))),
+        membersBefore: snapshotBeforeMembers,
+        deletedOldImportTransactions: deletedImportTransactions,
+        familyArchiveBefore: snapshotBeforeArchive,
+      },
+    };
+
     // 5. Audit log
-    await prisma.auditLog.create({
+    const auditLog = await prisma.auditLog.create({
       data: {
         facility_id: importFacilityId,
         user: username,
         action: "IMPORT_TRANSACTIONS",
         metadata: {
+          importMode: replaceOldImports ? "replace_old_imports" : "incremental_update",
+          cleanupMode: "hard_delete",
+          cleanupDeletedImportTransactions,
+          cleanupCancelledImportTransactions,
+          cleanupTouchedBeneficiaries,
           totalRows: rows.length,
+          duplicateCardCount,
           importedFamilies,
           importedTransactions,
           suspendedFamilies,
           skippedAlreadySuspended,
           balanceSetFamilies,
           skippedAlreadyCorrect,
+          preImportBalanceAdjustedFamilies,
+          preImportBalanceAlreadyCorrect,
           skippedNotFound: notFoundRows.length,
           skippedAlreadyImported,
           updatedFamilies,
           updatedTransactions,
           appliedRows,
+          detailedReport,
+          rollbackEligible: true,
+          rollbackStatus: "not_rolled_back",
         },
       },
     });
 
+    await reportProgress("done", Math.max(1, rows.length), Math.max(1, rows.length), "اكتمل الاستيراد بنجاح");
+
     return {
       result: {
+        auditLogId: auditLog.id,
+        importMode: replaceOldImports ? "replace_old_imports" : "incremental_update",
+        cleanupDeletedImportTransactions,
+        cleanupCancelledImportTransactions,
+        cleanupTouchedBeneficiaries,
         totalRows: rows.length,
+        duplicateCardCount,
         importedFamilies,
         importedTransactions,
         updatedFamilies,
@@ -337,9 +610,12 @@ export async function processTransactionImport(
         skippedAlreadySuspended,
         balanceSetFamilies,
         skippedAlreadyCorrect,
+        preImportBalanceAdjustedFamilies,
+        preImportBalanceAlreadyCorrect,
         skippedNotFound: notFoundRows.length,
         skippedAlreadyImported,
         notFoundRows,
+        detailedReport,
       },
     };
   } catch (error) {
@@ -348,6 +624,274 @@ export async function processTransactionImport(
     }
     return { error: "حدث خطأ غير متوقع أثناء معالجة الملف." };
   }
+}
+
+async function cleanupActiveImportsAndRestoreLedgerState(baseCards: string[]): Promise<{
+  deletedImportTransactions: number;
+  cancelledImportTransactions: number;
+  touchedBeneficiaries: number;
+  deletedImportTransactionRows: DeletedImportTransactionSnapshot[];
+}> {
+  const memberIdSet = new Set<string>();
+
+  for (const baseCard of baseCards) {
+    const members = await prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT id
+      FROM "Beneficiary"
+      WHERE deleted_at IS NULL
+        AND (
+          card_number = ${baseCard}
+          OR card_number ~ ${familySuffixRegex(baseCard)}
+        )
+    `;
+
+    for (const m of members) {
+      memberIdSet.add(m.id);
+    }
+  }
+
+  const memberIds = Array.from(memberIdSet);
+  if (memberIds.length === 0) {
+    return {
+      deletedImportTransactions: 0,
+      cancelledImportTransactions: 0,
+      touchedBeneficiaries: 0,
+      deletedImportTransactionRows: [],
+    };
+  }
+
+  const existingImportRows = await prisma.$queryRaw<ImportTxRow[]>`
+    SELECT
+      id,
+      beneficiary_id,
+      facility_id,
+      amount::float8 AS amount,
+      type::text AS type,
+      is_cancelled,
+      created_at,
+      original_transaction_id,
+      idempotency_key
+    FROM "Transaction"
+    WHERE beneficiary_id = ANY(${memberIds}::text[])
+      AND type = 'IMPORT'
+      AND is_cancelled = false
+    ORDER BY created_at ASC, id ASC
+  `;
+
+  const deletedImportTransactionRows: DeletedImportTransactionSnapshot[] = existingImportRows.map((row) => ({
+    id: row.id,
+    beneficiaryId: row.beneficiary_id,
+    facilityId: row.facility_id,
+    amount: Number(row.amount) || 0,
+    type: "IMPORT",
+    isCancelled: Boolean(row.is_cancelled),
+    createdAt: row.created_at.toISOString(),
+    originalTransactionId: row.original_transaction_id,
+    idempotencyKey: row.idempotency_key,
+  }));
+
+  const deleted = await prisma.transaction.deleteMany({
+    where: {
+      id: { in: deletedImportTransactionRows.map((t) => t.id) },
+    },
+  });
+
+  await prisma.$transaction(async (tx) => {
+    const [beneficiaries, deductions] = await Promise.all([
+      tx.beneficiary.findMany({
+        where: { id: { in: memberIds } },
+        select: { id: true, total_balance: true },
+      }),
+      tx.transaction.groupBy({
+        by: ["beneficiary_id"],
+        where: {
+          beneficiary_id: { in: memberIds },
+          is_cancelled: false,
+          type: { not: TransactionType.CANCELLATION },
+        },
+        _sum: { amount: true },
+      }),
+    ]);
+
+    const deductionByBeneficiary = new Map<string, number>();
+    for (const d of deductions) {
+      deductionByBeneficiary.set(d.beneficiary_id, Number(d._sum.amount) || 0);
+    }
+
+    for (const row of beneficiaries) {
+      const total = Number(row.total_balance) || 0;
+      const deducted = deductionByBeneficiary.get(row.id) ?? 0;
+      const remaining = roundCurrency(Math.max(0, total - deducted));
+      const status = remaining <= 0 ? "FINISHED" : "ACTIVE";
+
+      await tx.beneficiary.update({
+        where: { id: row.id },
+        data: {
+          remaining_balance: remaining,
+          status: status as "ACTIVE" | "FINISHED",
+          completed_via: status === "FINISHED" ? "DEDUCTION" : null,
+        },
+      });
+    }
+  });
+
+  return {
+    deletedImportTransactions: deleted.count,
+    cancelledImportTransactions: 0,
+    touchedBeneficiaries: memberIds.length,
+    deletedImportTransactionRows,
+  };
+}
+
+async function loadFamilyMembersSnapshot(baseCards: string[]): Promise<BeneficiaryBalanceSnapshot[]> {
+  if (baseCards.length === 0) return [];
+  const dedup = new Map<string, BeneficiaryBalanceSnapshot>();
+
+  for (const baseCard of baseCards) {
+    const rows = await prisma.$queryRaw<Array<{
+      id: string;
+      name: string;
+      card_number: string;
+      total_balance: number;
+      remaining_balance: number;
+      status: string;
+      completed_via: string | null;
+    }>>`
+      SELECT
+        b.id,
+        b.name,
+        b.card_number,
+        b.total_balance::float8 AS total_balance,
+        b.remaining_balance::float8 AS remaining_balance,
+        b.status::text AS status,
+        b.completed_via
+      FROM "Beneficiary" b
+      WHERE b.deleted_at IS NULL
+        AND (
+          b.card_number = ${baseCard}
+          OR b.card_number ~ ${familySuffixRegex(baseCard)}
+        )
+      ORDER BY b.card_number ASC, b.id ASC
+    `;
+
+    for (const row of rows) {
+      dedup.set(row.id, {
+        beneficiaryId: row.id,
+        beneficiaryName: row.name,
+        cardNumber: row.card_number,
+        totalBalance: Number(row.total_balance) || 0,
+        remainingBalance: Number(row.remaining_balance) || 0,
+        status: (String(row.status || "ACTIVE") as "ACTIVE" | "FINISHED" | "SUSPENDED"),
+        completedVia: row.completed_via,
+      });
+    }
+  }
+
+  return Array.from(dedup.values()).sort((a, b) => a.cardNumber.localeCompare(b.cardNumber));
+}
+
+async function loadFamilyArchiveSnapshot(baseCards: string[]): Promise<FamilyImportArchiveSnapshot[]> {
+  if (baseCards.length === 0) return [];
+
+  const rows = await prisma.$queryRaw<Array<{
+    family_base_card: string;
+    family_count_from_file: number;
+    total_balance_from_file: number;
+    used_balance_from_file: number;
+    source_row_number: number | null;
+    imported_by: string | null;
+    last_imported_at: Date;
+    created_at: Date;
+    updated_at: Date;
+  }>>`
+    SELECT
+      family_base_card,
+      family_count_from_file,
+      total_balance_from_file::float8 AS total_balance_from_file,
+      used_balance_from_file::float8 AS used_balance_from_file,
+      source_row_number,
+      imported_by,
+      last_imported_at,
+      created_at,
+      updated_at
+    FROM "FamilyImportArchive"
+    WHERE family_base_card = ANY(${baseCards}::text[])
+    ORDER BY family_base_card ASC
+  `;
+
+  return rows.map((row) => ({
+    familyBaseCard: row.family_base_card,
+    familyCountFromFile: Number(row.family_count_from_file) || 0,
+    totalBalanceFromFile: Number(row.total_balance_from_file) || 0,
+    usedBalanceFromFile: Number(row.used_balance_from_file) || 0,
+    sourceRowNumber: row.source_row_number,
+    importedBy: row.imported_by,
+    lastImportedAt: row.last_imported_at.toISOString(),
+    createdAt: row.created_at.toISOString(),
+    updatedAt: row.updated_at.toISOString(),
+  }));
+}
+
+async function ensureFamilyImportArchiveTable() {
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "FamilyImportArchive" (
+      "family_base_card" TEXT PRIMARY KEY,
+      "family_count_from_file" INTEGER NOT NULL DEFAULT 0,
+      "total_balance_from_file" NUMERIC(12, 2) NOT NULL DEFAULT 0,
+      "used_balance_from_file" NUMERIC(12, 2) NOT NULL DEFAULT 0,
+      "source_row_number" INTEGER,
+      "imported_by" TEXT,
+      "last_imported_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "idx_family_import_archive_last_imported_at"
+    ON "FamilyImportArchive" ("last_imported_at" DESC);
+  `);
+}
+
+async function upsertFamilyImportArchive(input: {
+  familyBaseCard: string;
+  familyCount: number;
+  totalBalanceFromFile: number;
+  usedBalanceFromFile: number;
+  sourceRowNumber: number;
+  importedBy: string;
+}) {
+  await prisma.$executeRaw`
+    INSERT INTO "FamilyImportArchive" (
+      "family_base_card",
+      "family_count_from_file",
+      "total_balance_from_file",
+      "used_balance_from_file",
+      "source_row_number",
+      "imported_by",
+      "last_imported_at",
+      "updated_at"
+    )
+    VALUES (
+      ${input.familyBaseCard},
+      ${Math.max(0, Math.floor(Number(input.familyCount) || 0))},
+      ${roundCurrency(Number(input.totalBalanceFromFile) || 0)},
+      ${roundCurrency(Number(input.usedBalanceFromFile) || 0)},
+      ${Math.max(0, Math.floor(Number(input.sourceRowNumber) || 0))},
+      ${input.importedBy},
+      NOW(),
+      NOW()
+    )
+    ON CONFLICT ("family_base_card")
+    DO UPDATE SET
+      "family_count_from_file" = EXCLUDED."family_count_from_file",
+      "total_balance_from_file" = EXCLUDED."total_balance_from_file",
+      "used_balance_from_file" = EXCLUDED."used_balance_from_file",
+      "source_row_number" = EXCLUDED."source_row_number",
+      "imported_by" = EXCLUDED."imported_by",
+      "last_imported_at" = NOW(),
+      "updated_at" = NOW();
+  `;
 }
 
 // ─── Family Import ───────────────────────────────────────────────
@@ -367,7 +911,10 @@ async function importFamilyTransactions(
     const familyMembers = await tx.$queryRaw<Array<{ id: string; name: string; card_number: string; remaining_balance: number; total_balance: number; status: string }>>`
       SELECT id, name, card_number, remaining_balance, total_balance, status
       FROM "Beneficiary"
-      WHERE card_number LIKE ${baseCard + '%'}
+      WHERE (
+        card_number = ${baseCard}
+        OR card_number ~ ${familySuffixRegex(baseCard)}
+      )
         AND "deleted_at" IS NULL
       ORDER BY card_number ASC
       FOR UPDATE
@@ -391,10 +938,13 @@ async function importFamilyTransactions(
     });
     hasExistingImport = existingImports.length > 0;
 
-    // Distribute amount by family size from file when available.
-    // This prevents over-deducting when DB has fewer members than the file family size.
-    const divisor = Math.max(1, Number(expectedFamilyCount) || familyMembers.length);
-    const perMemberAmount = roundCurrency(totalUsedAmount / divisor);
+    // توزيع بدون كسور: المبلغ الصحيح بالتساوي، والمتبقي يُسند لصاحب أعلى رصيد متاح.
+    // عند توفر عدد الأسرة من الملف نوزّع على هذا العدد لمنع تضخيم حصة الموجودين فعلياً.
+    const expectedCount = Math.max(0, Math.floor(Number(expectedFamilyCount) || 0));
+    const divisor = Math.max(1, expectedCount > 0 ? expectedCount : familyMembers.length);
+    const normalizedTotalUsed = Math.max(0, Math.round(totalUsedAmount));
+    const baseShare = Math.floor(normalizedTotalUsed / divisor);
+    const remainder = normalizedTotalUsed - baseShare * divisor;
 
     const importsByMember = new Map<string, Array<{ id: string; amount: number }>>();
     for (const imp of existingImports) {
@@ -411,15 +961,27 @@ async function importFamilyTransactions(
       deductAmount: number;
       newBalance: number;
     };
-    const calcs: MemberCalc[] = [];
-
-    for (let i = 0; i < familyMembers.length; i++) {
-      const member = familyMembers[i];
+    const preCalcs = familyMembers.map((member) => {
       const currentBalance = Number(member.remaining_balance);
       const existingForMember = importsByMember.get(member.id) ?? [];
       const previousImported = existingForMember.reduce((sum, item) => sum + Number(item.amount), 0);
       const balanceBeforeImport = roundCurrency(currentBalance + previousImported);
-      const deductAmount = roundCurrency(perMemberAmount);
+      return { member, existingForMember, balanceBeforeImport };
+    });
+
+    const remainderRecipientIndex = chooseRemainderRecipientIndex(
+      preCalcs.map((c) => ({
+        status: String(c.member.status ?? ""),
+        availableBalance: c.balanceBeforeImport,
+      })),
+      remainder,
+    );
+
+    const calcs: MemberCalc[] = [];
+
+    for (let i = 0; i < familyMembers.length; i++) {
+      const { member, existingForMember, balanceBeforeImport } = preCalcs[i];
+      const deductAmount = i === remainderRecipientIndex ? baseShare + remainder : baseShare;
       const newBalance = roundCurrency(Math.max(0, balanceBeforeImport - deductAmount));
 
       calcs.push({ member, existingForMember, balanceBeforeImport, deductAmount, newBalance });
@@ -435,10 +997,10 @@ async function importFamilyTransactions(
         beneficiaryName: member.name,
         cardNumber: member.card_number,
         familyBaseCard: baseCard,
-        familySize: familyMembers.length,
+        familySize: divisor,
         balanceBefore: balanceBeforeImport,
         deductedAmount: deductAmount,
-        familyTotalDeduction: totalUsedAmount,
+        familyTotalDeduction: normalizedTotalUsed,
         balanceAfter: newBalance,
       });
 
@@ -501,14 +1063,16 @@ async function importFamilyTransactions(
 async function suspendFamily(
   baseCard: string,
 ): Promise<"already_suspended" | { count: number }> {
-  const familyMembers = await prisma.beneficiary.findMany({
-    where: {
-      card_number: { startsWith: baseCard },
-      deleted_at: null,
-    },
-    select: { id: true, status: true, total_balance: true },
-    orderBy: { card_number: "asc" },
-  });
+  const familyMembers = await prisma.$queryRaw<Array<{ id: string; status: string; total_balance: number }>>`
+    SELECT id, status::text, total_balance::float8
+    FROM "Beneficiary"
+    WHERE deleted_at IS NULL
+      AND (
+        card_number = ${baseCard}
+        OR card_number ~ ${familySuffixRegex(baseCard)}
+      )
+    ORDER BY card_number ASC
+  `;
 
   if (familyMembers.length === 0) return "already_suspended";
 
@@ -547,19 +1111,32 @@ async function setFamilyBalance(
   totalBalance: number,
   expectedFamilyCount?: number,
 ): Promise<"already_correct" | { count: number }> {
-  const familyMembers = await prisma.beneficiary.findMany({
-    where: {
-      card_number: { startsWith: baseCard },
-      deleted_at: null,
-    },
-    select: { id: true, status: true, total_balance: true, remaining_balance: true },
-    orderBy: { card_number: "asc" },
-  });
+  const familyMembers = await prisma.$queryRaw<Array<{ id: string; status: string; total_balance: number; remaining_balance: number }>>`
+    SELECT id, status::text, total_balance::float8, remaining_balance::float8
+    FROM "Beneficiary"
+    WHERE deleted_at IS NULL
+      AND (
+        card_number = ${baseCard}
+        OR card_number ~ ${familySuffixRegex(baseCard)}
+      )
+    ORDER BY card_number ASC
+  `;
 
   if (familyMembers.length === 0) return "already_correct";
 
-  const divisor = Math.max(1, Number(expectedFamilyCount) || familyMembers.length);
-  const perMember = roundCurrency(totalBalance / divisor);
+  // عند توفر عدد الأسرة من الملف نوزّع على هذا العدد لمنع تضخيم حصة الموجودين فعلياً.
+  const expectedCount = Math.max(0, Math.floor(Number(expectedFamilyCount) || 0));
+  const divisor = Math.max(1, expectedCount > 0 ? expectedCount : familyMembers.length);
+  const normalizedTotalBalance = Math.max(0, Math.round(totalBalance));
+  const baseShare = Math.floor(normalizedTotalBalance / divisor);
+  const remainder = normalizedTotalBalance - baseShare * divisor;
+  const remainderRecipientIndex = chooseRemainderRecipientIndex(
+    familyMembers.map((m) => ({
+      status: String(m.status ?? ""),
+      availableBalance: Number(m.remaining_balance),
+    })),
+    remainder,
+  );
   const memberIds = familyMembers.map((m) => m.id);
 
   // تنظيف حركات IMPORT القديمة دائماً لمنع أي أثر قديم على الرصيد الدفتري.
@@ -571,35 +1148,91 @@ async function setFamilyBalance(
     },
   });
 
-  // Check if already correct
+  // حساب الخصومات اليدوية (MEDICINE / SUPPLIES) لكل عضو لحمايتها عند إعادة الضبط
+  const manualDeductions = await prisma.transaction.groupBy({
+    by: ['beneficiary_id'],
+    where: {
+      beneficiary_id: { in: memberIds },
+      type: { notIn: [TransactionType.IMPORT, TransactionType.CANCELLATION] },
+      is_cancelled: false,
+    },
+    _sum: { amount: true },
+  });
+
+  const deductionMap = new Map<string, number>();
+  for (const d of manualDeductions) {
+    deductionMap.set(d.beneficiary_id, Number(d._sum.amount) || 0);
+  }
+
+  // Check if already correct (مع مراعاة الخصومات اليدوية)
   const alreadyCorrect = familyMembers.every((m, i) => {
-    const expected = perMember;
+    const expectedShare = i === remainderRecipientIndex ? baseShare + remainder : baseShare;
+    const manualDed = deductionMap.get(m.id) || 0;
+    const expectedRemaining = roundCurrency(Math.max(0, expectedShare - manualDed));
+    const expectedStatus = expectedRemaining <= 0 ? "FINISHED" : "ACTIVE";
     return (
-      m.status === "ACTIVE" &&
-      Number(m.total_balance) === expected &&
-      Number(m.remaining_balance) === expected
+      m.status === expectedStatus &&
+      Number(m.total_balance) === expectedShare &&
+      Number(m.remaining_balance) === expectedRemaining
     );
   });
   if (alreadyCorrect) return "already_correct";
 
   await prisma.$transaction(async (tx) => {
-    // توزيع الرصيد وإعادة التفعيل
+    // توزيع الرصيد مع حماية الخصومات اليدوية
     for (let i = 0; i < familyMembers.length; i++) {
       const member = familyMembers[i];
-      const balance = perMember;
+      const share = i === remainderRecipientIndex ? baseShare + remainder : baseShare;
+      const manualDed = deductionMap.get(member.id) || 0;
+      const remaining = roundCurrency(Math.max(0, share - manualDed));
+      const newStatus = remaining <= 0 ? "FINISHED" : "ACTIVE";
       await tx.beneficiary.update({
         where: { id: member.id },
         data: {
-          total_balance: balance,
-          remaining_balance: balance,
-          status: "ACTIVE",
-          completed_via: null,
+          total_balance: share,
+          remaining_balance: remaining,
+          status: newStatus as "ACTIVE" | "FINISHED",
+          completed_via: newStatus === "FINISHED" ? "DEDUCTION" : null,
         },
       });
     }
   });
 
   return { count: familyMembers.length };
+}
+
+function chooseRemainderRecipientIndex(
+  recipients: Array<{ status: string; availableBalance: number }>,
+  remainder: number,
+): number {
+  if (recipients.length === 0) return 0;
+  if (remainder <= 0) return 0;
+
+  let bestIndex = 0;
+  let bestIsActive = false;
+  let bestHasBalance = false;
+  let bestBalance = Number.NEGATIVE_INFINITY;
+
+  for (let i = 0; i < recipients.length; i++) {
+    const recipient = recipients[i];
+    const isActive = recipient.status === "ACTIVE";
+    const balance = Number(recipient.availableBalance ?? 0);
+    const hasBalance = balance > 0;
+
+    // الأولوية: ACTIVE + لديه رصيد أولاً، ثم ACTIVE، ثم الأعلى رصيداً.
+    if (
+      (isActive && hasBalance && !(bestIsActive && bestHasBalance)) ||
+      (isActive === bestIsActive && hasBalance && !bestHasBalance) ||
+      (isActive === bestIsActive && hasBalance === bestHasBalance && balance > bestBalance)
+    ) {
+      bestIsActive = isActive;
+      bestHasBalance = hasBalance;
+      bestBalance = balance;
+      bestIndex = i;
+    }
+  }
+
+  return bestIndex;
 }
 
 // ─── Generate Not-Found Report ───────────────────────────────────
