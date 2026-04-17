@@ -25,6 +25,9 @@ type TransactionImportSummary = {
   skippedNotFound: number;
   cleanupDeletedImportTransactions: number;
   cleanupTouchedBeneficiaries: number;
+  autoDebtAffectedDebtors: number;
+  autoDebtSettledDebtors: number;
+  autoDebtUnresolvedDebtors: number;
 };
 
 export type TransactionImportJobSnapshot = {
@@ -73,6 +76,9 @@ function summarizeResult(result: TransactionImportResult): TransactionImportSumm
     skippedNotFound: result.skippedNotFound,
     cleanupDeletedImportTransactions: result.cleanupDeletedImportTransactions,
     cleanupTouchedBeneficiaries: result.cleanupTouchedBeneficiaries,
+    autoDebtAffectedDebtors: result.autoDebtAffectedDebtors,
+    autoDebtSettledDebtors: result.autoDebtSettledDebtors,
+    autoDebtUnresolvedDebtors: result.autoDebtUnresolvedDebtors,
   };
 }
 
@@ -113,6 +119,9 @@ function toSnapshot(job: {
           skippedNotFound: Number(r.skippedNotFound) || 0,
           cleanupDeletedImportTransactions: Number(r.cleanupDeletedImportTransactions) || 0,
           cleanupTouchedBeneficiaries: Number(r.cleanupTouchedBeneficiaries) || 0,
+          autoDebtAffectedDebtors: Number(r.autoDebtAffectedDebtors) || 0,
+          autoDebtSettledDebtors: Number(r.autoDebtSettledDebtors) || 0,
+          autoDebtUnresolvedDebtors: Number(r.autoDebtUnresolvedDebtors) || 0,
         };
       }
     }

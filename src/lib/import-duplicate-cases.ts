@@ -6,7 +6,10 @@ export type ImportDuplicateCase = {
   beneficiaryId: string;
   name: string;
   cardNumber: string;
+  totalBalance: number;
   importCount: number;
+  importFileCount: number;
+  caseType: "ACTIVE_IMPORT_DUPLICATE" | "MULTI_FILE_REPEAT";
   currentRemaining: number;
   extraAmount: number;
   fixedRemaining: number;
@@ -21,6 +24,18 @@ function round2(value: number): number {
 }
 
 export async function getActiveImportDuplicateCases(): Promise<ImportDuplicateCase[]> {
+  const repeatedAcrossFilesRows = await prisma.$queryRaw<Array<{ beneficiary_id: string; file_count: number }>>`
+    SELECT
+      (elem->>'beneficiaryId') AS beneficiary_id,
+      COUNT(DISTINCT a.id)::int AS file_count
+    FROM "AuditLog" a
+    CROSS JOIN LATERAL jsonb_array_elements(COALESCE(a.metadata->'detailedReport'->'execution'->'appliedRows', '[]'::jsonb)) AS elem
+    WHERE a.action = 'IMPORT_TRANSACTIONS'
+      AND (elem->>'beneficiaryId') IS NOT NULL
+    GROUP BY (elem->>'beneficiaryId')
+    HAVING COUNT(DISTINCT a.id) > 1
+  `;
+
   const duplicateRows = await prisma.$queryRaw<Array<{ beneficiary_id: string; cnt: number }>>`
     SELECT beneficiary_id, COUNT(*)::int AS cnt
     FROM "Transaction"
@@ -29,9 +44,13 @@ export async function getActiveImportDuplicateCases(): Promise<ImportDuplicateCa
     HAVING COUNT(*) > 1
   `;
 
-  if (duplicateRows.length === 0) return [];
+  if (duplicateRows.length === 0 && repeatedAcrossFilesRows.length === 0) return [];
 
-  const beneficiaryIds = duplicateRows.map((row) => row.beneficiary_id);
+  const duplicateBeneficiaryIds = duplicateRows.map((row) => row.beneficiary_id);
+  const repeatedBeneficiaryIds = repeatedAcrossFilesRows.map((row) => row.beneficiary_id);
+  const beneficiaryIds = Array.from(new Set([...duplicateBeneficiaryIds, ...repeatedBeneficiaryIds]));
+  const duplicateCountByBeneficiary = new Map(duplicateRows.map((row) => [row.beneficiary_id, Number(row.cnt) || 0]));
+  const fileCountByBeneficiary = new Map(repeatedAcrossFilesRows.map((row) => [row.beneficiary_id, Number(row.file_count) || 0]));
 
   const [beneficiaries, ledgerRemainingById] = await Promise.all([
     prisma.beneficiary.findMany({
@@ -41,6 +60,7 @@ export async function getActiveImportDuplicateCases(): Promise<ImportDuplicateCa
         name: true,
         card_number: true,
         status: true,
+        total_balance: true,
       },
     }),
     getLedgerRemainingByBeneficiaryIds(beneficiaryIds),
@@ -71,12 +91,17 @@ export async function getActiveImportDuplicateCases(): Promise<ImportDuplicateCa
   const beneficiaryMap = new Map(beneficiaries.map((b) => [b.id, b]));
 
   const result: ImportDuplicateCase[] = [];
-  for (const row of duplicateRows) {
-    const beneficiary = beneficiaryMap.get(row.beneficiary_id);
+  for (const beneficiaryId of beneficiaryIds) {
+    const beneficiary = beneficiaryMap.get(beneficiaryId);
     if (!beneficiary) continue;
 
-    const txs = txByBeneficiary.get(row.beneficiary_id) ?? [];
-    if (txs.length <= 1) continue;
+    const txs = txByBeneficiary.get(beneficiaryId) ?? [];
+    const duplicateCount = duplicateCountByBeneficiary.get(beneficiaryId) ?? txs.length;
+    const fileCount = fileCountByBeneficiary.get(beneficiaryId) ?? 0;
+    const hasActiveDuplicate = duplicateCount > 1;
+    const hasMultiFileRepeat = fileCount > 1;
+
+    if (!hasActiveDuplicate && !hasMultiFileRepeat) continue;
 
     const keepTx = txs[0];
     const deleteTxs = txs.slice(1);
@@ -84,23 +109,30 @@ export async function getActiveImportDuplicateCases(): Promise<ImportDuplicateCa
     const currentRemaining = round2(ledgerRemainingById.get(beneficiary.id) ?? 0);
     const fixedRemaining = round2(currentRemaining + extraAmount);
     const fixedStatus = fixedRemaining <= 0 ? "FINISHED" : "ACTIVE";
+    const caseType = hasActiveDuplicate ? "ACTIVE_IMPORT_DUPLICATE" : "MULTI_FILE_REPEAT";
 
     result.push({
       beneficiaryId: beneficiary.id,
       name: beneficiary.name,
       cardNumber: beneficiary.card_number,
+      totalBalance: round2(Number(beneficiary.total_balance) || 0),
       importCount: txs.length,
+      importFileCount: fileCount,
+      caseType,
       currentRemaining,
       extraAmount,
       fixedRemaining,
       currentStatus: beneficiary.status,
       fixedStatus,
-      keepTransactionId: keepTx.id,
+      keepTransactionId: keepTx?.id ?? "",
       deleteTransactionIds: deleteTxs.map((tx) => tx.id),
     });
   }
 
-  result.sort((a, b) => b.extraAmount - a.extraAmount);
+  result.sort((a, b) => {
+    if (a.caseType !== b.caseType) return a.caseType === "ACTIVE_IMPORT_DUPLICATE" ? -1 : 1;
+    return b.extraAmount - a.extraAmount;
+  });
   return result;
 }
 

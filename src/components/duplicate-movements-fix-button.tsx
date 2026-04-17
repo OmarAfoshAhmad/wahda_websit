@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Loader2, ShieldCheck } from "lucide-react";
 import { runDataHygieneSweepAction } from "@/app/actions/data-hygiene";
+import { startMaintenanceJobAction } from "@/app/actions/maintenance-jobs";
 import { ConfirmationModal } from "@/components/confirmation-modal";
 
 type Props = {
@@ -21,23 +22,13 @@ export function DuplicateMovementsFixButton({ initialCount }: Props) {
     setError(null);
     setStatusMessage(null);
     startTransition(async () => {
-      const res = await runDataHygieneSweepAction({ mode: "duplicate_movements", dryRun: false });
-      if (!res.success) {
-        setError(res.error ?? "تعذر تنفيذ المعالجة");
+      const queued = await startMaintenanceJobAction({ kind: "data_hygiene_sweep", mode: "duplicate_movements" });
+      if (!queued.success || !queued.job) {
+        setError(queued.error ?? "تعذر بدء المعالجة بالخلفية");
         return;
       }
-
-      setLastAffected(res.duplicate_movements);
-      if (res.duplicate_movements === 0) {
-        setStatusMessage("لا توجد حاليا تكرارات حركات قابلة للمعالجة. ربما تمت معالجتها سابقا.");
-      } else {
-        setStatusMessage(`تم تنفيذ المعالجة على ${res.duplicate_movements.toLocaleString("ar-LY")} حركة مكررة.`);
-      }
-
-      const dryRes = await runDataHygieneSweepAction({ mode: "duplicate_movements", dryRun: true });
-      if (dryRes.success) {
-        setCount(dryRes.duplicate_movements);
-      }
+      setLastAffected(null);
+      setStatusMessage(`تم بدء المعالجة بالخلفية (رقم المهمة: ${queued.job.id}). يمكنك تحديث الصفحة لاحقًا لمراجعة النتائج.`);
       setConfirmOpen(false);
     });
   };

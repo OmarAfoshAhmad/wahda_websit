@@ -443,7 +443,7 @@ export async function DataHealthContent({
 
     prisma.$queryRaw<LegacyFractionalImportRow[]>`
       SELECT
-        REGEXP_REPLACE(b.card_number, '([A-Z][0-9]+)$', '') AS family_base_card,
+        COALESCE(SUBSTRING(b.card_number FROM '^(WAB2025[0-9]+)'), b.card_number) AS family_base_card,
         COUNT(DISTINCT b.id)::int AS members_count,
         COUNT(t.id)::int AS import_transactions_count,
         ROUND(SUM(t.amount)::numeric, 2)::float8 AS family_total_import_amount
@@ -453,14 +453,14 @@ export async function DataHealthContent({
         AND t.is_cancelled = false
         AND b.deleted_at IS NULL
         AND ABS(t.amount - ROUND(t.amount)) > 0.000001
-      GROUP BY REGEXP_REPLACE(b.card_number, '([A-Z][0-9]+)$', '')
+      GROUP BY COALESCE(SUBSTRING(b.card_number FROM '^(WAB2025[0-9]+)'), b.card_number)
       ORDER BY family_total_import_amount DESC
       LIMIT 300
     `,
 
     prisma.$queryRaw<LegacyFractionalImportMemberRow[]>`
       SELECT
-        REGEXP_REPLACE(b.card_number, '([A-Z][0-9]+)$', '') AS family_base_card,
+        COALESCE(SUBSTRING(b.card_number FROM '^(WAB2025[0-9]+)'), b.card_number) AS family_base_card,
         b.id AS beneficiary_id,
         b.name AS beneficiary_name,
         b.card_number,
@@ -475,7 +475,7 @@ export async function DataHealthContent({
         AND b.deleted_at IS NULL
         AND ABS(t.amount - ROUND(t.amount)) > 0.000001
       GROUP BY
-        REGEXP_REPLACE(b.card_number, '([A-Z][0-9]+)$', ''),
+        COALESCE(SUBSTRING(b.card_number FROM '^(WAB2025[0-9]+)'), b.card_number),
         b.id,
         b.name,
         b.card_number,

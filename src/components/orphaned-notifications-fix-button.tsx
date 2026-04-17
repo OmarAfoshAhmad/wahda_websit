@@ -3,24 +3,24 @@
 import { useState, useTransition } from "react";
 import { Loader2, Wrench } from "lucide-react";
 import { ConfirmationModal } from "@/components/confirmation-modal";
-import { runDataHygieneSweepAction } from "@/app/actions/data-hygiene";
+import { startMaintenanceJobAction } from "@/app/actions/maintenance-jobs";
 
 export function OrphanedNotificationsFixButton() {
   const [isPending, startTransition] = useTransition();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [fixedCount, setFixedCount] = useState<number | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   const handleConfirm = () => {
     setError(null);
     startTransition(async () => {
-      const res = await runDataHygieneSweepAction({ mode: "orphaned_notifications", dryRun: false });
-      if (!res.success) {
-        setError(res.error ?? "تعذر تنفيذ المعالجة");
+      const queued = await startMaintenanceJobAction({ kind: "data_hygiene_sweep", mode: "orphaned_notifications" });
+      if (!queued.success || !queued.job) {
+        setError(queued.error ?? "تعذر بدء المعالجة بالخلفية");
         return;
       }
       setConfirmOpen(false);
-      setFixedCount(res.orphaned_notifications);
+      setStatusMessage(`تم بدء المعالجة بالخلفية (رقم المهمة: ${queued.job.id}). يمكنك تحديث الصفحة لاحقًا لمراجعة النتائج.`);
     });
   };
 
@@ -39,9 +39,9 @@ export function OrphanedNotificationsFixButton() {
         معالجة الإشعارات اليتيمة
       </button>
 
-      {fixedCount !== null && (
-        <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-400">
-          تمت المعالجة: {fixedCount.toLocaleString("ar-LY")} إشعار يتيم.
+      {statusMessage && (
+        <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-bold text-sky-700 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-400">
+          {statusMessage}
         </p>
       )}
 

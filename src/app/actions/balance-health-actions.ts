@@ -4,6 +4,11 @@ import prisma from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { AUDIT_ACTIONS } from "@/lib/constants";
 
+type BackgroundActor = {
+  username: string;
+  isAdmin: true;
+};
+
 export type RecalcResult = {
   success: boolean;
   fixed_count: number;
@@ -120,8 +125,10 @@ export async function checkOrphanedNotificationsAction(): Promise<CountCheckResu
   }
 }
 
-export async function fixStatusAnomaliesAction(): Promise<FixStatusAnomaliesResult> {
-  const session = await getSession();
+export async function fixStatusAnomaliesAction(actor?: BackgroundActor): Promise<FixStatusAnomaliesResult> {
+  const session = actor
+    ? { username: actor.username, is_admin: actor.isAdmin }
+    : await getSession();
   if (!session?.is_admin) {
     return {
       success: false,
@@ -213,8 +220,10 @@ export async function fixStatusAnomaliesAction(): Promise<FixStatusAnomaliesResu
   }
 }
 
-export async function recalcBalancesAction(): Promise<RecalcResult> {
-  const session = await getSession();
+export async function recalcBalancesAction(actor?: BackgroundActor): Promise<RecalcResult> {
+  const session = actor
+    ? { username: actor.username, is_admin: actor.isAdmin }
+    : await getSession();
   if (!session?.is_admin) {
     return { success: false, fixed_count: 0, status_changes: 0, total_drift: 0, error: "غير مصرح" };
   }

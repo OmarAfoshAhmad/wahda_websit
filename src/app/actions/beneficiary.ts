@@ -10,7 +10,7 @@ import { getLedgerRemainingByBeneficiaryId, getLedgerRemainingByBeneficiaryIds }
 import { roundCurrency } from "@/lib/money";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
-import { normalizePersonName } from "@/lib/normalize";
+import { extractBaseCard, normalizePersonName } from "@/lib/normalize";
 import { normalizeCardInput } from "@/lib/card-number";
 
 function normalizeCardNumber(value: string) {
@@ -64,7 +64,7 @@ function parseBirthDate(value?: string) {
 }
 
 function extractFamilyBaseCard(cardNumber: string): string {
-  return String(cardNumber || "").replace(/([WSDMFHV][0-9]*)$/i, "");
+  return extractBaseCard(String(cardNumber || ""));
 }
 
 function escapeRegex(value: string): string {

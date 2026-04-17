@@ -4,6 +4,7 @@ import { TransactionType } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import ExcelJS from "exceljs";
 import { roundCurrency } from "@/lib/money";
+import { applyOverdrawnDebtSettlement } from "@/lib/overdrawn-debt-settlement";
 
 /** Waad company facility ID (optional fallback) */
 function getWaadFacilityId(): string | undefined {
@@ -60,6 +61,9 @@ export type TransactionImportResult = {
   preImportBalanceAlreadyCorrect: number;
   skippedNotFound: number;
   skippedAlreadyImported: number;
+  autoDebtAffectedDebtors: number;
+  autoDebtSettledDebtors: number;
+  autoDebtUnresolvedDebtors: number;
   notFoundRows: NotFoundRow[];
   detailedReport: ImportDetailedReport;
 };
@@ -227,6 +231,13 @@ function resolveCardNumber(rawCard: string, lookup: Map<string, string>): string
   return lookup.get(rawNum) ?? null;
 }
 
+function normalizeUsedBalanceForImport(value: unknown): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+  // Business rule: grouped import used balance must be integer-only.
+  return Math.trunc(numeric);
+}
+
 // ─── Parse Excel ─────────────────────────────────────────────────
 
 function parseExcelRows(workbook: ExcelJS.Workbook): ParsedRow[] {
@@ -243,7 +254,7 @@ function parseExcelRows(workbook: ExcelJS.Workbook): ParsedRow[] {
     const name = String(vals[2] ?? "").trim();
     const familyCount = Number(vals[3]) || 0;
     const totalBalance = Number(vals[4]) || 0;
-    const usedBalance = Number(vals[5]) || 0;
+    const usedBalance = normalizeUsedBalanceForImport(vals[5]);
 
     if (cardNumber) {
       rows.push({ rowNumber: rowNum, cardNumber, name, familyCount, totalBalance, usedBalance });
@@ -585,11 +596,101 @@ export async function processTransactionImport(
           updatedTransactions,
           appliedRows,
           detailedReport,
+          autoDebtSettlement: {
+            status: "pending",
+          },
           rollbackEligible: true,
           rollbackStatus: "not_rolled_back",
         },
       },
     });
+
+    let autoDebtAffectedDebtors = 0;
+    let autoDebtSettledDebtors = 0;
+    let autoDebtUnresolvedDebtors = 0;
+
+    try {
+      const debtRun = await applyOverdrawnDebtSettlement({
+        user: username,
+        facilityId: importFacilityId,
+      });
+      autoDebtAffectedDebtors = debtRun.affectedDebtors;
+      autoDebtSettledDebtors = debtRun.settledDebtors;
+      autoDebtUnresolvedDebtors = debtRun.unresolvedDebtors;
+
+      await prisma.auditLog.update({
+        where: { id: auditLog.id },
+        data: {
+          metadata: {
+            importMode: replaceOldImports ? "replace_old_imports" : "incremental_update",
+            cleanupMode: "hard_delete",
+            cleanupDeletedImportTransactions,
+            cleanupCancelledImportTransactions,
+            cleanupTouchedBeneficiaries,
+            totalRows: rows.length,
+            duplicateCardCount,
+            importedFamilies,
+            importedTransactions,
+            suspendedFamilies,
+            skippedAlreadySuspended,
+            balanceSetFamilies,
+            skippedAlreadyCorrect,
+            preImportBalanceAdjustedFamilies,
+            preImportBalanceAlreadyCorrect,
+            skippedNotFound: notFoundRows.length,
+            skippedAlreadyImported,
+            updatedFamilies,
+            updatedTransactions,
+            appliedRows,
+            detailedReport,
+            autoDebtSettlement: {
+              status: "succeeded",
+              affectedDebtors: debtRun.affectedDebtors,
+              settledDebtors: debtRun.settledDebtors,
+              unresolvedDebtors: debtRun.unresolvedDebtors,
+              debtAuditId: debtRun.auditId,
+            },
+            rollbackEligible: true,
+            rollbackStatus: "not_rolled_back",
+          },
+        },
+      });
+    } catch (debtError) {
+      await prisma.auditLog.update({
+        where: { id: auditLog.id },
+        data: {
+          metadata: {
+            importMode: replaceOldImports ? "replace_old_imports" : "incremental_update",
+            cleanupMode: "hard_delete",
+            cleanupDeletedImportTransactions,
+            cleanupCancelledImportTransactions,
+            cleanupTouchedBeneficiaries,
+            totalRows: rows.length,
+            duplicateCardCount,
+            importedFamilies,
+            importedTransactions,
+            suspendedFamilies,
+            skippedAlreadySuspended,
+            balanceSetFamilies,
+            skippedAlreadyCorrect,
+            preImportBalanceAdjustedFamilies,
+            preImportBalanceAlreadyCorrect,
+            skippedNotFound: notFoundRows.length,
+            skippedAlreadyImported,
+            updatedFamilies,
+            updatedTransactions,
+            appliedRows,
+            detailedReport,
+            autoDebtSettlement: {
+              status: "failed",
+              error: debtError instanceof Error ? debtError.message : "UNKNOWN",
+            },
+            rollbackEligible: true,
+            rollbackStatus: "not_rolled_back",
+          },
+        },
+      });
+    }
 
     await reportProgress("done", Math.max(1, rows.length), Math.max(1, rows.length), "اكتمل الاستيراد بنجاح");
 
@@ -614,6 +715,9 @@ export async function processTransactionImport(
         preImportBalanceAlreadyCorrect,
         skippedNotFound: notFoundRows.length,
         skippedAlreadyImported,
+        autoDebtAffectedDebtors,
+        autoDebtSettledDebtors,
+        autoDebtUnresolvedDebtors,
         notFoundRows,
         detailedReport,
       },

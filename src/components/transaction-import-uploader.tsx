@@ -20,6 +20,9 @@ type TransactionImportSummary = {
   skippedNotFound: number;
   cleanupDeletedImportTransactions: number;
   cleanupTouchedBeneficiaries: number;
+  autoDebtAffectedDebtors: number;
+  autoDebtSettledDebtors: number;
+  autoDebtUnresolvedDebtors: number;
 };
 
 type TransactionImportJobSnapshot = {
@@ -193,6 +196,9 @@ export function TransactionImportUploader({
           <p className="mx-auto mt-2 max-w-xs text-sm leading-7 text-slate-500 dark:text-slate-400">
             اختر ملف Excel يحتوي على حقول <b>رقم البطاقة</b> و<b>الاسم</b> و<b>عدد الافراد</b> و<b>الرصيد الكلي</b> و<b>الرصيد المستخدم</b>.
           </p>
+          <p className="mx-auto mt-1 max-w-xs text-xs leading-6 text-amber-700 dark:text-amber-300">
+            ملاحظة: الرصيد المستخدم يتم اعتماده كعدد صحيح فقط (يتم حذف الجزء العشري تلقائياً أثناء الاستيراد).
+          </p>
           <a
             href="/قالب_استيراد_الحركات_المجمعة.xlsx"
             download
@@ -306,7 +312,16 @@ export function TransactionImportUploader({
                 <StatBox label="حركات محدَّثة" value={job.result.updatedTransactions} color="amber" />
                 <StatBox label="أسر انتهى رصيدها" value={job.result.suspendedFamilies} color="amber" />
                 <StatBox label="أسر بدون استخدام" value={job.result.balanceSetFamilies} color="emerald" />
+                <StatBox label="حالات مديونية مكتشفة" value={job.result.autoDebtAffectedDebtors} color="red" />
+                <StatBox label="مديونية تم تسويتها" value={job.result.autoDebtSettledDebtors} color="emerald" />
+                <StatBox label="مديونية متبقية" value={job.result.autoDebtUnresolvedDebtors} color="amber" />
               </div>
+
+              {job.result.autoDebtAffectedDebtors > 0 && (
+                <div className="rounded-md border border-blue-200 dark:border-blue-900/50 bg-blue-50 dark:bg-blue-900/20 p-3 text-xs text-blue-800 dark:text-blue-300">
+                  تم تشغيل تسوية المديونية تلقائياً بعد الاستيراد. يمكنك مراجعة المتبقي من نافذة المديونية في صفحة التكرارات.
+                </div>
+              )}
 
               <div className="rounded-md border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-900/20 p-3">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

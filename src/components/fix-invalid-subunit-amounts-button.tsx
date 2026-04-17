@@ -3,10 +3,7 @@
 import { useState, useTransition } from "react";
 import { Loader2, ShieldCheck } from "lucide-react";
 import { ConfirmationModal } from "@/components/confirmation-modal";
-import {
-  runFixInvalidSubunitAmountsAction,
-  type InvalidSubunitAmountFixResult,
-} from "@/app/actions/data-hygiene";
+import { startMaintenanceJobAction } from "@/app/actions/maintenance-jobs";
 
 type Props = {
   totalCandidates: number;
@@ -17,17 +14,17 @@ export function FixInvalidSubunitAmountsButton({ totalCandidates, visibleCandida
   const [isPending, startTransition] = useTransition();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<InvalidSubunitAmountFixResult | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   const runFix = () => {
     setError(null);
     startTransition(async () => {
-      const res = await runFixInvalidSubunitAmountsAction();
-      if (!res.success) {
-        setError(res.error ?? "تعذر تنفيذ المعالجة");
+      const queued = await startMaintenanceJobAction({ kind: "fix_invalid_subunit_amounts" });
+      if (!queued.success || !queued.job) {
+        setError(queued.error ?? "تعذر بدء المعالجة بالخلفية");
         return;
       }
-      setResult(res);
+      setStatusMessage(`تم بدء معالجة القيم المخالفة بالخلفية (رقم المهمة: ${queued.job.id}).`);
       setConfirmOpen(false);
     });
   };
@@ -60,11 +57,9 @@ export function FixInvalidSubunitAmountsButton({ totalCandidates, visibleCandida
         سيتم تعديل أي قيمة موجبة أقل من 1 (وليست 0.25 أو 0.50) إلى أقرب قيمة مسموحة، مع تحديث الرصيد المتبقي وتسجيل كامل في التدقيق.
       </p>
 
-      {result && (
-        <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-400">
-          تمت المعالجة: {result.fixed_count.toLocaleString("ar-LY")}
-          {` · تم التجاوز: ${result.skipped_count.toLocaleString("ar-LY")}`}
-          {` · إجمالي فرق الخصم: ${result.total_delta.toLocaleString("ar-LY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} د.ل`}
+      {statusMessage && (
+        <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-bold text-sky-700 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-400">
+          {statusMessage}
         </p>
       )}
 

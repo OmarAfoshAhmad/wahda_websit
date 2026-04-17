@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Loader2, ShieldCheck } from "lucide-react";
 import { runDataHygieneSweepAction } from "@/app/actions/data-hygiene";
+import { startMaintenanceJobAction } from "@/app/actions/maintenance-jobs";
 import { ConfirmationModal } from "@/components/confirmation-modal";
 
 type Props = {
@@ -21,23 +22,13 @@ export function DeletedFacilitiesFixButton({ initialCount }: Props) {
     setError(null);
     setStatusMessage(null);
     startTransition(async () => {
-      const res = await runDataHygieneSweepAction({ mode: "deleted_facilities", dryRun: false });
-      if (!res.success) {
-        setError(res.error ?? "تعذر تنفيذ المعالجة");
+      const queued = await startMaintenanceJobAction({ kind: "data_hygiene_sweep", mode: "deleted_facilities" });
+      if (!queued.success || !queued.job) {
+        setError(queued.error ?? "تعذر بدء المعالجة بالخلفية");
         return;
       }
-
-      setLastAffected(res.deleted_facilities);
-      if (res.deleted_facilities === 0) {
-        setStatusMessage("لا توجد مرافق محذوفة تحتاج تثبيت منع الدخول حاليا.");
-      } else {
-        setStatusMessage(`تم تثبيت منع الدخول لـ ${res.deleted_facilities.toLocaleString("ar-LY")} مرفق محذوف.`);
-      }
-
-      const dryRes = await runDataHygieneSweepAction({ mode: "deleted_facilities", dryRun: true });
-      if (dryRes.success) {
-        setCount(dryRes.deleted_facilities);
-      }
+      setLastAffected(null);
+      setStatusMessage(`تم بدء المعالجة بالخلفية (رقم المهمة: ${queued.job.id}). يمكنك تحديث الصفحة لاحقًا لمراجعة النتائج.`);
       setConfirmOpen(false);
     });
   };

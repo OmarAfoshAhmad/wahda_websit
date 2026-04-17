@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Loader2, ShieldCheck } from "lucide-react";
 import { runDataHygieneSweepAction } from "@/app/actions/data-hygiene";
+import { startMaintenanceJobAction } from "@/app/actions/maintenance-jobs";
 import { ConfirmationModal } from "@/components/confirmation-modal";
 
 type Props = {
@@ -21,22 +22,13 @@ export function UnlinkedCorrectionsFixButton({ initialCount }: Props) {
     setError(null);
     setStatusMessage(null);
     startTransition(async () => {
-      const res = await runDataHygieneSweepAction({ mode: "unlinked_corrections", dryRun: false });
-      if (!res.success) {
-        setError(res.error ?? "تعذر تنفيذ المعالجة");
+      const queued = await startMaintenanceJobAction({ kind: "data_hygiene_sweep", mode: "unlinked_corrections" });
+      if (!queued.success || !queued.job) {
+        setError(queued.error ?? "تعذر بدء المعالجة بالخلفية");
         return;
       }
-      setLastAffected(res.unlinked_corrections);
-      if (res.unlinked_corrections === 0) {
-        setStatusMessage("لا توجد حركات غير مرتبطة قابلة للمعالجة حاليا. ربما تمت معالجتها سابقا.");
-      } else {
-        setStatusMessage(`تم تنفيذ المعالجة على ${res.unlinked_corrections.toLocaleString("ar-LY")} حركة.`);
-      }
-
-      const dryRes = await runDataHygieneSweepAction({ mode: "unlinked_corrections", dryRun: true });
-      if (dryRes.success) {
-        setCount(dryRes.unlinked_corrections);
-      }
+      setLastAffected(null);
+      setStatusMessage(`تم بدء المعالجة بالخلفية (رقم المهمة: ${queued.job.id}). يمكنك تحديث الصفحة لاحقًا لمراجعة النتائج.`);
       setConfirmOpen(false);
     });
   };

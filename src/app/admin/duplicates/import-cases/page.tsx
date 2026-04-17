@@ -65,9 +65,12 @@ export default async function ImportDuplicateCasesPage({
             <table className="w-full min-w-245 text-sm">
               <thead className="bg-slate-50 dark:bg-slate-900/40">
                 <tr className="text-right">
+                  <th className="px-3 py-2 font-bold">نوع الحالة</th>
                   <th className="px-3 py-2 font-bold">الاسم</th>
                   <th className="px-3 py-2 font-bold">رقم البطاقة</th>
+                  <th className="px-3 py-2 font-bold">الرصيد الكلي</th>
                   <th className="px-3 py-2 font-bold">عدد IMPORT</th>
+                  <th className="px-3 py-2 font-bold">عدد الملفات</th>
                   <th className="px-3 py-2 font-bold">الرصيد الحالي</th>
                   <th className="px-3 py-2 font-bold">الزيادة بسبب التكرار</th>
                   <th className="px-3 py-2 font-bold">الرصيد بعد التصحيح</th>
@@ -78,16 +81,23 @@ export default async function ImportDuplicateCasesPage({
               <tbody>
                 {cases.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-3 py-6 text-center text-slate-500 dark:text-slate-400">
+                    <td colSpan={11} className="px-3 py-6 text-center text-slate-500 dark:text-slate-400">
                       لا توجد حالات تكرار IMPORT فعّالة.
                     </td>
                   </tr>
                 ) : (
                   cases.map((row) => (
                     <tr key={row.beneficiaryId} className="border-t border-slate-100 dark:border-slate-800">
+                      <td className="px-3 py-2">
+                        {row.caseType === "MULTI_FILE_REPEAT"
+                          ? <Badge variant="warning">مكرر بين ملفات</Badge>
+                          : <Badge variant="danger">IMPORT مكرر</Badge>}
+                      </td>
                       <td className="px-3 py-2">{row.name}</td>
                       <td className="px-3 py-2">{row.cardNumber}</td>
+                      <td className="px-3 py-2">{row.totalBalance.toLocaleString("en-US")}</td>
                       <td className="px-3 py-2">{row.importCount}</td>
+                      <td className="px-3 py-2">{row.importFileCount}</td>
                       <td className="px-3 py-2">{row.currentRemaining.toLocaleString("en-US")}</td>
                       <td className="px-3 py-2 text-red-700 dark:text-red-400 font-bold">{row.extraAmount.toLocaleString("en-US")}</td>
                       <td className="px-3 py-2">{row.fixedRemaining.toLocaleString("en-US")}</td>

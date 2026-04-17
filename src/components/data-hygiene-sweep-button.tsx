@@ -8,6 +8,7 @@ import {
   type DataHygieneMode,
   type DataHygieneSweepResult,
 } from "@/app/actions/data-hygiene";
+import { startMaintenanceJobAction } from "@/app/actions/maintenance-jobs";
 
 type Props = {
   counts?: {
@@ -66,6 +67,7 @@ export function DataHygieneSweepButton({ counts }: Props) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [result, setResult] = useState<DataHygieneSweepResult | null>(null);
   const [pendingMode, setPendingMode] = useState<DataHygieneMode>("all");
+  const [queuedMessage, setQueuedMessage] = useState<string | null>(null);
   const [liveCounts, setLiveCounts] = useState<HygieneCounts>({
     ...ZERO_COUNTS,
     ...(counts ?? {}),
@@ -80,7 +82,21 @@ export function DataHygieneSweepButton({ counts }: Props) {
 
   const runSweep = (mode: DataHygieneMode, dryRun: boolean) => {
     setError(null);
+    if (!dryRun) {
+      setQueuedMessage(null);
+    }
     startTransition(async () => {
+      if (!dryRun) {
+        const queued = await startMaintenanceJobAction({ kind: "data_hygiene_sweep", mode });
+        if (!queued.success || !queued.job) {
+          setError(queued.error ?? "تعذر بدء المعالجة بالخلفية");
+          return;
+        }
+        setQueuedMessage(`تم بدء المعالجة بالخلفية (رقم المهمة: ${queued.job.id}) لنوع: ${MODE_LABELS[mode]}.`);
+        setConfirmOpen(false);
+        return;
+      }
+
       const res = await runDataHygieneSweepAction({ mode, dryRun });
       if (!res.success) {
         setError(res.error ?? "حدث خطأ غير متوقع");
@@ -199,6 +215,12 @@ export function DataHygieneSweepButton({ counts }: Props) {
       {error && (
         <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-400">
           {error}
+        </p>
+      )}
+
+      {queuedMessage && (
+        <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-bold text-sky-700 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-400">
+          {queuedMessage}
         </p>
       )}
 

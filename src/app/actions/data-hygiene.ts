@@ -19,6 +19,12 @@ type SweepRequest = {
   jobsRetentionDays?: number;
 };
 
+type BackgroundActor = {
+  id: string;
+  username: string;
+  isAdmin: true;
+};
+
 export type DataHygieneMode =
   | "all"
   | "unlinked_corrections"
@@ -85,9 +91,12 @@ function clampDays(value: number | undefined, fallback: number) {
 }
 
 export async function runDataHygieneSweepAction(
-  request: SweepRequest = {}
+  request: SweepRequest = {},
+  actor?: BackgroundActor,
 ): Promise<DataHygieneSweepResult> {
-  const session = await getSession();
+  const session = actor
+    ? { id: actor.id, username: actor.username, is_admin: actor.isAdmin }
+    : await getSession();
   if (!session?.is_admin) {
     return {
       success: false,
@@ -437,8 +446,10 @@ function normalizeParentCardByMode(cardNumber: string, mode: ParentCardPatternFi
 
 export async function runParentCardPatternFixAction(request: {
   mode?: ParentCardPatternFixMode;
-} = {}): Promise<ParentCardPatternFixResult> {
-  const session = await getSession();
+} = {}, actor?: BackgroundActor): Promise<ParentCardPatternFixResult> {
+  const session = actor
+    ? { id: actor.id, username: actor.username, is_admin: actor.isAdmin }
+    : await getSession();
   if (!session?.is_admin) {
     return {
       success: false,
@@ -582,8 +593,12 @@ export async function runParentCardPatternFixAction(request: {
   }
 }
 
-export async function runNormalizeImportIntegerDistributionAction(): Promise<ImportIntegerDistributionFixResult> {
-  const session = await getSession();
+export async function runNormalizeImportIntegerDistributionAction(
+  actor?: BackgroundActor,
+): Promise<ImportIntegerDistributionFixResult> {
+  const session = actor
+    ? { id: actor.id, username: actor.username, is_admin: actor.isAdmin }
+    : await getSession();
   if (!session?.is_admin) {
     return {
       success: false,
@@ -600,7 +615,7 @@ export async function runNormalizeImportIntegerDistributionAction(): Promise<Imp
     const familyCandidates = await prisma.$queryRaw<Array<{ family_base_card: string }>>`
       WITH family_imports AS (
         SELECT
-          REGEXP_REPLACE(b.card_number, '([A-Z][0-9]+)$', '') AS family_base_card,
+          COALESCE(SUBSTRING(b.card_number FROM '^(WAB2025[0-9]+)'), b.card_number) AS family_base_card,
           t.id,
           t.beneficiary_id,
           t.amount
@@ -809,8 +824,12 @@ function normalizeSubunitAmountToAllowed(amount: number): number {
   return amount < 0.5 ? 0.25 : 0.5;
 }
 
-export async function runFixInvalidSubunitAmountsAction(): Promise<InvalidSubunitAmountFixResult> {
-  const session = await getSession();
+export async function runFixInvalidSubunitAmountsAction(
+  actor?: BackgroundActor,
+): Promise<InvalidSubunitAmountFixResult> {
+  const session = actor
+    ? { id: actor.id, username: actor.username, is_admin: actor.isAdmin }
+    : await getSession();
   if (!session?.is_admin) {
     return {
       success: false,

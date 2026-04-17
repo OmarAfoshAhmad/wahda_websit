@@ -1,14 +1,10 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireActiveFacilitySession } from "@/lib/session-guard";
+import { extractBaseCard } from "@/lib/normalize";
 
 function round2(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
-}
-
-function toFamilyBaseCard(cardNumber: string): string {
-  // Strip only known family-member suffixes (e.g. M, F, H2, M1) and keep normal card numbers intact.
-  return cardNumber.replace(/([WSDMFHV]\d*)$/i, "");
 }
 
 async function ensureFamilyImportArchiveTable() {
@@ -73,7 +69,7 @@ export async function GET(
       return NextResponse.json({ error: "هذه الحركة ليست استيراد" }, { status: 400 });
     }
 
-    const familyBaseCard = toFamilyBaseCard(tx.beneficiary.card_number);
+    const familyBaseCard = extractBaseCard(tx.beneficiary.card_number);
 
     const members = await prisma.$queryRaw<Array<{
       id: string;
@@ -99,7 +95,7 @@ export async function GET(
       FROM "Beneficiary" b
       LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id
       WHERE b.deleted_at IS NULL
-        AND REGEXP_REPLACE(b.card_number, '([WSDMFHV][0-9]*)$', '') = ${familyBaseCard}
+        AND b.card_number LIKE ${familyBaseCard + "%"}
       GROUP BY b.id, b.name, b.card_number, b.status, b.total_balance, b.remaining_balance
       ORDER BY b.card_number ASC
     `;
@@ -124,8 +120,13 @@ export async function GET(
 
     const archive = archiveRows[0] ?? null;
     const sourceUsedRaw = archive ? Number(archive.used_balance_from_file ?? 0) : 0;
-    const expectedDeduction = Math.max(0, Math.round(sourceUsedRaw));
-    const actualDeduction = round2(members.reduce((sum, m) => sum + Number(m.import_deducted ?? 0), 0));
+    const sourceUsedBalance = archive ? round2(Math.max(0, sourceUsedRaw)) : null;
+    const sourceFamilyCount = archive ? Number(archive.family_count_from_file ?? 0) : 0;
+    const expectedDeductionPerMember = sourceUsedBalance !== null && sourceFamilyCount > 0
+      ? round2(sourceUsedBalance / sourceFamilyCount)
+      : 0;
+    const actualDeduction = round2(expectedDeductionPerMember * members.length);
+    const recordedDeduction = round2(members.reduce((sum, m) => sum + Number(m.import_deducted ?? 0), 0));
 
     return NextResponse.json(
       {
@@ -149,9 +150,12 @@ export async function GET(
             found_in_system_count: members.length,
           },
           amounts: {
-            expected_deduction: expectedDeduction,
+            source_used_balance: sourceUsedBalance,
+            expected_deduction: expectedDeductionPerMember,
             actual_deduction: actualDeduction,
-            deduction_diff: round2(actualDeduction - expectedDeduction),
+            deduction_diff: round2(recordedDeduction - actualDeduction),
+            recorded_deduction: recordedDeduction,
+            calculation_basis: "الخصم المتوقع (حصة الفرد) = الرصيد المجمع المستخدم من الملف / عدد أفراد الأسرة بالمصدر. الخصم الحقيقي = حصة الفرد × عدد الأفراد الموجودين في المنظومة",
           },
           members: members.map((m) => ({
             id: m.id,

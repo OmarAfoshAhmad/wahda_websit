@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { Loader2, ShieldCheck } from "lucide-react";
 import { ConfirmationModal } from "@/components/confirmation-modal";
-import { runNormalizeImportIntegerDistributionAction, type ImportIntegerDistributionFixResult } from "@/app/actions/data-hygiene";
+import { getMaintenanceJobAction, startMaintenanceJobAction } from "@/app/actions/maintenance-jobs";
+import { useRouter } from "next/navigation";
 
 type Props = {
   totalFamilies: number;
@@ -11,20 +12,54 @@ type Props = {
 };
 
 export function NormalizeImportIntegerDistributionButton({ totalFamilies, visibleFamilies }: Props) {
+  const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<ImportIntegerDistributionFixResult | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [jobId, setJobId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!jobId) return;
+
+    const timer = setInterval(async () => {
+      const status = await getMaintenanceJobAction(jobId);
+      if (!status.success || !status.job) {
+        return;
+      }
+
+      if (status.job.state === "queued" || status.job.state === "running") {
+        setStatusMessage(`المهمة ${jobId} قيد التنفيذ بالخلفية (${status.job.state === "queued" ? "في الانتظار" : "جارية"}).`);
+        return;
+      }
+
+      if (status.job.state === "succeeded") {
+        setStatusMessage(`اكتملت المهمة ${jobId} بنجاح. ${status.job.summary ?? ""}`.trim());
+        setJobId(null);
+        router.refresh();
+        return;
+      }
+
+      if (status.job.state === "failed") {
+        setError(status.job.error ?? "فشلت المهمة بالخلفية");
+        setStatusMessage(`فشلت المهمة ${jobId}.`);
+        setJobId(null);
+      }
+    }, 3000);
+
+    return () => clearInterval(timer);
+  }, [jobId, router]);
 
   const runFix = () => {
     setError(null);
     startTransition(async () => {
-      const res = await runNormalizeImportIntegerDistributionAction();
-      if (!res.success) {
-        setError(res.error ?? "تعذر تنفيذ التصحيح");
+      const queued = await startMaintenanceJobAction({ kind: "normalize_import_integer_distribution" });
+      if (!queued.success || !queued.job) {
+        setError(queued.error ?? "تعذر بدء المعالجة بالخلفية");
         return;
       }
-      setResult(res);
+      setStatusMessage(`تم بدء معالجة التوزيع بالخلفية (رقم المهمة: ${queued.job.id}).`);
+      setJobId(queued.job.id);
       setConfirmOpen(false);
     });
   };
@@ -57,13 +92,9 @@ export function NormalizeImportIntegerDistributionButton({ totalFamilies, visibl
         سيتم: توحيد خصم الاستيراد لكل عائلة إلى أعداد صحيحة فقط، دمج أي تكرارات زائدة، وحفظ لقطة تراجع في سجل المراقبة.
       </p>
 
-      {result && (
-        <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-400">
-          تمت المعالجة: {result.processed_families.toLocaleString("ar-LY")} عائلة
-          {` · أفراد: ${result.processed_members.toLocaleString("ar-LY")}`}
-          {` · تحديث حركات: ${result.updated_transactions.toLocaleString("ar-LY")}`}
-          {` · إنشاء حركات: ${result.created_transactions.toLocaleString("ar-LY")}`}
-          {` · إلغاء تكرارات: ${result.cancelled_transactions.toLocaleString("ar-LY")}`}
+      {statusMessage && (
+        <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-bold text-sky-700 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-400">
+          {statusMessage}
         </p>
       )}
 

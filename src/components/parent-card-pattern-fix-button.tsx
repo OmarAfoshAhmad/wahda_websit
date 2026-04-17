@@ -3,7 +3,8 @@
 import { useState, useTransition } from "react";
 import { Loader2, ShieldCheck } from "lucide-react";
 import { ConfirmationModal } from "@/components/confirmation-modal";
-import { runParentCardPatternFixAction, type ParentCardPatternFixMode, type ParentCardPatternFixResult } from "@/app/actions/data-hygiene";
+import { type ParentCardPatternFixMode } from "@/app/actions/data-hygiene";
+import { startMaintenanceJobAction } from "@/app/actions/maintenance-jobs";
 
 type Props = {
   totalCount: number;
@@ -34,17 +35,17 @@ export function ParentCardPatternFixButton({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [mode, setMode] = useState<ParentCardPatternFixMode>("all_to_numbered");
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<ParentCardPatternFixResult | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   const runFix = () => {
     setError(null);
     startTransition(async () => {
-      const res = await runParentCardPatternFixAction({ mode });
-      if (!res.success) {
-        setError(res.error ?? "تعذر تنفيذ المعالجة");
+      const queued = await startMaintenanceJobAction({ kind: "parent_card_pattern_fix", mode });
+      if (!queued.success || !queued.job) {
+        setError(queued.error ?? "تعذر بدء المعالجة بالخلفية");
         return;
       }
-      setResult(res);
+      setStatusMessage(`تم بدء المعالجة بالخلفية (رقم المهمة: ${queued.job.id}) للنمط: ${MODE_LABELS[mode]}.`);
       setConfirmOpen(false);
     });
   };
@@ -114,14 +115,9 @@ export function ParentCardPatternFixButton({
         {" "}<strong>h2_to_h1_only</strong> يصحح H2 إلى H1 دون تغيير M/F.
       </p>
 
-      {result && (
-        <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-400">
-          تمت المعالجة: {result.processed_count.toLocaleString("ar-LY")} سجل
-          {` · متخطى: ${result.skipped_count.toLocaleString("ar-LY")}`}
-          {` · تضارب: ${result.conflict_count.toLocaleString("ar-LY")}`}
-          {` · تصحيح H2: ${result.h2_fixed_count.toLocaleString("ar-LY")}`}
-          {` · تحويل M/F: ${result.parent_suffix_normalized_count.toLocaleString("ar-LY")}`}
-          {` · النمط: ${MODE_LABELS[result.mode]}`}
+      {statusMessage && (
+        <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-bold text-sky-700 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-400">
+          {statusMessage}
         </p>
       )}
 

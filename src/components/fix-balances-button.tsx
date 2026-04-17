@@ -3,14 +3,15 @@
 import { useState, useTransition } from "react";
 import { Wrench, Loader2, SearchCheck } from "lucide-react";
 import { ConfirmationModal } from "@/components/confirmation-modal";
-import { checkBalanceDriftAction, recalcBalancesAction, type RecalcResult } from "@/app/actions/balance-health-actions";
+import { checkBalanceDriftAction } from "@/app/actions/balance-health-actions";
+import { startMaintenanceJobAction } from "@/app/actions/maintenance-jobs";
 
 export function FixBalancesButton() {
   const [isPending, startTransition] = useTransition();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<RecalcResult | null>(null);
   const [checkResult, setCheckResult] = useState<{ count: number; totalDrift: number } | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   const handleCheck = () => {
     setError(null);
@@ -27,13 +28,13 @@ export function FixBalancesButton() {
   const handleConfirm = () => {
     setError(null);
     startTransition(async () => {
-      const res = await recalcBalancesAction();
-      if (res.success) {
-        setConfirmOpen(false);
-        setResult(res);
-      } else {
-        setError(res.error ?? "حدث خطأ غير متوقع");
+      const queued = await startMaintenanceJobAction({ kind: "recalc_balances" });
+      if (!queued.success || !queued.job) {
+        setError(queued.error ?? "تعذر بدء المعالجة بالخلفية");
+        return;
       }
+      setConfirmOpen(false);
+      setStatusMessage(`تم بدء إصلاح الأرصدة بالخلفية (رقم المهمة: ${queued.job.id}).`);
     });
   };
 
@@ -52,7 +53,7 @@ export function FixBalancesButton() {
 
         <button
           type="button"
-          onClick={() => { setResult(null); setError(null); setConfirmOpen(true); }}
+          onClick={() => { setError(null); setConfirmOpen(true); }}
           disabled={isPending}
           className="inline-flex h-10 w-56 items-center justify-center gap-2 rounded-md bg-[#0f2a4a] px-4 text-sm font-black text-white transition-colors hover:bg-[#0b1f38] disabled:opacity-60"
         >
@@ -67,16 +68,9 @@ export function FixBalancesButton() {
         </p>
       )}
 
-      {result && result.fixed_count === 0 && (
-        <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-400">
-          جميع الأرصدة صحيحة — لا تعديلات مطلوبة
-        </p>
-      )}
-      {result && result.fixed_count > 0 && (
-        <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-400">
-          تم إصلاح {result.fixed_count.toLocaleString("ar-LY")} مستفيد
-          {result.status_changes > 0 && ` · تغيّرت حالة ${result.status_changes.toLocaleString("ar-LY")}`}
-          {` · إجمالي الانحراف: ${result.total_drift.toFixed(2)} د.ل`}
+      {statusMessage && (
+        <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-bold text-sky-700 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-400">
+          {statusMessage}
         </p>
       )}
 

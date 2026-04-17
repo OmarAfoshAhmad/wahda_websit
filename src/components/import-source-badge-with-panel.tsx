@@ -18,9 +18,12 @@ type DetailResponse = {
       found_in_system_count: number;
     };
     amounts: {
+      source_used_balance: number | null;
       expected_deduction: number;
       actual_deduction: number;
       deduction_diff: number;
+      recorded_deduction: number;
+      calculation_basis: string;
     };
     members: Array<{
       id: string;
@@ -130,39 +133,54 @@ export function ImportSourceBadgeWithPanel({
 
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                   <Metric label="الرصيد الكلي (المصدر)" value={detail.source.total_balance_from_file} unit="د.ل" />
+                  <Metric label="الرصيد المستخدم (المصدر)" value={detail.amounts.source_used_balance} unit="د.ل" />
                   <Metric label="عدد أفراد العائلة (المصدر)" value={detail.source.family_count_from_file} />
                   <Metric label="المتوفر في المنظومة" value={detail.system.found_in_system_count} />
-                  <Metric label="الخصم المتوقع" value={detail.amounts.expected_deduction} unit="د.ل" />
-                  <Metric label="الخصم الحقيقي" value={detail.amounts.actual_deduction} unit="د.ل" />
+                  <Metric label="الخصم المتوقع (حصة الفرد)" value={detail.amounts.expected_deduction} unit="د.ل" />
+                  <Metric label="الخصم الحقيقي (حسب الموجودين)" value={detail.amounts.actual_deduction} unit="د.ل" />
+                  <Metric label="الخصم المسجل بالحركات" value={detail.amounts.recorded_deduction} unit="د.ل" />
                   <Metric
-                    label="الفارق"
+                    label="الفارق (المسجل - الحقيقي)"
                     value={detail.amounts.deduction_diff}
                     unit="د.ل"
                     tone={detail.amounts.deduction_diff === 0 ? "neutral" : "warn"}
                   />
                 </div>
 
+                <Card className="p-3">
+                  <p className="text-xs font-bold text-slate-500 dark:text-slate-400">آلية الحساب</p>
+                  <p className="mt-1 text-sm font-black text-slate-800 dark:text-slate-200">
+                    {detail.amounts.calculation_basis}
+                  </p>
+                </Card>
+
                 <Card className="overflow-hidden">
                   <div className="border-b border-slate-200 px-4 py-3 text-sm font-black text-slate-800 dark:border-slate-700 dark:text-slate-200">
                     تفاصيل الأفراد
                   </div>
                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                    <table className="w-full table-fixed text-sm">
+                      <colgroup>
+                        <col className="w-[36%]" />
+                        <col className="w-[24%]" />
+                        <col className="w-[20%]" />
+                        <col className="w-[20%]" />
+                      </colgroup>
                       <thead className="bg-slate-50 dark:bg-slate-800/60">
                         <tr>
-                          <th className="px-3 py-2 text-right text-xs font-black text-slate-500">المستفيد</th>
-                          <th className="px-3 py-2 text-right text-xs font-black text-slate-500">البطاقة</th>
-                          <th className="px-3 py-2 text-right text-xs font-black text-slate-500">المخصوم</th>
-                          <th className="px-3 py-2 text-right text-xs font-black text-slate-500">المتبقي</th>
+                          <th className="px-3 py-2 text-center text-xs font-black text-slate-500">المستفيد</th>
+                          <th className="px-3 py-2 text-center text-xs font-black text-slate-500">البطاقة</th>
+                          <th className="px-3 py-2 text-center text-xs font-black text-slate-500">المخصوم</th>
+                          <th className="px-3 py-2 text-center text-xs font-black text-slate-500">المتبقي</th>
                         </tr>
                       </thead>
                       <tbody>
                         {detail.members.map((m) => (
                           <tr key={m.id} className="border-t border-slate-100 dark:border-slate-800">
-                            <td className="px-3 py-2 font-bold text-slate-800 dark:text-slate-200">{m.name}</td>
-                            <td className="px-3 py-2 font-mono text-xs text-slate-600 dark:text-slate-300">{m.card_number}</td>
-                            <td className="px-3 py-2 font-black text-slate-800 dark:text-slate-100">{m.import_deducted.toLocaleString("ar-LY")}</td>
-                            <td className="px-3 py-2 font-black text-emerald-700 dark:text-emerald-400">{m.remaining_balance.toLocaleString("ar-LY")}</td>
+                            <td className="px-3 py-2 text-center font-bold text-slate-800 dark:text-slate-200">{m.name}</td>
+                            <td className="px-3 py-2 text-center font-mono text-xs text-slate-600 dark:text-slate-300">{m.card_number}</td>
+                            <td className="px-3 py-2 text-center font-black text-slate-800 dark:text-slate-100">{m.import_deducted.toLocaleString("ar-LY")}</td>
+                            <td className="px-3 py-2 text-center font-black text-emerald-700 dark:text-emerald-400">{m.remaining_balance.toLocaleString("ar-LY")}</td>
                           </tr>
                         ))}
                       </tbody>
