@@ -32,17 +32,19 @@ export default async function DuplicatesAdminPage({
     q?: string; pz?: string; pn?: string; pr?: string; ok?: string; err?: string;
     audit?: string; undone?: string; tab?: string;
     merged?: string; before?: string; after?: string; debtAudit?: string;
+    importView?: string;
   }>;
 }) {
   const session = await getSession();
   if (!session) redirect("/login");
   if (!session.is_admin) redirect("/dashboard");
 
-  const { q, pz, pn, pr, ok, err, audit: _audit, undone: _undone, tab, merged, before, after, debtAudit } = await searchParams;
+  const { q, pz, pn, pr, ok, err, audit: _audit, undone: _undone, tab, merged, before, after, debtAudit, importView: importViewParam } = await searchParams;
   const isBatchSuccess = (ok ?? "").startsWith("success_batch");
   const limitedMatch = /^success_batch_limited_(\d+)$/.exec(ok ?? "");
   const limitedRemaining = limitedMatch ? Number(limitedMatch[1]) : 0;
   const activeTab = tab === "merged" || tab === "audit" || tab === "import" || tab === "debt" || tab === "health" ? tab : "review";
+  const importView = importViewParam === "all" ? "all" : "actionable";
   const searchQuery = (q ?? "").trim();
   const normalizedSearchQuery = searchQuery.toLowerCase();
   const shouldFilterBeneficiaryTabs = normalizedSearchQuery.length > 0 && (activeTab === "review" || activeTab === "audit");
@@ -172,6 +174,9 @@ export default async function DuplicatesAdminPage({
     params.set("pz", String(pageZero));
     params.set("pn", String(pageName));
     params.set("tab", nextTab);
+    if (nextTab === "import" && importView === "all") {
+      params.set("importView", "all");
+    }
     return `/admin/duplicates?${params.toString()}`;
   };
 
@@ -289,14 +294,35 @@ export default async function DuplicatesAdminPage({
   const importDuplicateCasesRaw = activeTab === "import"
     ? await getActiveImportDuplicateCases()
     : [];
-  const importDuplicateCases =
+  const importDuplicateCasesBySearch =
     activeTab === "import" && normalizedSearchQuery.length > 0
       ? importDuplicateCasesRaw.filter((row) =>
           row.name.toLowerCase().includes(normalizedSearchQuery) ||
           row.cardNumber.toLowerCase().includes(normalizedSearchQuery)
         )
       : importDuplicateCasesRaw;
+  const isActionableImportCase = (row: (typeof importDuplicateCasesRaw)[number]) =>
+    row.caseType === "ACTIVE_IMPORT_DUPLICATE" && row.extraAmount > 0;
+  const importActionableCount = importDuplicateCasesBySearch.filter(isActionableImportCase).length;
+  const importHistoricalCount = importDuplicateCasesBySearch.length - importActionableCount;
+  const importDuplicateCases = importView === "all"
+    ? importDuplicateCasesBySearch
+    : importDuplicateCasesBySearch.filter(isActionableImportCase);
   const importDuplicateTotalExtra = importDuplicateCases.reduce((sum, row) => sum + row.extraAmount, 0);
+  const importViewActionableHref = `/admin/duplicates?${new URLSearchParams({
+    ...(q ? { q } : {}),
+    pz: String(pageZero),
+    pn: String(pageName),
+    tab: "import",
+    importView: "actionable",
+  }).toString()}`;
+  const importViewAllHref = `/admin/duplicates?${new URLSearchParams({
+    ...(q ? { q } : {}),
+    pz: String(pageZero),
+    pn: String(pageName),
+    tab: "import",
+    importView: "all",
+  }).toString()}`;
 
   // ── بيانات تبويب "مديونية" فقط عند الحاجة ─────────────────────────────────
   const debtCasesRaw = activeTab === "debt"
@@ -703,14 +729,28 @@ export default async function DuplicatesAdminPage({
             <Card className="p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-3 text-sm">
-                  <Badge variant="warning">الحالات: {importDuplicateCases.length}</Badge>
+                  <Badge variant="warning">القابلة للمعالجة: {importActionableCount}</Badge>
+                  <Badge variant="default">تاريخية/مراجعة: {importHistoricalCount}</Badge>
+                  <Badge variant="warning">المعروضة: {importDuplicateCases.length}</Badge>
                   <Badge variant="danger">الإجمالي الزائد: {importDuplicateTotalExtra.toLocaleString("en-US")} د.ل</Badge>
                 </div>
-                <form method="post" action="/api/admin/duplicates/import-cases/fix-all">
-                  <Button type="submit" className="h-10 bg-red-600 hover:bg-red-700 text-white">
-                    معالجة IMPORT دفعة واحدة
-                  </Button>
-                </form>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Link href={importViewActionableHref} className="inline-flex">
+                    <Button type="button" variant={importView === "actionable" ? "primary" : "outline"} className="h-10">
+                      قابل للمعالجة فقط
+                    </Button>
+                  </Link>
+                  <Link href={importViewAllHref} className="inline-flex">
+                    <Button type="button" variant={importView === "all" ? "primary" : "outline"} className="h-10">
+                      كل الحالات
+                    </Button>
+                  </Link>
+                  <form method="post" action="/api/admin/duplicates/import-cases/fix-all">
+                    <Button type="submit" className="h-10 bg-red-600 hover:bg-red-700 text-white">
+                      معالجة IMPORT دفعة واحدة
+                    </Button>
+                  </form>
+                </div>
               </div>
             </Card>
 
@@ -736,7 +776,9 @@ export default async function DuplicatesAdminPage({
                     {importDuplicateCases.length === 0 ? (
                       <tr>
                         <td colSpan={11} className="px-3 py-6 text-center text-slate-500 dark:text-slate-400">
-                          لا توجد حالات تكرار IMPORT فعّالة.
+                          {importView === "all"
+                            ? "لا توجد حالات ضمن المرشح الحالي."
+                            : "لا توجد حالات IMPORT مكررة قابلة للمعالجة ضمن المرشح الحالي."}
                         </td>
                       </tr>
                     ) : (

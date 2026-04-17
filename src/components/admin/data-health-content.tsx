@@ -618,45 +618,6 @@ export async function DataHealthContent({
         </div>
       </Section>
 
-      <Section title="حالات أنماط بطاقة الأب/الأم (M/F/H2)" count={filteredParentCardPatternRows.length}>
-        <p className="text-xs text-slate-600 dark:text-slate-300">
-          الإحصائيات بالأعلى تمثل كل النظام، بينما "الظاهر في الجدول" يتأثر بالبحث الحالي فقط.
-        </p>
-        <ParentCardPatternFixButton
-          totalCount={parentCardPatternRows.length}
-          visibleCount={filteredParentCardPatternRows.length}
-          invalidH2Count={invalidH2Count}
-          motherPlainCount={motherPlainCount}
-          fatherPlainCount={fatherPlainCount}
-          motherNumberedCount={motherNumberedCount}
-          fatherNumberedCount={fatherNumberedCount}
-        />
-        {filteredParentCardPatternRows.length === 0 ? (
-          <p className="text-sm font-medium text-emerald-600">✓ لا توجد حالات تحتاج تحويل في نمط بطاقات الأب/الأم.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
-              <thead>
-                <tr className="border-b bg-slate-50 text-right dark:border-slate-700 dark:bg-slate-800/60">
-                  <th className="p-2">الاسم</th>
-                  <th className="p-2">رقم البطاقة</th>
-                  <th className="p-2">نوع الحالة</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredParentCardPatternRows.map((row) => (
-                  <tr key={row.id} className="border-b dark:border-slate-800">
-                    <td className="p-2">{row.name}</td>
-                    <td className="p-2 font-mono text-xs">{row.card_number}</td>
-                    <td className="p-2 text-xs text-slate-700 dark:text-slate-300">{row.pattern_type}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Section>
-
       <Section title="استيراد مجمع قديم بتوزيع كسور" count={filteredLegacyFractionalImportRows.length}>
         <p className="text-xs text-slate-600 dark:text-slate-300">
           هذه الحالات فيها خصومات استيراد مجمعة بمبالغ عشرية لكل فرد. المعالجة ستحولها إلى توزيع صحيح بالأعداد الصحيحة فقط،
@@ -982,6 +943,45 @@ export async function DataHealthContent({
             </tbody>
           </table>
         </div>
+      </Section>
+
+      <Section title="حالات أنماط بطاقة الأب/الأم (M/F/H2)" count={filteredParentCardPatternRows.length}>
+        <p className="text-xs text-slate-600 dark:text-slate-300">
+          الإحصائيات بالأعلى تمثل كل النظام، بينما "الظاهر في الجدول" يتأثر بالبحث الحالي فقط.
+        </p>
+        <ParentCardPatternFixButton
+          totalCount={parentCardPatternRows.length}
+          visibleCount={filteredParentCardPatternRows.length}
+          invalidH2Count={invalidH2Count}
+          motherPlainCount={motherPlainCount}
+          fatherPlainCount={fatherPlainCount}
+          motherNumberedCount={motherNumberedCount}
+          fatherNumberedCount={fatherNumberedCount}
+        />
+        {filteredParentCardPatternRows.length === 0 ? (
+          <p className="text-sm font-medium text-emerald-600">✓ لا توجد حالات تحتاج تحويل في نمط بطاقات الأب/الأم.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b bg-slate-50 text-right dark:border-slate-700 dark:bg-slate-800/60">
+                  <th className="p-2">الاسم</th>
+                  <th className="p-2">رقم البطاقة</th>
+                  <th className="p-2">نوع الحالة</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredParentCardPatternRows.map((row) => (
+                  <tr key={row.id} className="border-b dark:border-slate-800">
+                    <td className="p-2">{row.name}</td>
+                    <td className="p-2 font-mono text-xs">{row.card_number}</td>
+                    <td className="p-2 text-xs text-slate-700 dark:text-slate-300">{row.pattern_type}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Section>
     </div>
   );

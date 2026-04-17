@@ -4,7 +4,6 @@ import { TransactionType } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import ExcelJS from "exceljs";
 import { roundCurrency } from "@/lib/money";
-import { applyOverdrawnDebtSettlement } from "@/lib/overdrawn-debt-settlement";
 
 /** Waad company facility ID (optional fallback) */
 function getWaadFacilityId(): string | undefined {
@@ -184,6 +183,16 @@ export type TransactionImportProgress = {
 function familySuffixRegex(baseCard: string): string {
   // Match family-member suffixes with or without numeric index (M/F/H or M1/F1/H2...).
   return `^${baseCard}[WSDMFHV][0-9]*$`;
+}
+
+function escapeRegexLiteral(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildFamilyBaseRegex(baseCards: string[]): string {
+  const parts = baseCards.map((card) => escapeRegexLiteral(String(card ?? "").trim())).filter(Boolean);
+  if (parts.length === 0) return "^$";
+  return `^(${parts.join("|")})([WSDMFHV][0-9]*)?$`;
 }
 
 // ─── Card Number Lookup ──────────────────────────────────────────
@@ -605,92 +614,43 @@ export async function processTransactionImport(
       },
     });
 
-    let autoDebtAffectedDebtors = 0;
-    let autoDebtSettledDebtors = 0;
-    let autoDebtUnresolvedDebtors = 0;
+    const autoDebtAffectedDebtors = 0;
+    const autoDebtSettledDebtors = 0;
+    const autoDebtUnresolvedDebtors = 0;
 
-    try {
-      const debtRun = await applyOverdrawnDebtSettlement({
-        user: username,
-        facilityId: importFacilityId,
-      });
-      autoDebtAffectedDebtors = debtRun.affectedDebtors;
-      autoDebtSettledDebtors = debtRun.settledDebtors;
-      autoDebtUnresolvedDebtors = debtRun.unresolvedDebtors;
-
-      await prisma.auditLog.update({
-        where: { id: auditLog.id },
-        data: {
-          metadata: {
-            importMode: replaceOldImports ? "replace_old_imports" : "incremental_update",
-            cleanupMode: "hard_delete",
-            cleanupDeletedImportTransactions,
-            cleanupCancelledImportTransactions,
-            cleanupTouchedBeneficiaries,
-            totalRows: rows.length,
-            duplicateCardCount,
-            importedFamilies,
-            importedTransactions,
-            suspendedFamilies,
-            skippedAlreadySuspended,
-            balanceSetFamilies,
-            skippedAlreadyCorrect,
-            preImportBalanceAdjustedFamilies,
-            preImportBalanceAlreadyCorrect,
-            skippedNotFound: notFoundRows.length,
-            skippedAlreadyImported,
-            updatedFamilies,
-            updatedTransactions,
-            appliedRows,
-            detailedReport,
-            autoDebtSettlement: {
-              status: "succeeded",
-              affectedDebtors: debtRun.affectedDebtors,
-              settledDebtors: debtRun.settledDebtors,
-              unresolvedDebtors: debtRun.unresolvedDebtors,
-              debtAuditId: debtRun.auditId,
-            },
-            rollbackEligible: true,
-            rollbackStatus: "not_rolled_back",
+    await prisma.auditLog.update({
+      where: { id: auditLog.id },
+      data: {
+        metadata: {
+          importMode: replaceOldImports ? "replace_old_imports" : "incremental_update",
+          cleanupMode: "hard_delete",
+          cleanupDeletedImportTransactions,
+          cleanupCancelledImportTransactions,
+          cleanupTouchedBeneficiaries,
+          totalRows: rows.length,
+          duplicateCardCount,
+          importedFamilies,
+          importedTransactions,
+          suspendedFamilies,
+          skippedAlreadySuspended,
+          balanceSetFamilies,
+          skippedAlreadyCorrect,
+          preImportBalanceAdjustedFamilies,
+          preImportBalanceAlreadyCorrect,
+          skippedNotFound: notFoundRows.length,
+          skippedAlreadyImported,
+          updatedFamilies,
+          updatedTransactions,
+          appliedRows,
+          detailedReport,
+          autoDebtSettlement: {
+            status: "deferred_manual",
           },
+          rollbackEligible: true,
+          rollbackStatus: "not_rolled_back",
         },
-      });
-    } catch (debtError) {
-      await prisma.auditLog.update({
-        where: { id: auditLog.id },
-        data: {
-          metadata: {
-            importMode: replaceOldImports ? "replace_old_imports" : "incremental_update",
-            cleanupMode: "hard_delete",
-            cleanupDeletedImportTransactions,
-            cleanupCancelledImportTransactions,
-            cleanupTouchedBeneficiaries,
-            totalRows: rows.length,
-            duplicateCardCount,
-            importedFamilies,
-            importedTransactions,
-            suspendedFamilies,
-            skippedAlreadySuspended,
-            balanceSetFamilies,
-            skippedAlreadyCorrect,
-            preImportBalanceAdjustedFamilies,
-            preImportBalanceAlreadyCorrect,
-            skippedNotFound: notFoundRows.length,
-            skippedAlreadyImported,
-            updatedFamilies,
-            updatedTransactions,
-            appliedRows,
-            detailedReport,
-            autoDebtSettlement: {
-              status: "failed",
-              error: debtError instanceof Error ? debtError.message : "UNKNOWN",
-            },
-            rollbackEligible: true,
-            rollbackStatus: "not_rolled_back",
-          },
-        },
-      });
-    }
+      },
+    });
 
     await reportProgress("done", Math.max(1, rows.length), Math.max(1, rows.length), "اكتمل الاستيراد بنجاح");
 
@@ -736,25 +696,15 @@ async function cleanupActiveImportsAndRestoreLedgerState(baseCards: string[]): P
   touchedBeneficiaries: number;
   deletedImportTransactionRows: DeletedImportTransactionSnapshot[];
 }> {
-  const memberIdSet = new Set<string>();
+  const familyRegex = buildFamilyBaseRegex(baseCards);
+  const members = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT id
+    FROM "Beneficiary"
+    WHERE deleted_at IS NULL
+      AND card_number ~ ${familyRegex}
+  `;
 
-  for (const baseCard of baseCards) {
-    const members = await prisma.$queryRaw<Array<{ id: string }>>`
-      SELECT id
-      FROM "Beneficiary"
-      WHERE deleted_at IS NULL
-        AND (
-          card_number = ${baseCard}
-          OR card_number ~ ${familySuffixRegex(baseCard)}
-        )
-    `;
-
-    for (const m of members) {
-      memberIdSet.add(m.id);
-    }
-  }
-
-  const memberIds = Array.from(memberIdSet);
+  const memberIds = Array.from(new Set(members.map((m) => m.id)));
   if (memberIds.length === 0) {
     return {
       deletedImportTransactions: 0,
@@ -800,44 +750,59 @@ async function cleanupActiveImportsAndRestoreLedgerState(baseCards: string[]): P
     },
   });
 
-  await prisma.$transaction(async (tx) => {
-    const [beneficiaries, deductions] = await Promise.all([
-      tx.beneficiary.findMany({
-        where: { id: { in: memberIds } },
-        select: { id: true, total_balance: true },
-      }),
-      tx.transaction.groupBy({
-        by: ["beneficiary_id"],
-        where: {
-          beneficiary_id: { in: memberIds },
-          is_cancelled: false,
-          type: { not: TransactionType.CANCELLATION },
-        },
-        _sum: { amount: true },
-      }),
-    ]);
+  // Bulk recalc to avoid interactive transaction timeout on large batches.
+  await prisma.$executeRaw`
+    WITH deduction AS (
+      SELECT
+        t.beneficiary_id,
+        COALESCE(SUM(t.amount), 0)::numeric AS deducted
+      FROM "Transaction" t
+      WHERE t.beneficiary_id = ANY(${memberIds}::text[])
+        AND t.is_cancelled = false
+        AND t.type <> 'CANCELLATION'
+      GROUP BY t.beneficiary_id
+    )
+    UPDATE "Beneficiary" b
+    SET
+      remaining_balance = ROUND(GREATEST(0::numeric, b.total_balance - COALESCE(d.deducted, 0::numeric)), 2),
+      status = CASE
+        WHEN ROUND(GREATEST(0::numeric, b.total_balance - COALESCE(d.deducted, 0::numeric)), 2) <= 0
+          THEN 'FINISHED'::"BeneficiaryStatus"
+        ELSE 'ACTIVE'::"BeneficiaryStatus"
+      END,
+      completed_via = CASE
+        WHEN ROUND(GREATEST(0::numeric, b.total_balance - COALESCE(d.deducted, 0::numeric)), 2) <= 0
+          THEN 'DEDUCTION'
+        ELSE NULL
+      END
+    FROM deduction d
+    WHERE b.id = ANY(${memberIds}::text[])
+      AND b.id = d.beneficiary_id
+  `;
 
-    const deductionByBeneficiary = new Map<string, number>();
-    for (const d of deductions) {
-      deductionByBeneficiary.set(d.beneficiary_id, Number(d._sum.amount) || 0);
-    }
-
-    for (const row of beneficiaries) {
-      const total = Number(row.total_balance) || 0;
-      const deducted = deductionByBeneficiary.get(row.id) ?? 0;
-      const remaining = roundCurrency(Math.max(0, total - deducted));
-      const status = remaining <= 0 ? "FINISHED" : "ACTIVE";
-
-      await tx.beneficiary.update({
-        where: { id: row.id },
-        data: {
-          remaining_balance: remaining,
-          status: status as "ACTIVE" | "FINISHED",
-          completed_via: status === "FINISHED" ? "DEDUCTION" : null,
-        },
-      });
-    }
-  });
+  await prisma.$executeRaw`
+    UPDATE "Beneficiary" b
+    SET
+      remaining_balance = ROUND(GREATEST(0::numeric, b.total_balance), 2),
+      status = CASE
+        WHEN ROUND(GREATEST(0::numeric, b.total_balance), 2) <= 0
+          THEN 'FINISHED'::"BeneficiaryStatus"
+        ELSE 'ACTIVE'::"BeneficiaryStatus"
+      END,
+      completed_via = CASE
+        WHEN ROUND(GREATEST(0::numeric, b.total_balance), 2) <= 0
+          THEN 'DEDUCTION'
+        ELSE NULL
+      END
+    WHERE b.id = ANY(${memberIds}::text[])
+      AND NOT EXISTS (
+        SELECT 1
+        FROM "Transaction" t
+        WHERE t.beneficiary_id = b.id
+          AND t.is_cancelled = false
+          AND t.type <> 'CANCELLATION'
+      )
+  `;
 
   return {
     deletedImportTransactions: deleted.count,
@@ -850,45 +815,41 @@ async function cleanupActiveImportsAndRestoreLedgerState(baseCards: string[]): P
 async function loadFamilyMembersSnapshot(baseCards: string[]): Promise<BeneficiaryBalanceSnapshot[]> {
   if (baseCards.length === 0) return [];
   const dedup = new Map<string, BeneficiaryBalanceSnapshot>();
+  const familyRegex = buildFamilyBaseRegex(baseCards);
 
-  for (const baseCard of baseCards) {
-    const rows = await prisma.$queryRaw<Array<{
-      id: string;
-      name: string;
-      card_number: string;
-      total_balance: number;
-      remaining_balance: number;
-      status: string;
-      completed_via: string | null;
-    }>>`
-      SELECT
-        b.id,
-        b.name,
-        b.card_number,
-        b.total_balance::float8 AS total_balance,
-        b.remaining_balance::float8 AS remaining_balance,
-        b.status::text AS status,
-        b.completed_via
-      FROM "Beneficiary" b
-      WHERE b.deleted_at IS NULL
-        AND (
-          b.card_number = ${baseCard}
-          OR b.card_number ~ ${familySuffixRegex(baseCard)}
-        )
-      ORDER BY b.card_number ASC, b.id ASC
-    `;
+  const rows = await prisma.$queryRaw<Array<{
+    id: string;
+    name: string;
+    card_number: string;
+    total_balance: number;
+    remaining_balance: number;
+    status: string;
+    completed_via: string | null;
+  }>>`
+    SELECT
+      b.id,
+      b.name,
+      b.card_number,
+      b.total_balance::float8 AS total_balance,
+      b.remaining_balance::float8 AS remaining_balance,
+      b.status::text AS status,
+      b.completed_via
+    FROM "Beneficiary" b
+    WHERE b.deleted_at IS NULL
+      AND b.card_number ~ ${familyRegex}
+    ORDER BY b.card_number ASC, b.id ASC
+  `;
 
-    for (const row of rows) {
-      dedup.set(row.id, {
-        beneficiaryId: row.id,
-        beneficiaryName: row.name,
-        cardNumber: row.card_number,
-        totalBalance: Number(row.total_balance) || 0,
-        remainingBalance: Number(row.remaining_balance) || 0,
-        status: (String(row.status || "ACTIVE") as "ACTIVE" | "FINISHED" | "SUSPENDED"),
-        completedVia: row.completed_via,
-      });
-    }
+  for (const row of rows) {
+    dedup.set(row.id, {
+      beneficiaryId: row.id,
+      beneficiaryName: row.name,
+      cardNumber: row.card_number,
+      totalBalance: Number(row.total_balance) || 0,
+      remainingBalance: Number(row.remaining_balance) || 0,
+      status: (String(row.status || "ACTIVE") as "ACTIVE" | "FINISHED" | "SUSPENDED"),
+      completedVia: row.completed_via,
+    });
   }
 
   return Array.from(dedup.values()).sort((a, b) => a.cardNumber.localeCompare(b.cardNumber));

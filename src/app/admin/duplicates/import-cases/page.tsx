@@ -9,16 +9,24 @@ import { AlertCircle, CheckCircle2 } from "lucide-react";
 export default async function ImportDuplicateCasesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ok?: string; err?: string }>;
+  searchParams: Promise<{ ok?: string; err?: string; importView?: string }>;
 }) {
   const session = await getSession();
   if (!session) redirect("/login");
   if (!session.is_admin) redirect("/dashboard");
 
-  const { ok, err } = await searchParams;
-  const cases = await getActiveImportDuplicateCases();
+  const { ok, err, importView: importViewParam } = await searchParams;
+  const importView = importViewParam === "all" ? "all" : "actionable";
+  const allCases = await getActiveImportDuplicateCases();
+  const isActionableImportCase = (row: (typeof allCases)[number]) =>
+    row.caseType === "ACTIVE_IMPORT_DUPLICATE" && row.extraAmount > 0;
+  const actionableCount = allCases.filter(isActionableImportCase).length;
+  const historicalCount = allCases.length - actionableCount;
+  const cases = importView === "all" ? allCases : allCases.filter(isActionableImportCase);
 
   const totalExtra = cases.reduce((sum, row) => sum + row.extraAmount, 0);
+  const importViewActionableHref = `/admin/duplicates/import-cases?${new URLSearchParams({ importView: "actionable" }).toString()}`;
+  const importViewAllHref = `/admin/duplicates/import-cases?${new URLSearchParams({ importView: "all" }).toString()}`;
 
   return (
     <Shell facilityName={session.name} session={session}>
@@ -54,9 +62,25 @@ export default async function ImportDuplicateCasesPage({
         )}
 
         <Card className="p-4">
-          <div className="flex flex-wrap items-center gap-3 text-sm">
-            <Badge variant="warning">الحالات: {cases.length}</Badge>
-            <Badge variant="danger">الإجمالي الزائد: {totalExtra.toLocaleString("en-US")} د.ل</Badge>
+          <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+            <div className="flex flex-wrap items-center gap-3">
+              <Badge variant="warning">القابلة للمعالجة: {actionableCount}</Badge>
+              <Badge variant="default">تاريخية/مراجعة: {historicalCount}</Badge>
+              <Badge variant="warning">المعروضة: {cases.length}</Badge>
+              <Badge variant="danger">الإجمالي الزائد: {totalExtra.toLocaleString("en-US")} د.ل</Badge>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Link href={importViewActionableHref} className="inline-flex">
+                <Button type="button" variant={importView === "actionable" ? "primary" : "outline"} className="h-9">
+                  قابل للمعالجة فقط
+                </Button>
+              </Link>
+              <Link href={importViewAllHref} className="inline-flex">
+                <Button type="button" variant={importView === "all" ? "primary" : "outline"} className="h-9">
+                  كل الحالات
+                </Button>
+              </Link>
+            </div>
           </div>
         </Card>
 
@@ -82,7 +106,9 @@ export default async function ImportDuplicateCasesPage({
                 {cases.length === 0 ? (
                   <tr>
                     <td colSpan={11} className="px-3 py-6 text-center text-slate-500 dark:text-slate-400">
-                      لا توجد حالات تكرار IMPORT فعّالة.
+                      {importView === "all"
+                        ? "لا توجد حالات ضمن المرشح الحالي."
+                        : "لا توجد حالات IMPORT مكررة قابلة للمعالجة ضمن المرشح الحالي."}
                     </td>
                   </tr>
                 ) : (

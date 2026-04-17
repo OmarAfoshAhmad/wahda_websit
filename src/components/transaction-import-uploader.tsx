@@ -317,11 +317,9 @@ export function TransactionImportUploader({
                 <StatBox label="مديونية متبقية" value={job.result.autoDebtUnresolvedDebtors} color="amber" />
               </div>
 
-              {job.result.autoDebtAffectedDebtors > 0 && (
-                <div className="rounded-md border border-blue-200 dark:border-blue-900/50 bg-blue-50 dark:bg-blue-900/20 p-3 text-xs text-blue-800 dark:text-blue-300">
-                  تم تشغيل تسوية المديونية تلقائياً بعد الاستيراد. يمكنك مراجعة المتبقي من نافذة المديونية في صفحة التكرارات.
-                </div>
-              )}
+              <div className="rounded-md border border-blue-200 dark:border-blue-900/50 bg-blue-50 dark:bg-blue-900/20 p-3 text-xs text-blue-800 dark:text-blue-300">
+                يتم تحويل الفجوات إلى نافذة المديونية للمراجعة اليدوية. لا يتم إنشاء حركة IMPORT إضافية تلقائياً بعد الاستيراد.
+              </div>
 
               <div className="rounded-md border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-900/20 p-3">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
