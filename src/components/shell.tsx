@@ -12,7 +12,7 @@ import type { ManagerPermissions, Session } from "@/lib/auth";
 // تابع مساعد للتحقق من الصلاحيات (يُحاكي lib/session-guard)
 function checkClientPerm(session: Session, key: keyof ManagerPermissions) {
   if (session.is_admin) return true;
-  if (!session.is_manager) return false;
+  if (!session.is_manager && !session.is_employee) return false;
   return session.manager_permissions?.[key] === true;
 }
 
@@ -32,6 +32,7 @@ const managerNavigation: Array<{ name: string; href: string; icon: typeof Layout
 ];
 
 const cashClaimNav = { name: "كاش", href: "/cash-claim", icon: Banknote };
+const employeeHomeNav = { name: "الرئيسية", href: "/cash-claim", icon: Banknote };
 
 const maintenanceNavigation = [
   { name: "النسخ الاحتياطي", href: "/admin/backup", icon: DatabaseBackup },
@@ -59,14 +60,17 @@ export function Shell({
     return checkClientPerm(session, item.perm);
   });
 
-  const showEmployeeCashClaim = session.is_employee;
+  const canUseCashClaim = session.is_employee && checkClientPerm(session, "cash_claim");
 
   const allNav = isAdmin
-    ? [...baseNavigation, ...managerNavigation, ...superAdminNavigation]
+    ? [...baseNavigation, ...managerNavigation, ...(canUseCashClaim ? [cashClaimNav] : []), ...superAdminNavigation]
     : isManager
-      ? [...baseNavigation, ...filteredManagerNav]
+      ? [...baseNavigation, ...filteredManagerNav, ...(canUseCashClaim ? [cashClaimNav] : [])]
       : session.is_employee
-        ? [...(showEmployeeCashClaim ? [cashClaimNav] : []), ...baseNavigation]
+        ? [
+            ...(canUseCashClaim ? [employeeHomeNav] : []),
+            { name: "الحركات", href: "/transactions", icon: ListOrdered },
+          ]
         : baseNavigation;
 
   const roleLabel = isAdmin ? "المبرمج" : isManager ? "مدير" : session.is_employee ? "موظف" : "مرفق";

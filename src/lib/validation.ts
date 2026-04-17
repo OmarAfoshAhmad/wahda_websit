@@ -12,11 +12,19 @@ export function isAllowedDeductionAmount(value: number): boolean {
   const normalized = normalizeMoneyAmount(value);
   // Reject numbers with more than 2 decimal digits.
   if (Math.abs(value - normalized) > AMOUNT_EPSILON) return false;
-  if (normalized >= 1) return true;
+  if (normalized >= 1) {
+    const integerPart = Math.floor(normalized);
+    const fraction = normalizeMoneyAmount(normalized - integerPart);
+    return (
+      Math.abs(fraction - 0) < AMOUNT_EPSILON
+      || Math.abs(fraction - 0.25) < AMOUNT_EPSILON
+      || Math.abs(fraction - 0.5) < AMOUNT_EPSILON
+    );
+  }
   return Math.abs(normalized - 0.25) < AMOUNT_EPSILON || Math.abs(normalized - 0.5) < AMOUNT_EPSILON;
 }
 
-export const AMOUNT_POLICY_ERROR = "القيم الأقل من 1 المسموح بها فقط: 0.25 أو 0.50";
+export const AMOUNT_POLICY_ERROR = "المسموح فقط: رقم صحيح أو رقم ينتهي بـ 0.25 أو 0.50 (وأقل من 1 فقط 0.25 أو 0.50)";
 export const MAX_AMOUNT_POLICY_ERROR = `الحد الأقصى لقيمة الخصم هو ${MAX_DEDUCTION_AMOUNT}`;
 
 export const loginSchema = z.object({
@@ -48,6 +56,7 @@ export const createFacilitySchema = z.object({
     .min(8, "كلمة المرور يجب أن تكون 8 أحرف على الأقل")
     .max(128, "كلمة المرور طويلة جداً")
     .optional(),
+  facility_type: z.enum(["AUTO", "HOSPITAL", "PHARMACY"]).optional(),
 });
 
 export const updateFacilitySchema = z.object({
@@ -58,6 +67,7 @@ export const updateFacilitySchema = z.object({
     .min(3, "اسم المستخدم يجب أن يكون 3 أحرف على الأقل")
     .max(50, "اسم المستخدم طويل جداً")
     .regex(/^[a-z0-9_]+$/, "اسم المستخدم يجب أن يحتوي على أحرف إنجليزية صغيرة وأرقام وشرطة سفلية فقط"),
+  facility_type: z.enum(["AUTO", "HOSPITAL", "PHARMACY"]).optional(),
 });
 
 export const changePasswordSchema = z.object({

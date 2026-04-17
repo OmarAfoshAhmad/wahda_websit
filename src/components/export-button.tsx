@@ -11,7 +11,9 @@ export function ExportButton({ searchParams }: ExportButtonProps) {
   const handleExport = () => {
     const params = new URLSearchParams();
     Object.entries(searchParams).forEach(([key, value]) => {
-      if (value) params.append(key, value);
+      // نتجاهل المعرفات الفردية وخصائص التقسيم للصفحات لأن التصدير يجب أن يشمل جميع النتائج المطلوبة
+      if (!value || key === "tx_ids" || key === "page" || key === "pageSize") return;
+      params.append(key, value);
     });
     
     // فتح الرابط في نافذة جديدة ليبدأ التحميل

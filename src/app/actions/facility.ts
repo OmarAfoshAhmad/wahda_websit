@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
 import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 import { createFacilitySchema, updateFacilitySchema } from "@/lib/validation";
+import { inferFacilityTypeFromText, normalizeFacilityTypeOverride } from "@/lib/facility-type";
 import ExcelJS from "exceljs";
 import { revalidatePath } from "next/cache";
 
@@ -21,7 +22,7 @@ export async function createFacility(prevState: unknown, formData: FormData) {
     return { error: firstError ?? "بيانات غير صالحة" };
   }
 
-  const { name, username } = validated.data;
+  const { name, username, facility_type } = validated.data;
 
   const existing = await prisma.facility.findUnique({ where: { username } });
   if (existing) {
@@ -31,16 +32,30 @@ export async function createFacility(prevState: unknown, formData: FormData) {
   const tempPassword = "123456";
   const password_hash = await bcrypt.hash(tempPassword, 10);
 
-  await prisma.facility.create({
+  const createdFacility = await prisma.facility.create({
     data: { name, username, password_hash, is_admin: false, must_change_password: true },
+    select: { id: true },
   });
+
+  const inferredFacilityType = inferFacilityTypeFromText(name, username);
+  const normalizedOverride =
+    facility_type === "AUTO"
+      ? null
+      : normalizeFacilityTypeOverride(facility_type);
 
   await prisma.auditLog.create({
     data: {
       facility_id: session.id,
       user: session.username,
       action: "CREATE_FACILITY",
-      metadata: { new_facility_username: username, name },
+      metadata: {
+        facility_id: createdFacility.id,
+        new_facility_username: username,
+        name,
+        facility_type_inferred: inferredFacilityType,
+        facility_type_override: normalizedOverride,
+        facility_type_effective: normalizedOverride ?? inferredFacilityType,
+      },
     },
   });
 
@@ -56,6 +71,7 @@ export async function updateFacility(data: {
   id: string;
   name: string;
   username: string;
+  facility_type?: "AUTO" | "HOSPITAL" | "PHARMACY";
   resetPassword?: boolean;
 }) {
   const session = await requireActiveFacilitySession();
@@ -68,7 +84,7 @@ export async function updateFacility(data: {
     return { error: parsed.error.issues[0].message };
   }
 
-  const { id, name, username } = parsed.data;
+  const { id, name, username, facility_type } = parsed.data;
 
   // التحقق من وجود المرفق
   const facility = await prisma.facility.findUnique({ where: { id } });
@@ -83,6 +99,11 @@ export async function updateFacility(data: {
   }
 
   const updateData: Record<string, unknown> = { name, username };
+  const inferredFacilityType = inferFacilityTypeFromText(name, username);
+  const normalizedOverride =
+    facility_type === "AUTO"
+      ? null
+      : normalizeFacilityTypeOverride(facility_type);
 
   if (data.resetPassword) {
     const tempPassword = "123456";
@@ -95,7 +116,15 @@ export async function updateFacility(data: {
         facility_id: session.id,
         user: session.username,
         action: "UPDATE_FACILITY",
-        metadata: { facility_id: id, name, username, reset_password: true },
+        metadata: {
+          facility_id: id,
+          name,
+          username,
+          reset_password: true,
+          facility_type_inferred: inferredFacilityType,
+          facility_type_override: normalizedOverride,
+          facility_type_effective: normalizedOverride ?? inferredFacilityType,
+        },
       },
     });
     revalidatePath("/admin/facilities");
@@ -110,7 +139,15 @@ export async function updateFacility(data: {
       facility_id: session.id,
       user: session.username,
       action: "UPDATE_FACILITY",
-      metadata: { facility_id: id, name, username, reset_password: data.resetPassword ?? false },
+      metadata: {
+        facility_id: id,
+        name,
+        username,
+        reset_password: data.resetPassword ?? false,
+        facility_type_inferred: inferredFacilityType,
+        facility_type_override: normalizedOverride,
+        facility_type_effective: normalizedOverride ?? inferredFacilityType,
+      },
     },
   });
 

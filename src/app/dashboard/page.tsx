@@ -63,9 +63,11 @@ function getCachedTodayStats(facilityId: string) {
 export default async function Dashboard() {
   const session = await getSession();
   if (!session) redirect("/login");
+  if (session.is_employee) redirect("/cash-claim");
 
   const canViewStats = session.is_admin || session.is_manager;
   const isAdmin = session.is_admin || session.is_manager;
+  const canUseDeduct = !session.is_employee && (!session.is_manager || hasPermission(session, "deduct_balance"));
   const cacheTag = isAdmin ? "admin" : session.id;
 
   const [adminStats, todayStats] = await Promise.all([
@@ -149,10 +151,10 @@ export default async function Dashboard() {
         </div>
 
         {/* نموذج الخصم */}
-        {(!session.is_manager || hasPermission(session, "deduct_balance")) ? (
+        {canUseDeduct ? (
           <div>
             <h2 className="mb-3 text-lg font-black text-slate-900 dark:text-white">خصم الأرصدة</h2>
-            <DeductForm />
+            <DeductForm facilityType={session.facility_type} />
           </div>
         ) : (
           <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-6 text-center dark:border-amber-900/30 dark:bg-amber-900/10">

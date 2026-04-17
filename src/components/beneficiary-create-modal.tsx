@@ -6,6 +6,12 @@ import { Loader2, UserPlus } from "lucide-react";
 import { createBeneficiary } from "@/app/actions/beneficiary";
 import { DateInput } from "@/components/date-input";
 
+function isLikelyValidCardNumber(value: string): boolean {
+  const v = value.trim();
+  if (v.length < 3 || v.length > 50) return false;
+  return /^[A-Za-z0-9\u0600-\u06FF\s\-_]+$/.test(v);
+}
+
 export function BeneficiaryCreateModal() {
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -32,6 +38,14 @@ export function BeneficiaryCreateModal() {
 
   const onSubmit = () => {
     setError(null);
+    if (!name.trim()) {
+      setError("اسم المستفيد مطلوب");
+      return;
+    }
+    if (!isLikelyValidCardNumber(cardNumber)) {
+      setError("رقم البطاقة غير صالح");
+      return;
+    }
     startTransition(async () => {
       try {
         const result = await createBeneficiary({
@@ -69,9 +83,14 @@ export function BeneficiaryCreateModal() {
 
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-lg border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="beneficiary-create-title"
+            className="w-full max-w-lg rounded-lg border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+          >
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-base font-black text-slate-900 dark:text-white">إضافة مستفيد جديد</h3>
+              <h3 id="beneficiary-create-title" className="text-base font-black text-slate-900 dark:text-white">إضافة مستفيد جديد</h3>
               <button
                 type="button"
                 className="rounded-md px-2 py-1 text-sm text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
@@ -84,31 +103,35 @@ export function BeneficiaryCreateModal() {
 
             <div className="space-y-3">
               <div>
-                <label className="mb-1 block text-xs font-black text-slate-500 dark:text-slate-400">الاسم <span className="text-red-500">*</span></label>
+                <label htmlFor="beneficiary-create-name" className="mb-1 block text-xs font-black text-slate-500 dark:text-slate-400">الاسم <span className="text-red-500">*</span></label>
                 <Input
+                  id="beneficiary-create-name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="اسم المستفيد"
                   className="h-10"
+                  disabled={isPending}
                 />
               </div>
 
               <div>
-                <label className="mb-1 block text-xs font-black text-slate-500 dark:text-slate-400">رقم البطاقة <span className="text-red-500">*</span></label>
+                <label htmlFor="beneficiary-create-card" className="mb-1 block text-xs font-black text-slate-500 dark:text-slate-400">رقم البطاقة <span className="text-red-500">*</span></label>
                 <Input
+                  id="beneficiary-create-card"
                   value={cardNumber}
                   onChange={(e) => setCardNumber(e.target.value)}
                   placeholder="رقم البطاقة"
                   className="h-10"
+                  disabled={isPending}
                 />
               </div>
 
               <div>
                 <label className="mb-1 block text-xs font-black text-slate-500 dark:text-slate-400">تاريخ الميلاد</label>
-                <DateInput value={birthDate} onChange={setBirthDate} className="h-10" />
+                <DateInput value={birthDate} onChange={setBirthDate} className="h-10" disabled={isPending} />
               </div>
 
-              {error && <p className="text-sm font-bold text-red-600 dark:text-red-400">{error}</p>}
+              {error && <p role="alert" aria-live="assertive" className="text-sm font-bold text-red-600 dark:text-red-400">{error}</p>}
             </div>
 
             <div className="mt-4 flex gap-2">

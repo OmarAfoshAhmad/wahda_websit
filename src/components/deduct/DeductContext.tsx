@@ -64,6 +64,7 @@ interface DeductContextValue {
   setAmount: (v: string) => void;
   type: DeductType;
   setType: (v: DeductType) => void;
+  facilityType?: "HOSPITAL" | "PHARMACY";
   showConfirm: boolean;
   setShowConfirm: (v: boolean) => void;
   deducting: boolean;
@@ -92,7 +93,13 @@ export function useDeductContext() {
 
 const RECENT_KEY = "wahda_recent_beneficiaries";
 
-export function DeductProvider({ children }: { children: React.ReactNode }) {
+export function DeductProvider({
+  children,
+  facilityType,
+}: {
+  children: React.ReactNode;
+  facilityType?: "HOSPITAL" | "PHARMACY";
+}) {
   const toast = useToast();
 
   const [searchInput, setSearchInput] = useState("");
@@ -105,7 +112,7 @@ export function DeductProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
-  const [type, setType] = useState<DeductType>("SUPPLIES");
+  const [type, setType] = useState<DeductType>(facilityType === "PHARMACY" ? "MEDICINE" : "SUPPLIES");
   const [showConfirm, setShowConfirm] = useState(false);
   const [deducting, setDeducting] = useState(false);
   const [recentBeneficiaries, setRecentBeneficiaries] = useState<BeneficiarySuggestion[]>([]);
@@ -113,6 +120,12 @@ export function DeductProvider({ children }: { children: React.ReactNode }) {
 
   const searchBoxRef = useRef<HTMLDivElement | null>(null);
   const amountRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (facilityType === "PHARMACY" && type !== "MEDICINE") {
+      setType("MEDICINE");
+    }
+  }, [facilityType, type]);
 
   // Load recent beneficiaries after mount to keep SSR/client markup identical.
   useEffect(() => {
@@ -188,9 +201,9 @@ export function DeductProvider({ children }: { children: React.ReactNode }) {
   const resetSearchState = useCallback(() => {
     setSearchInput(""); setCardNumber(""); setSuggestions([]);
     setShowSuggestions(false); setBeneficiary(null);
-    setAmount(""); setType("SUPPLIES"); setShowConfirm(false);
+    setAmount(""); setType(facilityType === "PHARMACY" ? "MEDICINE" : "SUPPLIES"); setShowConfirm(false);
     setError(null); setSuccess(null);
-  }, []);
+  }, [facilityType]);
 
   const handleSelectSuggestion = useCallback((item: BeneficiarySuggestion) => {
     setCardNumber(item.card_number);
@@ -276,7 +289,7 @@ export function DeductProvider({ children }: { children: React.ReactNode }) {
       loading, searchBoxRef, handleSearch, handleSelectSuggestion,
       recentBeneficiaries, setRecentBeneficiaries, handlePickRecent,
       beneficiary, setBeneficiary,
-      amount, setAmount, type, setType, showConfirm, setShowConfirm,
+      amount, setAmount, type, setType, facilityType, showConfirm, setShowConfirm,
       deducting, handleDeduct,
       error, setError, success,
       resetSearchState,

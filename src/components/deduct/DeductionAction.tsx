@@ -11,12 +11,17 @@ import React from "react";
 import { CreditCard, DollarSign, Loader2 } from "lucide-react";
 import { Button, Input } from "@/components/ui";
 import { useDeductContext } from "./DeductContext";
-import { MAX_DEDUCTION_AMOUNT, MAX_AMOUNT_POLICY_ERROR } from "@/lib/validation";
+import {
+  AMOUNT_POLICY_ERROR,
+  isAllowedDeductionAmount,
+  MAX_DEDUCTION_AMOUNT,
+  MAX_AMOUNT_POLICY_ERROR,
+} from "@/lib/validation";
 
 export function DeductionAction() {
   const {
     beneficiary, amount, setAmount,
-    type, setType, showConfirm, setShowConfirm,
+    type, setType, facilityType, showConfirm, setShowConfirm,
     deducting, handleDeduct,
   } = useDeductContext();
 
@@ -27,6 +32,10 @@ export function DeductionAction() {
 
   const amountValue = Number(amount);
   const amountExceedsMax = Number.isFinite(amountValue) && amountValue > MAX_DEDUCTION_AMOUNT;
+  const hasAmount = Number.isFinite(amountValue) && amountValue > 0;
+  const amountViolatesPolicy = hasAmount && !isAllowedDeductionAmount(amountValue);
+
+  const isPharmacyFacility = facilityType === "PHARMACY";
 
   return (
     <div className="space-y-3">
@@ -58,6 +67,9 @@ export function DeductionAction() {
           {amountExceedsMax && (
             <p className="text-xs font-bold text-red-600 dark:text-red-400">{MAX_AMOUNT_POLICY_ERROR}</p>
           )}
+          {amountViolatesPolicy && (
+            <p className="text-xs font-bold text-red-600 dark:text-red-400">{AMOUNT_POLICY_ERROR}</p>
+          )}
         </div>
 
         {/* ─── نوع الخصم ─── */}
@@ -70,8 +82,14 @@ export function DeductionAction() {
             value={type}
             onChange={(e) => setType(e.target.value as "MEDICINE" | "SUPPLIES")}
           >
-            <option value="MEDICINE">ادوية صرف عام</option>
-            <option value="SUPPLIES">كشف عام</option>
+            {isPharmacyFacility ? (
+              <option value="MEDICINE">ادوية صرف عام</option>
+            ) : (
+              <>
+                <option value="SUPPLIES">كشف عام</option>
+                <option value="MEDICINE">ادوية صرف عام</option>
+              </>
+            )}
           </select>
         </div>
       </div>
@@ -81,7 +99,7 @@ export function DeductionAction() {
         <Button
           className="h-10 w-full text-sm"
           onClick={() => amount && setShowConfirm(true)}
-          disabled={!amount || parseFloat(amount) <= 0 || amountExceedsMax}
+          disabled={!amount || parseFloat(amount) <= 0 || amountExceedsMax || amountViolatesPolicy}
         >
           <CreditCard className="h-4 w-4" />
           <span className="mr-2">مراجعة الخصم</span>

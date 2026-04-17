@@ -125,6 +125,21 @@ type OldRestoreJobsSummary = {
   old_restore_jobs_count: number;
 };
 
+type LastLoginByFacilityRow = {
+  facility_id: string;
+  last_login_at: Date;
+};
+
+type LastLoginByUsernameRow = {
+  user: string;
+  last_login_at: Date;
+};
+
+type LastResetByFacilityRow = {
+  facility_id: string;
+  last_reset_at: Date;
+};
+
 export const dynamic = "force-dynamic";
 
 function Num({ value }: { value: number }) {
@@ -155,8 +170,9 @@ export default async function DbAnomaliesPage() {
     deletedFacilities,
     mustChangePasswordCount,
     allFacilitiesForAuth,
-    loginLogs,
-    resetLogs,
+    lastLoginByFacilityRows,
+    lastLoginByUsernameRows,
+    lastResetByFacilityRows,
     balanceDriftRows,
     statusAnomalyRows,
     orphanedNotificationRows,
@@ -278,19 +294,29 @@ export default async function DbAnomaliesPage() {
       orderBy: { created_at: "desc" },
     }),
 
-    prisma.auditLog.findMany({
-      where: { action: "LOGIN" },
-      select: { facility_id: true, user: true, created_at: true },
-      orderBy: { created_at: "desc" },
-      take: 50_000,
-    }),
+    prisma.$queryRaw<LastLoginByFacilityRow[]>`
+      SELECT facility_id, MAX(created_at) AS last_login_at
+      FROM "AuditLog"
+      WHERE action = 'LOGIN'
+        AND facility_id IS NOT NULL
+      GROUP BY facility_id
+    `,
 
-    prisma.auditLog.findMany({
-      where: { action: "UPDATE_FACILITY" },
-      select: { metadata: true, created_at: true, user: true },
-      orderBy: { created_at: "desc" },
-      take: 50_000,
-    }),
+    prisma.$queryRaw<LastLoginByUsernameRow[]>`
+      SELECT "user", MAX(created_at) AS last_login_at
+      FROM "AuditLog"
+      WHERE action = 'LOGIN'
+      GROUP BY "user"
+    `,
+
+    prisma.$queryRaw<LastResetByFacilityRow[]>`
+      SELECT (metadata->>'facility_id') AS facility_id, MAX(created_at) AS last_reset_at
+      FROM "AuditLog"
+      WHERE action = 'UPDATE_FACILITY'
+        AND metadata ? 'facility_id'
+        AND metadata->>'reset_password' = 'true'
+      GROUP BY (metadata->>'facility_id')
+    `,
 
     // ─── فحص انجراف الرصيد (Balance Drift) ───────────────────────────────────
     prisma.$queryRaw<BalanceDriftRow[]>`
@@ -409,23 +435,22 @@ export default async function DbAnomaliesPage() {
 
   const lastLoginByFacilityId = new Map<string, Date>();
   const lastLoginByUsername = new Map<string, Date>();
-  for (const log of loginLogs) {
-    if (log.facility_id && !lastLoginByFacilityId.has(log.facility_id)) {
-      lastLoginByFacilityId.set(log.facility_id, log.created_at);
+  for (const row of lastLoginByFacilityRows) {
+    if (row.facility_id) {
+      lastLoginByFacilityId.set(row.facility_id, row.last_login_at);
     }
-    if (log.user && !lastLoginByUsername.has(log.user)) {
-      lastLoginByUsername.set(log.user, log.created_at);
+  }
+  const lastResetByFacilityId = new Map<string, Date>();
+
+  for (const row of lastLoginByUsernameRows) {
+    if (row.user) {
+      lastLoginByUsername.set(row.user, row.last_login_at);
     }
   }
 
-  const lastResetByFacilityId = new Map<string, Date>();
-  for (const log of resetLogs) {
-    const meta = log.metadata as Record<string, unknown> | null;
-    if (!meta) continue;
-    const facilityId = typeof meta.facility_id === "string" ? meta.facility_id : null;
-    const resetPassword = meta.reset_password === true;
-    if (facilityId && resetPassword && !lastResetByFacilityId.has(facilityId)) {
-      lastResetByFacilityId.set(facilityId, log.created_at);
+  for (const row of lastResetByFacilityRows) {
+    if (row.facility_id) {
+      lastResetByFacilityId.set(row.facility_id, row.last_reset_at);
     }
   }
 

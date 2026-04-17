@@ -30,6 +30,18 @@ type Payload = {
     status: string;
     deleted_at: string | null;
   };
+  family: {
+    base_card: string;
+    members_count: number;
+    members: Array<{
+      id: string;
+      name: string;
+      card_number: string;
+      status: string;
+      remaining_balance: number;
+      is_selected: boolean;
+    }>;
+  };
   summary: {
     transactions_count: number;
     active_transactions_count: number;
@@ -53,13 +65,13 @@ export function BeneficiaryTransactionsPanelButton({ beneficiaryId, beneficiaryN
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<Payload | null>(null);
 
-  const load = async () => {
-    setOpen(true);
+  const load = async (targetBeneficiaryId: string, shouldOpen = true) => {
+    if (shouldOpen) setOpen(true);
     setLoading(true);
     setError(null);
 
     try {
-      const res = await fetch(`/api/beneficiaries/${encodeURIComponent(beneficiaryId)}/transactions`, {
+      const res = await fetch(`/api/beneficiaries/${encodeURIComponent(targetBeneficiaryId)}/transactions`, {
         cache: "no-store",
       });
       const json = await res.json();
@@ -79,11 +91,17 @@ export function BeneficiaryTransactionsPanelButton({ beneficiaryId, beneficiaryN
     }
   };
 
+  const handleFamilyMemberClick = (memberId: string) => {
+    if (loading) return;
+    if (data?.beneficiary.id === memberId) return;
+    void load(memberId, false);
+  };
+
   return (
     <>
       <button
         type="button"
-        onClick={load}
+        onClick={() => void load(beneficiaryId, true)}
         className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${hasTransactions
           ? "border-sky-300 dark:border-sky-700 bg-sky-50 dark:bg-sky-900/30 text-sky-700 dark:text-sky-300 hover:bg-sky-100 dark:hover:bg-sky-900/50"
           : "border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
@@ -168,6 +186,52 @@ export function BeneficiaryTransactionsPanelButton({ beneficiaryId, beneficiaryN
                     <p className="text-slate-500 dark:text-slate-400">إجمالي المستهلك</p>
                     <p className="font-black text-slate-900 dark:text-slate-100">{data.summary.total_used.toLocaleString("ar-LY")} د.ل</p>
                   </div>
+                </div>
+
+                <div className="rounded border border-sky-200 bg-sky-50/70 p-3 dark:border-sky-800 dark:bg-sky-900/20">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="text-xs font-black text-sky-800 dark:text-sky-300">
+                      أفراد الأسرة ({data.family.members_count.toLocaleString("ar-LY")})
+                    </p>
+                    <p className="text-[11px] font-bold text-sky-700 dark:text-sky-400" dir="ltr">
+                      {data.family.base_card}
+                    </p>
+                  </div>
+
+                  {data.family.members.length === 0 ? (
+                    <p className="text-xs text-slate-500 dark:text-slate-400">لا يوجد أفراد أسرة مطابقون.</p>
+                  ) : (
+                    <div className="max-h-52 overflow-y-auto space-y-1">
+                      {data.family.members.map((member) => (
+                        <button
+                          key={member.id}
+                          type="button"
+                          onClick={() => handleFamilyMemberClick(member.id)}
+                          disabled={loading}
+                          className={`w-full text-right rounded border px-2 py-1.5 text-xs transition-colors ${member.is_selected
+                            ? "border-sky-300 bg-sky-100/70 dark:border-sky-700 dark:bg-sky-900/40"
+                            : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900/50"
+                            } ${loading ? "cursor-wait opacity-70" : "hover:bg-slate-50 dark:hover:bg-slate-800"}`}
+                          title="عرض حركات هذا الفرد"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="truncate font-bold text-slate-900 dark:text-slate-100">{member.name}</p>
+                            <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                              {member.status === "ACTIVE"
+                                ? "نشط"
+                                : member.status === "SUSPENDED"
+                                ? "موقوف"
+                                : "مكتمل"}
+                            </span>
+                          </div>
+                          <div className="mt-0.5 flex items-center justify-between gap-2 text-[11px] text-slate-600 dark:text-slate-300">
+                            <span dir="ltr">{member.card_number}</span>
+                            <span>{member.remaining_balance.toLocaleString("ar-LY")} د.ل</span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div className="overflow-x-auto rounded border border-slate-200 dark:border-slate-700">

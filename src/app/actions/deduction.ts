@@ -20,7 +20,8 @@ export async function deductBalance(formData: {
   requestId?: string;
 }) {
   const session = await requireActiveFacilitySession();
-  if (!session || (session.is_manager && !hasPermission(session, "deduct_balance"))) {
+  const canDeduct = !!session && !session.is_employee && (!session.is_manager || hasPermission(session, "deduct_balance"));
+  if (!canDeduct) {
     return { error: "غير مصرح لك بهذه العملية (خصم الرصيد)" };
   }
 
@@ -60,6 +61,11 @@ export async function deductBalance(formData: {
   }
 
   const { card_number, amount, type } = validated.data;
+
+  if (!session.is_admin && !session.is_manager && session.facility_type === "PHARMACY" && type === "SUPPLIES") {
+    return { error: "حسابات الصيدليات لا يمكنها تنفيذ نوع كشف عام" };
+  }
+
   const manualTransactionDate =
     formData.transactionDate instanceof Date && !Number.isNaN(formData.transactionDate.getTime())
       ? formData.transactionDate

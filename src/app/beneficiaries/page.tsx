@@ -15,16 +15,11 @@ import { BeneficiaryCreateModal } from "@/components/beneficiary-create-modal";
 import { BeneficiaryDeleteButton } from "@/components/beneficiary-delete-button";
 import { BeneficiaryRestoreActions } from "@/components/beneficiary-restore-actions";
 import { BeneficiaryResetPinButton } from "@/components/beneficiary-reset-pin-button";
-import { BeneficiaryMergeDuplicatesButton } from "@/components/beneficiary-merge-duplicates-button";
 import { BeneficiaryTransactionsPanelButton } from "@/components/beneficiary-transactions-panel-button";
 import { PaginationButtons } from "@/components/pagination-buttons";
 import { BeneficiariesBulkActionButton, SelectAllCheckbox, EmptyRecycleBinButton } from "@/components/beneficiaries-bulk-action-button";
 import { BulkRenewalButton } from "@/components/bulk-renewal-button";
 import { unstable_cache } from "next/cache";
-
-function normalizeCardKey(value: string) {
-  return value.trim().toUpperCase();
-}
 
 // كاش إحصائيات أعداد المستفيدين — يُبطَل فور أي تغيير عبر revalidateTag("beneficiary-counts")
 const getCachedStatusCounts = unstable_cache(
@@ -165,12 +160,6 @@ export default async function BeneficiariesPage({
     remaining_balance: remainingById.get(b.id) ?? 0,
     completed_via: (b as unknown as Record<string, unknown>).completed_via as string | null,
   }));
-
-  const duplicateCardCount = beneficiaries.reduce<Record<string, number>>((acc, b) => {
-    const key = normalizeCardKey(b.card_number);
-    acc[key] = (acc[key] ?? 0) + 1;
-    return acc;
-  }, {});
 
   // حساب الأعداد من نتيجة groupBy
   let totalCount = 0;
@@ -526,13 +515,6 @@ export default async function BeneficiariesPage({
                                     hasTransactions={beneficiary._count.transactions > 0}
                                   />
                                   {canEdit && beneficiary.pin_hash && <BeneficiaryResetPinButton beneficiaryId={beneficiary.id} />}
-                                  {canEdit && duplicateCardCount[normalizeCardKey(beneficiary.card_number)] > 1 && (
-                                    <BeneficiaryMergeDuplicatesButton
-                                      beneficiaryId={beneficiary.id}
-                                      beneficiaryName={beneficiary.name}
-                                      cardNumber={beneficiary.card_number}
-                                    />
-                                  )}
                                   {canEdit && (
                                     <BeneficiaryEditModal
                                       iconOnly

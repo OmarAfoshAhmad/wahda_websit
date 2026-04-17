@@ -43,9 +43,9 @@ function DeductFormInner() {
   );
 }
 
-export function DeductForm() {
+export function DeductForm({ facilityType }: { facilityType?: "HOSPITAL" | "PHARMACY" }) {
   return (
-    <DeductProvider>
+    <DeductProvider facilityType={facilityType}>
       <DeductFormInner />
     </DeductProvider>
   );

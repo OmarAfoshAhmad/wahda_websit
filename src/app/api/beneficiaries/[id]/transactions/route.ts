@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 
+function extractFamilyBaseCard(cardNumber: string): string {
+  const normalized = String(cardNumber ?? "").trim().toUpperCase();
+  const match = normalized.match(/^(.*?)([WSDMFHV])(\d+)$/i);
+  return match ? match[1] : normalized;
+}
+
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -34,6 +40,34 @@ export async function GET(
     return NextResponse.json({ error: "المستفيد غير موجود" }, { status: 404 });
   }
 
+  const familyBaseCard = extractFamilyBaseCard(beneficiary.card_number);
+  const familyCandidates = await prisma.beneficiary.findMany({
+    where: {
+      deleted_at: null,
+      card_number: { startsWith: familyBaseCard, mode: "insensitive" },
+    },
+    select: {
+      id: true,
+      name: true,
+      card_number: true,
+      status: true,
+      remaining_balance: true,
+    },
+    orderBy: [{ card_number: "asc" }, { created_at: "asc" }],
+    take: 250,
+  });
+
+  const familyMembers = familyCandidates
+    .filter((m) => extractFamilyBaseCard(m.card_number) === familyBaseCard)
+    .map((m) => ({
+      id: m.id,
+      name: m.name,
+      card_number: m.card_number,
+      status: m.status,
+      remaining_balance: Number(m.remaining_balance),
+      is_selected: m.id === beneficiary.id,
+    }));
+
   const transactions = await prisma.transaction.findMany({
     where: { beneficiary_id: beneficiaryId },
     orderBy: [{ created_at: "desc" }, { id: "desc" }],
@@ -64,6 +98,11 @@ export async function GET(
         remaining_balance: Number(beneficiary.remaining_balance),
         status: beneficiary.status,
         deleted_at: beneficiary.deleted_at,
+      },
+      family: {
+        base_card: familyBaseCard,
+        members_count: familyMembers.length,
+        members: familyMembers,
       },
       summary: {
         transactions_count: transactions.length,

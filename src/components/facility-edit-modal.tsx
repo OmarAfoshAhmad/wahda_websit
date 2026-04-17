@@ -6,13 +6,21 @@ import { Button, Input, Card } from "./ui";
 import { updateFacility } from "@/app/actions/facility";
 
 interface Props {
-  facility: { id: string; name: string; username: string };
+  facility: {
+    id: string;
+    name: string;
+    username: string;
+    facility_type_override?: "HOSPITAL" | "PHARMACY" | null;
+  };
 }
 
 export function FacilityEditModal({ facility }: Props) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(facility.name);
   const [username, setUsername] = useState(facility.username);
+  const [facilityType, setFacilityType] = useState<"AUTO" | "HOSPITAL" | "PHARMACY">(
+    facility.facility_type_override ?? "AUTO"
+  );
   const [resetPassword, setResetPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +33,13 @@ export function FacilityEditModal({ facility }: Props) {
     setError(null);
 
     try {
-      const result = await updateFacility({ id: facility.id, name, username, resetPassword });
+      const result = await updateFacility({
+        id: facility.id,
+        name,
+        username,
+        facility_type: facilityType,
+        resetPassword,
+      });
       if (result.error) {
         setError(result.error);
       } else {
@@ -51,7 +65,16 @@ export function FacilityEditModal({ facility }: Props) {
   return (
     <>
       <button
-        onClick={() => { setOpen(true); setError(null); setSuccess(false); setName(facility.name); setUsername(facility.username); setResetPassword(false); setGeneratedPassword(null); }}
+        onClick={() => {
+          setOpen(true);
+          setError(null);
+          setSuccess(false);
+          setName(facility.name);
+          setUsername(facility.username);
+          setFacilityType(facility.facility_type_override ?? "AUTO");
+          setResetPassword(false);
+          setGeneratedPassword(null);
+        }}
         className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-primary dark:hover:text-blue-400"
         title="تعديل المرفق"
       >
@@ -90,6 +113,19 @@ export function FacilityEditModal({ facility }: Props) {
                   placeholder="hospital_name"
                 />
                 <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">أحرف إنجليزية صغيرة وأرقام وشرطة سفلية فقط</p>
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-sm font-bold text-slate-700 dark:text-slate-300">نوع المرفق</label>
+                <select
+                  value={facilityType}
+                  onChange={(e) => setFacilityType(e.target.value as "AUTO" | "HOSPITAL" | "PHARMACY")}
+                  className="flex h-10 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                >
+                  <option value="AUTO">تلقائي (استنتاج من الاسم)</option>
+                  <option value="HOSPITAL">مشفى</option>
+                  <option value="PHARMACY">صيدلية</option>
+                </select>
               </div>
 
               <div className="flex items-center gap-2 rounded-md border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-900/20 px-3 py-2.5">

@@ -58,6 +58,7 @@ export async function login(user: {
   is_employee: boolean;
   manager_permissions: ManagerPermissions | null;
   must_change_password: boolean;
+  facility_type?: "HOSPITAL" | "PHARMACY";
 }) {
   const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
   // SEC-FIX: حفظ وقت إنشاء الجلسة الأصلي لفرض absolute timeout
@@ -92,6 +93,7 @@ export interface Session {
   is_employee: boolean;
   manager_permissions: ManagerPermissions | null;
   must_change_password: boolean;
+  facility_type?: "HOSPITAL" | "PHARMACY";
   expires?: Date;
 }
 

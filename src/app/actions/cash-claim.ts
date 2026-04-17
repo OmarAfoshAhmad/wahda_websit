@@ -9,6 +9,7 @@ import { emitNotification } from "@/lib/sse-notifications";
 import { formatCurrency, roundCurrency } from "@/lib/money";
 import { normalizeCardInput } from "@/lib/card-number";
 import { assertBeneficiariesBalanceInvariant, buildIdempotencyKey } from "@/lib/tx-balance-guard";
+import { Prisma } from "@prisma/client";
 
 // ─── استخراج قاعدة رقم بطاقة العائلة ────────────────────────────────
 function extractFamilyBaseCard(cardNumber: string): string {
@@ -33,7 +34,7 @@ export async function lookupFamily(query: string): Promise<{
   baseCard?: string;
 }> {
   const session = await requireActiveFacilitySession();
-  if (!session || !hasPermission(session, "cash_claim")) {
+  if (!session || !session.is_employee || !hasPermission(session, "cash_claim")) {
     return { error: "غير مصرح لك بهذه العملية" };
   }
 
@@ -124,7 +125,7 @@ export async function executeCashClaim(input: {
   requestId?: string;
 }): Promise<{ error?: string; success?: string }> {
   const session = await requireActiveFacilitySession();
-  if (!session || !hasPermission(session, "cash_claim")) {
+  if (!session || !session.is_employee || !hasPermission(session, "cash_claim")) {
     return { error: "غير مصرح لك بهذه العملية" };
   }
 
@@ -140,8 +141,22 @@ export async function executeCashClaim(input: {
     return { error: "قيمة الفاتورة غير صالحة" };
   }
 
-  // التحقق من أن كل المبالغ صحيحة
+  // دمج التخصيصات المكررة لنفس المستفيد لمنع الخصم المزدوج بسبب خطأ إدخال.
+  const mergedMap = new Map<string, number>();
   for (const alloc of allocations) {
+    const id = String(alloc.beneficiary_id ?? "").trim();
+    if (!id) {
+      return { error: "يوجد مستفيد غير صالح في التوزيع" };
+    }
+    mergedMap.set(id, roundCurrency((mergedMap.get(id) ?? 0) + Number(alloc.amount ?? 0)));
+  }
+  const normalizedAllocations: ClaimAllocation[] = [...mergedMap.entries()].map(([beneficiary_id, amount]) => ({
+    beneficiary_id,
+    amount,
+  }));
+
+  // التحقق من أن كل المبالغ صحيحة
+  for (const alloc of normalizedAllocations) {
     if (!Number.isFinite(alloc.amount) || alloc.amount <= 0) {
       return { error: "يوجد مبلغ غير صالح في التوزيع" };
     }
@@ -152,7 +167,7 @@ export async function executeCashClaim(input: {
   }
 
   // التحقق من أن مجموع التوزيع = قيمة الفاتورة
-  const allocationSum = roundCurrency(allocations.reduce((s, a) => s + a.amount, 0));
+  const allocationSum = roundCurrency(normalizedAllocations.reduce((s, a) => s + a.amount, 0));
   if (allocationSum !== roundCurrency(invoiceTotal)) {
     return { error: `مجموع التوزيع (${formatCurrency(allocationSum)}) لا يساوي قيمة الفاتورة (${formatCurrency(invoiceTotal)})` };
   }
@@ -185,10 +200,9 @@ export async function executeCashClaim(input: {
 
   try {
     const result = await prisma.$transaction(async (tx) => {
-      if (cashClaimKey && allocations.length > 0) {
-        const firstAllocationKey = `${cashClaimKey}:${allocations[0].beneficiary_id}:${allocations[0].amount}`;
+      if (cashClaimKey && normalizedAllocations.length > 0) {
         const existing = await tx.transaction.findFirst({
-          where: { idempotency_key: firstAllocationKey } as never,
+          where: { idempotency_key: { startsWith: `${cashClaimKey}:` } },
           select: { id: true },
         });
         if (existing) {
@@ -202,7 +216,7 @@ export async function executeCashClaim(input: {
         }
       }
 
-      const beneficiaryIds = allocations.map((a) => a.beneficiary_id);
+      const beneficiaryIds = normalizedAllocations.map((a) => a.beneficiary_id);
 
       // قفل صفوف المستفيدين (FOR UPDATE)
       const locked = await tx.$queryRaw<
@@ -218,7 +232,7 @@ export async function executeCashClaim(input: {
       const lockedMap = new Map(locked.map((b) => [b.id, b]));
 
       // التحقق من كل تخصيص
-      for (const alloc of allocations) {
+      for (const alloc of normalizedAllocations) {
         const ben = lockedMap.get(alloc.beneficiary_id);
         if (!ben) {
           throw new Error(`المستفيد غير موجود: ${alloc.beneficiary_id}`);
@@ -243,7 +257,7 @@ export async function executeCashClaim(input: {
       }> = [];
 
       // خصم من كل عضو
-      for (const alloc of allocations) {
+      for (const alloc of normalizedAllocations) {
         const ben = lockedMap.get(alloc.beneficiary_id)!;
         const balanceBefore = Number(ben.remaining_balance);
         const newBalance = roundCurrency(balanceBefore - alloc.amount);
@@ -310,12 +324,12 @@ export async function executeCashClaim(input: {
 
       await assertBeneficiariesBalanceInvariant(
         tx,
-        allocations.map((a) => a.beneficiary_id),
+        normalizedAllocations.map((a) => a.beneficiary_id),
         "executeCashClaim",
       );
 
       return results;
-    });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     // إرسال إشعارات لكل مستفيد
     for (const r of result) {

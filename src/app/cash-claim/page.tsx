@@ -2,13 +2,14 @@ import { getSession } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { Shell } from "@/components/shell";
 import { CashClaimForm } from "@/components/cash-claim-form";
+import { hasPermission } from "@/lib/session-guard";
 
 export default async function CashClaimPage() {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  if (!session.is_employee) {
-    redirect("/dashboard");
+  if (!session.is_employee || !hasPermission(session, "cash_claim")) {
+    redirect("/transactions");
   }
 
   return (

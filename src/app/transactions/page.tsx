@@ -1,5 +1,5 @@
 import { getSession } from "@/lib/auth";
-import { canAccessAdmin, hasPermission } from "@/lib/session-guard";
+import { hasPermission } from "@/lib/session-guard";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
@@ -38,6 +38,7 @@ type TransactionRow = {
     is_cancelled: boolean;
   } | null;
   beneficiary: {
+    id: string;
     name: string;
     card_number: string;
     remaining_balance: Prisma.Decimal;
@@ -83,14 +84,14 @@ export default async function TransactionsPage({
   const PAGE_SIZE = allowedPageSizes.includes(requestedPageSize) ? requestedPageSize : 10;
   const page = Math.max(1, parseInt(pageParam ?? "1", 10) || 1);
 
-  const facilities: Array<{ id: string; name: string }> = canAccessAdmin(session)
+  const facilities: Array<{ id: string; name: string }> = session.is_admin
     ? await prisma.facility.findMany({ where: { deleted_at: null }, select: { id: true, name: true }, orderBy: { name: "asc" } })
     : [{ id: session.id, name: session.name }];
 
   const rawFacilityFilter = (facility_id ?? "").trim();
   const selectedFacility = facilities.find((f) => f.id === rawFacilityFilter || f.name === rawFacilityFilter);
-  const resolvedFacilityId = canAccessAdmin(session) ? selectedFacility?.id : session.id;
-  const facilityFilterInputValue = canAccessAdmin(session)
+  const resolvedFacilityId = session.is_admin ? selectedFacility?.id : session.id;
+  const facilityFilterInputValue = session.is_admin
     ? (selectedFacility?.name ?? rawFacilityFilter)
     : session.name;
 
@@ -119,12 +120,19 @@ export default async function TransactionsPage({
     if (end_date) p.set("end_date", end_date);
     if (facility_id) p.set("facility_id", facility_id);
     if (q) p.set("q", q);
+    if (focus_tx) p.set("focus_tx", focus_tx);
     p.set("status", statusFilter);
     if (sourceFilter !== "all") p.set("source", sourceFilter);
     p.set("pageSize", String(PAGE_SIZE));
     p.set("sort", sortCol);
     p.set("order", sortDir);
-    Object.entries(overrides).forEach(([k, v]) => p.set(k, v));
+    Object.entries(overrides).forEach(([k, v]) => {
+      if (v === "") {
+        p.delete(k);
+      } else {
+        p.set(k, v);
+      }
+    });
     return p.toString();
   };
 
@@ -137,18 +145,25 @@ export default async function TransactionsPage({
   };
 
   // كل مرفق يرى حركاته فقط — المشرف يرى الكل ويمكنه الفلترة
-  const where: Prisma.TransactionWhereInput = canAccessAdmin(session)
+  const where: Prisma.TransactionWhereInput = session.is_admin
     ? (resolvedFacilityId ? { facility_id: resolvedFacilityId } : {})
     : { facility_id: session.id };
 
-  // في الشاشة: نعرض المنفذة + الحركات الملغاة المرتبطة بتصحيح فعّال ليتضح التسلسل المالي.
-  where.OR = [
-    { is_cancelled: false },
-    {
-      is_cancelled: true,
-      corrections: { some: { type: "CANCELLATION", is_cancelled: false } },
-    },
-  ];
+  if (session.is_employee) {
+    // الموظف: يرى فقط حركات الكاش التي نفذها حسابه، بدون الملغاة أو حركات التصحيح.
+    where.type = { not: "CANCELLATION" };
+    where.is_cancelled = false;
+    where.idempotency_key = { startsWith: "cash-claim:" };
+  } else {
+    // بقية الأدوار: نعرض المنفذة + الحركات الملغاة المرتبطة بتصحيح فعّال ليتضح التسلسل المالي.
+    where.OR = [
+      { is_cancelled: false },
+      {
+        is_cancelled: true,
+        corrections: { some: { type: "CANCELLATION", is_cancelled: false } },
+      },
+    ];
+  }
 
   // فلتر المصدر (يدوي / استيراد) — المبرمج فقط
   if (session.is_admin && sourceFilter === "import") {
@@ -227,7 +242,7 @@ export default async function TransactionsPage({
         original_transaction: {
           select: { id: true, amount: true, is_cancelled: true },
         },
-        beneficiary: { select: { name: true, card_number: true, remaining_balance: true } },
+        beneficiary: { select: { id: true, name: true, card_number: true, remaining_balance: true } },
         facility: { select: { id: true, name: true } },
       },
       skip: (page - 1) * PAGE_SIZE,
@@ -253,7 +268,7 @@ export default async function TransactionsPage({
           original_transaction: {
             select: { id: true, amount: true, is_cancelled: true },
           },
-          beneficiary: { select: { name: true, card_number: true, remaining_balance: true } },
+          beneficiary: { select: { id: true, name: true, card_number: true, remaining_balance: true } },
           facility: { select: { id: true, name: true } },
         },
       })
@@ -268,70 +283,10 @@ export default async function TransactionsPage({
   // حماية إضافية: لا نعرض إلا الحركات الفعلية حتى لو وصلتنا بيانات غير متوقعة.
   // بيانات التقرير (طباعة): نظهر الحركات العادية المنفذة فقط، ونستبعد الملغاة وحركة التصحيح.
   const visibleRows = transactionRows.filter((tx) => tx.type !== "CANCELLATION" && !tx.is_cancelled);
-  const displayedBeneficiaryIds = [...new Set(visibleRows.map((tx) => tx.beneficiary_id))];
-  const maxDisplayedCreatedAt = visibleRows.reduce<Date | null>((acc, tx) => {
-    if (!acc || tx.created_at > acc) return tx.created_at;
-    return acc;
-  }, null);
-
-  const historicalBalanceByTxId = new Map<string, number>();
-  if (displayedBeneficiaryIds.length > 0 && maxDisplayedCreatedAt) {
-    const [beneficiaryTotals, historyRows] = await Promise.all([
-      prisma.beneficiary.findMany({
-        where: { id: { in: displayedBeneficiaryIds } },
-        select: { id: true, total_balance: true },
-      }),
-      prisma.transaction.findMany({
-        where: {
-          beneficiary_id: { in: displayedBeneficiaryIds },
-          created_at: { lte: maxDisplayedCreatedAt },
-          is_cancelled: false,
-          type: { not: "CANCELLATION" },
-        },
-        select: {
-          id: true,
-          beneficiary_id: true,
-          amount: true,
-          created_at: true,
-        },
-        orderBy: [{ created_at: "asc" }, { id: "asc" }],
-      }),
-    ]);
-
-    const runningByBeneficiary = new Map<string, number>(
-      beneficiaryTotals.map((b) => [b.id, Number(b.total_balance)])
-    );
-
-    for (const tx of historyRows) {
-      const current = runningByBeneficiary.get(tx.beneficiary_id) ?? 0;
-      const next = current - Number(tx.amount);
-
-      runningByBeneficiary.set(tx.beneficiary_id, next);
-      historicalBalanceByTxId.set(tx.id, Math.max(0, next));
-    }
-  }
 
   const reportRowsCount = visibleRows.length;
   const reportTotalAmount = visibleRows.reduce((sum, tx) => sum + Number(tx.amount), 0);
-  const reportTotalRemaining = (() => {
-    // الإجمالي الصحيح للمتبقي: آخر رصيد لكل مستفيد داخل التقرير، وليس مجموع كل صف.
-    const latestRemainingByBeneficiary = new Map<string, number>();
-    const orderedRows = [...visibleRows].sort((a, b) => {
-      const diff = a.created_at.getTime() - b.created_at.getTime();
-      if (diff !== 0) return diff;
-      return a.id.localeCompare(b.id);
-    });
-
-    for (const tx of orderedRows) {
-      const historicalBalance = historicalBalanceByTxId.get(tx.id);
-      const shownBalance = typeof historicalBalance === "number"
-        ? historicalBalance
-        : Number(tx.beneficiary.remaining_balance);
-      latestRemainingByBeneficiary.set(tx.beneficiary_id, shownBalance);
-    }
-
-    return [...latestRemainingByBeneficiary.values()].reduce((sum, value) => sum + value, 0);
-  })();
+  const reportTotalRemaining = Math.max(0, 600 - reportTotalAmount);
 
   const isReadOnlyEmployee = session.is_employee;
   const canCancel = !isReadOnlyEmployee && hasPermission(session, "cancel_transactions");
@@ -383,7 +338,7 @@ export default async function TransactionsPage({
             <p className="text-lg font-black">{reportTotalAmount.toLocaleString("ar-LY")} د.ل</p>
           </div>
           <div className="text-center">
-            <p className="text-xs">إجمالي المتبقي (صفوف التقرير)</p>
+            <p className="text-xs">المتبقي</p>
             <p className="text-lg font-black">{reportTotalRemaining.toLocaleString("ar-LY")} د.ل</p>
           </div>
         </div>
@@ -428,7 +383,23 @@ export default async function TransactionsPage({
                   <span className="hidden text-sm font-bold sm:inline">استيراد حركات قديمة</span>
                 </Link>
               )}
-              {canExport && <ExportButton searchParams={{ start_date, end_date, facility_id, q }} />}
+              {canExport && (
+                <ExportButton
+                  searchParams={{
+                    start_date,
+                    end_date,
+                    facility_id,
+                    q,
+                    page: String(page),
+                    pageSize: String(PAGE_SIZE),
+                    sort: sortCol,
+                    order: sortDir,
+                    status: statusFilter,
+                    source: sourceFilter,
+                    tx_ids: visibleRows.map((tx) => tx.id).join(","),
+                  }}
+                />
+              )}
               <PrintButton />
             </div>
           </div>
@@ -784,9 +755,7 @@ export default async function TransactionsPage({
                         </td>
                         <td className="px-6 py-4 text-right">
                           {(() => {
-                            const historicalBalance = historicalBalanceByTxId.get(tx.id);
-                            const currentBalance = Number(tx.beneficiary.remaining_balance);
-                            const shownBalance = typeof historicalBalance === "number" ? historicalBalance : currentBalance;
+                            const shownBalance = Number(tx.beneficiary.remaining_balance);
 
                             if (tx.type === "CANCELLATION") {
                               return (

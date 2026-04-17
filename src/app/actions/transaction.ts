@@ -5,6 +5,7 @@ import prisma from "@/lib/prisma";
 import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { formatCurrency, roundCurrency } from "@/lib/money";
+import { Prisma } from "@prisma/client";
 import {
   AMOUNT_POLICY_ERROR,
   isAllowedDeductionAmount,
@@ -295,7 +296,7 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
           },
         },
       });
-    });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     revalidatePath("/transactions");
     revalidatePath("/beneficiaries");

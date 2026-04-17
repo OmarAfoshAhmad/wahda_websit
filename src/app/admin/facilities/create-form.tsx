@@ -33,21 +33,36 @@ export function CreateFacilityForm() {
           className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/20"
         />
       </div>
-      <div>
-        <label className="mb-1 block text-xs font-bold text-slate-500 dark:text-slate-400">اسم المستخدم</label>
-        <input
-          name="username"
-          type="text"
-          required
-          placeholder="مثال: hospital_central"
-          dir="ltr"
-          className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/20"
-        />
-        <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">أحرف إنجليزية صغيرة وأرقام وشرطة سفلية فقط</p>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-xs font-bold text-slate-500 dark:text-slate-400">اسم المستخدم</label>
+          <input
+            name="username"
+            type="text"
+            required
+            placeholder="مثال: hospital_central"
+            dir="ltr"
+            className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/20"
+          />
+          <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">أحرف إنجليزية صغيرة وأرقام وشرطة سفلية فقط</p>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-bold text-slate-500 dark:text-slate-400">نوع المرفق</label>
+          <select
+            name="facility_type"
+            defaultValue="AUTO"
+            className="flex h-10 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+          >
+            <option value="AUTO">تلقائي (استنتاج من الاسم)</option>
+            <option value="HOSPITAL">مشفى</option>
+            <option value="PHARMACY">صيدلية</option>
+          </select>
+        </div>
       </div>
 
-      <div className="rounded-md border border-blue-100 dark:border-blue-900/50 bg-blue-50 dark:bg-blue-900/20 px-4 py-3 text-xs text-blue-700 dark:text-blue-400">
-        سيتم توليد كلمة مرور مؤقتة (123456) تلقائياً، وسيُطلب من المستخدم تغييرها عند أول تسجيل دخول.
+      <div className="rounded-md border border-blue-100 dark:border-blue-900/50 bg-blue-50 dark:bg-blue-900/20 px-3 py-2 text-xs text-blue-700 dark:text-blue-400">
+        كلمة المرور المؤقتة: 123456 (إجباري تغييرها عند أول دخول).
       </div>
 
       {state && typeof state === "object" && "success" in state && state.success && "tempPassword" in state ? (

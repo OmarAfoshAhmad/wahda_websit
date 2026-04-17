@@ -5,7 +5,7 @@ export default async function Home() {
   const session = await getSession();
   
   if (session) {
-    redirect("/dashboard");
+    redirect(session.is_employee ? "/cash-claim" : "/dashboard");
   } else {
     redirect("/login");
   }

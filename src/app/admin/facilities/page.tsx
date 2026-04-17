@@ -2,9 +2,11 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { User, Download } from "lucide-react";
 import prisma from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { getSession } from "@/lib/auth";
 import { hasPermission } from "@/lib/session-guard";
 import { getArabicSearchTerms } from "@/lib/search";
+import { getFacilityTypeLabel, inferFacilityTypeFromText, normalizeFacilityTypeOverride } from "@/lib/facility-type";
 import { Shell } from "@/components/shell";
 import { Card, Badge, Input, Button } from "@/components/ui";
 import { CreateFacilityForm } from "./create-form";
@@ -36,7 +38,7 @@ export default async function FacilitiesPage({
   const ALLOWED_SORT = ["name", "username", "created_at", "transactions"] as const;
   type SortCol = typeof ALLOWED_SORT[number];
   const sortCol: SortCol = (ALLOWED_SORT as ReadonlyArray<string>).includes(sort ?? "") ? sort as SortCol : "created_at";
-  const sortDir: "asc" | "desc" = order === "desc" ? "desc" : "asc";
+  const sortDir: "asc" | "desc" = order === "asc" ? "asc" : "desc";
 
   const where = {
     deleted_at: isDeletedView ? { not: null } : null,
@@ -92,6 +94,33 @@ export default async function FacilitiesPage({
       },
     }),
   ]);
+
+  const allFacilityIds = [...new Set([...facilities, ...allFacilities].map((f) => f.id))];
+  const typeOverrideRows = allFacilityIds.length > 0
+    ? await prisma.$queryRaw<Array<{ facility_id: string; facility_type_override: string | null }>>`
+        SELECT DISTINCT ON ((metadata->>'facility_id'))
+          (metadata->>'facility_id') AS facility_id,
+          (metadata->>'facility_type_override') AS facility_type_override
+        FROM "AuditLog"
+        WHERE action IN ('CREATE_FACILITY', 'UPDATE_FACILITY')
+          AND metadata ? 'facility_type_override'
+          AND (metadata->>'facility_id') IN (${Prisma.join(allFacilityIds)})
+        ORDER BY (metadata->>'facility_id'), created_at DESC
+      `
+    : [];
+
+  const typeOverrideByFacilityId = new Map<string, string | null>(
+    typeOverrideRows.map((row) => [row.facility_id, row.facility_type_override])
+  );
+
+  const resolveFacilityType = (facility: { id: string; name: string; username: string }) => {
+    const override = normalizeFacilityTypeOverride(typeOverrideByFacilityId.get(facility.id));
+    const inferred = inferFacilityTypeFromText(facility.name, facility.username);
+    return {
+      effectiveType: override ?? inferred,
+      overrideType: override,
+    };
+  };
 
   const canAdd = hasPermission(session, "add_facility");
   const canEdit = hasPermission(session, "edit_facility");
@@ -202,7 +231,7 @@ export default async function FacilitiesPage({
                           عدد المعاملات {sortCol === "transactions" ? (sortDir === "asc" ? "↑" : "↓") : ""}
                         </Link>
                       </th>
-                      <th className="px-5 py-3 text-center text-xs font-black text-slate-500 dark:text-slate-400 uppercase">الحالة</th>
+                      <th className="px-5 py-3 text-center text-xs font-black text-slate-500 dark:text-slate-400 uppercase">نوع المرفق</th>
                       {(canEdit || canDelete || session.is_admin) && <th className="px-5 py-3 text-center text-xs font-black text-slate-500 dark:text-slate-400 uppercase no-print">إجراءات</th>}
                     </tr>
                   </thead>
@@ -218,18 +247,28 @@ export default async function FacilitiesPage({
                           <td className="px-5 py-3 text-sm font-mono text-slate-600 dark:text-slate-300 text-center">{f.username}</td>
                           <td className="px-5 py-3 text-sm text-slate-900 dark:text-white text-center">{f._count.transactions}</td>
                           <td className="px-5 py-3 text-center">
-                            {f.is_admin ? (
-                              <span className="inline-flex items-center rounded-md bg-green-50 dark:bg-green-900/30 px-2 py-1 text-xs font-medium text-green-700 dark:text-green-400 ring-1 ring-inset ring-green-600/20 dark:ring-green-900/50">المبرمج</span>
-                            ) : (
-                              <span className="inline-flex items-center rounded-md bg-slate-50 dark:bg-slate-800/50 px-2 py-1 text-xs font-medium text-slate-700 dark:text-slate-300 ring-1 ring-inset ring-slate-600/20 dark:ring-slate-700">مرفق</span>
-                            )}
+                            {(() => {
+                              const resolved = resolveFacilityType(f);
+                              const isPharmacy = resolved.effectiveType === "PHARMACY";
+                              return (
+                                <span
+                                  className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset ${
+                                    isPharmacy
+                                      ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-900/30 dark:text-emerald-300 dark:ring-emerald-800/60"
+                                      : "bg-sky-50 text-sky-700 ring-sky-600/20 dark:bg-sky-900/30 dark:text-sky-300 dark:ring-sky-800/60"
+                                  }`}
+                                >
+                                  {getFacilityTypeLabel(resolved.effectiveType)}
+                                </span>
+                              );
+                            })()}
                           </td>
                           {(canEdit || canDelete || session.is_admin) && (
                             <td className="px-5 py-3 no-print">
                               <div className="flex items-center justify-center gap-2">
                                 {!f.is_admin && (
                                   <>
-                                    {!isDeletedView && canEdit && <FacilityEditModal facility={{ id: f.id, name: f.name, username: f.username }} />}
+                                    {!isDeletedView && canEdit && <FacilityEditModal facility={{ id: f.id, name: f.name, username: f.username, facility_type_override: resolveFacilityType(f).overrideType }} />}
                                     {!isDeletedView && canDelete && f.id !== session.id && (
                                       <FacilityDeleteButton
                                         id={f.id}
@@ -261,13 +300,7 @@ export default async function FacilitiesPage({
                         <td className="px-5 py-3 text-sm font-bold text-slate-900 dark:text-white text-center">{f.name}</td>
                         <td className="px-5 py-3 text-sm font-mono text-slate-600 text-center">{f.username}</td>
                         <td className="px-5 py-3 text-sm text-slate-900 dark:text-white text-center">{f._count.transactions}</td>
-                        <td className="px-5 py-3 text-center">
-                          {f.is_admin ? (
-                            <span className="inline-flex items-center rounded-md bg-green-50 px-2 py-1 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-600/20">المبرمج</span>
-                          ) : (
-                            <span className="inline-flex items-center rounded-md bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 ring-1 ring-inset ring-slate-600/20">مرفق</span>
-                          )}
-                        </td>
+                        <td className="px-5 py-3 text-center">{getFacilityTypeLabel(resolveFacilityType(f).effectiveType)}</td>
                         <td className="px-5 py-3 no-print"></td>
                       </tr>
                     ))}
@@ -293,14 +326,13 @@ export default async function FacilitiesPage({
                             {" · "}
                             {f._count.transactions} عملية
                           </p>
+                          <p className="mt-1 text-[11px] font-bold text-indigo-700 dark:text-indigo-300">
+                            {getFacilityTypeLabel(resolveFacilityType(f).effectiveType)}
+                          </p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2 no-print">
-                        {f.is_admin ? (
-                          <Badge variant="success">المبرمج</Badge>
-                        ) : (
-                          <Badge variant="default">مرفق</Badge>
-                        )}
+                        <Badge variant="default">{getFacilityTypeLabel(resolveFacilityType(f).effectiveType)}</Badge>
                       </div>
                     </div>
                   ))

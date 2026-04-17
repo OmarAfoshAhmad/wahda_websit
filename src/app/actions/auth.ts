@@ -5,6 +5,7 @@ import { loginSchema, changePasswordSchema, voluntaryChangePasswordSchema } from
 import { login, logout as authLogout, getSession, type ManagerPermissions } from "@/lib/auth";
 import { checkRateLimit, resetRateLimit } from "@/lib/rate-limit";
 import { logger } from "@/lib/logger";
+import { inferFacilityTypeFromText, normalizeFacilityTypeOverride } from "@/lib/facility-type";
 import bcrypt from "bcryptjs";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
@@ -47,6 +48,7 @@ export async function authenticate(prevState: unknown, formData: FormData) {
         deleted_at: true,
         is_admin: true,
         is_manager: true,
+        is_employee: true,
         manager_permissions: true,
         must_change_password: true,
       },
@@ -88,15 +90,30 @@ export async function authenticate(prevState: unknown, formData: FormData) {
     }
 
     stage = "create-session";
+    const facilityTypeOverrideRows = await prisma.$queryRaw<Array<{ facility_type_override: string | null }>>`
+      SELECT (metadata->>'facility_type_override') AS facility_type_override
+      FROM "AuditLog"
+      WHERE action IN ('CREATE_FACILITY', 'UPDATE_FACILITY')
+        AND (metadata->>'facility_id') = ${facility.id}
+        AND metadata ? 'facility_type_override'
+      ORDER BY created_at DESC
+      LIMIT 1
+    `;
+
+    const facilityType =
+      normalizeFacilityTypeOverride(facilityTypeOverrideRows[0]?.facility_type_override) ??
+      inferFacilityTypeFromText(facility.name, facility.username);
+
     await login({
       id: facility.id,
       name: facility.name,
       username: facility.username,
       is_admin: facility.is_admin,
       is_manager: facility.is_manager,
-      is_employee: !(facility.is_admin || facility.is_manager),
+      is_employee: facility.is_employee,
       manager_permissions: facility.manager_permissions as ManagerPermissions | null,
       must_change_password: facility.must_change_password,
+      facility_type: facilityType,
     });
   } catch (error) {
     const err = error as {
@@ -122,7 +139,7 @@ export async function authenticate(prevState: unknown, formData: FormData) {
     return { error: "حدث خطأ غير متوقع. يرجى المحاولة مجدداً." };
   }
 
-  redirect("/dashboard");
+  redirect(facility.is_employee ? "/cash-claim" : "/dashboard");
 }
 
 export async function changePassword(prevState: unknown, formData: FormData) {
@@ -170,9 +187,10 @@ export async function changePassword(prevState: unknown, formData: FormData) {
     is_employee: Boolean(session.is_employee),
     manager_permissions: session.manager_permissions,
     must_change_password: false,
+    facility_type: session.facility_type,
   });
 
-  redirect("/dashboard");
+  redirect(session.is_employee ? "/cash-claim" : "/dashboard");
 }
 
 export async function voluntaryChangePassword(prevState: unknown, formData: FormData) {
