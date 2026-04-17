@@ -139,7 +139,8 @@ export async function authenticate(prevState: unknown, formData: FormData) {
     return { error: "حدث خطأ غير متوقع. يرجى المحاولة مجدداً." };
   }
 
-  redirect(facility.is_employee ? "/cash-claim" : "/dashboard");
+  const session = await getSession();
+  redirect(session?.is_employee ? "/cash-claim" : "/dashboard");
 }
 
 export async function changePassword(prevState: unknown, formData: FormData) {

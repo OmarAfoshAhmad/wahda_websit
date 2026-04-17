@@ -31,8 +31,8 @@ model Beneficiary {
   card_number       String
   name              String
   birth_date        DateTime?
-  total_balance     Decimal             @default(600)
-  remaining_balance Decimal             @default(600)
+  total_balance     Decimal           @default(600) @db.Decimal(12, 2)
+  remaining_balance Decimal           @default(600) @db.Decimal(12, 2)
   status            BeneficiaryStatus @default(ACTIVE)
   pin_hash          String?
   failed_attempts   Int               @default(0)
@@ -58,7 +58,7 @@ model Notification {
   beneficiary_id String
   title          String
   message        String
-  amount         Decimal?
+  amount         Decimal?    @db.Decimal(12, 2)
   is_read        Boolean     @default(false)
   created_at     DateTime    @default(now())
   beneficiary    Beneficiary @relation(fields: [beneficiary_id], references: [id], onDelete: Cascade)
@@ -71,7 +71,7 @@ model Transaction {
   id             String          @id @default(cuid())
   beneficiary_id String
   facility_id    String
-  amount         Decimal
+  amount         Decimal       @db.Decimal(12, 2)
   idempotency_key String?
   type           TransactionType
   is_cancelled            Boolean      @default(false)
