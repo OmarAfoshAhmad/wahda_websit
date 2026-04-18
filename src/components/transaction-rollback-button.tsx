@@ -21,16 +21,26 @@ export function TransactionRollbackButton({ logId, rolledBack }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/import-transactions/${logId}/rollback`, { method: "POST" });
-      const data = await res.json();
+      const res = await fetch(`/api/import-transactions/rollback/${logId}`, { method: "POST" });
+      const bodyText = await res.text();
+      let data: { error?: string } = {};
+      if (bodyText) {
+        try {
+          data = JSON.parse(bodyText) as { error?: string };
+        } catch {
+          data = {};
+        }
+      }
+
       if (!res.ok) {
         setError(data.error ?? "فشل التراجع");
       } else {
         setDone(true);
         router.refresh();
       }
-    } catch {
-      setError("خطأ في الاتصال");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "خطأ في الاتصال";
+      setError(message);
     } finally {
       setLoading(false);
     }

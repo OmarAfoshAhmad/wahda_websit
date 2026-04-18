@@ -9,11 +9,15 @@ type TransactionImportPayload = {
   kind: typeof TRANSACTION_IMPORT_KIND;
   fileBase64: string;
   replaceOldImports: boolean;
+  purgeMissingFamilies: boolean;
 };
 
 type TransactionImportSummary = {
   auditLogId: string;
   importMode: "replace_old_imports" | "incremental_update";
+  purgeMissingFamiliesEnabled: boolean;
+  cleanupPurgedMissingFamilies: number;
+  cleanupDeletedMissingFamilyArchiveRows: number;
   totalRows: number;
   duplicateCardCount: number;
   importedFamilies: number;
@@ -58,6 +62,7 @@ function parsePayload(payload: Prisma.JsonValue | null): TransactionImportPayloa
     kind: TRANSACTION_IMPORT_KIND,
     fileBase64,
     replaceOldImports: obj.replaceOldImports !== false,
+    purgeMissingFamilies: obj.purgeMissingFamilies === true,
   };
 }
 
@@ -65,6 +70,9 @@ function summarizeResult(result: TransactionImportResult): TransactionImportSumm
   return {
     auditLogId: result.auditLogId,
     importMode: result.importMode,
+    purgeMissingFamiliesEnabled: result.purgeMissingFamiliesEnabled,
+    cleanupPurgedMissingFamilies: result.cleanupPurgedMissingFamilies,
+    cleanupDeletedMissingFamilyArchiveRows: result.cleanupDeletedMissingFamilyArchiveRows,
     totalRows: result.totalRows,
     duplicateCardCount: result.duplicateCardCount,
     importedFamilies: result.importedFamilies,
@@ -108,6 +116,9 @@ function toSnapshot(job: {
         result = {
           auditLogId: String(r.auditLogId),
           importMode: (r.importMode === "incremental_update" ? "incremental_update" : "replace_old_imports"),
+          purgeMissingFamiliesEnabled: r.purgeMissingFamiliesEnabled === true,
+          cleanupPurgedMissingFamilies: Number(r.cleanupPurgedMissingFamilies) || 0,
+          cleanupDeletedMissingFamilyArchiveRows: Number(r.cleanupDeletedMissingFamilyArchiveRows) || 0,
           totalRows: Number(r.totalRows) || 0,
           duplicateCardCount: Number(r.duplicateCardCount) || 0,
           importedFamilies: Number(r.importedFamilies) || 0,
@@ -168,12 +179,14 @@ export async function createTransactionImportJob(input: {
   fileBuffer: Buffer;
   username: string;
   replaceOldImports: boolean;
+  purgeMissingFamilies: boolean;
 }) {
   const estimatedRows = await estimateRowsFromWorkbook(input.fileBuffer);
   const payload: TransactionImportPayload = {
     kind: TRANSACTION_IMPORT_KIND,
     fileBase64: input.fileBuffer.toString("base64"),
     replaceOldImports: input.replaceOldImports,
+    purgeMissingFamilies: input.purgeMissingFamilies,
   };
 
   const job = await prisma.importJob.create({
@@ -299,6 +312,7 @@ export async function processTransactionImportJob(jobId: string, username: strin
   try {
     const processed = await processTransactionImport(buffer, username, undefined, {
       replaceOldImports: parsedPayload.replaceOldImports,
+      purgeMissingFamilies: parsedPayload.purgeMissingFamilies,
       onProgress,
     });
 

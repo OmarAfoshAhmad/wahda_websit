@@ -701,7 +701,8 @@ function summarizeMetadata(action: string, metadata: unknown, auditLogId?: strin
 
   if (action === "IMPORT_TRANSACTIONS") {
     const appliedRowsCount = Array.isArray(m.appliedRows) ? m.appliedRows.length : 0;
-    const isRolledBack = Boolean(m.rolledBack);
+    const rollbackStatus = String(m.rollbackStatus ?? "").toLowerCase();
+    const isRolledBack = Boolean(m.rolledBack) || rollbackStatus === "rolled_back";
     return (
       <span className="flex flex-wrap gap-x-2 text-slate-500 dark:text-slate-400">
         <span>عائلات: <strong className="text-slate-700 dark:text-slate-300">{String(m.importedFamilies ?? m.added ?? "-")}</strong></span>

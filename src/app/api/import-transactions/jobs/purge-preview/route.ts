@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { requireActiveFacilitySession } from "@/lib/session-guard";
-import { createTransactionImportJob } from "@/lib/transaction-import-jobs";
+import { estimateTransactionImportPurgePreview } from "@/lib/import-transactions";
 
 const ALLOWED_MIME = [
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -56,15 +56,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "ملف Excel لا يحتوي على أي ورقة عمل." }, { status: 400 });
     }
 
-    const created = await createTransactionImportJob({
-      fileBuffer: buffer,
-      username: session.username,
+    const preview = await estimateTransactionImportPurgePreview(buffer, session.username, undefined, {
       replaceOldImports,
       purgeMissingFamilies,
     });
 
-    return NextResponse.json(created, { status: 201 });
+    return NextResponse.json({ preview }, { status: 200 });
   } catch {
-    return NextResponse.json({ error: "فشل في قراءة ملف Excel على الخادم." }, { status: 400 });
+    return NextResponse.json({ error: "تعذر حساب معاينة التنظيف." }, { status: 400 });
   }
 }

@@ -43,6 +43,9 @@ async function resolveImportFacilityId(username: string, selectedFacilityId?: st
 export type TransactionImportResult = {
   auditLogId: string;
   importMode: "replace_old_imports" | "incremental_update";
+  purgeMissingFamiliesEnabled: boolean;
+  cleanupPurgedMissingFamilies: number;
+  cleanupDeletedMissingFamilyArchiveRows: number;
   cleanupDeletedImportTransactions: number;
   cleanupCancelledImportTransactions: number;
   cleanupTouchedBeneficiaries: number;
@@ -172,6 +175,14 @@ type ParsedRow = {
   usedBalance: number;
 };
 
+export type TransactionImportPurgePreview = {
+  replaceOldImports: boolean;
+  purgeMissingFamilies: boolean;
+  targetFamiliesInFile: number;
+  missingFamiliesToPurge: number;
+  sampleMissingFamilies: string[];
+};
+
 export type TransactionImportProgress = {
   phase: "parsing" | "categorizing" | "cleanup" | "suspend" | "balance" | "import" | "audit" | "done";
   totalRows: number;
@@ -273,13 +284,74 @@ function parseExcelRows(workbook: ExcelJS.Workbook): ParsedRow[] {
   return rows;
 }
 
+export async function estimateTransactionImportPurgePreview(
+  fileBuffer: Buffer,
+  username: string,
+  selectedFacilityId?: string,
+  options?: {
+    replaceOldImports?: boolean;
+    purgeMissingFamilies?: boolean;
+  },
+): Promise<TransactionImportPurgePreview> {
+  const replaceOldImports = options?.replaceOldImports !== false;
+  const purgeMissingFamilies = replaceOldImports && options?.purgeMissingFamilies === true;
+
+  const workbook = new ExcelJS.Workbook();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await workbook.xlsx.load(fileBuffer as any);
+  const rows = parseExcelRows(workbook);
+
+  const cardRowMap = new Map<string, ParsedRow>();
+  for (const row of rows) {
+    const key = row.cardNumber.trim();
+    if (!key) continue;
+    cardRowMap.set(key, row);
+  }
+  const deduplicatedRows = Array.from(cardRowMap.values());
+
+  const lookup = await buildCardLookup();
+  const targetBaseCardsSet = new Set<string>();
+
+  for (const row of deduplicatedRows) {
+    const baseCard = resolveCardNumber(row.cardNumber, lookup);
+    if (!baseCard) continue;
+    targetBaseCardsSet.add(baseCard);
+  }
+
+  const targetBaseCards = Array.from(targetBaseCardsSet);
+  if (!purgeMissingFamilies) {
+    return {
+      replaceOldImports,
+      purgeMissingFamilies,
+      targetFamiliesInFile: targetBaseCards.length,
+      missingFamiliesToPurge: 0,
+      sampleMissingFamilies: [],
+    };
+  }
+
+  const importFacilityId = await resolveImportFacilityId(username, selectedFacilityId);
+  const missingBaseCards = await findImportBaseCardsMissingFromFile(importFacilityId, targetBaseCards);
+
+  return {
+    replaceOldImports,
+    purgeMissingFamilies,
+    targetFamiliesInFile: targetBaseCards.length,
+    missingFamiliesToPurge: missingBaseCards.length,
+    sampleMissingFamilies: missingBaseCards.slice(0, 20),
+  };
+}
+
 // ─── Main Import Logic ───────────────────────────────────────────
 
 export async function processTransactionImport(
   fileBuffer: Buffer,
   username: string,
   selectedFacilityId?: string,
-  options?: { replaceOldImports?: boolean; onProgress?: (progress: TransactionImportProgress) => void | Promise<void> },
+  options?: {
+    replaceOldImports?: boolean;
+    purgeMissingFamilies?: boolean;
+    onProgress?: (progress: TransactionImportProgress) => void | Promise<void>;
+  },
 ): Promise<{ result?: TransactionImportResult; error?: string }> {
   try {
     const reportProgress = async (
@@ -328,6 +400,7 @@ export async function processTransactionImport(
 
     const importFacilityId = await resolveImportFacilityId(username, selectedFacilityId);
     const replaceOldImports = options?.replaceOldImports !== false;
+    const purgeMissingFamiliesEnabled = replaceOldImports && options?.purgeMissingFamilies === true;
 
     // 2. Build lookup
     const lookup = await buildCardLookup();
@@ -403,24 +476,43 @@ export async function processTransactionImport(
       ...toSuspend.map((x) => x.baseCard),
     ]));
 
-    const snapshotBeforeMembers = targetBaseCards.length > 0
-      ? await loadFamilyMembersSnapshot(targetBaseCards)
+    let cleanupPurgedMissingFamilies = 0;
+    let cleanupDeletedMissingFamilyArchiveRows = 0;
+    let missingBaseCards: string[] = [];
+
+    if (purgeMissingFamiliesEnabled) {
+      await reportProgress("cleanup", Math.max(1, rows.length), Math.max(1, Math.round(rows.length * 0.32)), "جارٍ تحديد عائلات IMPORT غير الموجودة في الملف");
+      missingBaseCards = await findImportBaseCardsMissingFromFile(importFacilityId, targetBaseCards);
+      cleanupPurgedMissingFamilies = missingBaseCards.length;
+    }
+
+    const affectedBaseCards = Array.from(new Set([
+      ...targetBaseCards,
+      ...missingBaseCards,
+    ]));
+
+    const snapshotBeforeMembers = affectedBaseCards.length > 0
+      ? await loadFamilyMembersSnapshot(affectedBaseCards)
       : [];
-    const snapshotBeforeArchive = targetBaseCards.length > 0
-      ? await loadFamilyArchiveSnapshot(targetBaseCards)
+    const snapshotBeforeArchive = affectedBaseCards.length > 0
+      ? await loadFamilyArchiveSnapshot(affectedBaseCards)
       : [];
 
     let cleanupDeletedImportTransactions = 0;
     let cleanupCancelledImportTransactions = 0;
     let cleanupTouchedBeneficiaries = 0;
     let deletedImportTransactions: DeletedImportTransactionSnapshot[] = [];
-    if (replaceOldImports && targetBaseCards.length > 0) {
+    if (replaceOldImports && affectedBaseCards.length > 0) {
       await reportProgress("cleanup", Math.max(1, rows.length), Math.max(1, Math.round(rows.length * 0.4)), "جارٍ حذف IMPORT القديمة فعلياً");
-      const cleanup = await cleanupActiveImportsAndRestoreLedgerState(targetBaseCards);
+      const cleanup = await cleanupActiveImportsAndRestoreLedgerState(affectedBaseCards);
       cleanupDeletedImportTransactions = cleanup.deletedImportTransactions;
       cleanupCancelledImportTransactions = cleanup.cancelledImportTransactions;
       cleanupTouchedBeneficiaries = cleanup.touchedBeneficiaries;
       deletedImportTransactions = cleanup.deletedImportTransactionRows;
+
+      if (missingBaseCards.length > 0) {
+        cleanupDeletedMissingFamilyArchiveRows = await deleteFamilyImportArchiveRows(missingBaseCards);
+      }
     }
 
     // حفظ أرشيف القيم القادمة من ملف الاستيراد لكل عائلة (آخر قيمة مستوردة)
@@ -541,16 +633,16 @@ export async function processTransactionImport(
 
     await reportProgress("audit", Math.max(1, rows.length), Math.max(1, Math.round(rows.length * 0.97)), "جارٍ حفظ سجل المراقبة");
 
-    const snapshotAfterMembers = targetBaseCards.length > 0
-      ? await loadFamilyMembersSnapshot(targetBaseCards)
+    const snapshotAfterMembers = affectedBaseCards.length > 0
+      ? await loadFamilyMembersSnapshot(affectedBaseCards)
       : [];
-    const snapshotAfterArchive = targetBaseCards.length > 0
-      ? await loadFamilyArchiveSnapshot(targetBaseCards)
+    const snapshotAfterArchive = affectedBaseCards.length > 0
+      ? await loadFamilyArchiveSnapshot(affectedBaseCards)
       : [];
 
     const detailedReport: ImportDetailedReport = {
       snapshotBefore: {
-        affectedFamilies: targetBaseCards,
+        affectedFamilies: affectedBaseCards,
         affectedMembersCount: snapshotBeforeMembers.length,
         members: snapshotBeforeMembers,
         familyArchiveBefore: snapshotBeforeArchive,
@@ -569,7 +661,7 @@ export async function processTransactionImport(
         familyArchiveAfter: snapshotAfterArchive,
       },
       rollbackSnapshot: {
-        affectedFamilies: targetBaseCards,
+        affectedFamilies: affectedBaseCards,
         affectedMemberIds: Array.from(new Set(snapshotBeforeMembers.map((m) => m.beneficiaryId))),
         membersBefore: snapshotBeforeMembers,
         deletedOldImportTransactions: deletedImportTransactions,
@@ -585,6 +677,9 @@ export async function processTransactionImport(
         action: "IMPORT_TRANSACTIONS",
         metadata: {
           importMode: replaceOldImports ? "replace_old_imports" : "incremental_update",
+          purgeMissingFamiliesEnabled,
+          cleanupPurgedMissingFamilies,
+          cleanupDeletedMissingFamilyArchiveRows,
           cleanupMode: "hard_delete",
           cleanupDeletedImportTransactions,
           cleanupCancelledImportTransactions,
@@ -623,6 +718,9 @@ export async function processTransactionImport(
       data: {
         metadata: {
           importMode: replaceOldImports ? "replace_old_imports" : "incremental_update",
+          purgeMissingFamiliesEnabled,
+          cleanupPurgedMissingFamilies,
+          cleanupDeletedMissingFamilyArchiveRows,
           cleanupMode: "hard_delete",
           cleanupDeletedImportTransactions,
           cleanupCancelledImportTransactions,
@@ -658,6 +756,9 @@ export async function processTransactionImport(
       result: {
         auditLogId: auditLog.id,
         importMode: replaceOldImports ? "replace_old_imports" : "incremental_update",
+        purgeMissingFamiliesEnabled,
+        cleanupPurgedMissingFamilies,
+        cleanupDeletedMissingFamilyArchiveRows,
         cleanupDeletedImportTransactions,
         cleanupCancelledImportTransactions,
         cleanupTouchedBeneficiaries,
@@ -895,6 +996,35 @@ async function loadFamilyArchiveSnapshot(baseCards: string[]): Promise<FamilyImp
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
   }));
+}
+
+async function deleteFamilyImportArchiveRows(baseCards: string[]): Promise<number> {
+  if (baseCards.length === 0) return 0;
+  const deleted = await prisma.$executeRaw`
+    DELETE FROM "FamilyImportArchive"
+    WHERE family_base_card = ANY(${baseCards}::text[])
+  `;
+  return Number(deleted) || 0;
+}
+
+async function findImportBaseCardsMissingFromFile(importFacilityId: string, keepBaseCards: string[]): Promise<string[]> {
+  const keepSet = new Set(keepBaseCards.map((x) => String(x ?? "").trim()).filter(Boolean));
+
+  const rows = await prisma.$queryRaw<Array<{ family_base_card: string }>>`
+    SELECT DISTINCT
+      regexp_replace(b.card_number, '(?:[DWSH]\\d+|[MF]\\d*)$', '', 'i') AS family_base_card
+    FROM "Transaction" t
+    JOIN "Beneficiary" b ON b.id = t.beneficiary_id
+    WHERE t.type = 'IMPORT'
+      AND t.is_cancelled = false
+      AND t.facility_id = ${importFacilityId}
+      AND b.deleted_at IS NULL
+  `;
+
+  return rows
+    .map((r) => String(r.family_base_card ?? "").trim().toUpperCase())
+    .filter((baseCard) => /^WAB2025\d+$/.test(baseCard))
+    .filter((baseCard) => !keepSet.has(baseCard));
 }
 
 async function ensureFamilyImportArchiveTable() {

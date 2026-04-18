@@ -74,7 +74,11 @@ const SUFFIX_RELATIONSHIP_MAP: Record<string, string> = {
  */
 export function extractBaseCard(card: string): string {
   const c = normalizeCardNumber(card);
-  const m = c.match(/^(WAB2025\d+?)([A-Z]\d+)?$/);
+  const stripped = c.replace(/(?:[DWSH]\d+|[MF]\d*)$/i, "");
+  if (/^WAB2025\d+$/i.test(stripped)) {
+    return stripped;
+  }
+  const m = c.match(/^(WAB2025\d+?)([A-Z]\d+)?$/i);
   if (!m) return c;
   return m[1];
 }

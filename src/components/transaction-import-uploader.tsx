@@ -9,6 +9,9 @@ type TransactionImportJobStatus = "PENDING" | "PROCESSING" | "COMPLETED" | "FAIL
 type TransactionImportSummary = {
   auditLogId: string;
   importMode: "replace_old_imports" | "incremental_update";
+  purgeMissingFamiliesEnabled: boolean;
+  cleanupPurgedMissingFamilies: number;
+  cleanupDeletedMissingFamilyArchiveRows: number;
   totalRows: number;
   duplicateCardCount: number;
   importedFamilies: number;
@@ -23,6 +26,14 @@ type TransactionImportSummary = {
   autoDebtAffectedDebtors: number;
   autoDebtSettledDebtors: number;
   autoDebtUnresolvedDebtors: number;
+};
+
+type TransactionImportPurgePreview = {
+  replaceOldImports: boolean;
+  purgeMissingFamilies: boolean;
+  targetFamiliesInFile: number;
+  missingFamiliesToPurge: number;
+  sampleMissingFamilies: string[];
 };
 
 type TransactionImportJobSnapshot = {
@@ -46,6 +57,7 @@ export function TransactionImportUploader({
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [replaceOldImports, setReplaceOldImports] = useState(true);
+  const [purgeMissingFamilies, setPurgeMissingFamilies] = useState(false);
   const [job, setJob] = useState<TransactionImportJobSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [rollingBack, setRollingBack] = useState(false);
@@ -103,6 +115,47 @@ export function TransactionImportUploader({
 
   const handleUpload = async () => {
     if (!file) return;
+
+    if (replaceOldImports && purgeMissingFamilies) {
+      try {
+        const previewFormData = new FormData();
+        previewFormData.append("file", file);
+        previewFormData.append("replace_old_imports", "true");
+        previewFormData.append("purge_missing_families", "true");
+
+        const previewResponse = await fetch("/api/import-transactions/jobs/purge-preview", {
+          method: "POST",
+          body: previewFormData,
+        });
+        const previewPayload = await previewResponse.json() as {
+          error?: string;
+          preview?: TransactionImportPurgePreview;
+        };
+
+        if (!previewResponse.ok || previewPayload.error || !previewPayload.preview) {
+          setError(previewPayload.error ?? "تعذر حساب معاينة التنظيف قبل الاستيراد.");
+          return;
+        }
+
+        const preview = previewPayload.preview;
+        const sample = preview.sampleMissingFamilies.slice(0, 5).join("، ");
+        const warningMessage = [
+          `سيتم تنظيف آثار IMPORT لعائلات غير موجودة في الملف الحالي: ${preview.missingFamiliesToPurge.toLocaleString("ar-LY")}`,
+          `عدد العائلات الموجودة في الملف: ${preview.targetFamiliesInFile.toLocaleString("ar-LY")}`,
+          sample ? `أمثلة: ${sample}` : "",
+          "هذا الإجراء قد يحذف آثار استيراد صحيحة إذا كان الملف جزئيا.",
+          "هل تريد المتابعة؟",
+        ].filter(Boolean).join("\n");
+
+        if (!window.confirm(warningMessage)) {
+          return;
+        }
+      } catch {
+        setError("تعذر حساب معاينة التنظيف قبل الاستيراد.");
+        return;
+      }
+    }
+
     setUploading(true);
     setJob(null);
     setError(null);
@@ -112,6 +165,7 @@ export function TransactionImportUploader({
       const formData = new FormData();
       formData.append("file", file);
       formData.append("replace_old_imports", replaceOldImports ? "true" : "false");
+      formData.append("purge_missing_families", purgeMissingFamilies ? "true" : "false");
 
       const response = await fetch("/api/import-transactions/jobs", {
         method: "POST",
@@ -243,6 +297,19 @@ export function TransactionImportUploader({
             </span>
           </label>
 
+          <label className="flex w-full items-start gap-2 rounded-md border border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-900/20 p-3 text-right">
+            <input
+              type="checkbox"
+              checked={purgeMissingFamilies}
+              onChange={(e) => setPurgeMissingFamilies(e.target.checked)}
+              disabled={!replaceOldImports || isBusy}
+              className="mt-1 h-4 w-4 shrink-0"
+            />
+            <span className="text-xs leading-6 text-rose-800 dark:text-rose-300">
+              تنظيف آثار IMPORT للعائلات غير الموجودة في الملف الحالي (ضمن نفس المرفق المنفذ): حذف حركات IMPORT القديمة لتلك العائلات وإزالة أرشيف المصدر الخاص بها. استخدمه فقط عندما يكون الملف يمثل الحالة الكاملة المطلوبة.
+            </span>
+          </label>
+
           <Button
             className="w-full h-12"
             disabled={!file || isBusy}
@@ -301,8 +368,11 @@ export function TransactionImportUploader({
 
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                 <StatBox label="وضع الاستيراد" value={job.result.importMode === "replace_old_imports" ? "إحلال كامل" : "تحديث تراكمي"} color={job.result.importMode === "replace_old_imports" ? "emerald" : "amber"} />
+                <StatBox label="تنظيف غير الموجودين بالملف" value={job.result.purgeMissingFamiliesEnabled ? "مفعل" : "غير مفعل"} color={job.result.purgeMissingFamiliesEnabled ? "amber" : "slate"} />
                 <StatBox label="حركات IMPORT حُذفت فعلياً" value={job.result.cleanupDeletedImportTransactions} color="emerald" />
                 <StatBox label="مستفيدون أُعيد ضبطهم" value={job.result.cleanupTouchedBeneficiaries} color="emerald" />
+                <StatBox label="عائلات غير موجودة تم تنظيفها" value={job.result.cleanupPurgedMissingFamilies} color="red" />
+                <StatBox label="صفوف أرشيف مصدر محذوفة" value={job.result.cleanupDeletedMissingFamilyArchiveRows} color="red" />
                 <StatBox label="إجمالي الصفوف" value={job.result.totalRows} />
                 <StatBox label="بطاقات مكررة (تم دمجها)" value={job.result.duplicateCardCount} color="amber" />
                 <StatBox label="غير موجودين" value={job.result.skippedNotFound} color="red" />
