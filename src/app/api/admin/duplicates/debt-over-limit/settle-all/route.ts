@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireActiveFacilitySession } from "@/lib/session-guard";
-import { applyOverdrawnDebtSettlement } from "@/lib/overdrawn-debt-settlement";
+import { startMaintenanceJobForActor } from "@/app/actions/maintenance-jobs";
 
 export async function POST(request: Request) {
   const session = await requireActiveFacilitySession();
@@ -13,24 +13,34 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await applyOverdrawnDebtSettlement({
-      user: session.username,
-      facilityId: session.id,
-    });
+    const queued = await startMaintenanceJobForActor(
+      {
+        kind: "settle_overdrawn_debt",
+        facilityId: session.id,
+      },
+      {
+        id: session.id,
+        username: session.username,
+        isAdmin: session.is_admin || session.is_manager,
+      },
+    );
+
+    if (!queued.success || !queued.job) {
+      return NextResponse.json(
+        { success: false, error: queued.error ?? "تعذر إنشاء مهمة الخلفية" },
+        { status: 403 },
+      );
+    }
 
     const redirectUrl = new URL("/admin/duplicates", request.url);
     redirectUrl.searchParams.set("tab", "debt");
-    redirectUrl.searchParams.set(
-      "ok",
-      `تمت المعالجة: ${result.affectedDebtors} حالة، تم التوافق ${result.settledDebtors}، متبقي ${result.unresolvedDebtors}`
-    );
-    redirectUrl.searchParams.set("debtAudit", result.auditId);
-
+    redirectUrl.searchParams.set("ok", "تمت جدولة تسوية المديونية في الخلفية");
+    redirectUrl.searchParams.set("job", queued.job.id);
     return NextResponse.redirect(redirectUrl, { status: 303 });
   } catch (error) {
+    const message = error instanceof Error ? error.message : "تعذر تنفيذ تسوية المديونية حالياً";
     const redirectUrl = new URL("/admin/duplicates", request.url);
     redirectUrl.searchParams.set("tab", "debt");
-    const message = error instanceof Error ? error.message : "تعذر تنفيذ تسوية المديونية حالياً";
     redirectUrl.searchParams.set("err", `تعذر تنفيذ تسوية المديونية: ${message}`);
     return NextResponse.redirect(redirectUrl, { status: 303 });
   }

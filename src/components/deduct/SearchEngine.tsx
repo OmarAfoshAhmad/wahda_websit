@@ -70,22 +70,39 @@ export function SearchEngine() {
                     جاري البحث...
                   </div>
                 ) : (
-                  suggestions.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      className="flex w-full items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 px-3 py-2 text-right hover:bg-slate-50 dark:hover:bg-slate-800 last:border-b-0"
-                      onClick={() => handleSelectSuggestion(item)}
-                    >
-                      <div>
-                        <p className="text-sm font-bold text-slate-900 dark:text-white">{item.name}</p>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">{item.card_number}</p>
-                      </div>
-                      <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
-                        {formatCurrency(item.remaining_balance)} د.ل
-                      </span>
-                    </button>
-                  ))
+                  suggestions.map((item) => {
+                    // Old card in operations context: either legacy-import card or explicitly replaced card.
+                    // This matches business flow where old cards remain in use until new cards are issued.
+                    const isOperationalOldCard = item.in_import_file || item.has_replacement_card;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className="flex w-full items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 px-3 py-2 text-right hover:bg-slate-50 dark:hover:bg-slate-800 last:border-b-0"
+                        onClick={() => handleSelectSuggestion(item)}
+                      >
+                        <div>
+                          <p className="text-sm font-bold text-slate-900 dark:text-white">{item.name}</p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">{item.card_number}</p>
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {item.in_import_file && (
+                              <span className="inline-flex items-center rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[10px] font-black text-sky-700 dark:border-sky-800 dark:bg-sky-900/30 dark:text-sky-300">
+                                ضمن ملف الاستيراد
+                              </span>
+                            )}
+                            {isOperationalOldCard && (
+                              <span className="inline-flex items-center rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-black text-amber-700 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+                                بطاقة قديمة
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                          {formatCurrency(item.remaining_balance)} د.ل
+                        </span>
+                      </button>
+                    );
+                  })
                 )}
               </div>
             )}

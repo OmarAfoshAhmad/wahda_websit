@@ -10,12 +10,14 @@ type TransactionImportPayload = {
   fileBase64: string;
   replaceOldImports: boolean;
   purgeMissingFamilies: boolean;
+  cleanupOldSettlements: boolean;
 };
 
 type TransactionImportSummary = {
   auditLogId: string;
   importMode: "replace_old_imports" | "incremental_update";
   purgeMissingFamiliesEnabled: boolean;
+  cleanupOldSettlementsEnabled: boolean;
   cleanupPurgedMissingFamilies: number;
   cleanupDeletedMissingFamilyArchiveRows: number;
   totalRows: number;
@@ -28,6 +30,7 @@ type TransactionImportSummary = {
   balanceSetFamilies: number;
   skippedNotFound: number;
   cleanupDeletedImportTransactions: number;
+  cleanupDeletedSettlementTransactions: number;
   cleanupTouchedBeneficiaries: number;
   autoDebtAffectedDebtors: number;
   autoDebtSettledDebtors: number;
@@ -63,6 +66,7 @@ function parsePayload(payload: Prisma.JsonValue | null): TransactionImportPayloa
     fileBase64,
     replaceOldImports: obj.replaceOldImports !== false,
     purgeMissingFamilies: obj.purgeMissingFamilies === true,
+    cleanupOldSettlements: obj.cleanupOldSettlements === true,
   };
 }
 
@@ -71,6 +75,7 @@ function summarizeResult(result: TransactionImportResult): TransactionImportSumm
     auditLogId: result.auditLogId,
     importMode: result.importMode,
     purgeMissingFamiliesEnabled: result.purgeMissingFamiliesEnabled,
+    cleanupOldSettlementsEnabled: result.cleanupOldSettlementsEnabled,
     cleanupPurgedMissingFamilies: result.cleanupPurgedMissingFamilies,
     cleanupDeletedMissingFamilyArchiveRows: result.cleanupDeletedMissingFamilyArchiveRows,
     totalRows: result.totalRows,
@@ -83,6 +88,7 @@ function summarizeResult(result: TransactionImportResult): TransactionImportSumm
     balanceSetFamilies: result.balanceSetFamilies,
     skippedNotFound: result.skippedNotFound,
     cleanupDeletedImportTransactions: result.cleanupDeletedImportTransactions,
+    cleanupDeletedSettlementTransactions: result.cleanupDeletedSettlementTransactions,
     cleanupTouchedBeneficiaries: result.cleanupTouchedBeneficiaries,
     autoDebtAffectedDebtors: result.autoDebtAffectedDebtors,
     autoDebtSettledDebtors: result.autoDebtSettledDebtors,
@@ -117,6 +123,7 @@ function toSnapshot(job: {
           auditLogId: String(r.auditLogId),
           importMode: (r.importMode === "incremental_update" ? "incremental_update" : "replace_old_imports"),
           purgeMissingFamiliesEnabled: r.purgeMissingFamiliesEnabled === true,
+          cleanupOldSettlementsEnabled: r.cleanupOldSettlementsEnabled === true,
           cleanupPurgedMissingFamilies: Number(r.cleanupPurgedMissingFamilies) || 0,
           cleanupDeletedMissingFamilyArchiveRows: Number(r.cleanupDeletedMissingFamilyArchiveRows) || 0,
           totalRows: Number(r.totalRows) || 0,
@@ -129,6 +136,7 @@ function toSnapshot(job: {
           balanceSetFamilies: Number(r.balanceSetFamilies) || 0,
           skippedNotFound: Number(r.skippedNotFound) || 0,
           cleanupDeletedImportTransactions: Number(r.cleanupDeletedImportTransactions) || 0,
+          cleanupDeletedSettlementTransactions: Number(r.cleanupDeletedSettlementTransactions) || 0,
           cleanupTouchedBeneficiaries: Number(r.cleanupTouchedBeneficiaries) || 0,
           autoDebtAffectedDebtors: Number(r.autoDebtAffectedDebtors) || 0,
           autoDebtSettledDebtors: Number(r.autoDebtSettledDebtors) || 0,
@@ -180,6 +188,7 @@ export async function createTransactionImportJob(input: {
   username: string;
   replaceOldImports: boolean;
   purgeMissingFamilies: boolean;
+  cleanupOldSettlements: boolean;
 }) {
   const estimatedRows = await estimateRowsFromWorkbook(input.fileBuffer);
   const payload: TransactionImportPayload = {
@@ -187,6 +196,7 @@ export async function createTransactionImportJob(input: {
     fileBase64: input.fileBuffer.toString("base64"),
     replaceOldImports: input.replaceOldImports,
     purgeMissingFamilies: input.purgeMissingFamilies,
+    cleanupOldSettlements: input.cleanupOldSettlements,
   };
 
   const job = await prisma.importJob.create({
@@ -313,6 +323,7 @@ export async function processTransactionImportJob(jobId: string, username: strin
     const processed = await processTransactionImport(buffer, username, undefined, {
       replaceOldImports: parsedPayload.replaceOldImports,
       purgeMissingFamilies: parsedPayload.purgeMissingFamilies,
+      cleanupOldSettlements: parsedPayload.cleanupOldSettlements,
       onProgress,
     });
 

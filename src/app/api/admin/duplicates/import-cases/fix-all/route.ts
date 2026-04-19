@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireActiveFacilitySession } from "@/lib/session-guard";
-import { applyActiveImportDuplicateFix } from "@/lib/import-duplicate-cases";
+import { startMaintenanceJobForActor } from "@/app/actions/maintenance-jobs";
 
 export async function POST(request: Request) {
   const session = await requireActiveFacilitySession();
@@ -13,17 +13,29 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await applyActiveImportDuplicateFix({
-      user: session.username,
-      facilityId: session.id,
-    });
+    const queued = await startMaintenanceJobForActor(
+      {
+        kind: "fix_duplicate_import_cases",
+        facilityId: session.id,
+      },
+      {
+        id: session.id,
+        username: session.username,
+        isAdmin: session.is_admin || session.is_manager,
+      },
+    );
+
+    if (!queued.success || !queued.job) {
+      return NextResponse.json(
+        { success: false, error: queued.error ?? "تعذر إنشاء مهمة الخلفية" },
+        { status: 403 },
+      );
+    }
 
     const redirectUrl = new URL("/admin/duplicates", request.url);
     redirectUrl.searchParams.set("tab", "import");
-    redirectUrl.searchParams.set(
-      "ok",
-      `تمت المعالجة بنجاح: ${result.affectedBeneficiaries} مستفيد، ${result.removedTransactions} حركة محذوفة، ${result.totalExtraAmount.toLocaleString("en-US")} د.ل`
-    );
+    redirectUrl.searchParams.set("ok", "تمت جدولة معالجة حالات تكرار IMPORT في الخلفية");
+    redirectUrl.searchParams.set("job", queued.job.id);
 
     return NextResponse.redirect(redirectUrl, { status: 303 });
   } catch {

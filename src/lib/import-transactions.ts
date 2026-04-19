@@ -44,9 +44,11 @@ export type TransactionImportResult = {
   auditLogId: string;
   importMode: "replace_old_imports" | "incremental_update";
   purgeMissingFamiliesEnabled: boolean;
+  cleanupOldSettlementsEnabled: boolean;
   cleanupPurgedMissingFamilies: number;
   cleanupDeletedMissingFamilyArchiveRows: number;
   cleanupDeletedImportTransactions: number;
+  cleanupDeletedSettlementTransactions: number;
   cleanupCancelledImportTransactions: number;
   cleanupTouchedBeneficiaries: number;
   totalRows: number;
@@ -348,8 +350,10 @@ export async function processTransactionImport(
   username: string,
   selectedFacilityId?: string,
   options?: {
+    // سيتم تجاهل هذا الخيار ويكون دائمًا true
     replaceOldImports?: boolean;
     purgeMissingFamilies?: boolean;
+    cleanupOldSettlements?: boolean;
     onProgress?: (progress: TransactionImportProgress) => void | Promise<void>;
   },
 ): Promise<{ result?: TransactionImportResult; error?: string }> {
@@ -399,8 +403,10 @@ export async function processTransactionImport(
     await reportProgress("categorizing", Math.max(1, rows.length), Math.max(1, Math.round(rows.length * 0.15)), "جارٍ تصنيف الصفوف");
 
     const importFacilityId = await resolveImportFacilityId(username, selectedFacilityId);
+    // يرجع التحكم للمستخدم في خيار حذف الاستيرادات القديمة
     const replaceOldImports = options?.replaceOldImports !== false;
     const purgeMissingFamiliesEnabled = replaceOldImports && options?.purgeMissingFamilies === true;
+    const cleanupOldSettlementsEnabled = replaceOldImports && options?.cleanupOldSettlements === true;
 
     // 2. Build lookup
     const lookup = await buildCardLookup();
@@ -499,6 +505,7 @@ export async function processTransactionImport(
       : [];
 
     let cleanupDeletedImportTransactions = 0;
+    let cleanupDeletedSettlementTransactions = 0;
     let cleanupCancelledImportTransactions = 0;
     let cleanupTouchedBeneficiaries = 0;
     let deletedImportTransactions: DeletedImportTransactionSnapshot[] = [];
@@ -509,6 +516,13 @@ export async function processTransactionImport(
       cleanupCancelledImportTransactions = cleanup.cancelledImportTransactions;
       cleanupTouchedBeneficiaries = cleanup.touchedBeneficiaries;
       deletedImportTransactions = cleanup.deletedImportTransactionRows;
+
+      if (cleanupOldSettlementsEnabled) {
+        await reportProgress("cleanup", Math.max(1, rows.length), Math.max(1, Math.round(rows.length * 0.45)), "جارٍ حذف تسويات SETTLEMENT القديمة");
+        const settlementCleanup = await cleanupAutoSettlementsAndRestoreLedgerState(affectedBaseCards);
+        cleanupDeletedSettlementTransactions = settlementCleanup.deletedSettlementTransactions;
+        cleanupTouchedBeneficiaries = Math.max(cleanupTouchedBeneficiaries, settlementCleanup.touchedBeneficiaries);
+      }
 
       if (missingBaseCards.length > 0) {
         cleanupDeletedMissingFamilyArchiveRows = await deleteFamilyImportArchiveRows(missingBaseCards);
@@ -610,7 +624,13 @@ export async function processTransactionImport(
         }
       }
 
-      const familyResult = await importFamilyTransactions(baseCard, row.usedBalance, importFacilityId, row.familyCount);
+      const familyResult = await importFamilyTransactions(
+        baseCard,
+        row.usedBalance,
+        importFacilityId,
+        row.familyCount,
+        replaceOldImports,
+      );
       appliedRows.push(...familyResult.appliedRows);
 
       if (hadExistingImportBefore) {
@@ -678,10 +698,12 @@ export async function processTransactionImport(
         metadata: {
           importMode: replaceOldImports ? "replace_old_imports" : "incremental_update",
           purgeMissingFamiliesEnabled,
+          cleanupOldSettlementsEnabled,
           cleanupPurgedMissingFamilies,
           cleanupDeletedMissingFamilyArchiveRows,
           cleanupMode: "hard_delete",
           cleanupDeletedImportTransactions,
+          cleanupDeletedSettlementTransactions,
           cleanupCancelledImportTransactions,
           cleanupTouchedBeneficiaries,
           totalRows: rows.length,
@@ -719,10 +741,12 @@ export async function processTransactionImport(
         metadata: {
           importMode: replaceOldImports ? "replace_old_imports" : "incremental_update",
           purgeMissingFamiliesEnabled,
+          cleanupOldSettlementsEnabled,
           cleanupPurgedMissingFamilies,
           cleanupDeletedMissingFamilyArchiveRows,
           cleanupMode: "hard_delete",
           cleanupDeletedImportTransactions,
+          cleanupDeletedSettlementTransactions,
           cleanupCancelledImportTransactions,
           cleanupTouchedBeneficiaries,
           totalRows: rows.length,
@@ -757,9 +781,11 @@ export async function processTransactionImport(
         auditLogId: auditLog.id,
         importMode: replaceOldImports ? "replace_old_imports" : "incremental_update",
         purgeMissingFamiliesEnabled,
+        cleanupOldSettlementsEnabled,
         cleanupPurgedMissingFamilies,
         cleanupDeletedMissingFamilyArchiveRows,
         cleanupDeletedImportTransactions,
+        cleanupDeletedSettlementTransactions,
         cleanupCancelledImportTransactions,
         cleanupTouchedBeneficiaries,
         totalRows: rows.length,
@@ -865,14 +891,14 @@ async function cleanupActiveImportsAndRestoreLedgerState(baseCards: string[]): P
     )
     UPDATE "Beneficiary" b
     SET
-      remaining_balance = ROUND(GREATEST(0::numeric, b.total_balance - COALESCE(d.deducted, 0::numeric)), 2),
+      remaining_balance = ROUND(LEAST(b.total_balance, GREATEST(0::numeric, b.total_balance - COALESCE(d.deducted, 0::numeric))), 2),
       status = CASE
-        WHEN ROUND(GREATEST(0::numeric, b.total_balance - COALESCE(d.deducted, 0::numeric)), 2) <= 0
+        WHEN ROUND(LEAST(b.total_balance, GREATEST(0::numeric, b.total_balance - COALESCE(d.deducted, 0::numeric))), 2) <= 0
           THEN 'FINISHED'::"BeneficiaryStatus"
         ELSE 'ACTIVE'::"BeneficiaryStatus"
       END,
       completed_via = CASE
-        WHEN ROUND(GREATEST(0::numeric, b.total_balance - COALESCE(d.deducted, 0::numeric)), 2) <= 0
+        WHEN ROUND(LEAST(b.total_balance, GREATEST(0::numeric, b.total_balance - COALESCE(d.deducted, 0::numeric))), 2) <= 0
           THEN 'DEDUCTION'
         ELSE NULL
       END
@@ -910,6 +936,114 @@ async function cleanupActiveImportsAndRestoreLedgerState(baseCards: string[]): P
     cancelledImportTransactions: 0,
     touchedBeneficiaries: memberIds.length,
     deletedImportTransactionRows,
+  };
+}
+
+async function cleanupAutoSettlementsAndRestoreLedgerState(baseCards: string[]): Promise<{
+  deletedSettlementTransactions: number;
+  touchedBeneficiaries: number;
+}> {
+  const familyRegex = buildFamilyBaseRegex(baseCards);
+  const members = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT id
+    FROM "Beneficiary"
+    WHERE deleted_at IS NULL
+      AND card_number ~ ${familyRegex}
+  `;
+
+  const memberIds = Array.from(new Set(members.map((m) => m.id)));
+  if (memberIds.length === 0) {
+    return {
+      deletedSettlementTransactions: 0,
+      touchedBeneficiaries: 0,
+    };
+  }
+
+  const settlementRows = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT t.id
+    FROM "Transaction" t
+    WHERE t.beneficiary_id = ANY(${memberIds}::text[])
+      AND t.type::text = 'SETTLEMENT'
+      AND t.is_cancelled = false
+      AND t.idempotency_key IS NOT NULL
+      AND (
+        t.idempotency_key LIKE 'DEBT_SETTLE:%'
+        OR t.idempotency_key LIKE 'IMPORT_GAP_SETTLE:%'
+        OR t.idempotency_key LIKE 'DEBT_SETTLE_DEBTOR_CREDIT:%'
+        OR t.idempotency_key LIKE 'IMPORT_GAP_SETTLE_DEBTOR_CREDIT:%'
+      )
+  `;
+
+  if (settlementRows.length === 0) {
+    return {
+      deletedSettlementTransactions: 0,
+      touchedBeneficiaries: memberIds.length,
+    };
+  }
+
+  const deleted = await prisma.transaction.deleteMany({
+    where: {
+      id: { in: settlementRows.map((row) => row.id) },
+    },
+  });
+
+  // Recalculate after settlement cleanup to keep balances/statuses consistent.
+  await prisma.$executeRaw`
+    WITH deduction AS (
+      SELECT
+        t.beneficiary_id,
+        COALESCE(SUM(t.amount), 0)::numeric AS deducted
+      FROM "Transaction" t
+      WHERE t.beneficiary_id = ANY(${memberIds}::text[])
+        AND t.is_cancelled = false
+        AND t.type <> 'CANCELLATION'
+      GROUP BY t.beneficiary_id
+    )
+    UPDATE "Beneficiary" b
+    SET
+      remaining_balance = ROUND(LEAST(b.total_balance, GREATEST(0::numeric, b.total_balance - COALESCE(d.deducted, 0::numeric))), 2),
+      status = CASE
+        WHEN ROUND(LEAST(b.total_balance, GREATEST(0::numeric, b.total_balance - COALESCE(d.deducted, 0::numeric))), 2) <= 0
+          THEN 'FINISHED'::"BeneficiaryStatus"
+        ELSE 'ACTIVE'::"BeneficiaryStatus"
+      END,
+      completed_via = CASE
+        WHEN ROUND(LEAST(b.total_balance, GREATEST(0::numeric, b.total_balance - COALESCE(d.deducted, 0::numeric))), 2) <= 0
+          THEN 'DEDUCTION'
+        ELSE NULL
+      END
+    FROM deduction d
+    WHERE b.id = ANY(${memberIds}::text[])
+      AND b.id = d.beneficiary_id
+  `;
+
+  await prisma.$executeRaw`
+    UPDATE "Beneficiary" b
+    SET
+      remaining_balance = ROUND(GREATEST(0::numeric, b.total_balance), 2),
+      status = CASE
+        WHEN ROUND(GREATEST(0::numeric, b.total_balance), 2) <= 0
+          THEN 'FINISHED'::"BeneficiaryStatus"
+        ELSE 'ACTIVE'::"BeneficiaryStatus"
+      END,
+      completed_via = CASE
+        WHEN ROUND(GREATEST(0::numeric, b.total_balance), 2) <= 0
+          THEN 'DEDUCTION'
+        ELSE NULL
+      END
+    WHERE b.id = ANY(${memberIds}::text[])
+      AND NOT EXISTS (
+        SELECT 1
+        FROM "Transaction" t
+        WHERE t.beneficiary_id = b.id
+          AND t.is_cancelled = false
+          AND t.type <> 'CANCELLATION'
+      )
+  `;
+
+  return {
+    deletedSettlementTransactions: deleted.count,
+    touchedBeneficiaries: memberIds.length,
   };
 }
 
@@ -1096,6 +1230,7 @@ async function importFamilyTransactions(
   totalUsedAmount: number,
   facilityId: string,
   expectedFamilyCount?: number,
+  replaceOldImports = true,
 ): Promise<{ count: number; mode: "created" | "updated"; appliedRows: ImportAppliedRow[] }> {
   let transactionCount = 0;
   const appliedRows: ImportAppliedRow[] = [];
@@ -1160,7 +1295,11 @@ async function importFamilyTransactions(
       const currentBalance = Number(member.remaining_balance);
       const existingForMember = importsByMember.get(member.id) ?? [];
       const previousImported = existingForMember.reduce((sum, item) => sum + Number(item.amount), 0);
-      const balanceBeforeImport = roundCurrency(currentBalance + previousImported);
+      // في وضع الاستبدال: نرجع إلى الرصيد قبل IMPORT ثم نعيد حسابه.
+      // في الوضع التراكمي: نكمل خصمًا من الرصيد الحالي فقط.
+      const balanceBeforeImport = replaceOldImports
+        ? roundCurrency(currentBalance + previousImported)
+        : roundCurrency(currentBalance);
       return { member, existingForMember, balanceBeforeImport };
     });
 
@@ -1228,9 +1367,13 @@ async function importFamilyTransactions(
           },
         });
       } else {
+        const newAmount = replaceOldImports
+          ? deductAmount
+          : roundCurrency(Number(existingForMember[0].amount || 0) + deductAmount);
+
         await tx.transaction.update({
           where: { id: existingForMember[0].id },
-          data: { amount: deductAmount },
+          data: { amount: newAmount },
         });
 
         if (existingForMember.length > 1) {

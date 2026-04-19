@@ -20,6 +20,8 @@ type FamilyMemberShare = {
 
 const DEBT_SETTLE_IDEMPOTENCY_PREFIX = "DEBT_SETTLE";
 const IMPORT_GAP_SETTLE_IDEMPOTENCY_PREFIX = "IMPORT_GAP_SETTLE";
+const DEBT_SETTLE_DEBTOR_CREDIT_PREFIX = "DEBT_SETTLE_DEBTOR_CREDIT";
+const IMPORT_GAP_SETTLE_DEBTOR_CREDIT_PREFIX = "IMPORT_GAP_SETTLE_DEBTOR_CREDIT";
 
 type DebtCaseSource = "OVERDRAWN" | "IMPORT_GAP";
 
@@ -57,12 +59,16 @@ function extractFamilyBaseCard(cardNumber: string): string {
   return extractBaseCard(cardNumber);
 }
 
-function debtCaseKey(sourceType: DebtCaseSource, debtorId: string): string {
-  return `${sourceType}:${debtorId}`;
-}
-
 function idempotencyPrefixBySource(sourceType: DebtCaseSource): string {
   return sourceType === "IMPORT_GAP" ? IMPORT_GAP_SETTLE_IDEMPOTENCY_PREFIX : DEBT_SETTLE_IDEMPOTENCY_PREFIX;
+}
+
+function debtorCreditPrefixBySource(sourceType: DebtCaseSource): string {
+  return sourceType === "IMPORT_GAP" ? IMPORT_GAP_SETTLE_DEBTOR_CREDIT_PREFIX : DEBT_SETTLE_DEBTOR_CREDIT_PREFIX;
+}
+
+function createSettlementRunId(): string {
+  return `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
 }
 
 function planSharesByAvailability(
@@ -141,6 +147,15 @@ export async function getOverdrawnDebtCases(): Promise<OverdrawnDebtCase[]> {
     completed_via: string | null;
     spent: number;
   }>>`
+    WITH spent_by_beneficiary AS (
+      SELECT
+        t.beneficiary_id,
+        COALESCE(SUM(t.amount), 0)::float8 AS spent
+      FROM "Transaction" t
+      WHERE t.is_cancelled = false
+        AND t.type <> 'CANCELLATION'
+      GROUP BY t.beneficiary_id
+    )
     SELECT
       b.id,
       b.name,
@@ -148,16 +163,11 @@ export async function getOverdrawnDebtCases(): Promise<OverdrawnDebtCase[]> {
       b.total_balance::float8,
       b.status::text,
       b.completed_via,
-      COALESCE(SUM(t.amount), 0)::float8 AS spent
+      s.spent::float8 AS spent
     FROM "Beneficiary" b
-    LEFT JOIN "Transaction" t
-      ON t.beneficiary_id = b.id
-      AND t.is_cancelled = false
-      AND t.type <> 'CANCELLATION'
+    JOIN spent_by_beneficiary s ON s.beneficiary_id = b.id
     WHERE b.deleted_at IS NULL
-      AND NOT (b.status = 'FINISHED' AND b.completed_via = 'EXCEEDED_BALANCE')
-    GROUP BY b.id, b.name, b.card_number, b.total_balance, b.status, b.completed_via
-    HAVING COALESCE(SUM(t.amount), 0) > b.total_balance
+      AND s.spent > b.total_balance
     ORDER BY b.card_number
   `;
 
@@ -176,53 +186,6 @@ export async function getOverdrawnDebtCases(): Promise<OverdrawnDebtCase[]> {
   `;
 
   if (debtorRows.length === 0 && archiveRows.length === 0) return [];
-
-  const debtorIds = debtorRows.map((row) => row.id);
-
-  // تتبع ما تم توزيعه سابقًا لكل مدين/فرد عبر idempotency_key
-  const priorSettlementRows = debtorIds.length > 0
-    ? await prisma.$queryRaw<Array<{
-        settle_prefix: string;
-        debtor_id: string;
-        member_id: string;
-        distributed_amount: number;
-      }>>`
-        SELECT
-          split_part(t.idempotency_key, ':', 1) AS settle_prefix,
-          split_part(t.idempotency_key, ':', 2) AS debtor_id,
-          split_part(t.idempotency_key, ':', 3) AS member_id,
-          COALESCE(SUM(t.amount), 0)::float8 AS distributed_amount
-        FROM "Transaction" t
-        WHERE t.is_cancelled = false
-          AND t.type = 'IMPORT'
-          AND t.idempotency_key IS NOT NULL
-          AND (
-            t.idempotency_key LIKE ${`${DEBT_SETTLE_IDEMPOTENCY_PREFIX}:%`}
-            OR t.idempotency_key LIKE ${`${IMPORT_GAP_SETTLE_IDEMPOTENCY_PREFIX}:%`}
-          )
-          AND (
-            split_part(t.idempotency_key, ':', 2) = ANY(${debtorIds}::text[])
-            OR split_part(t.idempotency_key, ':', 1) = ${IMPORT_GAP_SETTLE_IDEMPOTENCY_PREFIX}
-          )
-        GROUP BY split_part(t.idempotency_key, ':', 1), split_part(t.idempotency_key, ':', 2), split_part(t.idempotency_key, ':', 3)
-      `
-    : [];
-
-  const priorDistributedByCase = new Map<string, number>();
-  const priorDistributedMemberByCase = new Map<string, Set<string>>();
-  for (const row of priorSettlementRows) {
-    const sourceType: DebtCaseSource = row.settle_prefix === IMPORT_GAP_SETTLE_IDEMPOTENCY_PREFIX ? "IMPORT_GAP" : "OVERDRAWN";
-    const caseKey = debtCaseKey(sourceType, row.debtor_id);
-    const amount = roundCurrency(Number(row.distributed_amount) || 0);
-    priorDistributedByCase.set(
-      caseKey,
-      roundCurrency((priorDistributedByCase.get(caseKey) ?? 0) + amount),
-    );
-    if (!priorDistributedMemberByCase.has(caseKey)) {
-      priorDistributedMemberByCase.set(caseKey, new Set());
-    }
-    priorDistributedMemberByCase.get(caseKey)!.add(row.member_id);
-  }
 
   // استخرج بادئات البطاقات العائلية لجلب الأفراد المرتبطين
   const familyBasePrefixes = [...new Set([
@@ -257,7 +220,7 @@ export async function getOverdrawnDebtCases(): Promise<OverdrawnDebtCase[]> {
       ON t.beneficiary_id = b.id
       AND t.is_cancelled = false
     WHERE b.deleted_at IS NULL
-      AND b.card_number ~ ${`^(${familyBasePrefixes.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})([WSDMFHV]\\d*)?$`}
+      AND regexp_replace(b.card_number, '([WSDMFHV][0-9]*)$', '') = ANY(${familyBasePrefixes}::text[])
     GROUP BY b.id, b.name, b.card_number, b.total_balance, b.status, b.completed_via
     ORDER BY b.card_number
   `;
@@ -287,17 +250,15 @@ export async function getOverdrawnDebtCases(): Promise<OverdrawnDebtCase[]> {
     const debtAmountRaw = roundCurrency(spent - totalBalance);
     if (debtAmountRaw <= 0) continue;
 
-    const caseKey = debtCaseKey("OVERDRAWN", b.id);
-    const alreadyDistributed = roundCurrency(priorDistributedByCase.get(caseKey) ?? 0);
-    const debtAmount = roundCurrency(Math.max(0, debtAmountRaw - alreadyDistributed));
+    // في حالات OVERDRAWN: debtAmountRaw يشمل أثر القيود العكسية على المدين،
+    // لذلك لا نطرح تسويات سابقة مرة ثانية حتى لا يختفي دين متبقٍ بالخطأ.
+    const debtAmount = debtAmountRaw;
 
     const baseCard = extractFamilyBaseCard(b.card_number);
     const allFamilyMembers = membersByBaseCard.get(baseCard) ?? [];
-    const alreadyUsedMembers = priorDistributedMemberByCase.get(caseKey) ?? new Set<string>();
 
     const familyMembers = allFamilyMembers
       .filter((m) => m.id !== b.id)
-      .filter((m) => !alreadyUsedMembers.has(m.id))
       .map((m) => ({
         id: m.id,
         name: m.name,
@@ -350,12 +311,8 @@ export async function getOverdrawnDebtCases(): Promise<OverdrawnDebtCase[]> {
     if (gapDebtAmount <= 0) continue;
 
     const debtor = allFamilyMembers[0];
-    const caseKey = debtCaseKey("IMPORT_GAP", debtor.id);
-    const alreadyUsedMembers = priorDistributedMemberByCase.get(caseKey) ?? new Set<string>();
-
     const familyMembers = allFamilyMembers
       .filter((m) => m.id !== debtor.id)
-      .filter((m) => !alreadyUsedMembers.has(m.id))
       .map((m) => ({
         id: m.id,
         name: m.name,
@@ -399,6 +356,21 @@ export async function applyOverdrawnDebtSettlement(params: {
   user: string;
   facilityId?: string | null;
 }): Promise<DebtSettlementRun> {
+  const settlementEnumExistsRows = await prisma.$queryRaw<Array<{ exists: boolean }>>`
+    SELECT EXISTS (
+      SELECT 1
+      FROM pg_enum e
+      JOIN pg_type t ON t.oid = e.enumtypid
+      WHERE t.typname = 'TransactionType'
+        AND e.enumlabel = 'SETTLEMENT'
+    ) AS "exists"
+  `;
+
+  const settlementEnumExists = Boolean(settlementEnumExistsRows[0]?.exists);
+  if (!settlementEnumExists) {
+    throw new Error("نوع الحركة تسوية غير متاح بعد. طبّق ترحيل قاعدة البيانات أولاً.");
+  }
+
   const beforeCases = await getOverdrawnDebtCases();
 
   const requestedFacilityId = typeof params.facilityId === "string" ? params.facilityId.trim() : "";
@@ -429,25 +401,16 @@ export async function applyOverdrawnDebtSettlement(params: {
   }
 
   let affectedFamilyMembers = 0;
+  const runId = createSettlementRunId();
 
   await prisma.$transaction(async (tx) => {
     for (const c of beforeCases) {
-      // لا نعلّم المدين "مكتمل" إلا إذا تمت تغطية الدين بالكامل.
-      if (c.sourceType === "OVERDRAWN" && c.isSettled) {
-        await tx.beneficiary.update({
-          where: { id: c.debtorId },
-          data: {
-            status: "FINISHED",
-            completed_via: "EXCEEDED_BALANCE",
-            remaining_balance: 0,
-          },
-        });
-      }
-
       if (c.shares.length === 0) continue;
 
+      let debtorCreditTotal = 0;
+
       for (const share of c.shares) {
-        const idempotencyKey = `${idempotencyPrefixBySource(c.sourceType)}:${c.debtorId}:${share.memberId}`;
+        const idempotencyKey = `${idempotencyPrefixBySource(c.sourceType)}:${c.debtorId}:${share.memberId}:${runId}`;
 
         await tx.transaction.upsert({
           where: { idempotency_key: idempotencyKey },
@@ -462,9 +425,11 @@ export async function applyOverdrawnDebtSettlement(params: {
             facility_id: effectiveFacilityId,
             amount: share.deductedAmount,
             idempotency_key: idempotencyKey,
-            type: TransactionType.IMPORT,
+            type: TransactionType.SETTLEMENT,
           },
         });
+
+        debtorCreditTotal = roundCurrency(debtorCreditTotal + share.deductedAmount);
 
         await tx.beneficiary.update({
           where: { id: share.memberId },
@@ -478,6 +443,78 @@ export async function applyOverdrawnDebtSettlement(params: {
         });
 
         affectedFamilyMembers += 1;
+      }
+
+      // نسجّل قيدًا عكسيًا واحدًا مجمّعًا على المدين لكل دفعة/حالة
+      // بدل قيد لكل فرد، حتى تظهر الحركة بشكل أوضح في كشف المدين.
+      if (debtorCreditTotal > 0) {
+        const debtorCreditIdempotencyKey = `${debtorCreditPrefixBySource(c.sourceType)}:${c.debtorId}:BATCH:${runId}`;
+        await tx.transaction.upsert({
+          where: { idempotency_key: debtorCreditIdempotencyKey },
+          update: {
+            amount: -debtorCreditTotal,
+            facility_id: effectiveFacilityId,
+            is_cancelled: false,
+          },
+          create: {
+            beneficiary_id: c.debtorId,
+            facility_id: effectiveFacilityId,
+            amount: -debtorCreditTotal,
+            idempotency_key: debtorCreditIdempotencyKey,
+            type: TransactionType.SETTLEMENT,
+          },
+        });
+      }
+
+      // اضبط حالة المدين بعد تطبيق قيود التسوية/القيد العكسي فعليًا.
+      if (c.sourceType === "OVERDRAWN") {
+        const debtorNow = await tx.$queryRaw<Array<{
+          id: string;
+          status: string;
+          completed_via: string | null;
+          total_balance: number;
+          spent: number;
+        }>>`
+          SELECT
+            b.id,
+            b.status::text,
+            b.completed_via,
+            b.total_balance::float8,
+            COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END), 0)::float8 AS spent
+          FROM "Beneficiary" b
+          LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id
+          WHERE b.id = ${c.debtorId}
+          GROUP BY b.id, b.status, b.completed_via, b.total_balance
+        `;
+
+        const debtor = debtorNow[0];
+        if (debtor) {
+          const total = roundCurrency(Number(debtor.total_balance) || 0);
+          const spent = roundCurrency(Number(debtor.spent) || 0);
+          const isExceeded = spent > total;
+          const remaining = roundCurrency(Math.max(0, total - spent));
+
+          if (isExceeded) {
+            await tx.beneficiary.update({
+              where: { id: c.debtorId },
+              data: {
+                status: "FINISHED",
+                completed_via: "EXCEEDED_BALANCE",
+                remaining_balance: 0,
+              },
+            });
+          } else {
+            await tx.beneficiary.update({
+              where: { id: c.debtorId },
+              data: {
+                remaining_balance: remaining,
+                ...(debtor.status === "FINISHED" && debtor.completed_via === "EXCEEDED_BALANCE"
+                  ? { status: "ACTIVE", completed_via: null }
+                  : {}),
+              },
+            });
+          }
+        }
       }
     }
   });

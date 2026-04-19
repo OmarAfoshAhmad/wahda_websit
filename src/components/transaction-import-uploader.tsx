@@ -10,6 +10,7 @@ type TransactionImportSummary = {
   auditLogId: string;
   importMode: "replace_old_imports" | "incremental_update";
   purgeMissingFamiliesEnabled: boolean;
+  cleanupOldSettlementsEnabled: boolean;
   cleanupPurgedMissingFamilies: number;
   cleanupDeletedMissingFamilyArchiveRows: number;
   totalRows: number;
@@ -22,6 +23,7 @@ type TransactionImportSummary = {
   balanceSetFamilies: number;
   skippedNotFound: number;
   cleanupDeletedImportTransactions: number;
+  cleanupDeletedSettlementTransactions: number;
   cleanupTouchedBeneficiaries: number;
   autoDebtAffectedDebtors: number;
   autoDebtSettledDebtors: number;
@@ -57,7 +59,8 @@ export function TransactionImportUploader({
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [replaceOldImports, setReplaceOldImports] = useState(true);
-  const [purgeMissingFamilies, setPurgeMissingFamilies] = useState(false);
+  const [purgeMissingFamilies, setPurgeMissingFamilies] = useState(true);
+  const [cleanupOldSettlements, setCleanupOldSettlements] = useState(false);
   const [job, setJob] = useState<TransactionImportJobSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [rollingBack, setRollingBack] = useState(false);
@@ -74,7 +77,8 @@ export function TransactionImportUploader({
           return;
         }
         const payload = await response.json() as { job?: TransactionImportJobSnapshot };
-        if (payload.job) setJob(payload.job);
+        const currentStored = window.localStorage.getItem(ACTIVE_TX_IMPORT_JOB_KEY);
+        if (payload.job && currentStored === storedJobId) setJob(payload.job);
       })
       .catch(() => {
         // تجاهل أخطاء الشبكة الأولية
@@ -88,10 +92,16 @@ export function TransactionImportUploader({
 
     const timer = window.setInterval(async () => {
       try {
+        const currentStored = window.localStorage.getItem(ACTIVE_TX_IMPORT_JOB_KEY);
+        if (currentStored !== job.id) return;
+
         const response = await fetch(`/api/import-transactions/jobs/${job.id}`, { method: "GET" });
         if (!response.ok) return;
         const payload = await response.json() as { job?: TransactionImportJobSnapshot };
         if (!payload.job) return;
+
+        const storedAfterFetch = window.localStorage.getItem(ACTIVE_TX_IMPORT_JOB_KEY);
+        if (storedAfterFetch !== job.id) return;
 
         setJob(payload.job);
 
@@ -114,7 +124,11 @@ export function TransactionImportUploader({
   };
 
   const handleUpload = async () => {
-    if (!file) return;
+    if (!file) {
+      setError("الرجاء اختيار ملف الاستيراد أولاً.");
+      document.getElementById("tx-file-upload")?.click();
+      return;
+    }
 
     if (replaceOldImports && purgeMissingFamilies) {
       try {
@@ -166,6 +180,7 @@ export function TransactionImportUploader({
       formData.append("file", file);
       formData.append("replace_old_imports", replaceOldImports ? "true" : "false");
       formData.append("purge_missing_families", purgeMissingFamilies ? "true" : "false");
+      formData.append("cleanup_old_settlements", cleanupOldSettlements ? "true" : "false");
 
       const response = await fetch("/api/import-transactions/jobs", {
         method: "POST",
@@ -192,6 +207,13 @@ export function TransactionImportUploader({
         .catch((err: unknown) => {
           const message = err instanceof Error ? err.message : "فشل بدء مهمة الاستيراد في الخلفية.";
           setError(message);
+          window.localStorage.removeItem(ACTIVE_TX_IMPORT_JOB_KEY);
+          setJob((prev) => prev ? {
+            ...prev,
+            status: "FAILED",
+            errorMessage: message,
+            message: "تعذر تشغيل المهمة بالخلفية. يمكنك إعادة المحاولة الآن.",
+          } : prev);
         });
     } catch {
       setError("تعذر رفع الملف. تحقق من الاتصال وأعد المحاولة.");
@@ -235,7 +257,14 @@ export function TransactionImportUploader({
     }
   };
 
-  const isBusy = uploading || job?.status === "PENDING" || job?.status === "PROCESSING";
+  const handleResetImportState = () => {
+    window.localStorage.removeItem(ACTIVE_TX_IMPORT_JOB_KEY);
+    setJob(null);
+    setError(null);
+    setRollbackMessage(null);
+  };
+
+  const isBusy = uploading || job?.status === "PROCESSING";
   const isCompleted = job?.status === "COMPLETED";
   const isFailed = job?.status === "FAILED";
 
@@ -310,9 +339,22 @@ export function TransactionImportUploader({
             </span>
           </label>
 
+          <label className="flex w-full items-start gap-2 rounded-md border border-fuchsia-200 dark:border-fuchsia-900/50 bg-fuchsia-50 dark:bg-fuchsia-900/20 p-3 text-right">
+            <input
+              type="checkbox"
+              checked={cleanupOldSettlements}
+              onChange={(e) => setCleanupOldSettlements(e.target.checked)}
+              disabled={!replaceOldImports || isBusy}
+              className="mt-1 h-4 w-4 shrink-0"
+            />
+            <span className="text-xs leading-6 text-fuchsia-800 dark:text-fuchsia-300">
+              إزالة التسويات القديمة الآلية (SETTLEMENT) قبل الاستيراد لتنظيف قاعدة البيانات لنفس العائلات المتأثرة. هذا الخيار يحذف التسويات السابقة التي بدأت بمفاتيح DEBT_SETTLE / IMPORT_GAP_SETTLE ثم يعيد احتساب الأرصدة.
+            </span>
+          </label>
+
           <Button
             className="w-full h-12"
-            disabled={!file || isBusy}
+            disabled={isBusy}
             onClick={handleUpload}
           >
             {isBusy ? (
@@ -320,6 +362,16 @@ export function TransactionImportUploader({
             ) : (
               <><Upload className="h-5 w-5" /><span className="mr-2">بدء الاستيراد بالخلفية</span></>
             )}
+          </Button>
+
+          <Button
+            variant="outline"
+            className="w-full h-10"
+            disabled={isBusy}
+            onClick={handleResetImportState}
+          >
+            <RefreshCw className="h-4 w-4" />
+            <span className="mr-2">إعادة تعيين حالة الاستيراد</span>
           </Button>
         </div>
       </Card>
@@ -369,7 +421,9 @@ export function TransactionImportUploader({
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                 <StatBox label="وضع الاستيراد" value={job.result.importMode === "replace_old_imports" ? "إحلال كامل" : "تحديث تراكمي"} color={job.result.importMode === "replace_old_imports" ? "emerald" : "amber"} />
                 <StatBox label="تنظيف غير الموجودين بالملف" value={job.result.purgeMissingFamiliesEnabled ? "مفعل" : "غير مفعل"} color={job.result.purgeMissingFamiliesEnabled ? "amber" : "slate"} />
+                <StatBox label="حذف التسويات القديمة" value={job.result.cleanupOldSettlementsEnabled ? "مفعل" : "غير مفعل"} color={job.result.cleanupOldSettlementsEnabled ? "amber" : "slate"} />
                 <StatBox label="حركات IMPORT حُذفت فعلياً" value={job.result.cleanupDeletedImportTransactions} color="emerald" />
+                <StatBox label="حركات SETTLEMENT محذوفة" value={job.result.cleanupDeletedSettlementTransactions} color="emerald" />
                 <StatBox label="مستفيدون أُعيد ضبطهم" value={job.result.cleanupTouchedBeneficiaries} color="emerald" />
                 <StatBox label="عائلات غير موجودة تم تنظيفها" value={job.result.cleanupPurgedMissingFamilies} color="red" />
                 <StatBox label="صفوف أرشيف مصدر محذوفة" value={job.result.cleanupDeletedMissingFamilyArchiveRows} color="red" />

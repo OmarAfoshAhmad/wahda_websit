@@ -19,22 +19,31 @@ export type ImportDuplicateCase = {
   deleteTransactionIds: string[];
 };
 
+type ImportDuplicateCasesOptions = {
+  // يتطلب هذا المسار قراءة AuditLog بشكل أعمق (أبطأ). فعّله فقط عند الحاجة.
+  includeMultiFileRepeat?: boolean;
+};
+
 function round2(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
-export async function getActiveImportDuplicateCases(): Promise<ImportDuplicateCase[]> {
-  const repeatedAcrossFilesRows = await prisma.$queryRaw<Array<{ beneficiary_id: string; file_count: number }>>`
-    SELECT
-      (elem->>'beneficiaryId') AS beneficiary_id,
-      COUNT(DISTINCT a.id)::int AS file_count
-    FROM "AuditLog" a
-    CROSS JOIN LATERAL jsonb_array_elements(COALESCE(a.metadata->'detailedReport'->'execution'->'appliedRows', '[]'::jsonb)) AS elem
-    WHERE a.action = 'IMPORT_TRANSACTIONS'
-      AND (elem->>'beneficiaryId') IS NOT NULL
-    GROUP BY (elem->>'beneficiaryId')
-    HAVING COUNT(DISTINCT a.id) > 1
-  `;
+export async function getActiveImportDuplicateCases(options?: ImportDuplicateCasesOptions): Promise<ImportDuplicateCase[]> {
+  const includeMultiFileRepeat = options?.includeMultiFileRepeat === true;
+
+  const repeatedAcrossFilesRows = includeMultiFileRepeat
+    ? await prisma.$queryRaw<Array<{ beneficiary_id: string; file_count: number }>>`
+        SELECT
+          (elem->>'beneficiaryId') AS beneficiary_id,
+          COUNT(DISTINCT a.id)::int AS file_count
+        FROM "AuditLog" a
+        CROSS JOIN LATERAL jsonb_array_elements(COALESCE(a.metadata->'detailedReport'->'execution'->'appliedRows', '[]'::jsonb)) AS elem
+        WHERE a.action = 'IMPORT_TRANSACTIONS'
+          AND (elem->>'beneficiaryId') IS NOT NULL
+        GROUP BY (elem->>'beneficiaryId')
+        HAVING COUNT(DISTINCT a.id) > 1
+      `
+    : [];
 
   const duplicateRows = await prisma.$queryRaw<Array<{ beneficiary_id: string; cnt: number }>>`
     SELECT beneficiary_id, COUNT(*)::int AS cnt

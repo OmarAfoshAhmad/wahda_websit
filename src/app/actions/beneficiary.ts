@@ -234,17 +234,31 @@ export async function getBeneficiaryByCard(card_number: string) {
 }
 
 export async function searchBeneficiaries(query: string) {
+  type SearchBeneficiaryItem = {
+    id: string;
+    name: string;
+    card_number: string;
+    remaining_balance: number;
+    status: string;
+    has_manual_deduction: boolean;
+    has_import_deduction: boolean;
+    in_import_file: boolean;
+    has_replacement_card: boolean;
+    replacement_card_number: string | null;
+    replacement_beneficiary_id: string | null;
+  };
+
   const session = await requireActiveFacilitySession();
   if (!session) {
-    return { error: "غير مصرح", items: [] as Array<{ id: string; name: string; card_number: string; remaining_balance: number; status: string; has_manual_deduction: boolean; has_import_deduction: boolean }> };
+    return { error: "غير مصرح", items: [] as SearchBeneficiaryItem[] };
   }
 
   const rateLimitError = await checkRateLimit(`search:${session.id}`, "search");
-  if (rateLimitError) return { error: rateLimitError, items: [] as Array<{ id: string; name: string; card_number: string; remaining_balance: number; status: string; has_manual_deduction: boolean; has_import_deduction: boolean }> };
+  if (rateLimitError) return { error: rateLimitError, items: [] as SearchBeneficiaryItem[] };
 
   const q = query.trim();
   if (q.length < 2 || q.length > 100) {
-    return { items: [] as Array<{ id: string; name: string; card_number: string; remaining_balance: number; status: string; has_manual_deduction: boolean; has_import_deduction: boolean }> };
+    return { items: [] as SearchBeneficiaryItem[] };
   }
 
   try {
@@ -254,6 +268,7 @@ export async function searchBeneficiaries(query: string) {
       id: string;
       name: string;
       card_number: string;
+      is_legacy_card: boolean;
       remaining_balance: number;
       status: string;
       has_manual_deduction: boolean;
@@ -263,6 +278,7 @@ export async function searchBeneficiaries(query: string) {
         id,
         name,
         card_number,
+        "is_legacy_card",
         remaining_balance::float8,
         status,
         EXISTS (
@@ -294,21 +310,60 @@ export async function searchBeneficiaries(query: string) {
     `;
 
     const ids = rows.map((r) => r.id);
-    if (ids.length === 0) return { items: [] as Array<{ id: string; name: string; card_number: string; remaining_balance: number; status: string; has_manual_deduction: boolean; has_import_deduction: boolean }> };
+    if (ids.length === 0) return { items: [] as SearchBeneficiaryItem[] };
 
     const remainingById = await getLedgerRemainingByBeneficiaryIds(ids);
 
-    const items = rows.map((row) => {
+    const canonicalCards = Array.from(new Set(
+      rows.map((row) => canonicalizeCardNumber(row.card_number)).filter(Boolean),
+    ));
+
+    const replacementCandidates = canonicalCards.length > 0
+      ? await prisma.$queryRaw<Array<{ id: string; card_number: string }>>`
+          SELECT id, card_number
+          FROM "Beneficiary"
+          WHERE deleted_at IS NULL
+            AND regexp_replace(UPPER(BTRIM(card_number)), '^WAB2025(0*)([0-9]+)([A-Z0-9]*)$', 'WAB2025\\2\\3') = ANY(${canonicalCards}::text[])
+        `
+      : [];
+
+    const bestCandidateByCanonical = new Map<string, { id: string; card_number: string; zeroScore: number }>();
+    for (const candidate of replacementCandidates) {
+      const canonical = canonicalizeCardNumber(candidate.card_number);
+      const zeroScore = leadingZeroScoreAfterPrefix(candidate.card_number);
+      const prev = bestCandidateByCanonical.get(canonical);
+      if (!prev) {
+        bestCandidateByCanonical.set(canonical, { id: candidate.id, card_number: candidate.card_number, zeroScore });
+        continue;
+      }
+
+      if (zeroScore > prev.zeroScore || (zeroScore === prev.zeroScore && candidate.card_number < prev.card_number)) {
+        bestCandidateByCanonical.set(canonical, { id: candidate.id, card_number: candidate.card_number, zeroScore });
+      }
+    }
+
+    const items: SearchBeneficiaryItem[] = rows.map((row) => {
+      const canonical = canonicalizeCardNumber(row.card_number);
+      const zeroScore = leadingZeroScoreAfterPrefix(row.card_number);
+      const bestCandidate = bestCandidateByCanonical.get(canonical);
+      const hasReplacement = Boolean(
+        bestCandidate && bestCandidate.id !== row.id && bestCandidate.zeroScore > zeroScore,
+      );
+
       return {
         ...row,
         remaining_balance: remainingById.get(row.id) ?? 0,
+        in_import_file: Boolean(row.is_legacy_card),
+        has_replacement_card: hasReplacement,
+        replacement_card_number: hasReplacement && bestCandidate ? bestCandidate.card_number : null,
+        replacement_beneficiary_id: hasReplacement && bestCandidate ? bestCandidate.id : null,
       };
     });
 
     return { items };
   } catch (error: unknown) {
     logger.error("Search beneficiaries error", { error: String(error) });
-    return { error: "تعذر تنفيذ البحث", items: [] as Array<{ id: string; name: string; card_number: string; remaining_balance: number; status: string; has_manual_deduction: boolean; has_import_deduction: boolean }> };
+    return { error: "تعذر تنفيذ البحث", items: [] as SearchBeneficiaryItem[] };
   }
 }
 

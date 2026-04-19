@@ -8,6 +8,7 @@ export const TX_TYPES = {
   MEDICINE: "MEDICINE",
   SUPPLIES: "SUPPLIES",
   IMPORT: "IMPORT",
+  SETTLEMENT: "SETTLEMENT",
   CANCELLATION: "CANCELLATION",
 } as const;
 
@@ -18,6 +19,7 @@ export const TX_TYPE_LABELS: Record<TxType, string> = {
   MEDICINE: "ادوية صرف عام",
   SUPPLIES: "كشف عام",
   IMPORT: "استيراد",
+  SETTLEMENT: "تسوية",
   CANCELLATION: "—",
 };
 

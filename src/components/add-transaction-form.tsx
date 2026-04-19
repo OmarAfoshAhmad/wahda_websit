@@ -28,6 +28,9 @@ type BeneficiarySuggestion = {
   status: string;
   has_manual_deduction: boolean;
   has_import_deduction: boolean;
+  has_replacement_card: boolean;
+  replacement_card_number: string | null;
+  replacement_beneficiary_id: string | null;
 };
 
 type FamilyInsights = {
@@ -259,6 +262,11 @@ function BeneficiarySearchInput({
                       خصم استيراد
                     </span>
                   )}
+                  {item.has_replacement_card && (
+                    <span className="inline-flex items-center rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-black text-amber-700 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+                      بطاقة قديمة
+                    </span>
+                  )}
                 </div>
               </div>
               <span className="shrink-0 text-xs font-bold text-slate-500 dark:text-slate-400">
@@ -396,9 +404,25 @@ export function AddTransactionForm({
             <div className="mt-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 p-3 text-sm">
               <p className="font-bold text-slate-900 dark:text-slate-100">{selectedBeneficiary.name}</p>
               <p className="text-xs text-slate-500 dark:text-slate-400" dir="ltr">{selectedBeneficiary.card_number}</p>
+              <div className="mt-1 flex flex-wrap items-center gap-1">
+                {selectedBeneficiary.has_replacement_card ? (
+                  <span className="inline-flex items-center rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-black text-amber-700 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+                    بطاقة قديمة
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-black text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300">
+                    بطاقة مستقرة
+                  </span>
+                )}
+              </div>
               <p className="mt-1 text-xs font-bold text-slate-700 dark:text-slate-300">
                 الرصيد الحالي: {formatCurrency(Number(selectedBeneficiary.remaining_balance))} د.ل
               </p>
+              {selectedBeneficiary.has_replacement_card && selectedBeneficiary.replacement_card_number && (
+                <div className="mt-2 rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-xs font-bold text-amber-800 dark:text-amber-300">
+                  تنبيه: هذا المستفيد يستخدم بطاقة قديمة، والبطاقة الأحدث المقابلة هي: {selectedBeneficiary.replacement_card_number}
+                </div>
+              )}
               <div className="mt-2 flex flex-wrap gap-2">
                 <button
                   type="button"

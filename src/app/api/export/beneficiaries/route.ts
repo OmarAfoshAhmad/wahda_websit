@@ -29,6 +29,7 @@ export async function GET(request: NextRequest) {
   const view = searchParams.get("view");
   const statusParam = searchParams.get("status");
   const completedViaParam = searchParams.get("completed_via");
+  const cardAgeParam = searchParams.get("card_age");
   const isDeletedView = view === "deleted";
 
   const ALLOWED_STATUS = ["ACTIVE", "SUSPENDED", "FINISHED"] as const;
@@ -41,10 +42,13 @@ export async function GET(request: NextRequest) {
     ? (completedViaParam as (typeof ALLOWED_COMPLETED_VIA)[number])
     : null;
 
+  const cardAgeFilter = cardAgeParam === "old" ? "old" : "all";
+
   const where = {
     ...(isDeletedView ? { deleted_at: { not: null } } : { deleted_at: null }),
     ...(!isDeletedView && statusFilter ? { status: statusFilter } : {}),
     ...(!isDeletedView && completedViaFilter ? { completed_via: completedViaFilter } : {}),
+    ...(!isDeletedView && cardAgeFilter === "old" ? { is_legacy_card: true } : {}),
     ...(q
       ? {
           OR: getArabicSearchTerms(q).flatMap(t => [
@@ -57,7 +61,8 @@ export async function GET(request: NextRequest) {
 
   try {
     const beneficiaries = await prisma.beneficiary.findMany({
-      where,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      where: where as any,
       orderBy: { created_at: "desc" },
       take: EXPORT_LIMIT,
       include: {

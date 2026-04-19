@@ -69,10 +69,22 @@ function normalizeTransactionType(value: unknown): unknown {
     "ملغاة",
   ]);
 
+  const settlementAliases = new Set([
+    "SETTLEMENT",
+    "SETTLE",
+    "DEBT_SETTLEMENT",
+    "DEBT_SETTLEMENT",
+    "تسوية",
+    "تسويه",
+    "تسوية_مديونية",
+    "تسوية مديونية",
+  ]);
+
   if (medicineAliases.has(v)) return "MEDICINE";
   if (suppliesAliases.has(v)) return "SUPPLIES";
   if (importAliases.has(v)) return "IMPORT";
   if (cancellationAliases.has(v)) return "CANCELLATION";
+  if (settlementAliases.has(v)) return "SETTLEMENT";
 
   return value;
 }
@@ -110,7 +122,7 @@ const transactionSchema = z.object({
   beneficiary_id: z.string(),
   facility_id: z.string(),
   amount: z.number(),
-  type: z.preprocess(normalizeTransactionType, z.enum(["MEDICINE", "SUPPLIES", "IMPORT", "CANCELLATION"])),
+  type: z.preprocess(normalizeTransactionType, z.enum(["MEDICINE", "SUPPLIES", "IMPORT", "CANCELLATION", "SETTLEMENT"])),
   is_cancelled: z.boolean().optional().default(false),
   original_transaction_id: z.string().nullable().optional(),
   created_at: z.string(),

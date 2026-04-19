@@ -42,13 +42,13 @@ const getCachedStatusCounts = unstable_cache(
 export default async function BeneficiariesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; page?: string; pageSize?: string; view?: string; sort?: string; order?: string; status?: string; completed_via?: string; balance_range?: string; focus_beneficiary?: string; bulk_msg?: string; bulk_type?: string }>;
+  searchParams: Promise<{ q?: string; page?: string; pageSize?: string; view?: string; sort?: string; order?: string; status?: string; completed_via?: string; balance_range?: string; card_age?: string; focus_beneficiary?: string; bulk_msg?: string; bulk_type?: string }>;
 }) {
   const session = await getSession();
   if (!session) redirect("/login");
   if (!canAccessAdmin(session)) redirect("/dashboard");
 
-  const { q, page: pageParam, pageSize: pageSizeParam, view, sort, order, status, completed_via: completedViaParam, balance_range: balanceRangeParam, focus_beneficiary, bulk_msg: bulkMsgParam, bulk_type: bulkTypeParam } = await searchParams;
+  const { q, page: pageParam, pageSize: pageSizeParam, view, sort, order, status, completed_via: completedViaParam, balance_range: balanceRangeParam, card_age: cardAgeParam, focus_beneficiary, bulk_msg: bulkMsgParam, bulk_type: bulkTypeParam } = await searchParams;
   const query = (q?.trim() ?? "").slice(0, 100);
   const isDeletedView = view === "deleted";
   const bulkMessage = (bulkMsgParam?.trim() ?? "").slice(0, 220);
@@ -65,6 +65,10 @@ export default async function BeneficiariesPage({
   const ALLOWED_BALANCE_RANGE = ["all", "0_10"] as const;
   type BalanceRangeFilter = typeof ALLOWED_BALANCE_RANGE[number];
   const balanceRangeFilter: BalanceRangeFilter = (ALLOWED_BALANCE_RANGE as ReadonlyArray<string>).includes(balanceRangeParam ?? "") ? balanceRangeParam as BalanceRangeFilter : "all";
+  const ALLOWED_CARD_AGE = ["all", "old"] as const;
+  type CardAgeFilter = typeof ALLOWED_CARD_AGE[number];
+  const cardAgeFilter: CardAgeFilter = (ALLOWED_CARD_AGE as ReadonlyArray<string>).includes(cardAgeParam ?? "") ? cardAgeParam as CardAgeFilter : "all";
+  const isStrictOldCardView = cardAgeFilter === "old";
   const allowedPageSizes = [10, 25, 50, 100, 200];
   const requestedPageSize = parseInt(pageSizeParam ?? "10", 10);
   const PAGE_SIZE = allowedPageSizes.includes(requestedPageSize) ? requestedPageSize : 10;
@@ -77,11 +81,12 @@ export default async function BeneficiariesPage({
 
   const buildBeneficiaryParams = (overrides: Record<string, string | undefined>) => {
     const p = new URLSearchParams();
-    if (query) p.set("q", query);
+    if (query && !isStrictOldCardView) p.set("q", query);
     if (isDeletedView) p.set("view", "deleted");
-    if (statusFilter !== "all") p.set("status", statusFilter);
-    if (completedViaFilter !== "all") p.set("completed_via", completedViaFilter);
-    if (balanceRangeFilter !== "all" && !isDeletedView) p.set("balance_range", balanceRangeFilter);
+    if (statusFilter !== "all" && !isStrictOldCardView) p.set("status", statusFilter);
+    if (completedViaFilter !== "all" && !isStrictOldCardView) p.set("completed_via", completedViaFilter);
+    if (balanceRangeFilter !== "all" && !isDeletedView && !isStrictOldCardView) p.set("balance_range", balanceRangeFilter);
+    if (cardAgeFilter !== "all" && !isDeletedView) p.set("card_age", cardAgeFilter);
     p.set("pageSize", String(PAGE_SIZE));
     p.set("sort", sortCol);
     p.set("order", sortDir);
@@ -99,23 +104,46 @@ export default async function BeneficiariesPage({
 
   const pageHref = (p: number) => buildBeneficiaryParams({ page: String(p) });
 
+  const cardAgeOnlyHref = (() => {
+    const p = new URLSearchParams();
+    p.set("card_age", "old");
+    p.set("page", "1");
+    p.set("pageSize", String(PAGE_SIZE));
+    p.set("sort", sortCol);
+    p.set("order", sortDir);
+    return `/beneficiaries?${p.toString()}`;
+  })();
+
+  const cardAgeAllHref = (() => {
+    const p = new URLSearchParams();
+    p.set("page", "1");
+    p.set("pageSize", String(PAGE_SIZE));
+    p.set("sort", sortCol);
+    p.set("order", sortDir);
+    return `/beneficiaries?${p.toString()}`;
+  })();
+
   const baseFilter: Record<string, unknown> = isDeletedView
     ? { deleted_at: { not: null } }
     : { deleted_at: null };
 
-  if (statusFilter !== "all" && !isDeletedView) {
+  if (statusFilter !== "all" && !isDeletedView && !isStrictOldCardView) {
     baseFilter.status = statusFilter;
   }
 
-  if (completedViaFilter !== "all" && !isDeletedView) {
+  if (completedViaFilter !== "all" && !isDeletedView && !isStrictOldCardView) {
     baseFilter.completed_via = completedViaFilter;
   }
 
-  if (balanceRangeFilter === "0_10" && !isDeletedView) {
+  if (balanceRangeFilter === "0_10" && !isDeletedView && !isStrictOldCardView) {
     baseFilter.remaining_balance = { gte: 0, lte: 10 };
   }
 
-  const where = query
+  if (cardAgeFilter === "old" && !isDeletedView) {
+    baseFilter.is_legacy_card = true;
+  }
+
+  const where = (query && !isStrictOldCardView)
     ? {
       ...baseFilter,
       OR: getArabicSearchTerms(query).flatMap(t => [
@@ -153,12 +181,12 @@ export default async function BeneficiariesPage({
   const beneficiaryIds = orderedRawBeneficiaries.map((b) => b.id);
   const remainingById = await getLedgerRemainingByBeneficiaryIds(beneficiaryIds);
 
-  // تحويل Decimal إلى Number لتجنب أخطاء التسلسل
   const beneficiaries = orderedRawBeneficiaries.map((b) => ({
     ...b,
     total_balance: Number(b.total_balance),
     remaining_balance: remainingById.get(b.id) ?? 0,
     completed_via: (b as unknown as Record<string, unknown>).completed_via as string | null,
+    in_import_file: Boolean((b as unknown as Record<string, unknown>).is_legacy_card),
   }));
 
   // حساب الأعداد من نتيجة groupBy
@@ -188,10 +216,11 @@ export default async function BeneficiariesPage({
     ? (hasActions ? 7 : 6)
     : (hasActions ? 8 : 6);
   const exportParams = new URLSearchParams();
-  if (query) exportParams.set("q", query);
+  if (query && !isStrictOldCardView) exportParams.set("q", query);
   if (isDeletedView) exportParams.set("view", "deleted");
-  if (statusFilter !== "all") exportParams.set("status", statusFilter);
-  if (!isDeletedView && balanceRangeFilter !== "all") exportParams.set("balance_range", balanceRangeFilter);
+  if (statusFilter !== "all" && !isStrictOldCardView) exportParams.set("status", statusFilter);
+  if (!isDeletedView && balanceRangeFilter !== "all" && !isStrictOldCardView) exportParams.set("balance_range", balanceRangeFilter);
+  if (!isDeletedView && cardAgeFilter !== "all") exportParams.set("card_age", cardAgeFilter);
 
   const exportHref = `/api/export/beneficiaries?${exportParams.toString()}`;
 
@@ -235,7 +264,7 @@ export default async function BeneficiariesPage({
             )}
             {canAdd && <BeneficiaryCreateModal />}
             <div className="w-full sm:w-80 lg:w-96">
-              <BeneficiariesSearch key={query} initialQuery={query} />
+              <BeneficiariesSearch key={isStrictOldCardView ? "" : query} initialQuery={isStrictOldCardView ? "" : query} />
             </div>
           </div>
         </div>
@@ -293,7 +322,7 @@ export default async function BeneficiariesPage({
         {/* تبويب عرض النشطين / المحذوفين */}
         <div className="flex flex-wrap gap-2">
           <Link
-            href={`/beneficiaries?${new URLSearchParams({ ...(query ? { q: query } : {}) }).toString()}`}
+            href={`/beneficiaries?${new URLSearchParams({ ...(!isStrictOldCardView && query ? { q: query } : {}) }).toString()}`}
             className={`inline-flex items-center gap-2 rounded-md border px-3.5 py-2 text-sm font-bold transition-colors ${!isDeletedView
               ? "border-primary/20 bg-primary-light dark:bg-primary-light/10 text-primary dark:text-blue-400 dark:border-primary/30"
               : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
@@ -369,6 +398,16 @@ export default async function BeneficiariesPage({
                   }`}
               >
                 رصيد 0-10 د.ل
+              </Link>
+
+              <Link
+                href={cardAgeFilter === "old" ? cardAgeAllHref : cardAgeOnlyHref}
+                className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-sm font-bold transition-colors ${cardAgeFilter === "old"
+                  ? "border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400"
+                  : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700"
+                  }`}
+              >
+                بطاقة قديمة فقط
               </Link>
             </>
           )}
@@ -463,6 +502,20 @@ export default async function BeneficiariesPage({
                         )}
                         <td className="px-6 py-4">
                           <p className="font-bold text-slate-900 dark:text-white">{beneficiary.name}</p>
+                          {!isDeletedView && (
+                            <div className="mt-1 flex flex-wrap items-center gap-1">
+
+                              {(beneficiary.in_import_file) ? (
+                                <span className="inline-flex items-center rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-black text-amber-700 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+                                  بطاقة قديمة
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-black text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300">
+                                  بطاقة مستقرة
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </td>
                         <td className="px-6 py-4 text-sm text-slate-700 dark:text-slate-300">{beneficiary.card_number}</td>
                         <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-400">
@@ -555,10 +608,11 @@ export default async function BeneficiariesPage({
                 صفحة <strong className="text-slate-900 dark:text-white">{page}</strong> من <strong className="text-slate-900 dark:text-white">{totalPages}</strong>
               </p>
               <form className="flex items-center gap-2">
-                <input type="hidden" name="q" value={query} />
+                {!isStrictOldCardView && <input type="hidden" name="q" value={query} />}
                 <input type="hidden" name="page" value="1" />
                 {isDeletedView && <input type="hidden" name="view" value="deleted" />}
-                {statusFilter !== "all" && <input type="hidden" name="status" value={statusFilter} />}
+                {statusFilter !== "all" && !isStrictOldCardView && <input type="hidden" name="status" value={statusFilter} />}
+                {cardAgeFilter !== "all" && !isDeletedView && <input type="hidden" name="card_age" value={cardAgeFilter} />}
 
                 <label className="text-xs font-bold text-slate-500 dark:text-slate-400">عدد السجلات</label>
                 <select

@@ -21,6 +21,10 @@ export interface Beneficiary {
   total_balance: number;
   remaining_balance: number;
   status: string;
+  in_import_file: boolean;
+  has_replacement_card: boolean;
+  replacement_card_number: string | null;
+  replacement_beneficiary_id: string | null;
 }
 
 export interface BeneficiarySuggestion {
@@ -29,6 +33,10 @@ export interface BeneficiarySuggestion {
   name: string;
   remaining_balance: number;
   status: string;
+  in_import_file: boolean;
+  has_replacement_card: boolean;
+  replacement_card_number: string | null;
+  replacement_beneficiary_id: string | null;
 }
 
 export type DeductType = "MEDICINE" | "SUPPLIES";
@@ -238,6 +246,30 @@ export function DeductProvider({
       setError(result.error);
     } else if (result.beneficiary) {
       const b = result.beneficiary;
+      let replacementMeta: Pick<BeneficiarySuggestion, "in_import_file" | "has_replacement_card" | "replacement_card_number" | "replacement_beneficiary_id"> = {
+        in_import_file: false,
+        has_replacement_card: false,
+        replacement_card_number: null,
+        replacement_beneficiary_id: null,
+      };
+
+      try {
+        const replacementLookup = await searchBeneficiaries(b.card_number);
+        if (!replacementLookup.error && Array.isArray(replacementLookup.items)) {
+          const matched = replacementLookup.items.find((x) => x.card_number === b.card_number);
+          if (matched) {
+            replacementMeta = {
+              in_import_file: Boolean(matched.in_import_file),
+              has_replacement_card: Boolean(matched.has_replacement_card),
+              replacement_card_number: matched.replacement_card_number ?? null,
+              replacement_beneficiary_id: matched.replacement_beneficiary_id ?? null,
+            };
+          }
+        }
+      } catch {
+        // Best-effort only; search failure should not block deduction flow.
+      }
+
       setCardNumber(b.card_number);
       setSearchInput(`${b.name} - ${b.card_number}`);
       const mapped: Beneficiary = {
@@ -245,9 +277,23 @@ export function DeductProvider({
         total_balance: Number(b.total_balance),
         remaining_balance: Number(b.remaining_balance),
         status: b.status,
+        in_import_file: replacementMeta.in_import_file,
+        has_replacement_card: replacementMeta.has_replacement_card,
+        replacement_card_number: replacementMeta.replacement_card_number,
+        replacement_beneficiary_id: replacementMeta.replacement_beneficiary_id,
       };
       setBeneficiary(mapped);
-      saveRecentBeneficiary({ id: b.id, card_number: b.card_number, name: b.name, remaining_balance: Number(b.remaining_balance), status: b.status });
+      saveRecentBeneficiary({
+        id: b.id,
+        card_number: b.card_number,
+        name: b.name,
+        remaining_balance: Number(b.remaining_balance),
+        status: b.status,
+        in_import_file: replacementMeta.in_import_file,
+        has_replacement_card: replacementMeta.has_replacement_card,
+        replacement_card_number: replacementMeta.replacement_card_number,
+        replacement_beneficiary_id: replacementMeta.replacement_beneficiary_id,
+      });
       setTimeout(() => amountRef.current?.focus(), 100);
     }
   }, [cardNumber, searchInput, saveRecentBeneficiary, extractCardCandidate]);

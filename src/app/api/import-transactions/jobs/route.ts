@@ -24,6 +24,8 @@ export async function POST(request: Request) {
     const replaceOldImports = replaceOldImportsRaw !== "false";
     const purgeMissingFamiliesRaw = String(formData.get("purge_missing_families") ?? "false").toLowerCase();
     const purgeMissingFamilies = purgeMissingFamiliesRaw === "true";
+    const cleanupOldSettlementsRaw = String(formData.get("cleanup_old_settlements") ?? "false").toLowerCase();
+    const cleanupOldSettlements = cleanupOldSettlementsRaw === "true";
 
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "لم يتم إرسال ملف صالح." }, { status: 400 });
@@ -61,6 +63,7 @@ export async function POST(request: Request) {
       username: session.username,
       replaceOldImports,
       purgeMissingFamilies,
+      cleanupOldSettlements,
     });
 
     return NextResponse.json(created, { status: 201 });

@@ -13,6 +13,8 @@ import {
   recalcBalancesAction,
   fixStatusAnomaliesAction,
 } from "@/app/actions/balance-health-actions";
+import { applyActiveImportDuplicateFix } from "@/lib/import-duplicate-cases";
+import { applyOverdrawnDebtSettlement } from "@/lib/overdrawn-debt-settlement";
 
 export type MaintenanceJobTask =
   | { kind: "data_hygiene_sweep"; mode: DataHygieneMode }
@@ -20,7 +22,9 @@ export type MaintenanceJobTask =
   | { kind: "fix_status_anomalies" }
   | { kind: "parent_card_pattern_fix"; mode: ParentCardPatternFixMode }
   | { kind: "normalize_import_integer_distribution" }
-  | { kind: "fix_invalid_subunit_amounts" };
+  | { kind: "fix_invalid_subunit_amounts" }
+  | { kind: "fix_duplicate_import_cases"; facilityId?: string | null }
+  | { kind: "settle_overdrawn_debt"; facilityId?: string | null };
 
 export type MaintenanceJobState = "queued" | "running" | "succeeded" | "failed";
 
@@ -58,6 +62,10 @@ function summarizeResult(task: MaintenanceJobTask, result: unknown): string {
       return `تصحيح التوزيع: ${Number(r.processed_families ?? 0).toLocaleString("ar-LY")} عائلة`;
     case "fix_invalid_subunit_amounts":
       return `تصحيح الكسور: ${Number(r.fixed_count ?? 0).toLocaleString("ar-LY")}`;
+    case "fix_duplicate_import_cases":
+      return `معالجة تكرار IMPORT: ${Number(r.affectedBeneficiaries ?? 0).toLocaleString("ar-LY")} مستفيد`;
+    case "settle_overdrawn_debt":
+      return `تسوية المديونية: ${Number(r.affectedDebtors ?? 0).toLocaleString("ar-LY")} حالة`;
     default:
       return "تم التنفيذ";
   }
@@ -79,18 +87,26 @@ async function executeTask(task: MaintenanceJobTask, actor: { id: string; userna
       return runNormalizeImportIntegerDistributionAction(elevatedActor);
     case "fix_invalid_subunit_amounts":
       return runFixInvalidSubunitAmountsAction(elevatedActor);
+    case "fix_duplicate_import_cases":
+      return applyActiveImportDuplicateFix({
+        user: actor.username,
+        facilityId: task.facilityId ?? actor.id,
+      });
+    case "settle_overdrawn_debt":
+      return applyOverdrawnDebtSettlement({
+        user: actor.username,
+        facilityId: task.facilityId ?? actor.id,
+      });
     default:
       throw new Error("نوع مهمة غير مدعوم");
   }
 }
 
-export async function startMaintenanceJobAction(task: MaintenanceJobTask): Promise<{
-  success: boolean;
-  job?: MaintenanceJobRecord;
-  error?: string;
-}> {
-  const session = await getSession();
-  if (!session?.is_admin) {
+export async function startMaintenanceJobForActor(
+  task: MaintenanceJobTask,
+  actor: { id: string; username: string; isAdmin: boolean },
+): Promise<{ success: boolean; job?: MaintenanceJobRecord; error?: string }> {
+  if (!actor.isAdmin) {
     return { success: false, error: "غير مصرح" };
   }
 
@@ -100,7 +116,7 @@ export async function startMaintenanceJobAction(task: MaintenanceJobTask): Promi
     createdAt: new Date().toISOString(),
     startedAt: null,
     completedAt: null,
-    createdBy: session.username,
+    createdBy: actor.username,
     state: "queued",
     task,
   };
@@ -116,7 +132,7 @@ export async function startMaintenanceJobAction(task: MaintenanceJobTask): Promi
     jobs.set(id, queued);
 
     try {
-      const result = await executeTask(task, { id: session.id, username: session.username });
+      const result = await executeTask(task, { id: actor.id, username: actor.username });
       const asObj = (result ?? {}) as Record<string, unknown>;
       const success = asObj.success !== false;
 
@@ -139,6 +155,23 @@ export async function startMaintenanceJobAction(task: MaintenanceJobTask): Promi
   }, 0);
 
   return { success: true, job: record };
+}
+
+export async function startMaintenanceJobAction(task: MaintenanceJobTask): Promise<{
+  success: boolean;
+  job?: MaintenanceJobRecord;
+  error?: string;
+}> {
+  const session = await getSession();
+  if (!session?.is_admin) {
+    return { success: false, error: "غير مصرح" };
+  }
+
+  return startMaintenanceJobForActor(task, {
+    id: session.id,
+    username: session.username,
+    isAdmin: true,
+  });
 }
 
 export async function getMaintenanceJobAction(jobId: string): Promise<{

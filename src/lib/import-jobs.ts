@@ -392,6 +392,7 @@ export async function processImportJob(jobId: string, username: string) {
     card_number: string;
     name: string;
     birth_date: string | null;
+    is_legacy_card: boolean;
     total_balance: string;
     remaining_balance: string;
     status: string;
@@ -524,7 +525,7 @@ export async function processImportJob(jobId: string, username: string) {
             card_number: { in: [...activeCards], mode: "insensitive" },
             deleted_at: null,
           },
-          select: { id: true, card_number: true, name: true, birth_date: true, total_balance: true, remaining_balance: true, status: true },
+          select: { id: true, card_number: true, name: true, birth_date: true, is_legacy_card: true, total_balance: true, remaining_balance: true, status: true },
         })
         : [];
       const cardToActiveRow = new Map(
@@ -538,7 +539,7 @@ export async function processImportJob(jobId: string, username: string) {
             card_number: { in: [...deletedCards], mode: "insensitive" },
             deleted_at: { not: null },
           },
-          select: { id: true, card_number: true, name: true, birth_date: true, total_balance: true, remaining_balance: true, status: true, deleted_at: true },
+          select: { id: true, card_number: true, name: true, birth_date: true, is_legacy_card: true, total_balance: true, remaining_balance: true, status: true, deleted_at: true },
           // آخر سجل محذوف لهذا الرقم
           orderBy: { deleted_at: "desc" },
         })
@@ -683,6 +684,7 @@ export async function processImportJob(jobId: string, username: string) {
               card_number: deletedRow.card_number,
               name: deletedRow.name,
               birth_date: deletedRow.birth_date?.toISOString() ?? null,
+              is_legacy_card: Boolean((deletedRow as unknown as Record<string, unknown>).is_legacy_card),
               total_balance: String(deletedRow.total_balance),
               remaining_balance: String(deletedRow.remaining_balance),
               status: deletedRow.status,
@@ -738,6 +740,7 @@ export async function processImportJob(jobId: string, username: string) {
               card_number: activeRow.card_number,
               name: activeRow.name,
               birth_date: activeRow.birth_date?.toISOString() ?? null,
+              is_legacy_card: Boolean((activeRow as unknown as Record<string, unknown>).is_legacy_card),
               total_balance: String(activeRow.total_balance),
               remaining_balance: String(activeRow.remaining_balance),
               status: activeRow.status,
@@ -747,17 +750,13 @@ export async function processImportJob(jobId: string, username: string) {
             const updateData: Record<string, unknown> = {
               name: row.data.name,
               birth_date: row.data.birth_date,
+              status: "ACTIVE",
             };
 
             // تحديث الرصيد إذا طلب المستخدم ذلك
             if (opts.updateBalance) {
               updateData.total_balance = initialBalance;
               updateData.remaining_balance = initialBalance;
-            }
-
-            // إعادة التفعيل إذا طلب المستخدم ذلك
-            if (opts.reactivate && activeRow.status !== "ACTIVE") {
-              updateData.status = "ACTIVE";
             }
 
             await prisma.beneficiary.update({
@@ -786,6 +785,7 @@ export async function processImportJob(jobId: string, username: string) {
             card_number: targetRow.card_number,
             name: targetRow.name,
             birth_date: targetRow.birth_date?.toISOString() ?? null,
+            is_legacy_card: Boolean((targetRow as unknown as Record<string, unknown>).is_legacy_card),
             total_balance: String(targetRow.total_balance),
             remaining_balance: String(targetRow.remaining_balance),
             status: targetRow.status,
@@ -796,15 +796,12 @@ export async function processImportJob(jobId: string, username: string) {
             card_number: row.data.card_number,
             name: row.data.name,
             birth_date: row.data.birth_date,
+            status: "ACTIVE",
           };
 
           if (opts.updateBalance) {
             updateData.total_balance = initialBalance;
             updateData.remaining_balance = initialBalance;
-          }
-
-          if (opts.reactivate && targetRow.status !== "ACTIVE") {
-            updateData.status = "ACTIVE";
           }
 
           await prisma.beneficiary.update({
@@ -919,6 +916,7 @@ export async function processImportJob(jobId: string, username: string) {
               card_number: snap.card_number,
               name: snap.name,
               birth_date: snap.birth_date ? new Date(snap.birth_date) : null,
+              is_legacy_card: Boolean((snap as Record<string, unknown>).is_legacy_card),
               total_balance: parseFloat(snap.total_balance),
               remaining_balance: parseFloat(snap.remaining_balance),
               status: snap.status as "ACTIVE" | "FINISHED" | "SUSPENDED",
@@ -936,6 +934,7 @@ export async function processImportJob(jobId: string, username: string) {
               card_number: snap.card_number,
               name: snap.name,
               birth_date: snap.birth_date ? new Date(snap.birth_date) : null,
+              is_legacy_card: Boolean((snap as Record<string, unknown>).is_legacy_card),
               total_balance: parseFloat(snap.total_balance),
               remaining_balance: parseFloat(snap.remaining_balance),
               status: snap.status as "ACTIVE" | "FINISHED" | "SUSPENDED",
@@ -1007,6 +1006,7 @@ export async function getImportJobSkippedRowsWorkbook(jobId: string, username?: 
         card_number: string;
         name: string;
         birth_date: string | null;
+        is_legacy_card: boolean;
         total_balance: string;
         remaining_balance: string;
         status: string;

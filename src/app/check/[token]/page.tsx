@@ -10,6 +10,7 @@ const TYPE_LABELS: Record<string, string> = {
   SUPPLIES: "مستلزمات",
   CANCELLATION: "إلغاء",
   IMPORT: "رصيد مستخدم",
+  SETTLEMENT: "تسوية",
 };
 
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
@@ -52,7 +53,7 @@ export default async function CheckTokenPage({
       status: true,
       completed_via: true,
       transactions: {
-        where: { is_cancelled: false, type: { not: "CANCELLATION" } },
+        where: { is_cancelled: false, type: { notIn: ["CANCELLATION", "SETTLEMENT"] } },
         orderBy: { created_at: "desc" },
         take: 100,
         select: {

@@ -31,6 +31,7 @@ model Beneficiary {
   card_number       String
   name              String
   birth_date        DateTime?
+  is_legacy_card    Boolean           @default(false)
   total_balance     Decimal           @default(600) @db.Decimal(12, 2)
   remaining_balance Decimal           @default(600) @db.Decimal(12, 2)
   status            BeneficiaryStatus @default(ACTIVE)
@@ -49,6 +50,7 @@ model Beneficiary {
   @@index([card_number])
   @@index([deleted_at])
   @@index([status])
+  @@index([is_legacy_card])
   @@index([completed_via])
   @@index([name])
 }
@@ -139,6 +141,7 @@ enum TransactionType {
   SUPPLIES
   CANCELLATION
   IMPORT
+  SETTLEMENT
 }
 
 enum ImportJobStatus {

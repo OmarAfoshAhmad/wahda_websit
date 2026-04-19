@@ -51,6 +51,7 @@ type TransactionRow = {
 
 function getMovementTypeLabel(txType: string): string {
   if (txType === "CANCELLATION") return "—";
+  if (txType === "SETTLEMENT") return "تسوية";
   // الاستيراد المجمع يُعامل كأدوية صرف عام من ناحية نوع الحركة.
   if (txType === "MEDICINE" || txType === "IMPORT") return "ادوية صرف عام";
   return "كشف عام";
@@ -151,7 +152,7 @@ export default async function TransactionsPage({
 
   if (session.is_employee) {
     // الموظف: يرى فقط حركات الكاش التي نفذها حسابه، بدون الملغاة أو حركات التصحيح.
-    where.type = { not: "CANCELLATION" };
+    where.type = { notIn: ["CANCELLATION", "SETTLEMENT"] };
     where.is_cancelled = false;
     where.idempotency_key = { startsWith: "cash-claim:" };
   } else {
@@ -163,6 +164,12 @@ export default async function TransactionsPage({
         corrections: { some: { type: "CANCELLATION", is_cancelled: false } },
       },
     ];
+  }
+
+  const canViewSettlement = session.is_admin || session.is_manager;
+  if (!canViewSettlement) {
+    const existingAnd = Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : [];
+    where.AND = [...existingAnd, { type: { not: "SETTLEMENT" } }];
   }
 
   // فلتر المصدر (يدوي / استيراد) — المبرمج فقط
@@ -177,7 +184,7 @@ export default async function TransactionsPage({
     if (where.type) {
       // إذا كان هناك فلتر type سابق (مثل CANCELLATION)، نتركه
     } else {
-      where.type = { in: ["MEDICINE", "SUPPLIES"] };
+      where.type = { in: ["MEDICINE", "SUPPLIES", "SETTLEMENT"] };
     }
   }
 
@@ -280,6 +287,35 @@ export default async function TransactionsPage({
   const transactionRows = focusedRow
     ? [focusedRow, ...transactionRowsBase.filter((tx) => tx.id !== focusedRow.id)].slice(0, PAGE_SIZE)
     : transactionRowsBase;
+
+  // حساب الرصيد بعد كل حركة (لحظة تنفيذها) بدل عرض الرصيد الحالي فقط.
+  // هذا يجعل عمود "الرصيد المتبقي" أدق تاريخيًا لكل صف.
+  const txIdsForBalance = transactionRows.map((tx) => tx.id);
+  const txRemainingRows = txIdsForBalance.length > 0
+    ? await prisma.$queryRaw<Array<{ id: string; remaining_after: number }>>`
+        SELECT
+          t.id,
+          GREATEST(
+            0,
+            b.total_balance::float8 - COALESCE(used.used_amount, 0)
+          ) AS remaining_after
+        FROM "Transaction" t
+        JOIN "Beneficiary" b ON b.id = t.beneficiary_id
+        LEFT JOIN LATERAL (
+          SELECT COALESCE(SUM(t2.amount), 0)::float8 AS used_amount
+          FROM "Transaction" t2
+          WHERE t2.beneficiary_id = t.beneficiary_id
+            AND t2.is_cancelled = false
+            AND t2.type <> 'CANCELLATION'
+            AND t2.created_at <= t.created_at
+        ) used ON true
+        WHERE t.id = ANY(${txIdsForBalance}::text[])
+      `
+    : [];
+
+  const remainingAfterByTxId = new Map(
+    txRemainingRows.map((row) => [row.id, Number(row.remaining_after) || 0]),
+  );
   // حماية إضافية: لا نعرض إلا الحركات الفعلية حتى لو وصلتنا بيانات غير متوقعة.
   // بيانات التقرير (طباعة): نظهر الحركات العادية المنفذة فقط، ونستبعد الملغاة وحركة التصحيح.
   const visibleRows = transactionRows.filter((tx) => tx.type !== "CANCELLATION" && !tx.is_cancelled);
@@ -537,7 +573,7 @@ export default async function TransactionsPage({
             <p className="py-10 text-center italic text-slate-500">لا توجد نتائج مطابقة للفلاتر الحالية.</p>
           ) : (
             transactionRows.map((tx: TransactionRow) => {
-              const currentBalance = Number(tx.beneficiary.remaining_balance);
+              const currentBalance = remainingAfterByTxId.get(tx.id) ?? Number(tx.beneficiary.remaining_balance);
               const amount = Number(tx.amount);
               const balanceBeforeDelete = currentBalance;
               const balanceAfterDelete = currentBalance + amount;
@@ -694,7 +730,7 @@ export default async function TransactionsPage({
                   ) : (
                     transactionRows.map((tx: TransactionRow, idx: number) => (
                       (() => {
-                        const currentBalance = Number(tx.beneficiary.remaining_balance);
+                        const currentBalance = remainingAfterByTxId.get(tx.id) ?? Number(tx.beneficiary.remaining_balance);
                         const amount = Number(tx.amount);
                         const balanceBeforeDelete = currentBalance;
                         const balanceAfterDelete = currentBalance + amount;
@@ -755,7 +791,7 @@ export default async function TransactionsPage({
                         </td>
                         <td className="px-6 py-4 text-right">
                           {(() => {
-                            const shownBalance = Number(tx.beneficiary.remaining_balance);
+                            const shownBalance = remainingAfterByTxId.get(tx.id) ?? Number(tx.beneficiary.remaining_balance);
 
                             if (tx.type === "CANCELLATION") {
                               return (

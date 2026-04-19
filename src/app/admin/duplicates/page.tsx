@@ -8,12 +8,14 @@ import { Card, Badge, Input, Button } from "@/components/ui";
 import { buildDuplicateGroups, paginate } from "@/lib/duplicate-groups";
 import { getActiveImportDuplicateCases } from "@/lib/import-duplicate-cases";
 import { getOverdrawnDebtCases } from "@/lib/overdrawn-debt-settlement";
+import { canonicalizeCardNumber, leadingZeroScoreAfterPrefix } from "@/lib/normalize";
 import { RotateCcw, CheckCircle2, AlertCircle } from "lucide-react";
 import { DuplicateManualMergeForm } from "@/components/duplicate-manual-merge-form";
 import { DuplicateSameNameGroup } from "@/components/duplicate-same-name-group";
 import { BatchMergeButton } from "@/components/batch-merge-button";
 import { AutoMergeAllZeroVariantsButton } from "@/components/auto-merge-all-zero-variants-button";
 import { DataHealthContent } from "@/components/admin/data-health-content";
+import { DebtSettlementBackgroundButton } from "@/components/debt-settlement-background-button";
 import {
   mergeGroupAction,
   mergeManualAction,
@@ -33,24 +35,29 @@ export default async function DuplicatesAdminPage({
     audit?: string; undone?: string; tab?: string;
     merged?: string; before?: string; after?: string; debtAudit?: string;
     importView?: string;
+    debtCardMode?: string;
+    dp?: string;
   }>;
 }) {
   const session = await getSession();
   if (!session) redirect("/login");
   if (!session.is_admin) redirect("/dashboard");
 
-  const { q, pz, pn, pr, ok, err, audit: _audit, undone: _undone, tab, merged, before, after, debtAudit, importView: importViewParam } = await searchParams;
+  const { q, pz, pn, pr, ok, err, audit: _audit, undone: _undone, tab, merged, before, after, debtAudit, importView: importViewParam, debtCardMode: debtCardModeParam, dp } = await searchParams;
   const isBatchSuccess = (ok ?? "").startsWith("success_batch");
   const limitedMatch = /^success_batch_limited_(\d+)$/.exec(ok ?? "");
   const limitedRemaining = limitedMatch ? Number(limitedMatch[1]) : 0;
   const activeTab = tab === "merged" || tab === "audit" || tab === "import" || tab === "debt" || tab === "health" ? tab : "review";
   const importView = importViewParam === "all" ? "all" : "actionable";
+  const debtCardMode = debtCardModeParam === "old" ? "old" : "all";
   const searchQuery = (q ?? "").trim();
   const normalizedSearchQuery = searchQuery.toLowerCase();
   const shouldFilterBeneficiaryTabs = normalizedSearchQuery.length > 0 && (activeTab === "review" || activeTab === "audit");
   const pageZero = Number.parseInt(pz ?? "1", 10) || 1;
   const pageName = Number.parseInt(pn ?? "1", 10) || 1;
   const pageSize = 20;
+  const debtPageSize = 50;
+  const debtPage = Math.max(1, Number.parseInt(dp ?? "1", 10) || 1);
 
   // ── بيانات تبويبَي review + audit فقط عند الحاجة ──────────────────────────
   const needsBeneficiaryData = activeTab === "review" || activeTab === "audit";
@@ -177,6 +184,9 @@ export default async function DuplicatesAdminPage({
     if (nextTab === "import" && importView === "all") {
       params.set("importView", "all");
     }
+    if (nextTab === "debt" && debtCardMode === "old") {
+      params.set("debtCardMode", "old");
+    }
     return `/admin/duplicates?${params.toString()}`;
   };
 
@@ -291,8 +301,9 @@ export default async function DuplicatesAdminPage({
   const mergedNameById = new Map(mergedNames.map((r) => [r.id, r.name]));
 
   // ── بيانات تبويب "تكرار IMPORT" فقط عند الحاجة ────────────────────────────
+  const includeHistoricalImportCases = activeTab === "import" && importView === "all";
   const importDuplicateCasesRaw = activeTab === "import"
-    ? await getActiveImportDuplicateCases()
+    ? await getActiveImportDuplicateCases({ includeMultiFileRepeat: includeHistoricalImportCases })
     : [];
   const importDuplicateCasesBySearch =
     activeTab === "import" && normalizedSearchQuery.length > 0
@@ -304,7 +315,9 @@ export default async function DuplicatesAdminPage({
   const isActionableImportCase = (row: (typeof importDuplicateCasesRaw)[number]) =>
     row.caseType === "ACTIVE_IMPORT_DUPLICATE" && row.extraAmount > 0;
   const importActionableCount = importDuplicateCasesBySearch.filter(isActionableImportCase).length;
-  const importHistoricalCount = importDuplicateCasesBySearch.length - importActionableCount;
+  const importHistoricalCount = includeHistoricalImportCases
+    ? (importDuplicateCasesBySearch.length - importActionableCount)
+    : 0;
   const importDuplicateCases = importView === "all"
     ? importDuplicateCasesBySearch
     : importDuplicateCasesBySearch.filter(isActionableImportCase);
@@ -328,13 +341,60 @@ export default async function DuplicatesAdminPage({
   const debtCasesRaw = activeTab === "debt"
     ? await getOverdrawnDebtCases()
     : [];
-  const debtCases =
+  const shouldResolveOldDebtCards = activeTab === "debt" && debtCardMode === "old";
+  const debtDebtorCards = shouldResolveOldDebtCards
+    ? Array.from(new Set(debtCasesRaw.map((row) => row.debtorCard.trim()).filter(Boolean)))
+    : [];
+  const debtDebtorRows = debtDebtorCards.length > 0
+    ? await prisma.beneficiary.findMany({
+        where: { deleted_at: null, card_number: { in: debtDebtorCards } },
+        select: { id: true, card_number: true },
+      })
+    : [];
+  const debtCanonicalCards = Array.from(new Set(debtDebtorRows.map((row) => canonicalizeCardNumber(row.card_number)).filter(Boolean)));
+  const debtReplacementCandidates = debtCanonicalCards.length > 0
+    ? await prisma.$queryRaw<Array<{ id: string; card_number: string }>>`
+        SELECT id, card_number
+        FROM "Beneficiary"
+        WHERE deleted_at IS NULL
+          AND regexp_replace(UPPER(BTRIM(card_number)), '^WAB2025(0*)([0-9]+)([A-Z0-9]*)$', 'WAB2025\\2\\3') = ANY(${debtCanonicalCards}::text[])
+      `
+    : [];
+  const debtBestByCanonical = new Map<string, { id: string; card_number: string; zeroScore: number }>();
+  for (const candidate of debtReplacementCandidates) {
+    const canonical = canonicalizeCardNumber(candidate.card_number);
+    const zeroScore = leadingZeroScoreAfterPrefix(candidate.card_number);
+    const prev = debtBestByCanonical.get(canonical);
+    if (!prev || zeroScore > prev.zeroScore || (zeroScore === prev.zeroScore && candidate.card_number < prev.card_number)) {
+      debtBestByCanonical.set(canonical, { id: candidate.id, card_number: candidate.card_number, zeroScore });
+    }
+  }
+  const debtCardInfoByCard = new Map<string, { isOldCard: boolean; replacementCard: string | null }>();
+  for (const debtor of debtDebtorRows) {
+    const canonical = canonicalizeCardNumber(debtor.card_number);
+    const currentScore = leadingZeroScoreAfterPrefix(debtor.card_number);
+    const best = debtBestByCanonical.get(canonical);
+    const isOldCard = Boolean(best && best.id !== debtor.id && best.zeroScore > currentScore);
+    debtCardInfoByCard.set(debtor.card_number, {
+      isOldCard,
+      replacementCard: isOldCard && best ? best.card_number : null,
+    });
+  }
+
+  const debtCasesBySearch =
     activeTab === "debt" && normalizedSearchQuery.length > 0
       ? debtCasesRaw.filter((row) =>
           row.debtorName.toLowerCase().includes(normalizedSearchQuery) ||
           row.debtorCard.toLowerCase().includes(normalizedSearchQuery)
         )
       : debtCasesRaw;
+  const debtCases = shouldResolveOldDebtCards
+    ? debtCasesBySearch.filter((row) => debtCardInfoByCard.get(row.debtorCard)?.isOldCard)
+    : debtCasesBySearch;
+  const debtPageData = paginate(debtCases, debtPage, debtPageSize);
+  const debtOldCardCount = shouldResolveOldDebtCards
+    ? debtCasesBySearch.filter((row) => debtCardInfoByCard.get(row.debtorCard)?.isOldCard).length
+    : 0;
   const totalDebtAmount = debtCases.reduce((sum, row) => sum + row.debtorDebtAmount, 0);
   const totalDebtDistributed = debtCases.reduce((sum, row) => sum + row.plannedDistributed, 0);
   const debtSettledCount = debtCases.filter((row) => row.isSettled).length;
@@ -345,6 +405,30 @@ export default async function DuplicatesAdminPage({
     (activeTab === "debt" ? debtCases.length : 0);
   const debtExportBeforeHref = "/api/admin/duplicates/debt-over-limit/export?mode=before";
   const debtExportAfterHref = `/api/admin/duplicates/debt-over-limit/export?mode=after${debtAudit ? `&auditId=${encodeURIComponent(debtAudit)}` : ""}`;
+  const debtViewAllHref = `/admin/duplicates?${new URLSearchParams({
+    ...(q ? { q } : {}),
+    pz: String(pageZero),
+    pn: String(pageName),
+    tab: "debt",
+    debtCardMode: "all",
+    dp: "1",
+  }).toString()}`;
+  const debtViewOldHref = `/admin/duplicates?${new URLSearchParams({
+    ...(q ? { q } : {}),
+    pz: String(pageZero),
+    pn: String(pageName),
+    tab: "debt",
+    debtCardMode: "old",
+    dp: "1",
+  }).toString()}`;
+  const debtPageHref = (nextPage: number) => `/admin/duplicates?${new URLSearchParams({
+    ...(q ? { q } : {}),
+    pz: String(pageZero),
+    pn: String(pageName),
+    tab: "debt",
+    debtCardMode,
+    dp: String(nextPage),
+  }).toString()}`;
 
   return (
     <Shell facilityName={session.name} session={session}>
@@ -815,20 +899,25 @@ export default async function DuplicatesAdminPage({
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-2 text-sm">
                   <Badge variant="warning">الحالات المدينة: {debtCases.length}</Badge>
+                  {shouldResolveOldDebtCards && <Badge variant="warning">بطاقة قديمة: {debtOldCardCount}</Badge>}
                   <Badge variant="danger">إجمالي الدين: {totalDebtAmount.toLocaleString("en-US")} د.ل</Badge>
                   <Badge variant="success">قابل للتوزيع: {totalDebtDistributed.toLocaleString("en-US")} د.ل</Badge>
                   <Badge variant="default">تم التوافق: {debtSettledCount}</Badge>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                  <Link href={debtViewAllHref} className="inline-flex">
+                    <Button type="button" variant={debtCardMode === "all" ? "primary" : "outline"} className="h-10">كل البطاقات</Button>
+                  </Link>
+                  <Link href={debtViewOldHref} className="inline-flex">
+                    <Button type="button" variant={debtCardMode === "old" ? "primary" : "outline"} className="h-10">بطاقة قديمة فقط</Button>
+                  </Link>
                   <Link href={debtExportBeforeHref} className="inline-flex">
                     <Button type="button" variant="outline" className="h-10">تصدير Excel (قبل المعالجة)</Button>
                   </Link>
                   <Link href={debtExportAfterHref} className="inline-flex">
                     <Button type="button" variant="outline" className="h-10">تصدير Excel (بعد المعالجة)</Button>
                   </Link>
-                  <form method="post" action="/api/admin/duplicates/debt-over-limit/settle-all">
-                    <Button type="submit" className="h-10 bg-red-600 hover:bg-red-700 text-white">توزيع المديونية دفعة واحدة</Button>
-                  </form>
+                  <DebtSettlementBackgroundButton totalCases={debtCases.length} />
                 </div>
               </div>
             </Card>
@@ -847,7 +936,7 @@ export default async function DuplicatesAdminPage({
                       <th className="px-3 py-2 font-bold">المبلغ الموزع</th>
                       <th className="px-3 py-2 font-bold">المتبقي مدين</th>
                       <th className="px-3 py-2 font-bold">النتيجة</th>
-                      <th className="px-3 py-2 font-bold">المتأثرون</th>
+                      <th className="px-3 py-2 font-bold">المتأثرون / توزيع الدين</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -858,7 +947,7 @@ export default async function DuplicatesAdminPage({
                         </td>
                       </tr>
                     ) : (
-                      debtCases.map((row) => (
+                      debtPageData.items.map((row) => (
                         <tr key={`${row.sourceType}:${row.debtorId}:${row.familyBaseCard}`} className="border-t border-slate-100 dark:border-slate-800 align-top">
                           <td className="px-3 py-2">
                             {row.sourceType === "IMPORT_GAP" ? (
@@ -867,7 +956,26 @@ export default async function DuplicatesAdminPage({
                               <Badge variant="danger">تجاوز رصيد</Badge>
                             )}
                           </td>
-                          <td className="px-3 py-2">{row.debtorName}</td>
+                          <td className="px-3 py-2">
+                            {shouldResolveOldDebtCards ? (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span>{row.debtorName}</span>
+                                {debtCardInfoByCard.get(row.debtorCard)?.isOldCard ? (
+                                  <span className="inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-black text-amber-700 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-300" title={debtCardInfoByCard.get(row.debtorCard)?.replacementCard ? `البطاقة الأحدث: ${debtCardInfoByCard.get(row.debtorCard)?.replacementCard}` : "بطاقة قديمة"}>
+                                    <AlertCircle className="h-3 w-3" />
+                                    بطاقة قديمة
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-black text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300" title="لا توجد بطاقة أحدث مطابقة">
+                                    <CheckCircle2 className="h-3 w-3" />
+                                    مستقرة
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span>{row.debtorName}</span>
+                            )}
+                          </td>
                           <td className="px-3 py-2">{row.debtorCard}</td>
                           <td className="px-3 py-2 text-red-700 dark:text-red-400 font-bold">{row.debtorDebtAmount.toLocaleString("en-US")}</td>
                           <td className="px-3 py-2">{row.familyMembersCount}</td>
@@ -883,18 +991,31 @@ export default async function DuplicatesAdminPage({
                           </td>
                           <td className="px-3 py-2">
                             {row.shares.length === 0 ? (
-                              <span className="text-xs text-slate-500 dark:text-slate-400">لا يوجد خصم من الأسرة</span>
+                              <div className="space-y-1">
+                                <p className="text-xs text-slate-500 dark:text-slate-400">لا يوجد توزيع فعلي على أفراد الأسرة.</p>
+                                <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                                  {row.familyAvailableTotal <= 0
+                                    ? "السبب: لا يوجد رصيد متاح لدى أفراد الأسرة حاليًا."
+                                    : `المتاح بالعائلة ${row.familyAvailableTotal.toLocaleString("en-US")} د.ل، لكن لا توجد حصص قابلة للتطبيق الآن.`}
+                                </p>
+                              </div>
                             ) : (
                               <div className="space-y-1">
-                                {row.shares.slice(0, 3).map((s) => (
-                                  <div key={s.memberId} className="text-xs text-slate-700 dark:text-slate-300">
-                                    {s.memberName} ({s.memberCard}) — خصم {s.deductedAmount.toLocaleString("en-US")} د.ل
-                                    {s.completedViaAfter === "EXCEEDED_BALANCE" ? " — اكتمال: تجاوز رصيد" : ""}
-                                  </div>
-                                ))}
-                                {row.shares.length > 3 && (
-                                  <div className="text-xs text-slate-500 dark:text-slate-400">+{row.shares.length - 3} أشخاص آخرين</div>
-                                )}
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                  خطة التوزيع: {row.plannedDistributed.toLocaleString("en-US")} د.ل من أصل {row.debtorDebtAmount.toLocaleString("en-US")} د.ل
+                                </p>
+                                <div className="max-h-36 space-y-1 overflow-auto rounded border border-slate-100 p-1.5 dark:border-slate-800">
+                                  {row.shares.map((s) => (
+                                    <div key={s.memberId} className="text-xs text-slate-700 dark:text-slate-300">
+                                      {s.memberName} ({s.memberCard})
+                                      {" — "}
+                                      قبل {s.beforeRemaining.toLocaleString("en-US")}
+                                      {" | خصم "}{s.deductedAmount.toLocaleString("en-US")}
+                                      {" | بعد "}{s.afterRemaining.toLocaleString("en-US")} د.ل
+                                      {s.completedViaAfter === "EXCEEDED_BALANCE" ? " — اكتمل بعد التوزيع" : ""}
+                                    </div>
+                                  ))}
+                                </div>
                               </div>
                             )}
                           </td>
@@ -904,6 +1025,19 @@ export default async function DuplicatesAdminPage({
                   </tbody>
                 </table>
               </div>
+              {debtCases.length > debtPageSize && (
+                <div className="flex items-center justify-between px-3 py-3 border-t border-slate-100 dark:border-slate-800">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">صفحة {debtPageData.page} من {debtPageData.pages} • {debtPageData.total} حالة</p>
+                  <div className="flex items-center gap-2">
+                    <Link href={debtPageHref(Math.max(1, debtPageData.page - 1))}>
+                      <Button type="button" variant="outline" className="h-8 px-3 text-xs" disabled={debtPageData.page <= 1}>السابق</Button>
+                    </Link>
+                    <Link href={debtPageHref(Math.min(debtPageData.pages, debtPageData.page + 1))}>
+                      <Button type="button" variant="outline" className="h-8 px-3 text-xs" disabled={debtPageData.page >= debtPageData.pages}>التالي</Button>
+                    </Link>
+                  </div>
+                </div>
+              )}
             </Card>
           </>
         )}

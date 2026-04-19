@@ -43,6 +43,8 @@ export function BeneficiaryCard() {
       ? "السبب: حالة المستفيد موقوف."
       : "تم إيقاف الخصم لأن حالة السجل مكتملة.";
 
+  const isOperationalOldCard = beneficiary.in_import_file || beneficiary.has_replacement_card;
+
   return (
     <Card className="p-4 sm:p-4.5">
       {/* ─── رأس البطاقة: الاسم والحالة ─── */}
@@ -50,6 +52,22 @@ export function BeneficiaryCard() {
         <div>
           <h2 className="text-lg font-black text-slate-900 dark:text-white sm:text-xl">{beneficiary.name}</h2>
           <p className="text-xs font-medium text-slate-500 dark:text-slate-400">البطاقة: {beneficiary.card_number}</p>
+          <div className="mt-1 flex flex-wrap items-center gap-1">
+            {beneficiary.in_import_file && (
+              <span className="inline-flex items-center rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[10px] font-black text-sky-700 dark:border-sky-800 dark:bg-sky-900/30 dark:text-sky-300">
+                ضمن ملف الاستيراد
+              </span>
+            )}
+            {isOperationalOldCard ? (
+              <span className="inline-flex items-center rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-black text-amber-700 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+                بطاقة قديمة
+              </span>
+            ) : (
+              <span className="inline-flex items-center rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-black text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300">
+                بطاقة مستقرة
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -91,6 +109,18 @@ export function BeneficiaryCard() {
           )}
         </div>
       </div>
+
+      {beneficiary.has_replacement_card && beneficiary.replacement_card_number && (
+        <div className="mb-4 rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-xs font-bold text-amber-800 dark:text-amber-300">
+          تنبيه: هذا المستفيد يستخدم بطاقة قديمة، والبطاقة الأحدث المقابلة هي: {beneficiary.replacement_card_number}
+        </div>
+      )}
+
+      {beneficiary.in_import_file && !beneficiary.has_replacement_card && (
+        <div className="mb-4 rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-xs font-bold text-amber-800 dark:text-amber-300">
+          تنبيه: هذه البطاقة من البطاقات القديمة التشغيلية حتى يتم إصدار البطاقات الجديدة.
+        </div>
+      )}
 
       {/* ─── نموذج الخصم أو رسالة المكتمل ─── */}
       {beneficiary.status === "ACTIVE" && beneficiary.remaining_balance > 0 ? (
