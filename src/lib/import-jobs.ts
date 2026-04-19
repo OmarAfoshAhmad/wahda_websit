@@ -508,6 +508,7 @@ export async function processImportJob(jobId: string, username: string) {
             card_number: true,
             name: true,
             birth_date: true,
+            is_legacy_card: true,
             total_balance: true,
             remaining_balance: true,
             status: true,
