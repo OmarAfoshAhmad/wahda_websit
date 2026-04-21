@@ -369,6 +369,7 @@ export async function processTransactionImport(
   username: string,
   selectedFacilityId?: string,
   options?: {
+    sourceFileName?: string;
     // سيتم تجاهل هذا الخيار ويكون دائمًا true
     replaceOldImports?: boolean;
     purgeMissingFamilies?: boolean;
@@ -696,6 +697,7 @@ export async function processTransactionImport(
         usedBalanceFromFile: row.usedBalance,
         sourceRowNumber: row.rowNumber,
         importedBy: username,
+        sourceFileName: options?.sourceFileName,
       });
     }
     await reportProgress("cleanup", Math.max(1, rows.length), Math.max(1, Math.round(rows.length * 0.93)), "تم حفظ أرشيف الاستيراد");
@@ -760,6 +762,7 @@ export async function processTransactionImport(
           cleanupCancelledImportTransactions,
           cleanupDeletedCancelledSettlementTransactions,
           cleanupTouchedBeneficiaries,
+          sourceFileName: options?.sourceFileName ?? null,
           totalRows: rows.length,
           duplicateCardCount,
           duplicateDetails,
@@ -1092,10 +1095,16 @@ async function ensureFamilyImportArchiveTable() {
       "used_balance_from_file" NUMERIC(12, 2) NOT NULL DEFAULT 0,
       "source_row_number" INTEGER,
       "imported_by" TEXT,
+      "source_file_name" TEXT,
       "last_imported_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "FamilyImportArchive"
+    ADD COLUMN IF NOT EXISTS "source_file_name" TEXT;
   `);
 
   await prisma.$executeRawUnsafe(`
@@ -1111,6 +1120,7 @@ async function upsertFamilyImportArchive(input: {
   usedBalanceFromFile: number;
   sourceRowNumber: number;
   importedBy: string;
+  sourceFileName?: string;
 }) {
   await prisma.$executeRaw`
     INSERT INTO "FamilyImportArchive" (
@@ -1120,6 +1130,7 @@ async function upsertFamilyImportArchive(input: {
       "used_balance_from_file",
       "source_row_number",
       "imported_by",
+      "source_file_name",
       "last_imported_at",
       "updated_at"
     )
@@ -1130,6 +1141,7 @@ async function upsertFamilyImportArchive(input: {
       ${roundCurrency(Number(input.usedBalanceFromFile) || 0)},
       ${Math.max(0, Math.floor(Number(input.sourceRowNumber) || 0))},
       ${input.importedBy},
+      ${typeof input.sourceFileName === "string" && input.sourceFileName.trim().length > 0 ? input.sourceFileName.trim() : null},
       NOW(),
       NOW()
     )
@@ -1140,6 +1152,7 @@ async function upsertFamilyImportArchive(input: {
       "used_balance_from_file" = EXCLUDED."used_balance_from_file",
       "source_row_number" = EXCLUDED."source_row_number",
       "imported_by" = EXCLUDED."imported_by",
+      "source_file_name" = EXCLUDED."source_file_name",
       "last_imported_at" = NOW(),
       "updated_at" = NOW();
   `;

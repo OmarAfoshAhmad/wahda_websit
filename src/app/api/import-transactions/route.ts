@@ -81,7 +81,10 @@ export async function POST(request: Request) {
       buffer,
       session.username,
       session.id,
-      { replaceOldImports },
+      {
+        sourceFileName: file.name,
+        replaceOldImports,
+      },
     );
 
     if (error) {

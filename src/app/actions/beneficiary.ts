@@ -499,10 +499,16 @@ async function ensureFamilyImportArchiveTable() {
       "used_balance_from_file" NUMERIC(12, 2) NOT NULL DEFAULT 0,
       "source_row_number" INTEGER,
       "imported_by" TEXT,
+      "source_file_name" TEXT,
       "last_imported_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "FamilyImportArchive"
+    ADD COLUMN IF NOT EXISTS "source_file_name" TEXT;
   `);
 }
 

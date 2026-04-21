@@ -8,6 +8,7 @@ const TRANSACTION_IMPORT_KIND = "TRANSACTION_IMPORT" as const;
 type TransactionImportPayload = {
   kind: typeof TRANSACTION_IMPORT_KIND;
   fileBase64: string;
+  sourceFileName: string | null;
   replaceOldImports: boolean;
   purgeMissingFamilies: boolean;
   cleanupOldSettlements: boolean;
@@ -64,6 +65,9 @@ function parsePayload(payload: Prisma.JsonValue | null): TransactionImportPayloa
   return {
     kind: TRANSACTION_IMPORT_KIND,
     fileBase64,
+    sourceFileName: typeof obj.sourceFileName === "string" && obj.sourceFileName.trim().length > 0
+      ? obj.sourceFileName.trim()
+      : null,
     replaceOldImports: obj.replaceOldImports !== false,
     purgeMissingFamilies: obj.purgeMissingFamilies === true,
     cleanupOldSettlements: obj.cleanupOldSettlements === true,
@@ -186,6 +190,7 @@ async function estimateRowsFromWorkbook(buffer: Buffer): Promise<number> {
 export async function createTransactionImportJob(input: {
   fileBuffer: Buffer;
   username: string;
+  sourceFileName?: string;
   replaceOldImports: boolean;
   purgeMissingFamilies: boolean;
   cleanupOldSettlements: boolean;
@@ -194,6 +199,9 @@ export async function createTransactionImportJob(input: {
   const payload: TransactionImportPayload = {
     kind: TRANSACTION_IMPORT_KIND,
     fileBase64: input.fileBuffer.toString("base64"),
+    sourceFileName: typeof input.sourceFileName === "string" && input.sourceFileName.trim().length > 0
+      ? input.sourceFileName.trim()
+      : null,
     replaceOldImports: input.replaceOldImports,
     purgeMissingFamilies: input.purgeMissingFamilies,
     cleanupOldSettlements: input.cleanupOldSettlements,
@@ -321,6 +329,7 @@ export async function processTransactionImportJob(jobId: string, username: strin
 
   try {
     const processed = await processTransactionImport(buffer, username, undefined, {
+      sourceFileName: parsedPayload.sourceFileName ?? undefined,
       replaceOldImports: parsedPayload.replaceOldImports,
       purgeMissingFamilies: parsedPayload.purgeMissingFamilies,
       cleanupOldSettlements: parsedPayload.cleanupOldSettlements,

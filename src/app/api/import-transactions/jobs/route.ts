@@ -61,6 +61,7 @@ export async function POST(request: Request) {
     const created = await createTransactionImportJob({
       fileBuffer: buffer,
       username: session.username,
+      sourceFileName: file.name,
       replaceOldImports,
       purgeMissingFamilies,
       cleanupOldSettlements,

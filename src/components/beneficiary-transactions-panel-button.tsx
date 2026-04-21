@@ -18,6 +18,7 @@ type TxItem = {
   created_at: string;
   facility_name: string;
   original_transaction_id: string | null;
+  import_source_file_name: string | null;
 };
 
 type Payload = {
@@ -41,6 +42,30 @@ type Payload = {
       remaining_balance: number;
       is_selected: boolean;
     }>;
+  };
+  family_financials: {
+    source: {
+      file_name: string | null;
+      imported_by: string | null;
+      last_imported_at: string | null;
+      family_count_from_file: number | null;
+      total_balance_from_file: number | null;
+      used_balance_from_file: number | null;
+    };
+    system: {
+      family_members_in_system: number;
+      family_total_balance: number;
+      family_remaining_balance: number;
+      distributed_from_system: number;
+      distributed_from_import_only: number;
+      debt_to_company: number;
+    };
+    import_reconciliation: {
+      expected_from_file: number | null;
+      applied_import_only: number;
+      diff: number | null;
+      is_match: boolean | null;
+    };
   };
   summary: {
     transactions_count: number;
@@ -188,6 +213,97 @@ export function BeneficiaryTransactionsPanelButton({ beneficiaryId, beneficiaryN
                   </div>
                 </div>
 
+                <div className="space-y-2">
+                  <p className="text-xs font-black text-slate-600 dark:text-slate-300">مقارنة المنظومة والملف</p>
+                  <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="space-y-2">
+                      <p className="px-1 text-[11px] font-black text-slate-500 dark:text-slate-400">الرصيد الكلي</p>
+                      <div className="rounded border border-indigo-200 bg-indigo-50 px-2 py-2 dark:border-indigo-900 dark:bg-indigo-900/30">
+                        <p className="text-indigo-700 dark:text-indigo-300">المنظومة</p>
+                        <p className="font-black text-indigo-900 dark:text-indigo-100">
+                          {Number(data.family_financials.system.family_total_balance).toLocaleString("ar-LY")} د.ل
+                        </p>
+                      </div>
+                      <div className="rounded border border-violet-200 bg-violet-50 px-2 py-2 dark:border-violet-900 dark:bg-violet-900/30">
+                        <p className="text-violet-700 dark:text-violet-300">الملف</p>
+                        <p className="font-black text-violet-900 dark:text-violet-100">
+                          {data.family_financials.source.total_balance_from_file === null
+                            ? "—"
+                            : `${Number(data.family_financials.source.total_balance_from_file).toLocaleString("ar-LY")} د.ل`}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <p className="px-1 text-[11px] font-black text-slate-500 dark:text-slate-400">عدد الأفراد</p>
+                      <div className="rounded border border-slate-200 bg-slate-50 px-2 py-2 dark:border-slate-700 dark:bg-slate-800/40">
+                        <p className="text-slate-500 dark:text-slate-400">المنظومة</p>
+                        <p className="font-black text-slate-900 dark:text-slate-100">
+                          {Number(data.family_financials.system.family_members_in_system).toLocaleString("ar-LY")}
+                        </p>
+                      </div>
+                      <div className="rounded border border-cyan-200 bg-cyan-50 px-2 py-2 dark:border-cyan-900 dark:bg-cyan-900/30">
+                        <p className="text-cyan-700 dark:text-cyan-300">الملف</p>
+                        <p className="font-black text-cyan-900 dark:text-cyan-100">
+                          {data.family_financials.source.family_count_from_file === null
+                            ? "—"
+                            : Number(data.family_financials.source.family_count_from_file).toLocaleString("ar-LY")}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <p className="px-1 text-[11px] font-black text-slate-500 dark:text-slate-400">الرصيد المستخدم/الموزع</p>
+                      <div className="rounded border border-sky-200 bg-sky-50 px-2 py-2 dark:border-sky-900 dark:bg-sky-900/30">
+                        <p className="text-sky-700 dark:text-sky-300">المنظومة (استيراد فقط)</p>
+                        <p className="font-black text-sky-900 dark:text-sky-100">
+                          {Number(data.family_financials.system.distributed_from_import_only).toLocaleString("ar-LY")} د.ل
+                        </p>
+                      </div>
+                      <div className="rounded border border-amber-200 bg-amber-50 px-2 py-2 dark:border-amber-900 dark:bg-amber-900/30">
+                        <p className="text-amber-700 dark:text-amber-300">الملف</p>
+                        <p className="font-black text-amber-900 dark:text-amber-100">
+                          {data.family_financials.source.used_balance_from_file === null
+                            ? "—"
+                            : `${Number(data.family_financials.source.used_balance_from_file).toLocaleString("ar-LY")} د.ل`}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <p className="px-1 text-[11px] font-black text-slate-500 dark:text-slate-400">مرجع</p>
+                      <div
+                        className={`rounded border px-2 py-2 ${data.family_financials.import_reconciliation.is_match === null
+                          ? "border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/40"
+                          : data.family_financials.import_reconciliation.is_match
+                          ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-900/30"
+                          : "border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-900/30"}`}
+                      >
+                        <p
+                          className={`text-[11px] font-bold ${data.family_financials.import_reconciliation.is_match === null
+                            ? "text-slate-600 dark:text-slate-300"
+                            : data.family_financials.import_reconciliation.is_match
+                            ? "text-emerald-700 dark:text-emerald-300"
+                            : "text-red-700 dark:text-red-300"}`}
+                        >
+                          دين لصالح الشركة (فرق التوزيع)
+                        </p>
+                        <p className="font-black text-slate-900 dark:text-slate-100">
+                          {data.family_financials.import_reconciliation.diff === null
+                            ? "—"
+                            : `${Number(data.family_financials.import_reconciliation.diff).toLocaleString("ar-LY")} د.ل`}
+                        </p>
+                      </div>
+                      <div className="rounded border border-slate-300 bg-white px-2 py-2 dark:border-slate-700 dark:bg-slate-900/40">
+                        <p className="text-slate-500 dark:text-slate-400">اسم ملف الاستيراد</p>
+                        <p className="truncate font-black text-slate-900 dark:text-slate-100" title={data.family_financials.source.file_name ?? "—"}>
+                          {data.family_financials.source.file_name ?? "—"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="rounded border border-sky-200 bg-sky-50/70 p-3 dark:border-sky-800 dark:bg-sky-900/20">
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <p className="text-xs font-black text-sky-800 dark:text-sky-300">
@@ -240,6 +356,7 @@ export function BeneficiaryTransactionsPanelButton({ beneficiaryId, beneficiaryN
                       <tr className="border-b bg-slate-50 text-right dark:border-slate-700 dark:bg-slate-800/60">
                         <th className="p-2">النوع</th>
                         <th className="p-2">المبلغ</th>
+                        <th className="p-2">ملف الاستيراد</th>
                         <th className="p-2">المرفق</th>
                         <th className="p-2">الحالة</th>
                         <th className="p-2">التاريخ</th>
@@ -249,13 +366,14 @@ export function BeneficiaryTransactionsPanelButton({ beneficiaryId, beneficiaryN
                     <tbody>
                       {data.transactions.length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="p-3 text-center text-slate-500 dark:text-slate-400">لا توجد حركات لهذا المستفيد</td>
+                          <td colSpan={7} className="p-3 text-center text-slate-500 dark:text-slate-400">لا توجد حركات لهذا المستفيد</td>
                         </tr>
                       ) : (
                         data.transactions.map((tx) => (
                           <tr key={tx.id} className="border-b dark:border-slate-800">
                             <td className="p-2">{typeLabel(tx.type)}</td>
                             <td className="p-2">{tx.amount.toLocaleString("ar-LY")} د.ل</td>
+                            <td className="p-2" title={tx.import_source_file_name ?? "—"}>{tx.import_source_file_name ?? "—"}</td>
                             <td className="p-2">{tx.facility_name}</td>
                             <td className="p-2">
                               {tx.is_cancelled ? (

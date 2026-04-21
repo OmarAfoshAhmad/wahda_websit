@@ -16,10 +16,16 @@ async function ensureFamilyImportArchiveTable() {
       "used_balance_from_file" NUMERIC(12, 2) NOT NULL DEFAULT 0,
       "source_row_number" INTEGER,
       "imported_by" TEXT,
+      "source_file_name" TEXT,
       "last_imported_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "FamilyImportArchive"
+    ADD COLUMN IF NOT EXISTS "source_file_name" TEXT;
   `);
 }
 
@@ -105,6 +111,7 @@ export async function GET(
       total_balance_from_file: number;
       used_balance_from_file: number;
       source_row_number: number | null;
+      source_file_name: string | null;
       last_imported_at: Date;
     }>>`
       SELECT
@@ -112,6 +119,7 @@ export async function GET(
         "total_balance_from_file"::float8 AS total_balance_from_file,
         "used_balance_from_file"::float8 AS used_balance_from_file,
         "source_row_number"::int AS source_row_number,
+        "source_file_name",
         "last_imported_at"
       FROM "FamilyImportArchive"
       WHERE "family_base_card" = ${familyBaseCard}
@@ -144,6 +152,7 @@ export async function GET(
             total_balance_from_file: archive ? round2(Number(archive.total_balance_from_file ?? 0)) : null,
             used_balance_from_file: archive ? round2(sourceUsedRaw) : null,
             source_row_number: archive?.source_row_number ?? null,
+            source_file_name: archive?.source_file_name ?? null,
             last_imported_at: archive?.last_imported_at ?? null,
           },
           system: {
