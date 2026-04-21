@@ -38,6 +38,13 @@ export type FixStatusAnomaliesResult = {
   error?: string;
 };
 
+export type FixTotalBalanceDriftResult = {
+  success: boolean;
+  fixed_count: number;
+  total_corrected: number;
+  error?: string;
+};
+
 export async function checkBalanceDriftAction(): Promise<DriftCheckResult> {
   const session = await getSession();
   if (!session?.is_admin) {
@@ -336,5 +343,86 @@ export async function recalcBalancesAction(actor?: BackgroundActor): Promise<Rec
   } catch (err) {
     console.error("[recalcBalancesAction]", err);
     return { success: false, fixed_count: 0, status_changes: 0, total_drift: 0, error: "حدث خطأ أثناء الإصلاح" };
+  }
+}
+
+/**
+ * يصلح الحالات التي تكون فيها total_balance أقل من remaining_balance + مجموع الحركات.
+ * هذا النوع من الانجراف يُسبب فشل assertBeneficiaryBalanceInvariant ويمنع عمليات الخصم.
+ * الشرط: remaining_balance > 0 AND total_balance < remaining_balance + sum_spent
+ */
+export async function fixTotalBalanceDriftAction(actor?: BackgroundActor): Promise<FixTotalBalanceDriftResult> {
+  const session = actor
+    ? { username: actor.username, is_admin: actor.isAdmin }
+    : await getSession();
+  if (!session?.is_admin) {
+    return { success: false, fixed_count: 0, total_corrected: 0, error: "غير مصرح" };
+  }
+
+  try {
+    const candidates = await prisma.$queryRaw<Array<{
+      id: string;
+      name: string;
+      card_number: string;
+      stored_total: number;
+      remaining: number;
+      sum_spent: number;
+      correct_total: number;
+    }>>`
+      SELECT
+        b.id,
+        b.name,
+        b.card_number,
+        b.total_balance::float8 AS stored_total,
+        b.remaining_balance::float8 AS remaining,
+        COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END), 0)::float8 AS sum_spent,
+        (b.remaining_balance + COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END), 0))::float8 AS correct_total
+      FROM "Beneficiary" b
+      LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id
+      WHERE b.deleted_at IS NULL
+        AND b.remaining_balance > 0.01
+      GROUP BY b.id, b.name, b.card_number, b.total_balance, b.remaining_balance
+      HAVING (b.remaining_balance + COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END), 0)) - b.total_balance > 0.01
+      ORDER BY ((b.remaining_balance + COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END), 0)) - b.total_balance) DESC
+    `;
+
+    if (candidates.length === 0) {
+      return { success: true, fixed_count: 0, total_corrected: 0 };
+    }
+
+    const totalCorrected = candidates.reduce((sum, c) => sum + (c.correct_total - c.stored_total), 0);
+
+    await prisma.$transaction([
+      ...candidates.map((c) =>
+        prisma.beneficiary.update({
+          where: { id: c.id },
+          data: { total_balance: Math.round(c.correct_total * 100) / 100 },
+        }),
+      ),
+      prisma.auditLog.create({
+        data: {
+          user: session.username,
+          action: AUDIT_ACTIONS.BALANCE_DRIFT_FIX,
+          metadata: {
+            fix_type: "total_balance_drift",
+            fixed_count: candidates.length,
+            total_corrected: Math.round(totalCorrected * 100) / 100,
+            details: candidates.map((c) => ({
+              id: c.id,
+              name: c.name,
+              card_number: c.card_number,
+              stored_total: c.stored_total,
+              correct_total: c.correct_total,
+              diff: Math.round((c.correct_total - c.stored_total) * 100) / 100,
+            })),
+          },
+        },
+      }),
+    ]);
+
+    return { success: true, fixed_count: candidates.length, total_corrected: Math.round(totalCorrected * 100) / 100 };
+  } catch (err) {
+    console.error("[fixTotalBalanceDriftAction]", err);
+    return { success: false, fixed_count: 0, total_corrected: 0, error: "حدث خطأ أثناء إصلاح انجراف الرصيد الكلي" };
   }
 }

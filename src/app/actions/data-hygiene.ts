@@ -4,11 +4,12 @@ import { revalidatePath } from "next/cache";
 import { getSession } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { AUDIT_ACTIONS } from "@/lib/constants";
+import { Prisma } from "@prisma/client";
+import { extractBaseCard, normalizePersonName } from "@/lib/normalize";
 
 const DEFAULT_NOTIFICATION_RETENTION_DAYS = 90;
 const DEFAULT_AUDIT_RETENTION_DAYS = 180;
 const DEFAULT_JOBS_RETENTION_DAYS = 30;
-const LOCKED_DELETED_FACILITY_HASH = "$2b$10$t36NxAKrnxJr4x3CH.mgNuHTj3EsRibdaGT2EoXwJZS1ki4do6X6e";
 const RESET_REQUIRED_FACILITY_HASH = "$2b$10$zIN5eU5a4P.45wgaiqCJzuw2vPDgNdYT1Lmr6eeHxndRxzS3rLsb6";
 
 type SweepRequest = {
@@ -59,6 +60,7 @@ export type ParentCardPatternFixResult = {
   success: boolean;
   mode: ParentCardPatternFixMode;
   processed_count: number;
+  merged_count: number;
   skipped_count: number;
   conflict_count: number;
   h2_fixed_count: number;
@@ -182,10 +184,6 @@ export async function runDataHygieneSweepAction(
           SELECT COUNT(*)::int AS deleted_facilities_count
           FROM "Facility" f
           WHERE f.deleted_at IS NOT NULL
-            AND (
-              f.must_change_password = false
-              OR f.password_hash <> ${LOCKED_DELETED_FACILITY_HASH}
-            )
         `.then((rows) => Number(rows[0]?.deleted_facilities_count ?? 0)),
         prisma.notification.count({
           where: { beneficiary: { deleted_at: { not: null } } },
@@ -290,18 +288,47 @@ export async function runDataHygieneSweepAction(
         `;
       }
 
-      if (mode === "deleted_facilities") {
-        await tx.$executeRaw`
-          UPDATE "Facility" f
-          SET
-            password_hash = ${LOCKED_DELETED_FACILITY_HASH},
-            must_change_password = true
-          WHERE f.deleted_at IS NOT NULL
-            AND (
-              f.must_change_password = false
-              OR f.password_hash <> ${LOCKED_DELETED_FACILITY_HASH}
-            )
-        `;
+      let deletedFacilitiesHardDeleted = 0;
+      let deletedFacilitiesMovedTransactions = 0;
+      if (mode === "all" || mode === "deleted_facilities") {
+        const deletedFacilityRows = await tx.facility.findMany({
+          where: { deleted_at: { not: null } },
+          select: { id: true },
+        });
+
+        if (deletedFacilityRows.length > 0) {
+          const deletedFacilityIds = deletedFacilityRows.map((row) => row.id);
+          const archiveUsername = "__archive_deleted_facilities__";
+          const archive = await tx.facility.upsert({
+            where: { username: archiveUsername },
+            update: {
+              deleted_at: null,
+              is_admin: false,
+              is_manager: false,
+              is_employee: false,
+              must_change_password: true,
+            },
+            create: {
+              name: "ارشيف المرافق المحذوفة",
+              username: archiveUsername,
+              password_hash: RESET_REQUIRED_FACILITY_HASH,
+              is_admin: false,
+              is_manager: false,
+              is_employee: false,
+              must_change_password: true,
+            },
+            select: { id: true },
+          });
+
+          deletedFacilitiesMovedTransactions = (await tx.transaction.updateMany({
+            where: { facility_id: { in: deletedFacilityIds } },
+            data: { facility_id: archive.id },
+          })).count;
+
+          deletedFacilitiesHardDeleted = (await tx.facility.deleteMany({
+            where: { id: { in: deletedFacilityIds } },
+          })).count;
+        }
       }
 
       if (mode === "all" || mode === "old_read_notifications") {
@@ -354,7 +381,9 @@ export async function runDataHygieneSweepAction(
             unlinked_corrections_soft_cancelled: unlinkedCorrectionsCount,
             duplicate_movements_soft_cancelled: duplicateMovementsCount,
             invalid_password_facilities_reset_forced: invalidPasswordFacilitiesCount,
-            deleted_facilities_lock_normalized: deletedFacilitiesCount,
+            deleted_facilities_hard_deleted: deletedFacilitiesHardDeleted,
+            deleted_facilities_transactions_reassigned: deletedFacilitiesMovedTransactions,
+            deleted_facilities_skipped_has_transactions: Math.max(0, deletedFacilitiesCount - deletedFacilitiesHardDeleted),
             orphaned_notifications_deleted: orphanedCount,
             old_read_notifications_deleted: oldReadCount,
             old_login_audit_logs_deleted: oldLoginAuditCount,
@@ -365,10 +394,13 @@ export async function runDataHygieneSweepAction(
       });
     });
 
-    revalidatePath("/admin/db-anomalies");
-    revalidatePath("/admin/balance-health");
-    revalidatePath("/admin/duplicates");
-    revalidatePath("/transactions");
+    // عند التشغيل بالخلفية (actor موجود) لا نستدعي revalidatePath لتفادي خطأ Next.js.
+    if (!actor) {
+      revalidatePath("/admin/db-anomalies");
+      revalidatePath("/admin/balance-health");
+      revalidatePath("/admin/duplicates");
+      revalidatePath("/transactions");
+    }
 
     return {
       success: true,
@@ -418,10 +450,14 @@ function normalizeParentCardByMode(cardNumber: string, mode: ParentCardPatternFi
     if (num === 2) {
       return { changed: true, nextCard: `${base}H1`, reason: "h2_to_h1" as const };
     }
+    // H بدون رقم (مثل WAB2025123H) → يُحوَّل إلى H1 في وضع all_to_numbered
+    if (num === null && mode === "all_to_numbered") {
+      return { changed: true, nextCard: `${base}H1`, reason: "plain_to_numbered" as const };
+    }
     return { changed: false, nextCard: card, reason: "h_valid" as const };
   }
 
-  if (code !== "M" && code !== "F") {
+  if (code !== "M" && code !== "F" && code !== "W") {
     return { changed: false, nextCard: card, reason: "not_parent_suffix" as const };
   }
 
@@ -446,6 +482,15 @@ function normalizeParentCardByMode(cardNumber: string, mode: ParentCardPatternFi
 
 export async function runParentCardPatternFixAction(request: {
   mode?: ParentCardPatternFixMode;
+  onProgress?: (progress: {
+    total: number;
+    examined: number;
+    processed: number;
+    skipped: number;
+    conflicts: number;
+    h2Fixed: number;
+    normalized: number;
+  }) => void;
 } = {}, actor?: BackgroundActor): Promise<ParentCardPatternFixResult> {
   const session = actor
     ? { id: actor.id, username: actor.username, is_admin: actor.isAdmin }
@@ -455,6 +500,7 @@ export async function runParentCardPatternFixAction(request: {
       success: false,
       mode: request.mode ?? "all_to_numbered",
       processed_count: 0,
+      merged_count: 0,
       skipped_count: 0,
       conflict_count: 0,
       h2_fixed_count: 0,
@@ -471,10 +517,13 @@ export async function runParentCardPatternFixAction(request: {
       FROM "Beneficiary" b
       WHERE b.deleted_at IS NULL
         AND (
-          b.card_number ~ '^WAB2025[0-9]+M$'
+          b.card_number ~ '^WAB2025[0-9]+W$'
+          OR b.card_number ~ '^WAB2025[0-9]+W1$'
+          OR b.card_number ~ '^WAB2025[0-9]+M$'
           OR b.card_number ~ '^WAB2025[0-9]+M1$'
           OR b.card_number ~ '^WAB2025[0-9]+F$'
           OR b.card_number ~ '^WAB2025[0-9]+F1$'
+          OR b.card_number ~ '^WAB2025[0-9]+H$'
           OR b.card_number ~ '^WAB2025[0-9]+H2$'
         )
       ORDER BY b.card_number ASC
@@ -483,15 +532,39 @@ export async function runParentCardPatternFixAction(request: {
 
     const details: Array<Record<string, unknown>> = [];
     let processed = 0;
+    let merged = 0;
     let skipped = 0;
     let conflicts = 0;
     let h2Fixed = 0;
     let parentNormalized = 0;
+    let examined = 0;
     const undoSnapshot: Array<Record<string, unknown>> = [];
 
+    request.onProgress?.({
+      total: candidates.length,
+      examined,
+      processed,
+      skipped,
+      conflicts,
+      h2Fixed,
+      normalized: parentNormalized,
+    });
+
     for (const row of candidates) {
+      examined += 1;
       const normalized = normalizeParentCardByMode(row.card_number, mode);
       if (!normalized.changed || normalized.nextCard === row.card_number) {
+        if (examined % 25 === 0 || examined === candidates.length) {
+          request.onProgress?.({
+            total: candidates.length,
+            examined,
+            processed,
+            skipped,
+            conflicts,
+            h2Fixed,
+            normalized: parentNormalized,
+          });
+        }
         continue;
       }
 
@@ -501,10 +574,216 @@ export async function runParentCardPatternFixAction(request: {
           card_number: normalized.nextCard,
           id: { not: row.id },
         },
-        select: { id: true, card_number: true },
+        select: {
+          id: true,
+          name: true,
+          card_number: true,
+          total_balance: true,
+          remaining_balance: true,
+          status: true,
+          completed_via: true,
+        },
       });
 
       if (conflict) {
+        const samePersonByNameAndBaseCard =
+          normalizePersonName(conflict.name) === normalizePersonName(row.name) &&
+          extractBaseCard(conflict.card_number) === extractBaseCard(row.card_number);
+
+        if (samePersonByNameAndBaseCard) {
+          const mergeResult = await prisma.$transaction(async (tx) => {
+            const source = await tx.beneficiary.findUnique({
+              where: { id: row.id },
+              select: {
+                id: true,
+                name: true,
+                card_number: true,
+                total_balance: true,
+                remaining_balance: true,
+                status: true,
+                completed_via: true,
+                deleted_at: true,
+              },
+            });
+
+            const target = await tx.beneficiary.findUnique({
+              where: { id: conflict.id },
+              select: {
+                id: true,
+                name: true,
+                card_number: true,
+                total_balance: true,
+                remaining_balance: true,
+                status: true,
+                completed_via: true,
+                deleted_at: true,
+              },
+            });
+
+            if (!source || !target || source.deleted_at || target.deleted_at) {
+              return { merged: false, movedTransactions: 0, movedNotifications: 0, reason: "missing_or_deleted" };
+            }
+
+            // دائمًا نحتفظ بالسجل الذي يحمل الرقم المستهدف (normalized.nextCard)
+            // وننقل إليه حركات وإشعارات السجل الآخر.
+            const keepId = target.id;
+            const mergeId = source.id;
+            const keepCardNumber = target.card_number;
+            const keepCompletedVia = target.completed_via ?? source.completed_via;
+
+            // يوجد قيد فريد فعلي في DB: IMPORT النشطة (is_cancelled=false) واحدة فقط لكل مستفيد.
+            // لذلك نلغي أي IMPORT زائدة قبل نقل الحركات لتفادي فشل updateMany.
+            const sourceActiveImports = await tx.transaction.findMany({
+              where: {
+                beneficiary_id: mergeId,
+                type: "IMPORT",
+                is_cancelled: false,
+              },
+              orderBy: { created_at: "asc" },
+              select: { id: true },
+            });
+
+            const targetHasActiveImport = await tx.transaction.findFirst({
+              where: {
+                beneficiary_id: keepId,
+                type: "IMPORT",
+                is_cancelled: false,
+              },
+              select: { id: true },
+            });
+
+            const importIdsToCancel: string[] = [];
+
+            // المصدر نفسه يجب ألا يحمل أكثر من IMPORT نشطة واحدة بعد التنظيف.
+            if (sourceActiveImports.length > 1) {
+              importIdsToCancel.push(...sourceActiveImports.slice(1).map((row) => row.id));
+            }
+
+            // إذا الهدف لديه IMPORT نشطة، نلغي أيضًا IMPORT النشطة المتبقية في المصدر قبل النقل.
+            if (targetHasActiveImport && sourceActiveImports.length > 0) {
+              const sourcePrimaryImportId = sourceActiveImports[0]?.id;
+              if (sourcePrimaryImportId && !importIdsToCancel.includes(sourcePrimaryImportId)) {
+                importIdsToCancel.push(sourcePrimaryImportId);
+              }
+            }
+
+            const cancelledSourceImports = importIdsToCancel.length > 0
+              ? (await tx.transaction.updateMany({
+                  where: { id: { in: importIdsToCancel } },
+                  data: { is_cancelled: true },
+                })).count
+              : 0;
+
+            const movedTransactions = await tx.transaction.updateMany({
+              where: { beneficiary_id: mergeId },
+              data: { beneficiary_id: keepId },
+            });
+
+            const movedNotifications = await tx.notification.updateMany({
+              where: { beneficiary_id: mergeId },
+              data: { beneficiary_id: keepId },
+            });
+
+            const activeTransactions = await tx.transaction.aggregate({
+              where: {
+                beneficiary_id: keepId,
+                is_cancelled: false,
+                type: { not: "CANCELLATION" },
+              },
+              _sum: { amount: true },
+            });
+
+            const mergedTotal = Math.max(Number(source.total_balance) || 0, Number(target.total_balance) || 0);
+            const spent = Number(activeTransactions._sum.amount ?? 0);
+            const remaining = Math.max(0, mergedTotal - spent);
+            const nextStatus =
+              source.status === "SUSPENDED" || target.status === "SUSPENDED"
+                ? "SUSPENDED"
+                : (remaining <= 0 ? "FINISHED" : "ACTIVE");
+
+            await tx.beneficiary.update({
+              where: { id: keepId },
+              data: {
+                card_number: keepCardNumber,
+                total_balance: mergedTotal,
+                remaining_balance: remaining,
+                status: nextStatus,
+                completed_via: nextStatus === "FINISHED"
+                  ? (keepCompletedVia ?? "IMPORT")
+                  : null,
+              },
+            });
+
+            await tx.beneficiary.update({
+              where: { id: mergeId },
+              data: { deleted_at: new Date() },
+            });
+
+            return {
+              merged: true,
+              keepBeneficiaryId: keepId,
+              movedTransactions: movedTransactions.count,
+              movedNotifications: movedNotifications.count,
+              cancelledSourceImports,
+              reason: "kept_numbered_target",
+            };
+          });
+
+          if (mergeResult.merged) {
+            processed += 1;
+            merged += 1;
+            details.push({
+              beneficiary_id: row.id,
+              beneficiary_name: row.name,
+              old_card_number: row.card_number,
+              new_card_number: conflict.card_number,
+              result: "merged_to_numbered",
+              reason: "name_and_base_card_match",
+              merged_into_beneficiary_id: mergeResult.keepBeneficiaryId,
+              moved_transactions: mergeResult.movedTransactions,
+              moved_notifications: mergeResult.movedNotifications,
+              cancelled_source_imports: mergeResult.cancelledSourceImports,
+              merge_strategy: mergeResult.reason,
+            });
+            if ((processed + skipped) % 25 === 0 || (processed + skipped) === candidates.length) {
+              request.onProgress?.({
+                total: candidates.length,
+                examined,
+                processed,
+                skipped,
+                conflicts,
+                h2Fixed,
+                normalized: parentNormalized,
+              });
+            }
+            continue;
+          }
+
+          skipped += 1;
+          conflicts += 1;
+          details.push({
+            beneficiary_id: row.id,
+            beneficiary_name: row.name,
+            old_card_number: row.card_number,
+            new_card_number: normalized.nextCard,
+            result: "skipped_conflict_merge_blocked",
+            conflict_with: conflict.id,
+            reason: mergeResult.reason,
+          });
+          if ((processed + skipped) % 25 === 0 || (processed + skipped) === candidates.length) {
+            request.onProgress?.({
+              total: candidates.length,
+              examined,
+              processed,
+              skipped,
+              conflicts,
+              h2Fixed,
+              normalized: parentNormalized,
+            });
+          }
+          continue;
+        }
+
         skipped += 1;
         conflicts += 1;
         details.push({
@@ -516,13 +795,53 @@ export async function runParentCardPatternFixAction(request: {
           conflict_with: conflict.id,
           reason: normalized.reason,
         });
+        if ((processed + skipped) % 25 === 0 || (processed + skipped) === candidates.length) {
+          request.onProgress?.({
+            total: candidates.length,
+            examined,
+            processed,
+            skipped,
+            conflicts,
+            h2Fixed,
+            normalized: parentNormalized,
+          });
+        }
         continue;
       }
 
-      await prisma.beneficiary.update({
-        where: { id: row.id },
-        data: { card_number: normalized.nextCard },
-      });
+      try {
+        await prisma.beneficiary.update({
+          where: { id: row.id },
+          data: { card_number: normalized.nextCard },
+        });
+      } catch (updateError) {
+        // لا نفشل كامل المهمة بسبب تعارض فريد لسجل واحد؛ نُسجّل الحالة ونتابع.
+        if (updateError instanceof Prisma.PrismaClientKnownRequestError && updateError.code === "P2002") {
+          skipped += 1;
+          conflicts += 1;
+          details.push({
+            beneficiary_id: row.id,
+            beneficiary_name: row.name,
+            old_card_number: row.card_number,
+            new_card_number: normalized.nextCard,
+            result: "skipped_conflict_runtime",
+            reason: "unique_constraint",
+          });
+          if ((processed + skipped) % 25 === 0 || (processed + skipped) === candidates.length) {
+            request.onProgress?.({
+              total: candidates.length,
+              examined,
+              processed,
+              skipped,
+              conflicts,
+              h2Fixed,
+              normalized: parentNormalized,
+            });
+          }
+          continue;
+        }
+        throw updateError;
+      }
 
       processed += 1;
       undoSnapshot.push({
@@ -544,7 +863,32 @@ export async function runParentCardPatternFixAction(request: {
         result: "updated",
         reason: normalized.reason,
       });
+
+      if ((processed + skipped) % 25 === 0 || (processed + skipped) === candidates.length) {
+        request.onProgress?.({
+          total: candidates.length,
+          examined,
+          processed,
+          skipped,
+          conflicts,
+          h2Fixed,
+          normalized: parentNormalized,
+        });
+      }
     }
+
+    request.onProgress?.({
+      total: candidates.length,
+      examined,
+      processed,
+      skipped,
+      conflicts,
+      h2Fixed,
+      normalized: parentNormalized,
+    });
+
+    const detailsLimit = 500;
+    const detailsForAudit = details.length > detailsLimit ? details.slice(0, detailsLimit) : details;
 
     await prisma.auditLog.create({
       data: {
@@ -553,26 +897,32 @@ export async function runParentCardPatternFixAction(request: {
         metadata: {
           mode,
           processed_count: processed,
+          merged_count: merged,
           skipped_count: skipped,
           conflict_count: conflicts,
           h2_fixed_count: h2Fixed,
           parent_suffix_normalized_count: parentNormalized,
           candidates_count: candidates.length,
-          details,
+          details_count: details.length,
+          details_truncated: details.length > detailsLimit,
+          details: detailsForAudit,
           undo_snapshot: undoSnapshot,
         },
       },
     });
 
-    revalidatePath("/admin/db-anomalies");
-    revalidatePath("/admin/balance-health");
-    revalidatePath("/admin/duplicates");
-    revalidatePath("/admin/audit-log");
+    if (!actor) {
+      revalidatePath("/admin/db-anomalies");
+      revalidatePath("/admin/balance-health");
+      revalidatePath("/admin/duplicates");
+      revalidatePath("/admin/audit-log");
+    }
 
     return {
       success: true,
       mode,
       processed_count: processed,
+      merged_count: merged,
       skipped_count: skipped,
       conflict_count: conflicts,
       h2_fixed_count: h2Fixed,
@@ -580,15 +930,17 @@ export async function runParentCardPatternFixAction(request: {
     };
   } catch (error) {
     console.error("[runParentCardPatternFixAction]", error);
+    const detailedError = error instanceof Error ? error.message : String(error);
     return {
       success: false,
       mode,
       processed_count: 0,
+      merged_count: 0,
       skipped_count: 0,
       conflict_count: 0,
       h2_fixed_count: 0,
       parent_suffix_normalized_count: 0,
-      error: "تعذّر تنفيذ تحويل نمط البطاقات",
+      error: `تعذّر تنفيذ تحويل نمط البطاقات: ${detailedError}`,
     };
   }
 }
@@ -793,10 +1145,12 @@ export async function runNormalizeImportIntegerDistributionAction(
       },
     });
 
-    revalidatePath("/admin/db-anomalies");
-    revalidatePath("/admin/balance-health");
-    revalidatePath("/admin/duplicates");
-    revalidatePath("/admin/audit-log");
+    if (!actor) {
+      revalidatePath("/admin/db-anomalies");
+      revalidatePath("/admin/balance-health");
+      revalidatePath("/admin/duplicates");
+      revalidatePath("/admin/audit-log");
+    }
 
     return {
       success: true,
@@ -976,10 +1330,12 @@ export async function runFixInvalidSubunitAmountsAction(
       },
     });
 
-    revalidatePath("/admin/db-anomalies");
-    revalidatePath("/admin/balance-health");
-    revalidatePath("/admin/duplicates");
-    revalidatePath("/transactions");
+    if (!actor) {
+      revalidatePath("/admin/db-anomalies");
+      revalidatePath("/admin/balance-health");
+      revalidatePath("/admin/duplicates");
+      revalidatePath("/transactions");
+    }
 
     return {
       success: true,

@@ -7,6 +7,7 @@ import { Loader2 } from "lucide-react";
 
 type MergeBatchResponse = {
   error?: string;
+  note?: string;
   mergedGroups?: number;
   mergedRows?: number;
   truncatedCount?: number;
@@ -47,6 +48,8 @@ export function AutoMergeAllZeroVariantsButton() {
       let totalMergedRows = 0;
       let remainingGroups = 0;
       let firstAuditId: string | null = null;
+      let stoppedForManualReview = false;
+      let stopReason = "";
 
       // حد أمان لمنع دوران لا نهائي عند أي حالة غير متوقعة
       for (let iteration = 0; iteration < 300; iteration += 1) {
@@ -82,13 +85,17 @@ export function AutoMergeAllZeroVariantsButton() {
           break;
         }
 
-        // إذا لم يتحرك الدمج في هذه الدورة مع بقاء مجموعات، نتوقف لتجنب دوران غير مفيد
+        // إذا لم يتحرك الدمج في هذه الدورة مع بقاء مجموعات، نتوقف برسالة واضحة بدلاً من اعتبارها خطأ.
         if (Number(data.mergedGroups ?? 0) <= 0) {
-          throw new Error("توقفت المعالجة لأن بعض المجموعات تحتاج مراجعة يدوية.");
+          stoppedForManualReview = true;
+          stopReason = data.note ?? "توقفت المعالجة لأن بعض المجموعات تحتاج مراجعة يدوية.";
+          break;
         }
       }
 
-      const msg = `تم الدمج الآمن بشكل متتالي: ${totalMergedGroups} مجموعة (${totalMergedRows} سجلات)${remainingGroups > 0 ? `، والمتبقي ${remainingGroups} مجموعة` : ""}`;
+      const msg = stoppedForManualReview
+        ? `تم تنفيذ الدمج الآمن الممكن: ${totalMergedGroups} مجموعة (${totalMergedRows} سجلات). ${stopReason}`
+        : `تم الدمج الآمن بشكل متتالي: ${totalMergedGroups} مجموعة (${totalMergedRows} سجلات)${remainingGroups > 0 ? `، والمتبقي ${remainingGroups} مجموعة` : ""}`;
       setQueryFeedback("ok", msg, firstAuditId);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "تعذر تنفيذ الدمج الآمن المتتالي";

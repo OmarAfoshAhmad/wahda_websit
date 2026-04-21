@@ -99,8 +99,8 @@ export async function deductBalance(formData: {
 
       // 1. Get beneficiary with row-level lock (using raw sql as Prisma interactive tx isn't always enough for specific locking locks)
       // On PostgreSQL, we can use SELECT ... FOR UPDATE
-      const beneficiaries = await tx.$queryRaw<Array<{ id: string; name: string; remaining_balance: number; status: string }>>`
-        SELECT id, name, remaining_balance, status FROM "Beneficiary" 
+      const beneficiaries = await tx.$queryRaw<Array<{ id: string; name: string; remaining_balance: number; total_balance: number; status: string }>>`
+        SELECT id, name, remaining_balance, total_balance::float8, status FROM "Beneficiary" 
         WHERE TRANSLATE(
           REGEXP_REPLACE(UPPER(card_number), '[^A-Z0-9٠-٩۰-۹]+', '', 'g'),
           '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹',
@@ -191,6 +191,30 @@ export async function deductBalance(formData: {
         },
       });
 
+      // إصلاح انزياح total_balance تلقائياً قبل فحص الثابت
+      // يحدث هذا الانزياح أحياناً بسبب بيانات قديمة أو عمليات استيراد سابقة أخطأت في ضبط total_balance
+      const spentAfterDeduction = await tx.transaction.aggregate({
+        where: { beneficiary_id: beneficiary.id, is_cancelled: false, type: { not: "CANCELLATION" } },
+        _sum: { amount: true },
+      });
+      const actualSpent = roundCurrency(Number(spentAfterDeduction._sum.amount ?? 0));
+      const expectedTotal = roundCurrency(actualSpent + newBalance);
+      const storedTotal = roundCurrency(Number(beneficiary.total_balance));
+      if (storedTotal !== expectedTotal) {
+        await tx.beneficiary.update({
+          where: { id: beneficiary.id },
+          data: { total_balance: expectedTotal },
+        });
+        logger.warn("total_balance drift detected and repaired during deduction", {
+          beneficiary_id: beneficiary.id,
+          stored_total: storedTotal,
+          expected_total: expectedTotal,
+          spent: actualSpent,
+          remaining: newBalance,
+          context: "deductBalance",
+        });
+      }
+
       await assertBeneficiaryBalanceInvariant(tx, beneficiary.id, "deductBalance");
 
       return {
@@ -226,16 +250,78 @@ export async function deductBalance(formData: {
     return { success: true, newBalance: result.newBalance };
   } catch (error: unknown) {
     logger.error("Deduction error", { error: String(error) });
-    // Only expose known safe messages thrown by our own code
-    const knownErrors = [
-      "المستفيد غير موجود",
-      "رصيد المستفيد صفر أو مكتمل",
-      "حساب المستفيد موقوف ولا يمكن إجراء خصم عليه",
-    ];
+
     const msg = error instanceof Error ? error.message : "";
-    const safeMsg = knownErrors.includes(msg) || msg.startsWith("المبلغ أكبر من الرصيد")
-      ? msg
-      : "تعذر تنفيذ عملية الخصم";
-    return { error: safeMsg };
+    const mapDeductionError = (rawMessage: string): string => {
+      if (!rawMessage) return "تعذر تنفيذ عملية الخصم";
+
+      const knownArabicMessages = [
+        "المستفيد غير موجود",
+        "رصيد المستفيد صفر أو مكتمل",
+        "حساب المستفيد موقوف ولا يمكن إجراء خصم عليه",
+      ];
+      if (knownArabicMessages.includes(rawMessage)) return rawMessage;
+      if (rawMessage.startsWith("المبلغ أكبر من الرصيد")) return rawMessage;
+
+      // يظهر عندما لا تتطابق الأرصدة المخزنة مع دفتر الحركات
+      if (rawMessage.startsWith("BALANCE_GUARD_INVARIANT_FAILED")) {
+        return "فشل التحقق من سلامة الرصيد (عدم تطابق بين الرصيد المخزن والحركات). يلزم مراجعة/إعادة احتساب الأرصدة.";
+      }
+
+      // سباق تزامن على idempotency_key (طلب مكرر بنفس requestId)
+      if (rawMessage.includes("P2002")) {
+        return "تم اكتشاف طلب مكرر أو تعارض تزامن. أعد المحاولة بنفس requestId أو حدّث الصفحة.";
+      }
+
+      if (rawMessage.includes("رقم البطاقة") || rawMessage.includes("المبلغ") || rawMessage.includes("المرفق")) {
+        return rawMessage;
+      }
+
+      return "تعذر تنفيذ عملية الخصم";
+    };
+
+    // سجل الخطأ في AuditLog
+    let sessionForAudit: Awaited<ReturnType<typeof requireActiveFacilitySession>> | null = null;
+    let auditErrorId: string | null = null;
+    try {
+      sessionForAudit = await requireActiveFacilitySession();
+      const audit = await prisma.auditLog.create({
+        data: {
+          facility_id: sessionForAudit?.id ?? null,
+          user: sessionForAudit?.username ?? "anonymous",
+          action: "DEDUCT_BALANCE_ERROR",
+          metadata: {
+            error: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error && error.stack ? error.stack : undefined,
+            card_number: formData.card_number,
+            amount: formData.amount,
+            type: formData.type,
+            transactionDate: formData.transactionDate,
+            facilityId: formData.facilityId,
+            requestId: formData.requestId,
+          },
+        },
+      });
+      auditErrorId = audit.id;
+    } catch (auditError) {
+      logger.error("Failed to write deduction error to audit log", { error: String(auditError) });
+    }
+
+    const detailedReason = mapDeductionError(msg);
+
+    // للمشرف: أعرض السبب الحقيقي + مرجع السجل للتتبع السريع
+    if (sessionForAudit?.is_admin) {
+      const withRef = auditErrorId
+        ? `${detailedReason} (مرجع التتبع: ${auditErrorId})`
+        : detailedReason;
+      return { error: withRef };
+    }
+
+    // لغير المشرف: نحافظ على رسالة آمنة، مع مرجع داخلي عند توفره
+    const publicMessage = detailedReason === "تعذر تنفيذ عملية الخصم"
+      ? (auditErrorId ? `تعذر تنفيذ عملية الخصم (مرجع: ${auditErrorId})` : detailedReason)
+      : detailedReason;
+
+    return { error: publicMessage };
   }
 }

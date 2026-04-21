@@ -90,6 +90,13 @@ export function Shell({
               </div>
               <div className="flex items-center gap-2 lg:hidden">
                 <ThemeSwitcher />
+                <Link
+                  href="/settings"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-primary dark:hover:text-blue-400"
+                  title="تغيير كلمة المرور"
+                >
+                  <KeyRound className="h-5 w-5" />
+                </Link>
                 <button
                   onClick={() => safeLogout()}
                   className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-red-600 dark:hover:text-red-400"

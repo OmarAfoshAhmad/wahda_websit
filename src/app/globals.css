@@ -145,6 +145,15 @@ textarea {
   position: relative;
 }
 
+/* إخفاء شريط التمرير مع الحفاظ على وظيفة التمرير */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
 .section-title {
   letter-spacing: -0.03em;
   line-height: 1.15;

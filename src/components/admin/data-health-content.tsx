@@ -14,6 +14,7 @@ import { StatusAnomaliesFixButton } from "@/components/status-anomalies-fix-butt
 import { OrphanedNotificationsFixButton } from "@/components/orphaned-notifications-fix-button";
 import { ParentCardPatternFixButton } from "@/components/parent-card-pattern-fix-button";
 import { NormalizeImportIntegerDistributionButton } from "../normalize-import-integer-distribution-button";
+import { FixTotalBalancesButton } from "@/components/fix-total-balances-button";
 
 type UnlinkedCorrectionRow = {
   id: string;
@@ -35,6 +36,16 @@ type DuplicateMovementRow = {
   amount: number;
   movement_day: Date;
   duplicate_count: number;
+  first_created_at: Date;
+  last_created_at: Date;
+};
+
+type DuplicateImportRow = {
+  beneficiary_id: string;
+  beneficiary_name: string;
+  card_number: string;
+  duplicate_count: number;
+  total_import_amount: number;
   first_created_at: Date;
   last_created_at: Date;
 };
@@ -120,6 +131,18 @@ type ParentCardPatternRow = {
   pattern_type: string;
 };
 
+type TotalBalanceDriftRow = {
+  id: string;
+  name: string;
+  card_number: string;
+  status: string;
+  stored_total: number;
+  remaining: number;
+  sum_spent: number;
+  correct_total: number;
+  diff: number;
+};
+
 type LegacyFractionalImportRow = {
   family_base_card: string;
   members_count: number;
@@ -162,6 +185,7 @@ export async function DataHealthContent({
 }) {
   const [
     unlinkedCorrections,
+    duplicateImports,
     duplicateMovements,
     invalidPasswordFacilities,
     deletedFacilities,
@@ -175,6 +199,7 @@ export async function DataHealthContent({
     oldImportJobsSummary,
     oldRestoreJobsSummary,
     parentCardPatternRows,
+    totalBalanceDriftRows,
     legacyFractionalImportRows,
     legacyFractionalImportMemberRows,
   ] = await Promise.all([
@@ -196,6 +221,25 @@ export async function DataHealthContent({
         AND t.original_transaction_id IS NULL
         AND t.is_cancelled = false
       ORDER BY t.created_at DESC
+      LIMIT 300
+    `,
+
+    prisma.$queryRaw<DuplicateImportRow[]>`
+      SELECT
+        t.beneficiary_id,
+        b.name AS beneficiary_name,
+        b.card_number,
+        COUNT(*)::int AS duplicate_count,
+        SUM(t.amount)::float8 AS total_import_amount,
+        MIN(t.created_at) AS first_created_at,
+        MAX(t.created_at) AS last_created_at
+      FROM "Transaction" t
+      JOIN "Beneficiary" b ON b.id = t.beneficiary_id
+      WHERE t.type = 'IMPORT'
+        AND t.is_cancelled = false
+      GROUP BY t.beneficiary_id, b.name, b.card_number
+      HAVING COUNT(*) > 1
+      ORDER BY duplicate_count DESC, last_created_at DESC
       LIMIT 300
     `,
 
@@ -421,24 +465,43 @@ export async function DataHealthContent({
         b.name,
         b.card_number,
         CASE
+          WHEN b.card_number ~ '^WAB2025[0-9]+W$' THEN 'زوجة بدون ترقيم (W)'
           WHEN b.card_number ~ '^WAB2025[0-9]+H2$' THEN 'زوج ثاني غير صالح (H2)'
           WHEN b.card_number ~ '^WAB2025[0-9]+M$' THEN 'أم بدون ترقيم (M)'
           WHEN b.card_number ~ '^WAB2025[0-9]+F$' THEN 'أب بدون ترقيم (F)'
-          WHEN b.card_number ~ '^WAB2025[0-9]+M1$' THEN 'أم مرقمة (M1)'
-          WHEN b.card_number ~ '^WAB2025[0-9]+F1$' THEN 'أب مرقم (F1)'
           ELSE 'أخرى'
         END AS pattern_type
       FROM "Beneficiary" b
       WHERE b.deleted_at IS NULL
         AND (
-          b.card_number ~ '^WAB2025[0-9]+M$'
-          OR b.card_number ~ '^WAB2025[0-9]+M1$'
-          OR b.card_number ~ '^WAB2025[0-9]+F$'
-          OR b.card_number ~ '^WAB2025[0-9]+F1$'
+          b.card_number ~ '^WAB2025[0-9]+W$'
           OR b.card_number ~ '^WAB2025[0-9]+H2$'
+          OR b.card_number ~ '^WAB2025[0-9]+M$'
+          OR b.card_number ~ '^WAB2025[0-9]+F$'
         )
       ORDER BY b.card_number
       LIMIT 400
+    `,
+
+    prisma.$queryRaw<TotalBalanceDriftRow[]>`
+      SELECT
+        b.id,
+        b.name,
+        b.card_number,
+        b.status::text,
+        b.total_balance::float8 AS stored_total,
+        b.remaining_balance::float8 AS remaining,
+        COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END), 0)::float8 AS sum_spent,
+        (b.remaining_balance + COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END), 0))::float8 AS correct_total,
+        ((b.remaining_balance + COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END), 0)) - b.total_balance)::float8 AS diff
+      FROM "Beneficiary" b
+      LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id
+      WHERE b.deleted_at IS NULL
+        AND b.remaining_balance > 0.01
+      GROUP BY b.id, b.name, b.card_number, b.status, b.total_balance, b.remaining_balance
+      HAVING (b.remaining_balance + COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END), 0)) - b.total_balance > 0.01
+      ORDER BY diff DESC
+      LIMIT 300
     `,
 
     prisma.$queryRaw<LegacyFractionalImportRow[]>`
@@ -557,6 +620,14 @@ export async function DataHealthContent({
     )
     : duplicateMovements;
 
+  const filteredDuplicateImports = hasSearchQuery
+    ? duplicateImports.filter(
+      (row) =>
+        row.beneficiary_name.toLowerCase().includes(normalizedSearchQuery) ||
+        row.card_number.toLowerCase().includes(normalizedSearchQuery)
+    )
+    : duplicateImports;
+
   const duplicateMovementsCandidateCount = duplicateMovements.reduce(
     (sum, row) => sum + Math.max(0, Number(row.duplicate_count ?? 0) - 1),
     0
@@ -569,10 +640,17 @@ export async function DataHealthContent({
     )
     : parentCardPatternRows;
   const invalidH2Count = parentCardPatternRows.filter((row) => /H2$/i.test(row.card_number)).length;
+  const wifePlainCount = parentCardPatternRows.filter((row) => /W$/i.test(row.card_number)).length;
   const motherPlainCount = parentCardPatternRows.filter((row) => /M$/i.test(row.card_number)).length;
   const fatherPlainCount = parentCardPatternRows.filter((row) => /F$/i.test(row.card_number)).length;
-  const motherNumberedCount = parentCardPatternRows.filter((row) => /M1$/i.test(row.card_number)).length;
-  const fatherNumberedCount = parentCardPatternRows.filter((row) => /F1$/i.test(row.card_number)).length;
+
+  const filteredTotalBalanceDriftRows = hasSearchQuery
+    ? totalBalanceDriftRows.filter(
+      (row) =>
+        row.name.toLowerCase().includes(normalizedSearchQuery) ||
+        row.card_number.toLowerCase().includes(normalizedSearchQuery)
+    )
+    : totalBalanceDriftRows;
   const hygieneCandidates =
     orphanedNotificationRows.length + oldReadNotifications + oldLoginAuditLogs + oldImportJobs + oldRestoreJobs;
   const filteredLegacyFractionalImportRows = hasSearchQuery
@@ -892,6 +970,38 @@ export async function DataHealthContent({
         </div>
       </Section>
 
+      <Section title="تكرارات حركات الاستيراد" count={filteredDuplicateImports.length}>
+        <p className="text-xs text-slate-500">
+          هذه القائمة تعرض المستفيدين الذين لديهم أكثر من حركة IMPORT فعالة.
+        </p>
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b bg-slate-50 text-right dark:border-slate-700 dark:bg-slate-800/60">
+                <th className="p-2">المستفيد</th>
+                <th className="p-2">البطاقة</th>
+                <th className="p-2">عدد IMPORT</th>
+                <th className="p-2">إجمالي IMPORT</th>
+                <th className="p-2">أول تاريخ</th>
+                <th className="p-2">آخر تاريخ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredDuplicateImports.map((row) => (
+                <tr key={`${row.beneficiary_id}-${row.last_created_at.toISOString()}`} className="border-b dark:border-slate-800">
+                  <td className="p-2">{row.beneficiary_name}</td>
+                  <td className="p-2">{row.card_number}</td>
+                  <td className="p-2"><Num value={row.duplicate_count} /></td>
+                  <td className="p-2"><Num value={row.total_import_amount} /></td>
+                  <td className="p-2">{formatDateTripoli(row.first_created_at, "en-GB")}</td>
+                  <td className="p-2">{formatDateTripoli(row.last_created_at, "en-GB")}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Section>
+
       <Section title="مرافق فعالة بكلمة مرور غير صالحة" count={invalidPasswordFacilities.length}>
         <InvalidPasswordFacilitiesFixButton initialCount={invalidPasswordFacilities.length} />
         <div className="overflow-x-auto">
@@ -945,7 +1055,50 @@ export async function DataHealthContent({
         </div>
       </Section>
 
-      <Section title="حالات أنماط بطاقة الأب/الأم (M/F/H2)" count={filteredParentCardPatternRows.length}>
+      <Section title="انجراف الرصيد الكلي (total_balance < remaining + المصروف)" count={filteredTotalBalanceDriftRows.length}>
+        <p className="text-xs text-slate-600 dark:text-slate-300">
+          هذه الحالات فيها <code>total_balance</code> أقل من <code>remaining_balance + مجموع الحركات</code>، مما يُسبب فشل عمليات الخصم برسالة &quot;تعذر تنفيذ عملية الخصم&quot;. الإصلاح يضبط <code>total_balance = remaining + مصروف</code> لكل حالة.
+        </p>
+        <div className="mb-2">
+          <FixTotalBalancesButton />
+        </div>
+        {filteredTotalBalanceDriftRows.length === 0 ? (
+          <p className="text-sm font-medium text-emerald-600">✓ لا يوجد انجراف في الرصيد الكلي</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b bg-slate-50 text-right dark:border-slate-700 dark:bg-slate-800/60">
+                  <th className="p-2">المستفيد</th>
+                  <th className="p-2">البطاقة</th>
+                  <th className="p-2">الحالة</th>
+                  <th className="p-2">total_balance المخزون</th>
+                  <th className="p-2">remaining</th>
+                  <th className="p-2">مجموع المصروف</th>
+                  <th className="p-2 text-amber-600">total_balance الصحيح</th>
+                  <th className="p-2 text-red-600">الفرق</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredTotalBalanceDriftRows.map((row) => (
+                  <tr key={row.id} className="border-b bg-amber-50/40 dark:border-slate-800 dark:bg-amber-950/20">
+                    <td className="p-2">{row.name}</td>
+                    <td className="p-2 font-mono text-xs">{row.card_number}</td>
+                    <td className="p-2 text-xs">{row.status}</td>
+                    <td className="p-2 text-left ltr"><Num value={row.stored_total} /></td>
+                    <td className="p-2 text-left ltr"><Num value={row.remaining} /></td>
+                    <td className="p-2 text-left ltr"><Num value={row.sum_spent} /></td>
+                    <td className="p-2 text-left ltr font-medium text-amber-700 dark:text-amber-400"><Num value={row.correct_total} /></td>
+                    <td className="p-2 text-left ltr font-bold text-red-700 dark:text-red-400">+{row.diff.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
+
+      <Section title="حالات ترميز غير طبيعي في اللاحقة" count={filteredParentCardPatternRows.length}>
         <p className="text-xs text-slate-600 dark:text-slate-300">
           الإحصائيات بالأعلى تمثل كل النظام، بينما "الظاهر في الجدول" يتأثر بالبحث الحالي فقط.
         </p>
@@ -953,10 +1106,9 @@ export async function DataHealthContent({
           totalCount={parentCardPatternRows.length}
           visibleCount={filteredParentCardPatternRows.length}
           invalidH2Count={invalidH2Count}
+          wifePlainCount={wifePlainCount}
           motherPlainCount={motherPlainCount}
           fatherPlainCount={fatherPlainCount}
-          motherNumberedCount={motherNumberedCount}
-          fatherNumberedCount={fatherNumberedCount}
         />
         {filteredParentCardPatternRows.length === 0 ? (
           <p className="text-sm font-medium text-emerald-600">✓ لا توجد حالات تحتاج تحويل في نمط بطاقات الأب/الأم.</p>

@@ -9,6 +9,5 @@ pnpm-debug.log*
 coverage
 .vscode
 .env
-.env.*
 dev-start.ps1
 README.md

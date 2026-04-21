@@ -1631,6 +1631,44 @@ export async function mergeDuplicateBeneficiaries(
         select: { id: true, beneficiary_id: true },
       });
 
+      // ── حماية الدمج من تعارض uniq_active_import_per_beneficiary ──────────────
+      // إذا كان السجل الأساسي لديه IMPORT نشطة، نلغي كل IMPORT نشطة في السجلات المدموجة.
+      // وإلا نُبقي IMPORT واحدة فقط من السجلات المدموجة (الأقدم) ونلغي الباقي.
+      const keepActiveImport = await tx.transaction.findFirst({
+        where: {
+          beneficiary_id: chosenKeepId,
+          type: "IMPORT",
+          is_cancelled: false,
+        },
+        select: { id: true },
+      });
+
+      const mergeActiveImports = await tx.transaction.findMany({
+        where: {
+          beneficiary_id: { in: mergeIds },
+          type: "IMPORT",
+          is_cancelled: false,
+        },
+        orderBy: [{ created_at: "asc" }, { id: "asc" }],
+        select: { id: true },
+      });
+
+      const importIdsToCancel: string[] = [];
+      if (mergeActiveImports.length > 0) {
+        if (keepActiveImport) {
+          importIdsToCancel.push(...mergeActiveImports.map((row) => row.id));
+        } else if (mergeActiveImports.length > 1) {
+          importIdsToCancel.push(...mergeActiveImports.slice(1).map((row) => row.id));
+        }
+      }
+
+      const preMoveCancelledImportDuplicates = importIdsToCancel.length > 0
+        ? (await tx.transaction.updateMany({
+            where: { id: { in: importIdsToCancel } },
+            data: { is_cancelled: true },
+          })).count
+        : 0;
+
       const movedTransactions = await tx.transaction.updateMany({
         where: { id: { in: movedTransactionRows.map((r) => r.id) } },
         data: { beneficiary_id: chosenKeepId },
@@ -1656,6 +1694,34 @@ export async function mergeDuplicateBeneficiaries(
         where: { id: { in: mergeIds } },
         data: { deleted_at: new Date() },
       });
+
+      // ── إزالة تكرار الخصم اليدوي داخل السجل المدموج النهائي ─────────────────
+      // القاعدة: إذا كانت الحركة يدوية (MEDICINE/SUPPLIES) وبنفس اليوم (Tripoli)
+      // ونفس المرفق ونفس القيمة ونفس النوع، نُبقي الأقدم ونلغي الزائد.
+      const postMoveCancelledManualDuplicates = await tx.$executeRaw`
+        WITH ranked AS (
+          SELECT
+            t.id,
+            ROW_NUMBER() OVER (
+              PARTITION BY
+                t.beneficiary_id,
+                t.type,
+                t.facility_id,
+                t.amount,
+                (t.created_at AT TIME ZONE 'Africa/Tripoli')::date
+              ORDER BY t.created_at ASC, t.id ASC
+            ) AS rn
+          FROM "Transaction" t
+          WHERE t.beneficiary_id = ${chosenKeepId}
+            AND t.is_cancelled = false
+            AND t.type IN ('MEDICINE', 'SUPPLIES')
+        )
+        UPDATE "Transaction" t
+        SET is_cancelled = true
+        FROM ranked r
+        WHERE t.id = r.id
+          AND r.rn > 1
+      `;
 
       // إعادة حساب الرصيد الفعلي بعد نقل الحركات لضمان دقة الرصيد المعتمد.
       await recalculateBeneficiaryRemainingFromTransactions(tx, chosenKeepId);
@@ -1686,6 +1752,8 @@ export async function mergeDuplicateBeneficiaries(
         merged_beneficiary_ids: mergeIds,
         moved_transactions: movedTransactions.count,
         moved_notifications: movedNotifications.count,
+        pre_move_cancelled_import_duplicates: preMoveCancelledImportDuplicates,
+        post_move_cancelled_manual_duplicates: Number(postMoveCancelledManualDuplicates ?? 0),
         strategy,
         undo_available: true,
         undo_reverted_at: null,
@@ -2025,7 +2093,14 @@ export async function mergeAllGlobalZeroVariantsAction() {
   }
 
   if (mergedGroups === 0) {
-    return { error: "لا توجد تكرارات صفرية آمنة متبقية للدمج الشامل" };
+    return {
+      success: true,
+      mergedGroups: 0,
+      mergedRows: 0,
+      truncatedCount,
+      firstAuditId,
+      note: "لا توجد تكرارات صفرية آمنة متبقية للدمج الشامل",
+    };
   }
 
   return { success: true, mergedGroups, mergedRows, truncatedCount, firstAuditId };

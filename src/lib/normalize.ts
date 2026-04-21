@@ -74,7 +74,8 @@ const SUFFIX_RELATIONSHIP_MAP: Record<string, string> = {
  */
 export function extractBaseCard(card: string): string {
   const c = normalizeCardNumber(card);
-  const stripped = c.replace(/(?:[DWSH]\d+|[MF]\d*)$/i, "");
+  // D/S/B require an index (e.g. D1), while W/M/F/H may appear with or without index.
+  const stripped = c.replace(/(?:[DSB]\d+|[WMFH]\d*)$/i, "");
   if (/^WAB2025\d+$/i.test(stripped)) {
     return stripped;
   }

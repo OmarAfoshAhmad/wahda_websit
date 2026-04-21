@@ -5,18 +5,36 @@ import { Loader2, ShieldCheck } from "lucide-react";
 import { runDataHygieneSweepAction } from "@/app/actions/data-hygiene";
 import { startMaintenanceJobAction } from "@/app/actions/maintenance-jobs";
 import { ConfirmationModal } from "@/components/confirmation-modal";
+import { useRouter } from "next/navigation";
+import { useMaintenanceJobProgress } from "@/components/use-maintenance-job-progress";
 
 type Props = {
   initialCount: number;
 };
 
 export function DeletedFacilitiesFixButton({ initialCount }: Props) {
+  const router = useRouter();
   const [count, setCount] = useState(initialCount);
   const [isPending, startTransition] = useTransition();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastAffected, setLastAffected] = useState<number | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [jobId, setJobId] = useState<string | null>(null);
+
+  const job = useMaintenanceJobProgress(jobId, (result) => {
+    if (result.success) {
+      setStatusMessage(`${result.summary ?? "اكتملت المعالجة"}. تم تحديث القائمة.`);
+      setError(null);
+      setJobId(null);
+      router.refresh();
+      return;
+    }
+    setError(result.error ?? "فشلت المهمة");
+    setJobId(null);
+  });
+
+  const isRunning = isPending || job.isRunning;
 
   const runFix = () => {
     setError(null);
@@ -27,8 +45,9 @@ export function DeletedFacilitiesFixButton({ initialCount }: Props) {
         setError(queued.error ?? "تعذر بدء المعالجة بالخلفية");
         return;
       }
+      setJobId(queued.job.id);
       setLastAffected(null);
-      setStatusMessage(`تم بدء المعالجة بالخلفية (رقم المهمة: ${queued.job.id}). يمكنك تحديث الصفحة لاحقًا لمراجعة النتائج.`);
+      setStatusMessage(`تم بدء المعالجة بالخلفية (رقم المهمة: ${queued.job.id}).`);
       setConfirmOpen(false);
     });
   };
@@ -48,7 +67,7 @@ export function DeletedFacilitiesFixButton({ initialCount }: Props) {
       if (res.deleted_facilities === 0) {
         setStatusMessage("الفحص: لا توجد مرافق محذوفة تحتاج معالجة حاليا.");
       } else {
-        setStatusMessage(`الفحص: تم العثور على ${res.deleted_facilities.toLocaleString("ar-LY")} مرفق محذوف يحتاج تثبيت الحالة الأمنية.`);
+        setStatusMessage(`الفحص: تم العثور على ${res.deleted_facilities.toLocaleString("ar-LY")} مرفق محذوف قابل للحذف النهائي.`);
       }
     });
   };
@@ -59,23 +78,38 @@ export function DeletedFacilitiesFixButton({ initialCount }: Props) {
         <button
           type="button"
           onClick={runQuickCheck}
-          disabled={isPending}
+          disabled={isRunning}
           className="inline-flex h-10 w-56 items-center justify-center gap-2 whitespace-nowrap rounded-md border border-slate-300 bg-white px-4 text-sm font-black text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
         >
-          {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+          {isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           فحص مرافق محذوفة ({count.toLocaleString("ar-LY")})
         </button>
 
         <button
           type="button"
           onClick={() => setConfirmOpen(true)}
-          disabled={isPending}
+          disabled={isRunning}
           className="inline-flex h-10 w-56 items-center justify-center gap-2 whitespace-nowrap rounded-md bg-[#0f2a4a] px-4 text-sm font-black text-white transition-colors hover:bg-[#0b1f38] disabled:opacity-60"
         >
-          {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-          معالجة مرافق محذوفة
+          {isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+          حذف نهائي للمرافق المحذوفة
         </button>
       </div>
+
+      {jobId && (
+        <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 p-3 text-xs">
+          <div className="flex flex-wrap items-center gap-2 text-slate-700 dark:text-slate-300">
+            <span className="font-bold">الحالة: {job.jobState === "queued" ? "في الانتظار" : "جارية"}</span>
+            <span>التقدم: {Math.max(0, Math.min(100, job.progress))}%</span>
+            {job.total > 0 && <span>المعالج: {job.current.toLocaleString("ar-LY")} / {job.total.toLocaleString("ar-LY")}</span>}
+            <span>{job.elapsedSeconds} ث</span>
+          </div>
+          <div className="mt-2 h-2 w-full rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
+            <div className="h-full bg-emerald-500 transition-all duration-500" style={{ width: `${Math.max(3, Math.min(100, job.progress))}%` }} />
+          </div>
+          {job.message && <p className="mt-2 text-slate-600 dark:text-slate-400">{job.message}</p>}
+        </div>
+      )}
 
       {lastAffected !== null && (
         <p className="text-xs font-bold text-emerald-700 dark:text-emerald-400">
@@ -99,12 +133,12 @@ export function DeletedFacilitiesFixButton({ initialCount }: Props) {
         isOpen={confirmOpen}
         onClose={() => !isPending && setConfirmOpen(false)}
         onConfirm={runFix}
-        title="تأكيد معالجة المرافق المحذوفة"
-        description="سيتم تثبيت منع الدخول للمرافق المحذوفة عبر تهيئة بيانات المصادقة بشكل آمن وموحد."
-        confirmLabel="نعم، نفذ المعالجة"
+        title="تأكيد الحذف النهائي للمرافق المحذوفة"
+        description="سيتم حذف السجلات المحذوفة نهائيا من جدول المرافق إذا لم تكن مرتبطة بحركات."
+        confirmLabel="نعم، نفذ الحذف النهائي"
         cancelLabel="إلغاء"
         variant="warning"
-        isLoading={isPending}
+        isLoading={isRunning}
         error={null}
       />
     </div>

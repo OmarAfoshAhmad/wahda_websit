@@ -423,7 +423,9 @@ export function TransactionImportUploader({
                 <StatBox label="تنظيف غير الموجودين بالملف" value={job.result.purgeMissingFamiliesEnabled ? "مفعل" : "غير مفعل"} color={job.result.purgeMissingFamiliesEnabled ? "amber" : "slate"} />
                 <StatBox label="حذف التسويات القديمة" value={job.result.cleanupOldSettlementsEnabled ? "مفعل" : "غير مفعل"} color={job.result.cleanupOldSettlementsEnabled ? "amber" : "slate"} />
                 <StatBox label="حركات IMPORT حُذفت فعلياً" value={job.result.cleanupDeletedImportTransactions} color="emerald" />
+                <StatBox label="IMPORT ملغاة حُذفت نهائياً" value={job.result.cleanupCancelledImportTransactions} color="emerald" />
                 <StatBox label="حركات SETTLEMENT محذوفة" value={job.result.cleanupDeletedSettlementTransactions} color="emerald" />
+                <StatBox label="SETTLEMENT ملغاة حُذفت نهائياً" value={job.result.cleanupDeletedCancelledSettlementTransactions} color="emerald" />
                 <StatBox label="مستفيدون أُعيد ضبطهم" value={job.result.cleanupTouchedBeneficiaries} color="emerald" />
                 <StatBox label="عائلات غير موجودة تم تنظيفها" value={job.result.cleanupPurgedMissingFamilies} color="red" />
                 <StatBox label="صفوف أرشيف مصدر محذوفة" value={job.result.cleanupDeletedMissingFamilyArchiveRows} color="red" />

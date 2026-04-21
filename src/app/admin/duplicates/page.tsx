@@ -6,7 +6,6 @@ import { getLedgerRemainingByBeneficiaryIds } from "@/lib/ledger-balance";
 import { Shell } from "@/components/shell";
 import { Card, Badge, Input, Button } from "@/components/ui";
 import { buildDuplicateGroups, paginate } from "@/lib/duplicate-groups";
-import { getActiveImportDuplicateCases } from "@/lib/import-duplicate-cases";
 import { getOverdrawnDebtCases } from "@/lib/overdrawn-debt-settlement";
 import { canonicalizeCardNumber, leadingZeroScoreAfterPrefix } from "@/lib/normalize";
 import { RotateCcw, CheckCircle2, AlertCircle } from "lucide-react";
@@ -34,7 +33,6 @@ export default async function DuplicatesAdminPage({
     q?: string; pz?: string; pn?: string; pr?: string; ok?: string; err?: string;
     audit?: string; undone?: string; tab?: string;
     merged?: string; before?: string; after?: string; debtAudit?: string;
-    importView?: string;
     debtCardMode?: string;
     dp?: string;
   }>;
@@ -43,12 +41,11 @@ export default async function DuplicatesAdminPage({
   if (!session) redirect("/login");
   if (!session.is_admin) redirect("/dashboard");
 
-  const { q, pz, pn, pr, ok, err, audit: _audit, undone: _undone, tab, merged, before, after, debtAudit, importView: importViewParam, debtCardMode: debtCardModeParam, dp } = await searchParams;
+  const { q, pz, pn, pr, ok, err, audit: _audit, undone: _undone, tab, merged, before, after, debtAudit, debtCardMode: debtCardModeParam, dp } = await searchParams;
   const isBatchSuccess = (ok ?? "").startsWith("success_batch");
   const limitedMatch = /^success_batch_limited_(\d+)$/.exec(ok ?? "");
   const limitedRemaining = limitedMatch ? Number(limitedMatch[1]) : 0;
-  const activeTab = tab === "merged" || tab === "audit" || tab === "import" || tab === "debt" || tab === "health" ? tab : "review";
-  const importView = importViewParam === "all" ? "all" : "actionable";
+  const activeTab = tab === "merged" || tab === "audit" || tab === "debt" || tab === "health" ? tab : "review";
   const debtCardMode = debtCardModeParam === "old" ? "old" : "all";
   const searchQuery = (q ?? "").trim();
   const normalizedSearchQuery = searchQuery.toLowerCase();
@@ -175,15 +172,12 @@ export default async function DuplicatesAdminPage({
     return `/admin/duplicates?${params.toString()}`;
   };
 
-  const buildTabHref = (nextTab: "review" | "merged" | "audit" | "import" | "debt" | "health") => {
+  const buildTabHref = (nextTab: "review" | "merged" | "audit" | "debt" | "health") => {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
     params.set("pz", String(pageZero));
     params.set("pn", String(pageName));
     params.set("tab", nextTab);
-    if (nextTab === "import" && importView === "all") {
-      params.set("importView", "all");
-    }
     if (nextTab === "debt" && debtCardMode === "old") {
       params.set("debtCardMode", "old");
     }
@@ -300,43 +294,6 @@ export default async function DuplicatesAdminPage({
   );
   const mergedNameById = new Map(mergedNames.map((r) => [r.id, r.name]));
 
-  // ── بيانات تبويب "تكرار IMPORT" فقط عند الحاجة ────────────────────────────
-  const includeHistoricalImportCases = activeTab === "import" && importView === "all";
-  const importDuplicateCasesRaw = activeTab === "import"
-    ? await getActiveImportDuplicateCases({ includeMultiFileRepeat: includeHistoricalImportCases })
-    : [];
-  const importDuplicateCasesBySearch =
-    activeTab === "import" && normalizedSearchQuery.length > 0
-      ? importDuplicateCasesRaw.filter((row) =>
-          row.name.toLowerCase().includes(normalizedSearchQuery) ||
-          row.cardNumber.toLowerCase().includes(normalizedSearchQuery)
-        )
-      : importDuplicateCasesRaw;
-  const isActionableImportCase = (row: (typeof importDuplicateCasesRaw)[number]) =>
-    row.caseType === "ACTIVE_IMPORT_DUPLICATE" && row.extraAmount > 0;
-  const importActionableCount = importDuplicateCasesBySearch.filter(isActionableImportCase).length;
-  const importHistoricalCount = includeHistoricalImportCases
-    ? (importDuplicateCasesBySearch.length - importActionableCount)
-    : 0;
-  const importDuplicateCases = importView === "all"
-    ? importDuplicateCasesBySearch
-    : importDuplicateCasesBySearch.filter(isActionableImportCase);
-  const importDuplicateTotalExtra = importDuplicateCases.reduce((sum, row) => sum + row.extraAmount, 0);
-  const importViewActionableHref = `/admin/duplicates?${new URLSearchParams({
-    ...(q ? { q } : {}),
-    pz: String(pageZero),
-    pn: String(pageName),
-    tab: "import",
-    importView: "actionable",
-  }).toString()}`;
-  const importViewAllHref = `/admin/duplicates?${new URLSearchParams({
-    ...(q ? { q } : {}),
-    pz: String(pageZero),
-    pn: String(pageName),
-    tab: "import",
-    importView: "all",
-  }).toString()}`;
-
   // ── بيانات تبويب "مديونية" فقط عند الحاجة ─────────────────────────────────
   const debtCasesRaw = activeTab === "debt"
     ? await getOverdrawnDebtCases()
@@ -401,7 +358,6 @@ export default async function DuplicatesAdminPage({
   // الإجمالي يحسب فقط من التبويبات التي تم تحميل بياناتها
   const globalDuplicateTotal =
     (needsBeneficiaryData ? zeroVariantGroups.length + sameNameGroups.length + needsReviewZeroVariants.length : 0) +
-    (activeTab === "import" ? importDuplicateCases.length : 0) +
     (activeTab === "debt" ? debtCases.length : 0);
   const debtExportBeforeHref = "/api/admin/duplicates/debt-over-limit/export?mode=before";
   const debtExportAfterHref = `/api/admin/duplicates/debt-over-limit/export?mode=after${debtAudit ? `&auditId=${encodeURIComponent(debtAudit)}` : ""}`;
@@ -482,7 +438,7 @@ export default async function DuplicatesAdminPage({
         )}
 
         <Card className="p-2">
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-6">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
             <Link href={buildTabHref("review")}>
               <Button
                 type="button"
@@ -510,15 +466,6 @@ export default async function DuplicatesAdminPage({
                 حالات تحتاج تدقيق
               </Button>
             </Link>
-            <Link href={buildTabHref("import")}>
-              <Button
-                type="button"
-                variant={activeTab === "import" ? "primary" : "outline"}
-                className="w-full h-10"
-              >
-                حالات تكرار IMPORT
-              </Button>
-            </Link>
             <Link href={buildTabHref("debt")}>
               <Button
                 type="button"
@@ -540,7 +487,7 @@ export default async function DuplicatesAdminPage({
           </div>
         </Card>
 
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
           <Card className="p-4">
             <p className="text-xs font-bold text-slate-500 dark:text-slate-400">جاهزة للدمج</p>
             <p className="mt-1 text-2xl font-black text-slate-900 dark:text-white">{zeroVariantGroups.length}</p>
@@ -552,10 +499,6 @@ export default async function DuplicatesAdminPage({
           <Card className="p-4">
             <p className="text-xs font-bold text-slate-500 dark:text-slate-400">اختلاف الأصفار (تدقيق)</p>
             <p className="mt-1 text-2xl font-black text-amber-600 dark:text-amber-400">{needsReviewZeroVariants.length}</p>
-          </Card>
-          <Card className="p-4">
-            <p className="text-xs font-bold text-slate-500 dark:text-slate-400">تكرار IMPORT</p>
-            <p className="mt-1 text-2xl font-black text-slate-900 dark:text-white">{importDuplicateCases.length}</p>
           </Card>
           <Card className="p-4">
             <p className="text-xs font-bold text-slate-500 dark:text-slate-400">مديونية تجاوز الرصيد</p>
@@ -805,91 +748,6 @@ export default async function DuplicatesAdminPage({
               </div>
             </Card>
 
-          </>
-        )}
-
-        {activeTab === "import" && (
-          <>
-            <Card className="p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex flex-wrap items-center gap-3 text-sm">
-                  <Badge variant="warning">القابلة للمعالجة: {importActionableCount}</Badge>
-                  <Badge variant="default">تاريخية/مراجعة: {importHistoricalCount}</Badge>
-                  <Badge variant="warning">المعروضة: {importDuplicateCases.length}</Badge>
-                  <Badge variant="danger">الإجمالي الزائد: {importDuplicateTotalExtra.toLocaleString("en-US")} د.ل</Badge>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Link href={importViewActionableHref} className="inline-flex">
-                    <Button type="button" variant={importView === "actionable" ? "primary" : "outline"} className="h-10">
-                      قابل للمعالجة فقط
-                    </Button>
-                  </Link>
-                  <Link href={importViewAllHref} className="inline-flex">
-                    <Button type="button" variant={importView === "all" ? "primary" : "outline"} className="h-10">
-                      كل الحالات
-                    </Button>
-                  </Link>
-                  <form method="post" action="/api/admin/duplicates/import-cases/fix-all">
-                    <Button type="submit" className="h-10 bg-red-600 hover:bg-red-700 text-white">
-                      معالجة IMPORT دفعة واحدة
-                    </Button>
-                  </form>
-                </div>
-              </div>
-            </Card>
-
-            <Card className="overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-245 text-sm">
-                  <thead className="bg-slate-50 dark:bg-slate-900/40">
-                    <tr className="text-right">
-                      <th className="px-3 py-2 font-bold">نوع الحالة</th>
-                      <th className="px-3 py-2 font-bold">الاسم</th>
-                      <th className="px-3 py-2 font-bold">رقم البطاقة</th>
-                      <th className="px-3 py-2 font-bold">الرصيد الكلي</th>
-                      <th className="px-3 py-2 font-bold">عدد IMPORT</th>
-                      <th className="px-3 py-2 font-bold">عدد الملفات</th>
-                      <th className="px-3 py-2 font-bold">الرصيد الحالي</th>
-                      <th className="px-3 py-2 font-bold">الزيادة بسبب التكرار</th>
-                      <th className="px-3 py-2 font-bold">الرصيد بعد التصحيح</th>
-                      <th className="px-3 py-2 font-bold">الحالة الحالية</th>
-                      <th className="px-3 py-2 font-bold">الحالة بعد التصحيح</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {importDuplicateCases.length === 0 ? (
-                      <tr>
-                        <td colSpan={11} className="px-3 py-6 text-center text-slate-500 dark:text-slate-400">
-                          {importView === "all"
-                            ? "لا توجد حالات ضمن المرشح الحالي."
-                            : "لا توجد حالات IMPORT مكررة قابلة للمعالجة ضمن المرشح الحالي."}
-                        </td>
-                      </tr>
-                    ) : (
-                      importDuplicateCases.map((row) => (
-                        <tr key={row.beneficiaryId} className="border-t border-slate-100 dark:border-slate-800">
-                          <td className="px-3 py-2">
-                            {row.caseType === "MULTI_FILE_REPEAT"
-                              ? <Badge variant="warning">مكرر بين ملفات</Badge>
-                              : <Badge variant="danger">IMPORT مكرر</Badge>}
-                          </td>
-                          <td className="px-3 py-2">{row.name}</td>
-                          <td className="px-3 py-2">{row.cardNumber}</td>
-                          <td className="px-3 py-2">{row.totalBalance.toLocaleString("en-US")}</td>
-                          <td className="px-3 py-2">{row.importCount}</td>
-                          <td className="px-3 py-2">{row.importFileCount}</td>
-                          <td className="px-3 py-2">{row.currentRemaining.toLocaleString("en-US")}</td>
-                          <td className="px-3 py-2 text-red-700 dark:text-red-400 font-bold">{row.extraAmount.toLocaleString("en-US")}</td>
-                          <td className="px-3 py-2">{row.fixedRemaining.toLocaleString("en-US")}</td>
-                          <td className="px-3 py-2">{row.currentStatus}</td>
-                          <td className="px-3 py-2">{row.fixedStatus}</td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </Card>
           </>
         )}
 

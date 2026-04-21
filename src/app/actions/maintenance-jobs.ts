@@ -12,6 +12,7 @@ import {
 import {
   recalcBalancesAction,
   fixStatusAnomaliesAction,
+  fixTotalBalanceDriftAction,
 } from "@/app/actions/balance-health-actions";
 import { applyActiveImportDuplicateFix } from "@/lib/import-duplicate-cases";
 import { applyOverdrawnDebtSettlement } from "@/lib/overdrawn-debt-settlement";
@@ -19,6 +20,7 @@ import { applyOverdrawnDebtSettlement } from "@/lib/overdrawn-debt-settlement";
 export type MaintenanceJobTask =
   | { kind: "data_hygiene_sweep"; mode: DataHygieneMode }
   | { kind: "recalc_balances" }
+  | { kind: "fix_total_balance_drift" }
   | { kind: "fix_status_anomalies" }
   | { kind: "parent_card_pattern_fix"; mode: ParentCardPatternFixMode }
   | { kind: "normalize_import_integer_distribution" }
@@ -28,6 +30,13 @@ export type MaintenanceJobTask =
 
 export type MaintenanceJobState = "queued" | "running" | "succeeded" | "failed";
 
+export type MaintenanceJobProgress = {
+  current: number;
+  total: number;
+  percent: number;
+  message?: string;
+};
+
 export type MaintenanceJobRecord = {
   id: string;
   createdAt: string;
@@ -36,6 +45,7 @@ export type MaintenanceJobRecord = {
   createdBy: string;
   state: MaintenanceJobState;
   task: MaintenanceJobTask;
+  progress?: MaintenanceJobProgress;
   summary?: string;
   error?: string;
 };
@@ -54,10 +64,12 @@ function summarizeResult(task: MaintenanceJobTask, result: unknown): string {
       return `وضع ${task.mode}: تم التنفيذ`;
     case "recalc_balances":
       return `إصلاح الأرصدة: ${Number(r.fixed_count ?? 0).toLocaleString("ar-LY")} مستفيد`;
+    case "fix_total_balance_drift":
+      return `إصلاح total_balance: ${Number(r.fixed_count ?? 0).toLocaleString("ar-LY")} مستفيد`;
     case "fix_status_anomalies":
       return `تصحيح الحالات: ${Number(r.fixed_count ?? 0).toLocaleString("ar-LY")}`;
     case "parent_card_pattern_fix":
-      return `تحويل البطاقات: ${Number(r.processed_count ?? 0).toLocaleString("ar-LY")}`;
+      return `تحويل البطاقات: ${Number(r.processed_count ?? 0).toLocaleString("ar-LY")} | دمج: ${Number(r.merged_count ?? 0).toLocaleString("ar-LY")} | تخطٍ: ${Number(r.skipped_count ?? 0).toLocaleString("ar-LY")} | تعارض: ${Number(r.conflict_count ?? 0).toLocaleString("ar-LY")}`;
     case "normalize_import_integer_distribution":
       return `تصحيح التوزيع: ${Number(r.processed_families ?? 0).toLocaleString("ar-LY")} عائلة`;
     case "fix_invalid_subunit_amounts":
@@ -71,7 +83,11 @@ function summarizeResult(task: MaintenanceJobTask, result: unknown): string {
   }
 }
 
-async function executeTask(task: MaintenanceJobTask, actor: { id: string; username: string }): Promise<unknown> {
+async function executeTask(
+  task: MaintenanceJobTask,
+  actor: { id: string; username: string },
+  onProgress?: (progress: MaintenanceJobProgress) => void,
+): Promise<unknown> {
   const elevatedActor = { id: actor.id, username: actor.username, isAdmin: true as const };
 
   switch (task.kind) {
@@ -79,10 +95,25 @@ async function executeTask(task: MaintenanceJobTask, actor: { id: string; userna
       return runDataHygieneSweepAction({ mode: task.mode, dryRun: false }, elevatedActor);
     case "recalc_balances":
       return recalcBalancesAction(elevatedActor);
+    case "fix_total_balance_drift":
+      return fixTotalBalanceDriftAction(elevatedActor);
     case "fix_status_anomalies":
       return fixStatusAnomaliesAction(elevatedActor);
     case "parent_card_pattern_fix":
-      return runParentCardPatternFixAction({ mode: task.mode }, elevatedActor);
+      return runParentCardPatternFixAction({
+        mode: task.mode,
+        onProgress: (progress) => {
+          const total = Math.max(1, Number(progress.total) || 1);
+          const current = Math.max(0, Math.min(total, Number(progress.examined) || 0));
+          const percent = Math.max(0, Math.min(100, Math.round((current / total) * 100)));
+          onProgress?.({
+            current,
+            total,
+            percent,
+            message: `تمت معالجة ${current}/${total} (نجح: ${progress.processed}، تخطٍ: ${progress.skipped})`,
+          });
+        },
+      }, elevatedActor);
     case "normalize_import_integer_distribution":
       return runNormalizeImportIntegerDistributionAction(elevatedActor);
     case "fix_invalid_subunit_amounts":
@@ -129,10 +160,16 @@ export async function startMaintenanceJobForActor(
 
     queued.state = "running";
     queued.startedAt = new Date().toISOString();
+    queued.progress = { current: 0, total: 1, percent: 0, message: "بدأ التنفيذ" };
     jobs.set(id, queued);
 
     try {
-      const result = await executeTask(task, { id: actor.id, username: actor.username });
+      const result = await executeTask(task, { id: actor.id, username: actor.username }, (progress) => {
+        const running = jobs.get(id);
+        if (!running) return;
+        running.progress = progress;
+        jobs.set(id, running);
+      });
       const asObj = (result ?? {}) as Record<string, unknown>;
       const success = asObj.success !== false;
 
@@ -143,6 +180,12 @@ export async function startMaintenanceJobForActor(
       done.completedAt = new Date().toISOString();
       done.summary = summarizeResult(task, result);
       done.error = success ? undefined : String(asObj.error ?? "تعذر تنفيذ المهمة");
+      done.progress = {
+        current: done.progress?.total ?? done.progress?.current ?? 1,
+        total: done.progress?.total ?? done.progress?.current ?? 1,
+        percent: 100,
+        message: success ? "اكتملت المهمة بنجاح" : "فشلت المهمة",
+      };
       jobs.set(id, done);
     } catch (error) {
       const failed = jobs.get(id);
@@ -150,6 +193,12 @@ export async function startMaintenanceJobForActor(
       failed.state = "failed";
       failed.completedAt = new Date().toISOString();
       failed.error = error instanceof Error ? error.message : "تعذر تنفيذ المهمة";
+      failed.progress = {
+        current: failed.progress?.current ?? 0,
+        total: failed.progress?.total ?? 1,
+        percent: 100,
+        message: "فشلت المهمة",
+      };
       jobs.set(id, failed);
     }
   }, 0);

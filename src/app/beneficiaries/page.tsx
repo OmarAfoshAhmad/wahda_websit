@@ -433,7 +433,97 @@ export default async function BeneficiariesPage({
                 </div>
               </div>
             )}
-            <div className="overflow-x-auto">
+            {/* ══ عرض الكارد — جوال فقط ══ */}
+            <div className="sm:hidden divide-y divide-slate-100 dark:divide-slate-800">
+              {beneficiaries.length === 0 ? (
+                <p className="py-10 text-center text-sm italic text-slate-500 dark:text-slate-400">
+                  {isDeletedView ? "لا يوجد مستفيدون محذوفون." : "لا توجد نتائج مطابقة."}
+                </p>
+              ) : (
+                beneficiaries.map((beneficiary) => (
+                  <div key={beneficiary.id} className="px-4 py-3.5 hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {(session.is_admin || (canDelete && !isDeletedView) || (canManageRecycleBin && isDeletedView)) && (
+                            <input
+                              type="checkbox"
+                              form="beneficiaries-bulk-form"
+                              name="ids"
+                              value={beneficiary.id}
+                              disabled={!isDeletedView && statusFilter !== "FINISHED" && beneficiary._count.transactions > 0}
+                              className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-40"
+                            />
+                          )}
+                          <p className="font-black text-slate-900 dark:text-white">{beneficiary.name}</p>
+                          <Badge variant={beneficiary.status === "ACTIVE" ? "success" : beneficiary.status === "SUSPENDED" ? "warning" : "default"}>
+                            {beneficiary.status === "ACTIVE" ? "نشط" : beneficiary.status === "SUSPENDED" ? "موقوف" : beneficiary.completed_via === "MANUAL" ? "مكتمل (خصم)" : beneficiary.completed_via === "IMPORT" ? "مكتمل (استيراد)" : "مكتمل"}
+                          </Badge>
+                        </div>
+                        <p className="mt-1 text-xs font-mono text-slate-500 dark:text-slate-400">بطاقة: {beneficiary.card_number}</p>
+                        {beneficiary.birth_date && (
+                          <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">{formatDateTripoli(beneficiary.birth_date, "en-GB")}</p>
+                        )}
+                        {!isDeletedView && (
+                          <div className="mt-1.5 flex gap-3 text-xs font-bold">
+                            <span className="text-sky-700 dark:text-sky-300">{Number(beneficiary.remaining_balance).toLocaleString("ar-LY")} د.ل</span>
+                            <span className="text-slate-400">|</span>
+                            <span className="text-emerald-700 dark:text-emerald-300">إجمالي: {Number(beneficiary.total_balance).toLocaleString("ar-LY")} د.ل</span>
+                          </div>
+                        )}
+                        {isDeletedView && beneficiary.deleted_at && (
+                          <p className="mt-0.5 text-xs text-red-400 dark:text-red-500">محذوف: {formatDateTripoli(beneficiary.deleted_at, "en-GB")}</p>
+                        )}
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        {isDeletedView ? (
+                          canManageRecycleBin && (
+                            <BeneficiaryRestoreActions
+                              id={beneficiary.id}
+                              name={beneficiary.name}
+                              hasTransactions={beneficiary._count.transactions > 0}
+                            />
+                          )
+                        ) : (
+                          <>
+                            <BeneficiaryTransactionsPanelButton
+                              beneficiaryId={beneficiary.id}
+                              beneficiaryName={beneficiary.name}
+                              hasTransactions={beneficiary._count.transactions > 0}
+                            />
+                            {canEdit && beneficiary.pin_hash && <BeneficiaryResetPinButton beneficiaryId={beneficiary.id} />}
+                            {canEdit && (
+                              <BeneficiaryEditModal
+                                iconOnly
+                                beneficiary={{
+                                  id: beneficiary.id,
+                                  name: beneficiary.name,
+                                  card_number: beneficiary.card_number,
+                                  birth_date: beneficiary.birth_date ? new Date(beneficiary.birth_date).toISOString().slice(0, 10) : "",
+                                  status: beneficiary.status,
+                                  total_balance: Number(beneficiary.total_balance),
+                                  remaining_balance: Number(beneficiary.remaining_balance),
+                                }}
+                              />
+                            )}
+                            {canDelete && (
+                              <BeneficiaryDeleteButton
+                                id={beneficiary.id}
+                                name={beneficiary.name}
+                                hasTransactions={beneficiary._count.transactions > 0}
+                              />
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* ══ عرض الجدول — شاشة كبيرة فقط ══ */}
+            <div className="hidden sm:block overflow-x-auto">
               <table className="w-full min-w-295 border-collapse text-right">
                 <thead className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
                   <tr>
