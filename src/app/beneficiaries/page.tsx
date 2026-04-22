@@ -231,15 +231,15 @@ export default async function BeneficiariesPage({
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <h1 className="section-title text-2xl font-black text-slate-950 dark:text-white">المستفيدون</h1>
-            <p className="mt-1.5 text-sm text-slate-600 dark:text-slate-400">نافذة مخصصة لعرض المستفيدين والبحث بالاسم أو رقم البطاقة.</p>
+            <p className="mt-1.5 text-sm text-slate-600 dark:text-slate-400"> عرض المستفيدين .</p>
           </div>
 
-          <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center lg:w-auto">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <BeneficiariesSelectionToolbar canExport={canExport} exportBaseHref={exportHref} />
             {canImport && (
               <Link
                 href="/import"
-                className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 text-sm font-bold text-slate-800 dark:text-slate-200 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700 sm:w-auto"
+                className="inline-flex h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 text-sm font-bold text-slate-800 dark:text-slate-200 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700"
               >
                 <Upload className="h-4 w-4" />
                 الاستيراد
@@ -249,7 +249,7 @@ export default async function BeneficiariesPage({
               <a
                 href={exportHref}
                 target="_blank"
-                className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-md bg-emerald-600 px-4 text-sm font-black text-white! transition-colors hover:bg-emerald-700 dark:hover:bg-emerald-600 sm:w-auto"
+                className="inline-flex h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-emerald-600 px-4 text-sm font-black text-white! transition-colors hover:bg-emerald-700 dark:hover:bg-emerald-600"
               >
                 <Download className="h-4 w-4" />
                 تصدير Excel

@@ -102,10 +102,11 @@ export function BeneficiariesSelectionToolbar({ canExport, exportBaseHref }: Pro
       <button
         type="button"
         onClick={clearSelection}
-        className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 text-sm font-bold text-slate-800 dark:text-slate-200 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700 sm:w-auto"
+        aria-label="إلغاء التحديد"
+        title="إلغاء التحديد"
+        className="inline-flex h-10 w-10 shrink-0 self-end items-center justify-center rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700 sm:self-auto"
       >
         <X className="h-4 w-4" />
-        إلغاء التحديد
       </button>
     </div>
   );
