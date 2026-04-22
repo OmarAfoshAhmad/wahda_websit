@@ -12,6 +12,7 @@ import { normalizeCardInput } from "@/lib/card-number";
 import { assertBeneficiaryBalanceInvariant, buildIdempotencyKey } from "@/lib/tx-balance-guard";
 
 export async function deductBalance(formData: {
+  beneficiary_id?: string;
   card_number: string;
   amount: number;
   type: "MEDICINE" | "SUPPLIES";
@@ -51,6 +52,7 @@ export async function deductBalance(formData: {
   if (rateLimitError) return { error: rateLimitError };
 
   const normalizedCard = normalizeCardInput(formData.card_number ?? "");
+  const beneficiaryIdInput = typeof formData.beneficiary_id === "string" ? formData.beneficiary_id.trim() : "";
 
   const validated = deductionSchema.safeParse({
     ...formData,
@@ -99,24 +101,37 @@ export async function deductBalance(formData: {
 
       // 1. Get beneficiary with row-level lock (using raw sql as Prisma interactive tx isn't always enough for specific locking locks)
       // On PostgreSQL, we can use SELECT ... FOR UPDATE
-      const beneficiaries = await tx.$queryRaw<Array<{ id: string; name: string; remaining_balance: number; total_balance: number; status: string }>>`
-        SELECT id, name, remaining_balance, total_balance::float8, status FROM "Beneficiary" 
-        WHERE TRANSLATE(
-          REGEXP_REPLACE(UPPER(card_number), '[^A-Z0-9٠-٩۰-۹]+', '', 'g'),
-          '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹',
-          '01234567890123456789'
-        ) = TRANSLATE(
-          REGEXP_REPLACE(UPPER(${card_number}), '[^A-Z0-9٠-٩۰-۹]+', '', 'g'),
-          '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹',
-          '01234567890123456789'
-        )
-        AND "deleted_at" IS NULL
-        LIMIT 1 
-        FOR UPDATE
-      `;
+      const beneficiaries = beneficiaryIdInput
+        ? await tx.$queryRaw<Array<{ id: string; name: string; remaining_balance: number; total_balance: number; status: string }>>`
+          SELECT id, name, remaining_balance, total_balance::float8, status FROM "Beneficiary"
+          WHERE id = ${beneficiaryIdInput}
+            AND "deleted_at" IS NULL
+          LIMIT 1
+          FOR UPDATE
+        `
+        : await tx.$queryRaw<Array<{ id: string; name: string; remaining_balance: number; total_balance: number; status: string }>>`
+          SELECT id, name, remaining_balance, total_balance::float8, status FROM "Beneficiary"
+          WHERE TRANSLATE(
+            REGEXP_REPLACE(UPPER(card_number), '[^A-Z0-9٠-٩۰-۹]+', '', 'g'),
+            '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹',
+            '01234567890123456789'
+          ) = TRANSLATE(
+            REGEXP_REPLACE(UPPER(${card_number}), '[^A-Z0-9٠-٩۰-۹]+', '', 'g'),
+            '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹',
+            '01234567890123456789'
+          )
+          AND "deleted_at" IS NULL
+          ORDER BY created_at DESC
+          LIMIT 2
+          FOR UPDATE
+        `;
 
       if (beneficiaries.length === 0) {
         throw new Error("المستفيد غير موجود");
+      }
+
+      if (!beneficiaryIdInput && beneficiaries.length > 1) {
+        throw new Error("يوجد أكثر من سجل بنفس رقم البطاقة. يرجى دمج التكرار أولاً قبل الخصم.");
       }
 
       const beneficiary = beneficiaries[0];
@@ -259,6 +274,7 @@ export async function deductBalance(formData: {
         "المستفيد غير موجود",
         "رصيد المستفيد صفر أو مكتمل",
         "حساب المستفيد موقوف ولا يمكن إجراء خصم عليه",
+        "يوجد أكثر من سجل بنفس رقم البطاقة. يرجى دمج التكرار أولاً قبل الخصم.",
       ];
       if (knownArabicMessages.includes(rawMessage)) return rawMessage;
       if (rawMessage.startsWith("المبلغ أكبر من الرصيد")) return rawMessage;
@@ -294,6 +310,7 @@ export async function deductBalance(formData: {
             error: error instanceof Error ? error.message : String(error),
             stack: error instanceof Error && error.stack ? error.stack : undefined,
             card_number: formData.card_number,
+            beneficiary_id: beneficiaryIdInput || undefined,
             amount: formData.amount,
             type: formData.type,
             transactionDate: formData.transactionDate,

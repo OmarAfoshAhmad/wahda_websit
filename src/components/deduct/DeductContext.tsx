@@ -309,6 +309,7 @@ export function DeductProvider({
     let result;
     try {
       result = await deductBalance({
+        beneficiary_id: beneficiary.id,
         card_number: beneficiary.card_number,
         amount: parseFloat(amount),
         type,

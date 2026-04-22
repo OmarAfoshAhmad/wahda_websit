@@ -30,6 +30,7 @@ export async function GET(request: NextRequest) {
   const statusParam = searchParams.get("status");
   const completedViaParam = searchParams.get("completed_via");
   const cardAgeParam = searchParams.get("card_age");
+  const idsParam = (searchParams.get("ids") ?? "").trim();
   const isDeletedView = view === "deleted";
 
   const ALLOWED_STATUS = ["ACTIVE", "SUSPENDED", "FINISHED"] as const;
@@ -44,11 +45,16 @@ export async function GET(request: NextRequest) {
 
   const cardAgeFilter = cardAgeParam === "old" ? "old" : "all";
 
+  const selectedIds = idsParam
+    ? idsParam.split(",").map((id) => id.trim()).filter(Boolean).slice(0, EXPORT_LIMIT)
+    : [];
+
   const where = {
     ...(isDeletedView ? { deleted_at: { not: null } } : { deleted_at: null }),
     ...(!isDeletedView && statusFilter ? { status: statusFilter } : {}),
     ...(!isDeletedView && completedViaFilter ? { completed_via: completedViaFilter } : {}),
     ...(!isDeletedView && cardAgeFilter === "old" ? { is_legacy_card: true } : {}),
+    ...(selectedIds.length > 0 ? { id: { in: selectedIds } } : {}),
     ...(q
       ? {
           OR: getArabicSearchTerms(q).flatMap(t => [

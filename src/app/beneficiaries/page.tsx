@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Search, Users, CalendarDays, CreditCard, Trash2, RotateCcw, Upload, Download, GitMerge } from "lucide-react";
+import { Search, Users, CalendarDays, CreditCard, Trash2, RotateCcw, Upload, Download } from "lucide-react";
 import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
@@ -19,6 +19,7 @@ import { BeneficiaryTransactionsPanelButton } from "@/components/beneficiary-tra
 import { PaginationButtons } from "@/components/pagination-buttons";
 import { BeneficiariesBulkActionButton, SelectAllCheckbox, EmptyRecycleBinButton } from "@/components/beneficiaries-bulk-action-button";
 import { BulkRenewalButton } from "@/components/bulk-renewal-button";
+import { BeneficiariesSelectionToolbar } from "../../components/beneficiaries-selection-toolbar";
 import { unstable_cache } from "next/cache";
 
 // كاش إحصائيات أعداد المستفيدين — يُبطَل فور أي تغيير عبر revalidateTag("beneficiary-counts")
@@ -234,15 +235,7 @@ export default async function BeneficiariesPage({
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            {session.is_admin && (
-              <Link
-                href="/admin/duplicates"
-                className="inline-flex h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 text-sm font-bold text-slate-800 dark:text-slate-200 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700"
-              >
-                <GitMerge className="h-4 w-4" />
-                إدارة التكرارات
-              </Link>
-            )}
+            <BeneficiariesSelectionToolbar canExport={canExport} exportBaseHref={exportHref} />
             {canImport && (
               <Link
                 href="/import"

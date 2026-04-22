@@ -79,6 +79,7 @@ export async function addTransactionFromForm(
       deleted_at: null,
     },
     select: {
+      id: true,
       status: true,
       remaining_balance: true,
     },
@@ -107,6 +108,7 @@ export async function addTransactionFromForm(
   }
 
   const result = await deductBalance({
+    beneficiary_id: beneficiary?.id,
     card_number: cardNumber,
     amount,
     type,
