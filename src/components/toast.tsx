@@ -70,6 +70,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       <div
         className="fixed bottom-4 left-4 right-4 z-[999] flex flex-col items-center gap-2 sm:left-auto sm:right-6 sm:bottom-6 sm:items-end sm:max-w-sm"
         aria-live="polite"
+        suppressHydrationWarning
       >
         {toasts.map((t) => (
           <div
