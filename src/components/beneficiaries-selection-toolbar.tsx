@@ -86,12 +86,12 @@ export function BeneficiariesSelectionToolbar({ canExport, exportBaseHref }: Pro
   if (!canExport) return null;
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto sm:flex-row sm:items-center">
       <a
         href={selectedCount > 0 ? exportSelectedHref : undefined}
         target="_blank"
         aria-disabled={selectedCount === 0}
-        className={`inline-flex h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-4 text-sm font-black text-white! transition-colors ${selectedCount > 0
+        className={`inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-md px-4 text-sm font-black text-white! transition-colors sm:w-auto ${selectedCount > 0
           ? "bg-emerald-600 hover:bg-emerald-700 dark:hover:bg-emerald-600"
           : "cursor-not-allowed bg-slate-400"}`}
       >
@@ -102,7 +102,7 @@ export function BeneficiariesSelectionToolbar({ canExport, exportBaseHref }: Pro
       <button
         type="button"
         onClick={clearSelection}
-        className="inline-flex h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 text-sm font-bold text-slate-800 dark:text-slate-200 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700"
+        className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 text-sm font-bold text-slate-800 dark:text-slate-200 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700 sm:w-auto"
       >
         <X className="h-4 w-4" />
         إلغاء التحديد

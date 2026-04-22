@@ -162,7 +162,7 @@ export default async function FacilitiesPage({
           <p className="text-sm text-black mt-1 opacity-75">تاريخ استخراج التقرير: {formatDateTripoli(new Date(), "en-GB")}</p>
         </div>
 
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 print:hidden">
+        <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center print:hidden">
           <div>
             <h1 className="section-title text-2xl font-black text-slate-950 dark:text-white">إدارة المرافق الصحية</h1>
             <p className="mt-1.5 text-sm text-slate-600 dark:text-slate-400">
@@ -171,10 +171,10 @@ export default async function FacilitiesPage({
                 : "قائمة بالمرافق الصحية النشطة فقط (غير المحذوفة) في النظام."}
             </p>
           </div>
-          <div className="no-print flex items-center gap-2">
+          <div className="no-print flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
             <Link
               href={isDeletedView ? "/admin/facilities" : "/admin/facilities?view=deleted"}
-              className="inline-flex items-center gap-2 rounded-md bg-[#0f2a4a] px-4 py-2 text-sm font-black text-white! transition-colors hover:bg-[#0b1f38] h-10"
+              className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-[#0f2a4a] px-4 py-2 text-sm font-black text-white! transition-colors hover:bg-[#0b1f38] sm:w-auto"
             >
               {isDeletedView ? "العودة للنشطين" : "المحذوفات"}
             </Link>
@@ -182,7 +182,7 @@ export default async function FacilitiesPage({
               <a
                 href="/api/export/facilities"
                 target="_blank"
-                className="inline-flex items-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-black text-white! transition-colors hover:bg-emerald-700 dark:hover:bg-emerald-600 h-10"
+                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-black text-white! transition-colors hover:bg-emerald-700 dark:hover:bg-emerald-600 sm:w-auto"
               >
                 <Download className="h-4 w-4" />
                 تصدير Excel
@@ -197,16 +197,16 @@ export default async function FacilitiesPage({
           <div className="space-y-4">
 
             {/* شريط البحث */}
-            <form method="get" className="flex gap-2 print:hidden">
+            <form method="get" className="flex flex-col gap-2 sm:flex-row print:hidden">
               <input type="hidden" name="page" value="1" />
               <Input
                 name="q"
                 defaultValue={q ?? ""}
                 placeholder="ابحث باسم المرفق أو اسم المستخدم..."
-                className="h-10 text-sm"
+                className="h-10 w-full text-sm"
                 autoComplete="off"
               />
-              <Button type="submit" className="h-10 px-5 shrink-0">بحث</Button>
+              <Button type="submit" className="h-10 w-full px-5 sm:w-auto sm:shrink-0">بحث</Button>
             </form>
 
             <Card className="overflow-hidden p-0">

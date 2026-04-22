@@ -95,7 +95,7 @@ export function ConfirmationModal({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={descId}
-        className="w-full max-w-md rounded-lg bg-white p-6 shadow-lg animate-in fade-in zoom-in duration-200 dark:bg-slate-900 dark:ring-1 dark:ring-slate-700"
+        className="w-full max-w-md rounded-lg bg-white p-4 shadow-lg animate-in fade-in zoom-in duration-200 dark:bg-slate-900 dark:ring-1 dark:ring-slate-700 sm:p-6"
       >
         <h3 id={titleId} className="mb-2 text-lg font-bold text-slate-900 dark:text-slate-100">
           {title}
@@ -110,12 +110,12 @@ export function ConfirmationModal({
           </div>
         )}
 
-        <div className="flex justify-end gap-3">
+        <div className="flex flex-col-reverse justify-end gap-2 sm:flex-row sm:gap-3">
           <button
             type="button"
             onClick={onClose}
             disabled={isLoading}
-            className="rounded-md bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-200 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+            className="w-full rounded-md bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-200 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700 sm:w-auto"
           >
             {cancelLabel}
           </button>
@@ -124,7 +124,7 @@ export function ConfirmationModal({
             type="button"
             onClick={onConfirm}
             disabled={isLoading}
-            className={`flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-50 ${variantClass[variant]}`}
+            className={`flex w-full items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-50 sm:w-auto ${variantClass[variant]}`}
           >
             {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
             {confirmLabel}

@@ -94,8 +94,8 @@ export function BeneficiaryEditModal({ beneficiary, iconOnly = false }: Benefici
 
       {open && (
         // FIX CODE-04: إضافة dark mode لجميع العناصر
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3 sm:p-4">
+          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 shadow-xl sm:p-5">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-base font-black text-slate-900 dark:text-white">تعديل بيانات المستفيد</h3>
               <button
@@ -108,7 +108,7 @@ export function BeneficiaryEditModal({ beneficiary, iconOnly = false }: Benefici
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 space-y-0 text-right">
+            <div className="grid grid-cols-1 gap-3 space-y-0 text-right sm:grid-cols-2">
               <div className="col-span-2">
                 <label className="mb-1 block text-xs font-black text-slate-500 dark:text-slate-400">الاسم</label>
                 <Input value={name} onChange={(e) => setName(e.target.value)} className="h-10 text-right" />
@@ -152,11 +152,11 @@ export function BeneficiaryEditModal({ beneficiary, iconOnly = false }: Benefici
               {error && <p className="col-span-2 text-sm font-bold text-red-600 dark:text-red-400">{error}</p>}
             </div>
 
-            <div className="mt-4 flex gap-2">
-              <Button type="button" variant="outline" className="flex-1" onClick={() => setOpen(false)} disabled={isPending}>
+            <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row">
+              <Button type="button" variant="outline" className="w-full sm:flex-1" onClick={() => setOpen(false)} disabled={isPending}>
                 إلغاء
               </Button>
-              <Button type="button" className="flex-1" onClick={onSave} disabled={isPending}>
+              <Button type="button" className="w-full sm:flex-1" onClick={onSave} disabled={isPending}>
                 {isPending && <Loader2 className="ml-1.5 h-4 w-4 animate-spin" />}
                 {isPending ? "جاري الحفظ..." : "حفظ التعديلات"}
               </Button>

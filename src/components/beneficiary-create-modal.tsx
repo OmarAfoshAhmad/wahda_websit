@@ -71,7 +71,7 @@ export function BeneficiaryCreateModal() {
     <>
       <Button
         type="button"
-        className="h-10 gap-1.5 whitespace-nowrap"
+        className="h-10 w-full gap-1.5 sm:w-auto"
         onClick={() => {
           resetForm();
           setOpen(true);
@@ -82,12 +82,12 @@ export function BeneficiaryCreateModal() {
       </Button>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3 sm:p-4">
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="beneficiary-create-title"
-            className="w-full max-w-lg rounded-lg border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+            className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-lg border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900 sm:p-5"
           >
             <div className="mb-3 flex items-center justify-between">
               <h3 id="beneficiary-create-title" className="text-base font-black text-slate-900 dark:text-white">إضافة مستفيد جديد</h3>
@@ -134,11 +134,11 @@ export function BeneficiaryCreateModal() {
               {error && <p role="alert" aria-live="assertive" className="text-sm font-bold text-red-600 dark:text-red-400">{error}</p>}
             </div>
 
-            <div className="mt-4 flex gap-2">
-              <Button type="button" variant="outline" className="flex-1" onClick={() => setOpen(false)} disabled={isPending}>
+            <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row">
+              <Button type="button" variant="outline" className="w-full sm:flex-1" onClick={() => setOpen(false)} disabled={isPending}>
                 إلغاء
               </Button>
-              <Button type="button" className="flex-1" onClick={onSubmit} disabled={isPending}>
+              <Button type="button" className="w-full sm:flex-1" onClick={onSubmit} disabled={isPending}>
                 {isPending && <Loader2 className="ml-1.5 h-4 w-4 animate-spin" />}
                 {isPending ? "جاري الإضافة..." : "إضافة المستفيد"}
               </Button>

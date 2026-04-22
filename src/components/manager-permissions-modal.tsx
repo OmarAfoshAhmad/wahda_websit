@@ -78,14 +78,14 @@ export function ManagerPermissionsModal({ managerId, managerName, permissions }:
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
           <div
             className="absolute inset-0 bg-black/40 backdrop-blur-sm"
             onClick={() => setOpen(false)}
           />
-          <div className="relative z-10 w-full max-w-md rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0F172A] shadow-2xl overflow-hidden">
+          <div className="relative z-10 w-full max-w-md rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0F172A] shadow-2xl overflow-hidden max-h-[90vh]">
             {/* رأس الـ modal */}
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 px-6 py-5 bg-slate-50/50 dark:bg-slate-800/30">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 px-4 py-4 bg-slate-50/50 dark:bg-slate-800/30 sm:px-6 sm:py-5">
               <div>
                 <h2 className="text-base font-black text-slate-900 dark:text-white">صلاحيات المدير</h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400 font-bold">{managerName}</p>
@@ -99,7 +99,7 @@ export function ManagerPermissionsModal({ managerId, managerName, permissions }:
             </div>
 
             {/* قائمة الصلاحيات — مع تمرير في حال كثرت */}
-            <div className="px-5 py-4 max-h-[60vh] overflow-y-auto space-y-1.5 custom-scrollbar">
+            <div className="px-4 py-4 max-h-[58vh] overflow-y-auto space-y-1.5 custom-scrollbar sm:px-5">
               {(Object.keys(PERMISSION_LABELS) as Array<keyof ManagerPermissions>).map((key) => (
                 <div
                   key={key}
@@ -140,14 +140,14 @@ export function ManagerPermissionsModal({ managerId, managerName, permissions }:
             )}
 
             {/* زرار الحفظ */}
-            <div className="flex gap-2 border-t border-slate-100 dark:border-slate-800 px-5 py-4">
-              <Button onClick={handleSave} disabled={isPending} className="flex-1">
+            <div className="flex flex-col-reverse gap-2 border-t border-slate-100 dark:border-slate-800 px-4 py-4 sm:flex-row sm:px-5">
+              <Button onClick={handleSave} disabled={isPending} className="w-full sm:flex-1">
                 {isPending ? "جارٍ الحفظ..." : "حفظ الصلاحيات"}
               </Button>
               <Button
                 variant="outline"
                 onClick={() => setOpen(false)}
-                className="flex-1"
+                className="w-full sm:flex-1"
               >
                 إلغاء
               </Button>

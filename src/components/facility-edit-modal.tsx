@@ -82,8 +82,8 @@ export function FacilityEditModal({ facility }: Props) {
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4" onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}>
-          <Card className="w-full max-w-md p-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:px-4" onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}>
+          <Card className="w-full max-w-md max-h-[90vh] overflow-y-auto p-4 sm:p-6">
             <div className="mb-5 flex items-center justify-between">
               <h2 className="text-base font-black text-slate-900 dark:text-white">تعديل المرفق</h2>
               <button onClick={() => setOpen(false)} className="rounded-md p-1 text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">
@@ -160,12 +160,12 @@ export function FacilityEditModal({ facility }: Props) {
                 </div>
               )}
 
-              <div className="flex gap-2 pt-1">
-                <Button type="submit" disabled={loading} className="flex-1">
+              <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row">
+                <Button type="submit" disabled={loading} className="w-full sm:flex-1">
                   {loading ? <Loader2 className="ml-1.5 h-4 w-4 animate-spin" /> : null}
                   {loading ? "جارٍ الحفظ..." : "حفظ التغييرات"}
                 </Button>
-                <Button type="button" variant="outline" onClick={() => setOpen(false)} className="flex-1">
+                <Button type="button" variant="outline" onClick={() => setOpen(false)} className="w-full sm:flex-1">
                   إلغاء
                 </Button>
               </div>

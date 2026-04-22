@@ -133,8 +133,8 @@ export function TransactionEditModal({
       </Button>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-lg border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3 sm:p-4">
+          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-lg border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900 sm:p-5">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-base font-black text-slate-900 dark:text-white">تعديل الحركة</h3>
               <button
@@ -198,11 +198,11 @@ export function TransactionEditModal({
               {error && <p className="text-sm font-bold text-red-600 dark:text-red-400">{error}</p>}
             </div>
 
-            <div className="mt-4 flex gap-2">
-              <Button type="button" variant="outline" className="flex-1" onClick={() => setOpen(false)} disabled={isPending}>
+            <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row">
+              <Button type="button" variant="outline" className="w-full sm:flex-1" onClick={() => setOpen(false)} disabled={isPending}>
                 إلغاء
               </Button>
-              <Button type="button" className="flex-1" onClick={handleSave} disabled={isPending}>
+              <Button type="button" className="w-full sm:flex-1" onClick={handleSave} disabled={isPending}>
                 {isPending && <Loader2 className="ml-1.5 h-4 w-4 animate-spin" />}
                 {isPending ? "جارٍ الحفظ..." : "حفظ التعديل"}
               </Button>

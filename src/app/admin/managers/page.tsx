@@ -69,7 +69,7 @@ export default async function ManagersPage({
     <Shell facilityName={session.name} session={session}>
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         {/* رأس الصفحة */}
-        <div className="mb-6 flex items-center gap-3">
+        <div className="mb-6 flex flex-col items-start gap-3 sm:flex-row sm:items-center">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-100 dark:bg-violet-900/30 text-violet-600 dark:text-violet-400">
             <UserCog className="h-5 w-5" />
           </div>
@@ -87,7 +87,7 @@ export default async function ManagersPage({
           </div>
           <Link
             href={isDeletedView ? "/admin/managers" : "/admin/managers?view=deleted"}
-            className="inline-flex items-center gap-2 rounded-md bg-[#0f2a4a] px-4 py-2 text-sm font-black text-white! transition-colors hover:bg-[#0b1f38] h-10"
+            className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-[#0f2a4a] px-4 py-2 text-sm font-black text-white! transition-colors hover:bg-[#0b1f38] sm:mr-auto sm:w-auto"
           >
             {isDeletedView ? "العودة للنشطين" : "المحذوفات"}
           </Link>
@@ -166,7 +166,7 @@ export default async function ManagersPage({
                             @{mgr.username}
                           </p>
                         </div>
-                        <div className="flex shrink-0 gap-2">
+                        <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:shrink-0">
                           {!isDeletedView && !mgr.is_admin && (
                             <ManagerPermissionsModal
                               managerId={mgr.id}

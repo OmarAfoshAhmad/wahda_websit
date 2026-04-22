@@ -23,7 +23,9 @@ type TransactionImportSummary = {
   balanceSetFamilies: number;
   skippedNotFound: number;
   cleanupDeletedImportTransactions: number;
+  cleanupCancelledImportTransactions: number;
   cleanupDeletedSettlementTransactions: number;
+  cleanupDeletedCancelledSettlementTransactions: number;
   cleanupTouchedBeneficiaries: number;
   autoDebtAffectedDebtors: number;
   autoDebtSettledDebtors: number;

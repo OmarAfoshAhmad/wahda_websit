@@ -31,7 +31,9 @@ type TransactionImportSummary = {
   balanceSetFamilies: number;
   skippedNotFound: number;
   cleanupDeletedImportTransactions: number;
+  cleanupCancelledImportTransactions: number;
   cleanupDeletedSettlementTransactions: number;
+  cleanupDeletedCancelledSettlementTransactions: number;
   cleanupTouchedBeneficiaries: number;
   autoDebtAffectedDebtors: number;
   autoDebtSettledDebtors: number;
@@ -92,7 +94,9 @@ function summarizeResult(result: TransactionImportResult): TransactionImportSumm
     balanceSetFamilies: result.balanceSetFamilies,
     skippedNotFound: result.skippedNotFound,
     cleanupDeletedImportTransactions: result.cleanupDeletedImportTransactions,
+    cleanupCancelledImportTransactions: result.cleanupCancelledImportTransactions,
     cleanupDeletedSettlementTransactions: result.cleanupDeletedSettlementTransactions,
+    cleanupDeletedCancelledSettlementTransactions: result.cleanupDeletedCancelledSettlementTransactions,
     cleanupTouchedBeneficiaries: result.cleanupTouchedBeneficiaries,
     autoDebtAffectedDebtors: result.autoDebtAffectedDebtors,
     autoDebtSettledDebtors: result.autoDebtSettledDebtors,
@@ -140,7 +144,9 @@ function toSnapshot(job: {
           balanceSetFamilies: Number(r.balanceSetFamilies) || 0,
           skippedNotFound: Number(r.skippedNotFound) || 0,
           cleanupDeletedImportTransactions: Number(r.cleanupDeletedImportTransactions) || 0,
+          cleanupCancelledImportTransactions: Number(r.cleanupCancelledImportTransactions) || 0,
           cleanupDeletedSettlementTransactions: Number(r.cleanupDeletedSettlementTransactions) || 0,
+          cleanupDeletedCancelledSettlementTransactions: Number(r.cleanupDeletedCancelledSettlementTransactions) || 0,
           cleanupTouchedBeneficiaries: Number(r.cleanupTouchedBeneficiaries) || 0,
           autoDebtAffectedDebtors: Number(r.autoDebtAffectedDebtors) || 0,
           autoDebtSettledDebtors: Number(r.autoDebtSettledDebtors) || 0,
