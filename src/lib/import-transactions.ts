@@ -456,7 +456,6 @@ export async function processTransactionImport(
     const notFoundRows: NotFoundRow[] = [];
     const toImport: Array<{ row: ParsedRow; baseCard: string }> = [];
     const toSuspend: Array<{ row: ParsedRow; baseCard: string }> = [];
-    const toSetBalance: Array<{ row: ParsedRow; baseCard: string }> = [];
     const archiveByBaseCard = new Map<string, ParsedRow>();
 
     for (const row of deduplicatedRows) {
@@ -479,8 +478,9 @@ export async function processTransactionImport(
         continue;
       }
 
-      // القاعدة: (الرصيد الكلي > 0 && الرصيد المستخدم <= 0) → توزيع الرصيد الكلي بدون خصم
-      if (row.totalBalance > 0 && row.usedBalance <= 0) {
+      // القاعدة التنفيذية: الرصيد المستخدم فقط هو مصدر التنفيذ.
+      // إذا كان المستخدم <= 0 فلا يوجد خصم، ويُحتفظ بقيم الملف للتدقيق/الأرشفة فقط.
+      if (row.usedBalance <= 0) {
         const baseCard = resolveCardNumber(row.cardNumber, lookup);
         if (!baseCard) {
           notFoundRows.push({
@@ -492,7 +492,6 @@ export async function processTransactionImport(
             usedBalance: row.usedBalance,
           });
         } else {
-          toSetBalance.push({ row, baseCard });
           archiveByBaseCard.set(baseCard, row);
         }
         continue;
@@ -519,7 +518,6 @@ export async function processTransactionImport(
 
     const targetBaseCards = Array.from(new Set([
       ...toImport.map((x) => x.baseCard),
-      ...toSetBalance.map((x) => x.baseCard),
       ...toSuspend.map((x) => x.baseCard),
     ]));
 
@@ -616,26 +614,9 @@ export async function processTransactionImport(
       );
     }
 
-    // 4b. Set balance for families with usedBalance = 0 and totalBalance > 0
-    let balanceSetFamilies = 0;
-    let skippedAlreadyCorrect = 0;
-
-    for (const { row, baseCard } of toSetBalance) {
-      const setResult = await setFamilyBalance(baseCard, row.totalBalance, row.familyCount);
-      if (setResult === "already_correct") {
-        skippedAlreadyCorrect++;
-      } else {
-        balanceSetFamilies++;
-      }
-      const balanceDone = balanceSetFamilies + skippedAlreadyCorrect;
-      const balanceTotal = Math.max(1, toSetBalance.length);
-      await reportProgress(
-        "balance",
-        Math.max(1, rows.length),
-        Math.max(1, Math.round(rows.length * (0.6 + (balanceDone / balanceTotal) * 0.1))),
-        `ضبط الأرصدة: ${balanceDone}/${toSetBalance.length}`,
-      );
-    }
+    // الرصيد الكلي من الملف للتدقيق فقط (لا نضبط أرصدة الأسرة بناءً عليه)
+    const balanceSetFamilies = 0;
+    const skippedAlreadyCorrect = 0;
 
     // 4c. Process imports
     let importedFamilies = 0;
@@ -643,29 +624,17 @@ export async function processTransactionImport(
     const skippedAlreadyImported = 0;
     let updatedFamilies = 0;
     let updatedTransactions = 0;
-    let preImportBalanceAdjustedFamilies = 0;
-    let preImportBalanceAlreadyCorrect = 0;
+    const preImportBalanceAdjustedFamilies = 0;
+    const preImportBalanceAlreadyCorrect = 0;
     const appliedRows: ImportAppliedRow[] = [];
 
     for (const { row, baseCard } of toImport) {
       const hadExistingImportBefore = existingImportFamiliesBefore.has(baseCard);
 
-      // إذا كان هناك رصيد كلي بالملف، يجب ضبط رصيد الأسرة أولاً
-      // ثم تطبيق الخصم (usedBalance) حتى لا نعتمد على أرصدة قديمة.
-      if (row.totalBalance > 0) {
-        const setResult = await setFamilyBalance(baseCard, row.totalBalance, row.familyCount);
-        if (setResult === "already_correct") {
-          preImportBalanceAlreadyCorrect++;
-        } else {
-          preImportBalanceAdjustedFamilies++;
-        }
-      }
-
       const familyResult = await importFamilyTransactions(
         baseCard,
         row.usedBalance,
         importFacilityId,
-        row.familyCount,
         replaceOldImports,
       );
       appliedRows.push(...familyResult.appliedRows);
@@ -1164,7 +1133,6 @@ async function importFamilyTransactions(
   baseCard: string,
   totalUsedAmount: number,
   facilityId: string,
-  expectedFamilyCount?: number,
   replaceOldImports = true,
 ): Promise<{ count: number; mode: "created" | "updated"; appliedRows: ImportAppliedRow[] }> {
   let transactionCount = 0;
@@ -1203,10 +1171,8 @@ async function importFamilyTransactions(
     });
     hasExistingImport = existingImports.length > 0;
 
-    // توزيع بدون كسور: المبلغ الصحيح بالتساوي، والمتبقي يُسند لصاحب أعلى رصيد متاح.
-    // عند توفر عدد الأسرة من الملف نوزّع على هذا العدد لمنع تضخيم حصة الموجودين فعلياً.
-    const expectedCount = Math.max(0, Math.floor(Number(expectedFamilyCount) || 0));
-    const divisor = Math.max(1, expectedCount > 0 ? expectedCount : familyMembers.length);
+    // توزيع الخصم على جميع أفراد المنظومة الفعليين
+    const divisor = familyMembers.length;
     const normalizedTotalUsed = Math.max(0, Math.round(totalUsedAmount));
     const baseShare = Math.floor(normalizedTotalUsed / divisor);
     const remainder = normalizedTotalUsed - baseShare * divisor;
@@ -1252,7 +1218,7 @@ async function importFamilyTransactions(
       const { member, existingForMember, balanceBeforeImport } = preCalcs[i];
       const plannedDeductAmount = i === remainderRecipientIndex ? baseShare + remainder : baseShare;
       // شرط دقة الاستيراد: لا خصم نهائياً إذا كان الرصيد صفراً أو أقل من الحصة المطلوبة.
-      const deductAmount = balanceBeforeImport > 0 && balanceBeforeImport >= plannedDeductAmount
+      const deductAmount = plannedDeductAmount > 0 && balanceBeforeImport > 0 && balanceBeforeImport >= plannedDeductAmount
         ? plannedDeductAmount
         : 0;
       const newBalance = roundCurrency(Math.max(0, balanceBeforeImport - deductAmount));
@@ -1406,7 +1372,7 @@ async function setFamilyBalance(
 
     if (familyMembers.length === 0) return "already_correct";
 
-    // عند توفر عدد الأسرة من الملف نوزّع على هذا العدد لمنع تضخيم حصة الموجودين فعلياً.
+    // توزيع الرصيد الكلي على عدد أفراد الملف فقط (expectedFamilyCount)
     const expectedCount = Math.max(0, Math.floor(Number(expectedFamilyCount) || 0));
     const divisor = Math.max(1, expectedCount > 0 ? expectedCount : familyMembers.length);
     const normalizedTotalBalance = Math.max(0, Math.round(totalBalance));
@@ -1460,7 +1426,7 @@ async function setFamilyBalance(
     });
     if (alreadyCorrect) return "already_correct";
 
-    // توزيع الرصيد مع حماية الخصومات اليدوية
+    // توزيع الرصيد على جميع أفراد المنظومة مع حماية الخصومات اليدوية
     for (let i = 0; i < familyMembers.length; i++) {
       const member = familyMembers[i];
       const share = i === remainderRecipientIndex ? baseShare + remainder : baseShare;
