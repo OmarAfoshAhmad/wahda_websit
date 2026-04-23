@@ -1349,7 +1349,7 @@ async function suspendFamily(
  * Removes any existing IMPORT transactions (cleanup from wrong previous runs).
  * Idempotent: skips if all members already have the correct balance and are ACTIVE.
  */
-async function setFamilyBalance(
+async function _setFamilyBalance(
   baseCard: string,
   totalBalance: number,
   expectedFamilyCount?: number,
