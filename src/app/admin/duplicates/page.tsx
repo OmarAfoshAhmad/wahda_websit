@@ -435,7 +435,7 @@ export default async function DuplicatesAdminPage({
     dp: String(nextPage),
   }).toString()}`;
 
-  const isRegistryTab = activeTab === "registry";
+  const isRegistryTab = activeTab === "legacycards";
   let registryRows: IssuanceRegistryRow[] = [];
   let registryTotal = 0;
   let registryCityOptions: Array<{ city: string }> = [];
