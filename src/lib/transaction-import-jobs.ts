@@ -14,7 +14,15 @@ type TransactionImportPayload = {
   cleanupOldSettlements: boolean;
 };
 
-type TransactionImportSummary = {
+export type TransactionImportPurgePreview = {
+  replaceOldImports: boolean;
+  purgeMissingFamilies: boolean;
+  targetFamiliesInFile: number;
+  missingFamiliesToPurge: number;
+  sampleMissingFamilies: string[];
+};
+
+export type TransactionImportSummary = {
   auditLogId: string;
   importMode: "replace_old_imports" | "incremental_update";
   purgeMissingFamiliesEnabled: boolean;

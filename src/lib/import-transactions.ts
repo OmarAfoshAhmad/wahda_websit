@@ -373,6 +373,7 @@ export async function processTransactionImport(
     replaceOldImports?: boolean;
     purgeMissingFamilies?: boolean;
     cleanupOldSettlements?: boolean;
+    sourceFileName?: string;
     onProgress?: (progress: TransactionImportProgress) => void | Promise<void>;
   },
 ): Promise<{ result?: TransactionImportResult; error?: string }> {
@@ -749,6 +750,7 @@ export async function processTransactionImport(
         user: username,
         action: "IMPORT_TRANSACTIONS",
         metadata: {
+          sourceFileName: options?.sourceFileName,
           importMode: replaceOldImports ? "replace_old_imports" : "incremental_update",
           purgeMissingFamiliesEnabled,
           cleanupOldSettlementsEnabled,

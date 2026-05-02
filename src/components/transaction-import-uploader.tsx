@@ -4,50 +4,11 @@ import React, { useEffect, useState } from "react";
 import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2, Download, RotateCcw, RefreshCw } from "lucide-react";
 import { Button, Card } from "./ui";
 
-type TransactionImportJobStatus = "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED";
-
-type TransactionImportSummary = {
-  auditLogId: string;
-  importMode: "replace_old_imports" | "incremental_update";
-  purgeMissingFamiliesEnabled: boolean;
-  cleanupOldSettlementsEnabled: boolean;
-  cleanupPurgedMissingFamilies: number;
-  cleanupDeletedMissingFamilyArchiveRows: number;
-  totalRows: number;
-  duplicateCardCount: number;
-  importedFamilies: number;
-  importedTransactions: number;
-  updatedFamilies: number;
-  updatedTransactions: number;
-  suspendedFamilies: number;
-  balanceSetFamilies: number;
-  skippedNotFound: number;
-  cleanupDeletedImportTransactions: number;
-  cleanupDeletedSettlementTransactions: number;
-  cleanupTouchedBeneficiaries: number;
-  autoDebtAffectedDebtors: number;
-  autoDebtSettledDebtors: number;
-  autoDebtUnresolvedDebtors: number;
-};
-
-type TransactionImportPurgePreview = {
-  replaceOldImports: boolean;
-  purgeMissingFamilies: boolean;
-  targetFamiliesInFile: number;
-  missingFamiliesToPurge: number;
-  sampleMissingFamilies: string[];
-};
-
-type TransactionImportJobSnapshot = {
-  id: string;
-  status: TransactionImportJobStatus;
-  totalRows: number;
-  processedRows: number;
-  progress: number;
-  errorMessage: string | null;
-  message: string | null;
-  result: TransactionImportSummary | null;
-};
+import { 
+  type TransactionImportSummary, 
+  type TransactionImportJobSnapshot,
+  type TransactionImportPurgePreview 
+} from "@/lib/transaction-import-jobs";
 
 const ACTIVE_TX_IMPORT_JOB_KEY = "active_tx_import_job_id";
 
