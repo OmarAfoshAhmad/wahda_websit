@@ -105,6 +105,7 @@ export const updateBeneficiarySchema = z.object({
   status: z.enum(["ACTIVE", "FINISHED", "SUSPENDED"], {
     message: "حالة المستفيد غير صحيحة",
   }),
+  is_legacy_card: z.boolean().optional(),
   total_balance: z.coerce.number().min(0, "الرصيد الكلي لا يمكن أن يكون سالباً").optional(),
   remaining_balance: z.coerce.number().min(0, "الرصيد المتبقي لا يمكن أن يكون سالباً").optional(),
 }).refine(

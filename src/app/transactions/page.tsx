@@ -6,7 +6,7 @@ import { Prisma } from "@prisma/client";
 import { Shell } from "@/components/shell";
 import { getArabicSearchTerms } from "@/lib/search";
 import { Card, Badge, Input, Button } from "@/components/ui";
-import { PrintButton } from "@/components/print-button";
+import { SmartPrintButton } from "@/components/smart-print-button";
 import { ExportButton } from "@/components/export-button";
 import { PaginationButtons } from "@/components/pagination-buttons";
 import { bulkTransactionSelectionAction } from "@/app/actions/cancel-transaction";
@@ -80,7 +80,7 @@ export default async function TransactionsPage({
   if (!session) redirect("/login");
 
   const { start_date, end_date, facility_id, page: pageParam, pageSize: pageSizeParam, q, sort, order, status: _status, source, focus_tx } = await searchParams;
-  const allowedPageSizes = [10, 25, 50, 100, 200];
+  const allowedPageSizes = [10, 25, 50, 100, 200, 500, 1000];
   const requestedPageSize = parseInt(pageSizeParam ?? "10", 10);
   const PAGE_SIZE = allowedPageSizes.includes(requestedPageSize) ? requestedPageSize : 10;
   const page = Math.max(1, parseInt(pageParam ?? "1", 10) || 1);
@@ -156,14 +156,8 @@ export default async function TransactionsPage({
     where.is_cancelled = false;
     where.idempotency_key = { startsWith: "cash-claim:" };
   } else {
-    // بقية الأدوار: نعرض المنفذة + الحركات الملغاة المرتبطة بتصحيح فعّال ليتضح التسلسل المالي.
-    where.OR = [
-      { is_cancelled: false },
-      {
-        is_cancelled: true,
-        corrections: { some: { type: "CANCELLATION", is_cancelled: false } },
-      },
-    ];
+    // إخفاء كافة الحركات الملغاة بناءً على طلب المستخدم
+    where.is_cancelled = false;
   }
 
   const canViewSettlement = session.is_admin || session.is_manager;
@@ -229,7 +223,7 @@ export default async function TransactionsPage({
     }
   }
 
-  const [transactions, totalCount, focusedTransaction] = await Promise.all([
+  const [transactions, totalCount, totals, focusedTransaction] = await Promise.all([
     prisma.transaction.findMany({
       where,
       orderBy: txOrderByMap[sortCol],
@@ -256,6 +250,16 @@ export default async function TransactionsPage({
       take: PAGE_SIZE,
     }),
     prisma.transaction.count({ where }),
+    prisma.transaction.aggregate({
+      where: {
+        facility_id: where.facility_id,
+        AND: where.AND,
+        type: where.type,
+        created_at: where.created_at,
+        is_cancelled: false,
+      },
+      _sum: { amount: true },
+    }),
     focus_tx
       ? prisma.transaction.findFirst({
         where: { ...where, id: focus_tx },
@@ -317,12 +321,13 @@ export default async function TransactionsPage({
     txRemainingRows.map((row) => [row.id, Number(row.remaining_after) || 0]),
   );
   // حماية إضافية: لا نعرض إلا الحركات الفعلية حتى لو وصلتنا بيانات غير متوقعة.
-  // بيانات التقرير (طباعة): نظهر الحركات العادية المنفذة فقط، ونستبعد الملغاة وحركة التصحيح.
-  const visibleRows = transactionRows.filter((tx) => tx.type !== "CANCELLATION" && !tx.is_cancelled);
+  // بيانات التقرير (طباعة): نظهر الحركات حسب رغبة المستخدم، بما في ذلك الملغاة إذا كانت في الصفحة.
+  const reportRowsCount = totalCount;
+  const reportTotalAmount = Number(totals._sum.amount ?? 0);
 
-  const reportRowsCount = visibleRows.length;
-  const reportTotalAmount = visibleRows.reduce((sum, tx) => sum + Number(tx.amount), 0);
-  const reportTotalRemaining = Math.max(0, 600 - reportTotalAmount);
+  // إذا كانت الحركات تتبع مستفيداً واحداً، نستخدم رصيده الحالي في التقرير.
+  const isSingleBeneficiary = transactionRows.length > 0 && transactionRows.every(t => t.beneficiary_id === transactionRows[0].beneficiary_id);
+  const reportTotalRemaining = isSingleBeneficiary ? Number(transactionRows[0].beneficiary.remaining_balance) : 0;
 
   const isReadOnlyEmployee = session.is_employee;
   const canCancel = !isReadOnlyEmployee && hasPermission(session, "cancel_transactions");
@@ -366,7 +371,7 @@ export default async function TransactionsPage({
 
         <div className="hidden print:grid grid-cols-3 gap-3 border-b border-black/40 pb-3 mb-3 text-black">
           <div className="text-center">
-            <p className="text-xs">عدد المعاملات (المعروضة)</p>
+            <p className="text-xs">إجمالي عدد الحركات (حسب الفلتر)</p>
             <p className="text-lg font-black">{reportRowsCount.toLocaleString("ar-LY")}</p>
           </div>
           <div className="text-center">
@@ -374,8 +379,8 @@ export default async function TransactionsPage({
             <p className="text-lg font-black">{reportTotalAmount.toLocaleString("ar-LY")} د.ل</p>
           </div>
           <div className="text-center">
-            <p className="text-xs">المتبقي</p>
-            <p className="text-lg font-black">{reportTotalRemaining.toLocaleString("ar-LY")} د.ل</p>
+            <p className="text-xs">{isSingleBeneficiary ? "الرصيد الحالي للمستفيد" : "—"}</p>
+            <p className="text-lg font-black">{isSingleBeneficiary ? reportTotalRemaining.toLocaleString("ar-LY") + " د.ل" : "—"}</p>
           </div>
         </div>
 
@@ -432,11 +437,11 @@ export default async function TransactionsPage({
                     order: sortDir,
                     status: statusFilter,
                     source: sourceFilter,
-                    tx_ids: visibleRows.map((tx) => tx.id).join(","),
+                    tx_ids: transactionRows.filter(tx => !tx.is_cancelled && tx.type !== "CANCELLATION").map((tx) => tx.id).join(","),
                   }}
                 />
               )}
-              <PrintButton />
+              <SmartPrintButton />
             </div>
           </div>
         </div>
@@ -736,7 +741,7 @@ export default async function TransactionsPage({
                         const balanceAfterDelete = currentBalance + amount;
 
                         return (
-                      <tr key={tx.id} className={`transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50 ${tx.is_cancelled ? "bg-red-50/50 dark:bg-red-900/10 hover:bg-red-50 dark:hover:bg-red-900/20 print:hidden" : ""} ${tx.type === "CANCELLATION" ? "bg-green-50/50 dark:bg-green-900/10 hover:bg-green-50 dark:hover:bg-green-900/20 print:hidden" : ""}`}>
+                      <tr key={tx.id} className={`transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50 ${tx.is_cancelled ? "bg-red-50/50 dark:bg-red-900/10 hover:bg-red-50 dark:hover:bg-red-900/20" : ""} ${tx.type === "CANCELLATION" ? "bg-green-50/50 dark:bg-green-900/10 hover:bg-green-50 dark:hover:bg-green-900/20" : ""}`}>
                         {(session.is_admin || canCancel || canDelete) && (
                           <td className="print:hidden px-4 py-4">
                             <input

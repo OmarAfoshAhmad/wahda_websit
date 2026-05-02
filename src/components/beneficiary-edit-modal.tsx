@@ -14,6 +14,7 @@ interface BeneficiaryEditModalProps {
     card_number: string;
     birth_date: string;
     status: "ACTIVE" | "FINISHED" | "SUSPENDED";
+    is_legacy_card?: boolean;
     total_balance?: number;
     remaining_balance?: number;
   };
@@ -30,6 +31,7 @@ export function BeneficiaryEditModal({ beneficiary, iconOnly = false }: Benefici
   const [cardNumber, setCardNumber] = useState(beneficiary.card_number);
   const [birthDate, setBirthDate] = useState(beneficiary.birth_date);
   const [status, setStatus] = useState<"ACTIVE" | "FINISHED" | "SUSPENDED">(beneficiary.status);
+  const [isLegacyCard, setIsLegacyCard] = useState(Boolean(beneficiary.is_legacy_card));
   const [remainingBalance, setRemainingBalance] = useState(String(beneficiary.remaining_balance ?? 0));
   const [error, setError] = useState<string | null>(null);
 
@@ -60,6 +62,7 @@ export function BeneficiaryEditModal({ beneficiary, iconOnly = false }: Benefici
           card_number: cardNumber,
           birth_date: birthDate,
           status,
+          is_legacy_card: isLegacyCard,
           remaining_balance: parsedRemaining,
         });
 
@@ -147,6 +150,18 @@ export function BeneficiaryEditModal({ beneficiary, iconOnly = false }: Benefici
                   <option value="FINISHED">مكتمل</option>
                   <option value="SUSPENDED">موقوف</option>
                 </select>
+              </div>
+
+              <div className="col-span-2">
+                <label className="inline-flex items-center gap-2 text-xs font-black text-slate-600 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={isLegacyCard}
+                    onChange={(e) => setIsLegacyCard(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30"
+                  />
+                  بطاقة قديمة
+                </label>
               </div>
 
               {error && <p className="col-span-2 text-sm font-bold text-red-600 dark:text-red-400">{error}</p>}

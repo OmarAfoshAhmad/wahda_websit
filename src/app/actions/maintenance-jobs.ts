@@ -9,6 +9,7 @@ import {
   type DataHygieneMode,
   type ParentCardPatternFixMode,
 } from "@/app/actions/data-hygiene";
+import { stabilizeLegacyCardsWithBatch } from "@/app/actions/beneficiary";
 import {
   recalcBalancesAction,
   fixStatusAnomaliesAction,
@@ -26,7 +27,8 @@ export type MaintenanceJobTask =
   | { kind: "normalize_import_integer_distribution" }
   | { kind: "fix_invalid_subunit_amounts" }
   | { kind: "fix_duplicate_import_cases"; facilityId?: string | null }
-  | { kind: "settle_overdrawn_debt"; facilityId?: string | null };
+  | { kind: "settle_overdrawn_debt"; facilityId?: string | null }
+  | { kind: "stabilize_legacy_with_batch" };
 
 export type MaintenanceJobState = "queued" | "running" | "succeeded" | "failed";
 
@@ -78,6 +80,8 @@ function summarizeResult(task: MaintenanceJobTask, result: unknown): string {
       return `معالجة تكرار IMPORT: ${Number(r.affectedBeneficiaries ?? 0).toLocaleString("ar-LY")} مستفيد`;
     case "settle_overdrawn_debt":
       return `تسوية المديونية: ${Number(r.affectedDebtors ?? 0).toLocaleString("ar-LY")} حالة`;
+    case "stabilize_legacy_with_batch":
+      return `تحويل البطاقات القديمة ذات الدفعة: ${Number(r.updatedCount ?? 0).toLocaleString("ar-LY")} بطاقة`;
     default:
       return "تم التنفيذ";
   }
@@ -128,6 +132,13 @@ async function executeTask(
         user: actor.username,
         facilityId: task.facilityId ?? actor.id,
       });
+    case "stabilize_legacy_with_batch": {
+      const result = await stabilizeLegacyCardsWithBatch();
+      if (result.error) {
+        throw new Error(result.error);
+      }
+      return result;
+    }
     default:
       throw new Error("نوع مهمة غير مدعوم");
   }

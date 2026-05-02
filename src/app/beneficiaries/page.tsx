@@ -21,6 +21,8 @@ import { BeneficiariesBulkActionButton, SelectAllCheckbox, EmptyRecycleBinButton
 import { BulkRenewalButton } from "@/components/bulk-renewal-button";
 import { BeneficiariesSelectionToolbar } from "../../components/beneficiaries-selection-toolbar";
 import { unstable_cache } from "next/cache";
+import { getBeneficiariesIssuanceMeta } from "@/lib/card-issuance-index";
+import { LegacyCardBatchTools } from "@/components/legacy-card-batch-tools";
 
 // كاش إحصائيات أعداد المستفيدين — يُبطَل فور أي تغيير عبر revalidateTag("beneficiary-counts")
 const getCachedStatusCounts = unstable_cache(
@@ -40,17 +42,22 @@ const getCachedStatusCounts = unstable_cache(
   { revalidate: 30, tags: ["beneficiary-counts"] }
 );
 
+const NO_BATCH_FILTER_VALUE = "__NO_BATCH__";
+
 export default async function BeneficiariesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; page?: string; pageSize?: string; view?: string; sort?: string; order?: string; status?: string; completed_via?: string; balance_range?: string; card_age?: string; focus_beneficiary?: string; bulk_msg?: string; bulk_type?: string }>;
+  searchParams: Promise<{ q?: string; page?: string; pageSize?: string; view?: string; sort?: string; order?: string; status?: string; completed_via?: string; balance_range?: string; card_age?: string; issuance_city?: string; issuance_batch?: string; focus_beneficiary?: string; bulk_msg?: string; bulk_type?: string }>;
 }) {
   const session = await getSession();
   if (!session) redirect("/login");
   if (!canAccessAdmin(session)) redirect("/dashboard");
 
-  const { q, page: pageParam, pageSize: pageSizeParam, view, sort, order, status, completed_via: completedViaParam, balance_range: balanceRangeParam, card_age: cardAgeParam, focus_beneficiary, bulk_msg: bulkMsgParam, bulk_type: bulkTypeParam } = await searchParams;
+  const { q, page: pageParam, pageSize: pageSizeParam, view, sort, order, status, completed_via: completedViaParam, balance_range: balanceRangeParam, card_age: cardAgeParam, issuance_city: issuanceCityParam, issuance_batch: issuanceBatchParam, focus_beneficiary, bulk_msg: bulkMsgParam, bulk_type: bulkTypeParam } = await searchParams;
   const query = (q?.trim() ?? "").slice(0, 100);
+  const issuanceCityFilter = (issuanceCityParam?.trim() ?? "").slice(0, 120);
+  const issuanceBatchFilter = (issuanceBatchParam?.trim() ?? "").slice(0, 120);
+  const isNoBatchFilter = issuanceBatchFilter === NO_BATCH_FILTER_VALUE;
   const isDeletedView = view === "deleted";
   const bulkMessage = (bulkMsgParam?.trim() ?? "").slice(0, 220);
   const bulkMessageType: "success" | "error" = bulkTypeParam === "error" ? "error" : "success";
@@ -88,6 +95,8 @@ export default async function BeneficiariesPage({
     if (completedViaFilter !== "all" && !isStrictOldCardView) p.set("completed_via", completedViaFilter);
     if (balanceRangeFilter !== "all" && !isDeletedView && !isStrictOldCardView) p.set("balance_range", balanceRangeFilter);
     if (cardAgeFilter !== "all" && !isDeletedView) p.set("card_age", cardAgeFilter);
+    if (issuanceCityFilter && !isDeletedView) p.set("issuance_city", issuanceCityFilter);
+    if (issuanceBatchFilter && !isDeletedView) p.set("issuance_batch", issuanceBatchFilter);
     p.set("pageSize", String(PAGE_SIZE));
     p.set("sort", sortCol);
     p.set("order", sortDir);
@@ -105,24 +114,8 @@ export default async function BeneficiariesPage({
 
   const pageHref = (p: number) => buildBeneficiaryParams({ page: String(p) });
 
-  const cardAgeOnlyHref = (() => {
-    const p = new URLSearchParams();
-    p.set("card_age", "old");
-    p.set("page", "1");
-    p.set("pageSize", String(PAGE_SIZE));
-    p.set("sort", sortCol);
-    p.set("order", sortDir);
-    return `/beneficiaries?${p.toString()}`;
-  })();
-
-  const cardAgeAllHref = (() => {
-    const p = new URLSearchParams();
-    p.set("page", "1");
-    p.set("pageSize", String(PAGE_SIZE));
-    p.set("sort", sortCol);
-    p.set("order", sortDir);
-    return `/beneficiaries?${p.toString()}`;
-  })();
+  const cardAgeOnlyHref = buildBeneficiaryParams({ card_age: "old", page: "1" });
+  const cardAgeAllHref = buildBeneficiaryParams({ card_age: undefined, page: "1" });
 
   const baseFilter: Record<string, unknown> = isDeletedView
     ? { deleted_at: { not: null } }
@@ -144,6 +137,41 @@ export default async function BeneficiariesPage({
     baseFilter.is_legacy_card = true;
   }
 
+  if (!isDeletedView && (issuanceCityFilter || issuanceBatchFilter)) {
+    type IssuanceCardRow = { card_number_upper: string };
+    let matchedCards: IssuanceCardRow[] = [];
+
+    if (issuanceCityFilter && issuanceBatchFilter) {
+      matchedCards = await prisma.$queryRaw<IssuanceCardRow[]>`
+        SELECT DISTINCT card_number_upper
+        FROM "CardIssuanceRegistry"
+        WHERE city = ${issuanceCityFilter}
+          AND (
+            (${isNoBatchFilter} = true AND (batch_number IS NULL OR BTRIM(batch_number) = ''))
+            OR (${isNoBatchFilter} = false AND batch_number = ${issuanceBatchFilter})
+          )
+      `;
+    } else if (issuanceCityFilter) {
+      matchedCards = await prisma.$queryRaw<IssuanceCardRow[]>`
+        SELECT DISTINCT card_number_upper
+        FROM "CardIssuanceRegistry"
+        WHERE city = ${issuanceCityFilter}
+      `;
+    } else if (issuanceBatchFilter) {
+      matchedCards = await prisma.$queryRaw<IssuanceCardRow[]>`
+        SELECT DISTINCT card_number_upper
+        FROM "CardIssuanceRegistry"
+        WHERE (
+          (${isNoBatchFilter} = true AND (batch_number IS NULL OR BTRIM(batch_number) = ''))
+          OR (${isNoBatchFilter} = false AND batch_number = ${issuanceBatchFilter})
+        )
+      `;
+    }
+
+    const cards = matchedCards.map((r) => r.card_number_upper).filter((v) => Boolean(v));
+    baseFilter.card_number = { in: cards.length > 0 ? cards : ["__NO_MATCH__"] };
+  }
+
   const where = (query && !isStrictOldCardView)
     ? {
       ...baseFilter,
@@ -154,7 +182,7 @@ export default async function BeneficiariesPage({
     }
     : baseFilter;
 
-  const [rawBeneficiaries, filteredCount, statusCounts, focusedBeneficiary] = await Promise.all([
+  const [rawBeneficiaries, filteredCount, statusCounts, focusedBeneficiary, issuanceCityRows, issuanceBatchRows] = await Promise.all([
     prisma.beneficiary.findMany({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       where: where as any,
@@ -173,7 +201,55 @@ export default async function BeneficiariesPage({
         include: { _count: { select: { transactions: { where: { is_cancelled: false } } } } },
       })
       : Promise.resolve(null),
+    prisma.$queryRaw<Array<{ city: string }>>`
+      SELECT DISTINCT city
+      FROM "CardIssuanceRegistry"
+      WHERE city IS NOT NULL AND BTRIM(city) <> ''
+      ORDER BY city ASC
+    `,
+    issuanceCityFilter
+      ? prisma.$queryRaw<Array<{ batch_number: string; total: number | string | bigint }>>`
+          SELECT r.batch_number, COUNT(*)::int AS total
+          FROM "CardIssuanceRegistry" r
+          INNER JOIN "Beneficiary" b
+            ON UPPER(BTRIM(b.card_number)) = r.card_number_upper
+          WHERE r.batch_number IS NOT NULL
+            AND BTRIM(r.batch_number) <> ''
+            AND r.city = ${issuanceCityFilter}
+            AND b.deleted_at IS NULL
+          GROUP BY r.batch_number
+          ORDER BY
+            CASE WHEN r.batch_number ~ '^[0-9]+$' THEN r.batch_number::int ELSE 2147483647 END ASC,
+            r.batch_number ASC
+        `
+      : prisma.$queryRaw<Array<{ batch_number: string; total: number | string | bigint }>>`
+          SELECT r.batch_number, COUNT(*)::int AS total
+          FROM "CardIssuanceRegistry" r
+          INNER JOIN "Beneficiary" b
+            ON UPPER(BTRIM(b.card_number)) = r.card_number_upper
+          WHERE r.batch_number IS NOT NULL
+            AND BTRIM(r.batch_number) <> ''
+            AND b.deleted_at IS NULL
+          GROUP BY r.batch_number
+          ORDER BY
+            CASE WHEN r.batch_number ~ '^[0-9]+$' THEN r.batch_number::int ELSE 2147483647 END ASC,
+            r.batch_number ASC
+        `,
   ]);
+
+  const issuanceCityOptions = issuanceCityRows.map((r) => r.city).filter((v) => Boolean(v));
+  const issuanceBatchCountByValue = new Map(
+    issuanceBatchRows
+      .map((r) => ({ batch: String(r.batch_number ?? "").trim(), total: Number(r.total) || 0 }))
+      .filter((v) => Boolean(v.batch))
+      .map((v) => [v.batch, v.total] as const)
+  );
+
+  // ثابت: عرض فلتر الدفعات من 1 إلى 16 بترتيب رقمي.
+  const issuanceBatchOptions = Array.from({ length: 16 }, (_, i) => String(i + 1)).map((batch) => ({
+    batch,
+    total: issuanceBatchCountByValue.get(batch) ?? 0,
+  }));
 
   const orderedRawBeneficiaries = focusedBeneficiary
     ? [focusedBeneficiary, ...rawBeneficiaries.filter((b) => b.id !== focusedBeneficiary.id)].slice(0, PAGE_SIZE)
@@ -189,6 +265,17 @@ export default async function BeneficiariesPage({
     completed_via: (b as unknown as Record<string, unknown>).completed_via as string | null,
     in_import_file: Boolean((b as unknown as Record<string, unknown>).is_legacy_card),
   }));
+
+  const issuanceMeta = await getBeneficiariesIssuanceMeta(process.cwd(), beneficiaries.map((b) => b.card_number));
+  const beneficiariesWithIssuance = beneficiaries.map((beneficiary) => {
+    const meta = issuanceMeta.byCard.get(beneficiary.card_number);
+    return {
+      ...beneficiary,
+      issue_city: meta?.city ?? null,
+      issue_batch_number: meta?.batchNumber ?? null,
+      issue_source_file: meta?.sourceFile ?? null,
+    };
+  });
 
   // حساب الأعداد من نتيجة groupBy
   let totalCount = 0;
@@ -214,14 +301,16 @@ export default async function BeneficiariesPage({
   const totalPages = Math.max(1, Math.ceil(filteredCount / PAGE_SIZE));
   const hasActions = canEdit || canDelete || canManageRecycleBin || session.is_admin;
   const emptyColSpan = isDeletedView
-    ? (hasActions ? 7 : 6)
-    : (hasActions ? 8 : 6);
+    ? (hasActions ? 9 : 8)
+    : (hasActions ? 10 : 9);
   const exportParams = new URLSearchParams();
   if (query && !isStrictOldCardView) exportParams.set("q", query);
   if (isDeletedView) exportParams.set("view", "deleted");
   if (statusFilter !== "all" && !isStrictOldCardView) exportParams.set("status", statusFilter);
   if (!isDeletedView && balanceRangeFilter !== "all" && !isStrictOldCardView) exportParams.set("balance_range", balanceRangeFilter);
   if (!isDeletedView && cardAgeFilter !== "all") exportParams.set("card_age", cardAgeFilter);
+  if (!isDeletedView && issuanceCityFilter) exportParams.set("issuance_city", issuanceCityFilter);
+  if (!isDeletedView && issuanceBatchFilter) exportParams.set("issuance_batch", issuanceBatchFilter);
 
   const exportHref = `/api/export/beneficiaries?${exportParams.toString()}`;
 
@@ -402,6 +491,50 @@ export default async function BeneficiariesPage({
               >
                 بطاقة قديمة فقط
               </Link>
+
+              {canEdit && !isDeletedView && <LegacyCardBatchTools />}
+
+              <form className="flex flex-wrap items-center gap-2">
+                {!isStrictOldCardView && <input type="hidden" name="q" value={query} />}
+                <input type="hidden" name="page" value="1" />
+                <input type="hidden" name="pageSize" value={String(PAGE_SIZE)} />
+                <input type="hidden" name="sort" value={sortCol} />
+                <input type="hidden" name="order" value={sortDir} />
+                {statusFilter !== "all" && !isStrictOldCardView && <input type="hidden" name="status" value={statusFilter} />}
+                {completedViaFilter !== "all" && !isStrictOldCardView && <input type="hidden" name="completed_via" value={completedViaFilter} />}
+                {balanceRangeFilter !== "all" && !isStrictOldCardView && <input type="hidden" name="balance_range" value={balanceRangeFilter} />}
+                {cardAgeFilter !== "all" && <input type="hidden" name="card_age" value={cardAgeFilter} />}
+
+                <select
+                  name="issuance_city"
+                  defaultValue={issuanceCityFilter}
+                  className="h-10 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 text-sm text-slate-700 dark:text-slate-300"
+                >
+                  <option value="">كل المدن</option>
+                  {issuanceCityOptions.map((city) => (
+                    <option key={city} value={city}>{city}</option>
+                  ))}
+                </select>
+
+                <select
+                  name="issuance_batch"
+                  defaultValue={issuanceBatchFilter}
+                  className="h-10 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 text-sm text-slate-700 dark:text-slate-300"
+                >
+                  <option value="">{issuanceCityFilter ? "كل دفعات المدينة" : "كل الدفعات"}</option>
+                  <option value={NO_BATCH_FILTER_VALUE}>بدون دفعة</option>
+                  {issuanceBatchOptions.map(({ batch, total }) => (
+                    <option key={batch} value={batch}>{`${batch} (${total})`}</option>
+                  ))}
+                </select>
+
+                <button
+                  type="submit"
+                  className="inline-flex h-10 items-center rounded-md border border-slate-200 dark:border-slate-700 px-3 text-sm font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
+                >
+                  تطبيق
+                </button>
+              </form>
             </>
           )}
 
@@ -416,7 +549,7 @@ export default async function BeneficiariesPage({
                     ? "حدد المستفيدين المكتملين ثم اضغط تجديد الرصيد لإعادة تفعيلهم."
                     : isDeletedView
                     ? "يمكنك تحديد أكثر من مستفيد محذوف ثم تنفيذ الاستعادة الجماعية أو الحذف النهائي للسجلات القابلة."
-                    : "يمكنك تحديد أكثر من مستفيد ثم تنفيذ الحذف الناعم الجماعي."}
+                    : "يمكنك تحديد أكثر من مستفيد للتصدير أو الحذف الجماعي. المستفيد الذي لديه حركات مالية سيتم تخطي حذفه تلقائيًا."}
                 </p>
                 <div className="flex items-center gap-2">
                   {statusFilter === "FINISHED" && !isDeletedView && session.is_admin && <BulkRenewalButton formId="beneficiaries-bulk-form" />}
@@ -428,12 +561,12 @@ export default async function BeneficiariesPage({
             )}
             {/* ══ عرض الكارد — جوال فقط ══ */}
             <div className="sm:hidden divide-y divide-slate-100 dark:divide-slate-800">
-              {beneficiaries.length === 0 ? (
+              {beneficiariesWithIssuance.length === 0 ? (
                 <p className="py-10 text-center text-sm italic text-slate-500 dark:text-slate-400">
                   {isDeletedView ? "لا يوجد مستفيدون محذوفون." : "لا توجد نتائج مطابقة."}
                 </p>
               ) : (
-                beneficiaries.map((beneficiary) => (
+                beneficiariesWithIssuance.map((beneficiary) => (
                   <div key={beneficiary.id} className="px-4 py-3.5 hover:bg-slate-50 dark:hover:bg-slate-800/40">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
@@ -444,7 +577,6 @@ export default async function BeneficiariesPage({
                               form="beneficiaries-bulk-form"
                               name="ids"
                               value={beneficiary.id}
-                              disabled={!isDeletedView && statusFilter !== "FINISHED" && beneficiary._count.transactions > 0}
                               className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-40"
                             />
                           )}
@@ -454,6 +586,11 @@ export default async function BeneficiariesPage({
                           </Badge>
                         </div>
                         <p className="mt-1 text-xs font-mono text-slate-500 dark:text-slate-400">بطاقة: {beneficiary.card_number}</p>
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                          <span>المدينة: {beneficiary.issue_city ?? "—"}</span>
+                          <span className="text-slate-300 dark:text-slate-600">|</span>
+                          <span>رقم الدفعة: {beneficiary.issue_batch_number ?? "—"}</span>
+                        </div>
                         {beneficiary.birth_date && (
                           <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">{formatDateTripoli(beneficiary.birth_date, "en-GB")}</p>
                         )}
@@ -494,6 +631,7 @@ export default async function BeneficiariesPage({
                                   card_number: beneficiary.card_number,
                                   birth_date: beneficiary.birth_date ? new Date(beneficiary.birth_date).toISOString().slice(0, 10) : "",
                                   status: beneficiary.status,
+                                  is_legacy_card: beneficiary.in_import_file,
                                   total_balance: Number(beneficiary.total_balance),
                                   remaining_balance: Number(beneficiary.remaining_balance),
                                 }}
@@ -518,6 +656,11 @@ export default async function BeneficiariesPage({
             {/* ══ عرض الجدول — شاشة كبيرة فقط ══ */}
             <div className="hidden sm:block overflow-x-auto">
               <table className="w-full min-w-295 border-collapse text-right">
+                {issuanceMeta.missingFolders.length > 0 && (
+                  <caption className="caption-top px-6 py-3 text-right text-xs font-bold text-amber-700 dark:text-amber-300">
+                    تنبيه: لم يتم العثور على مجلدات المصادر التالية: {issuanceMeta.missingFolders.join("، ")}.
+                  </caption>
+                )}
                 <thead className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
                   <tr>
                     {(session.is_admin || (canDelete && !isDeletedView) || (canManageRecycleBin && isDeletedView)) && (
@@ -539,6 +682,8 @@ export default async function BeneficiariesPage({
                       </Link>
                     </th>
                     <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">تاريخ الميلاد</th>
+                    <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">المدينة</th>
+                    <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">رقم الدفعة</th>
                     {!isDeletedView && (
                       <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-sky-600 dark:text-sky-400">
                         <Link href={sortHref("remaining_balance")} className="inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
@@ -564,12 +709,12 @@ export default async function BeneficiariesPage({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {beneficiaries.length === 0 ? (
+                  {beneficiariesWithIssuance.length === 0 ? (
                     <tr>
                       <td colSpan={emptyColSpan} className="px-6 py-10 text-center text-sm text-slate-500 dark:text-slate-400">{isDeletedView ? "لا يوجد مستفيدون محذوفون." : "لا توجد نتائج مطابقة."}</td>
                     </tr>
                   ) : (
-                    beneficiaries.map((beneficiary) => (
+                    beneficiariesWithIssuance.map((beneficiary) => (
                       <tr key={beneficiary.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                         {(session.is_admin || (canDelete && !isDeletedView) || (canManageRecycleBin && isDeletedView)) && (
                           <td className="px-4 py-4">
@@ -577,8 +722,7 @@ export default async function BeneficiariesPage({
                               type="checkbox"
                               name="ids"
                               value={beneficiary.id}
-                              disabled={!isDeletedView && statusFilter !== "FINISHED" && beneficiary._count.transactions > 0}
-                              title={!isDeletedView && statusFilter !== "FINISHED" && beneficiary._count.transactions > 0 ? "لا يمكن تنفيذ هذا الإجراء على مستفيد لديه حركات مالية" : "تحديد المستفيد"}
+                              title="تحديد المستفيد"
                               className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-40"
                             />
                           </td>
@@ -607,6 +751,8 @@ export default async function BeneficiariesPage({
                             {beneficiary.birth_date ? formatDateTripoli(beneficiary.birth_date, "en-GB") : "غير مسجل"}
                           </span>
                         </td>
+                        <td className="px-6 py-4 text-sm text-slate-700 dark:text-slate-300">{beneficiary.issue_city ?? "—"}</td>
+                        <td className="px-6 py-4 text-sm text-slate-700 dark:text-slate-300">{beneficiary.issue_batch_number ?? "—"}</td>
                         {!isDeletedView && (
                           <td className="px-6 py-4 text-sm font-bold text-sky-700 dark:text-sky-300">{Number(beneficiary.remaining_balance).toLocaleString("ar-LY")} د.ل</td>
                         )}
@@ -660,6 +806,7 @@ export default async function BeneficiariesPage({
                                         card_number: beneficiary.card_number,
                                         birth_date: beneficiary.birth_date ? new Date(beneficiary.birth_date).toISOString().slice(0, 10) : "",
                                         status: beneficiary.status,
+                                        is_legacy_card: beneficiary.in_import_file,
                                         total_balance: Number(beneficiary.total_balance),
                                         remaining_balance: Number(beneficiary.remaining_balance),
                                       }}
@@ -696,6 +843,8 @@ export default async function BeneficiariesPage({
                 {isDeletedView && <input type="hidden" name="view" value="deleted" />}
                 {statusFilter !== "all" && !isStrictOldCardView && <input type="hidden" name="status" value={statusFilter} />}
                 {cardAgeFilter !== "all" && !isDeletedView && <input type="hidden" name="card_age" value={cardAgeFilter} />}
+                {issuanceCityFilter && !isDeletedView && <input type="hidden" name="issuance_city" value={issuanceCityFilter} />}
+                {issuanceBatchFilter && !isDeletedView && <input type="hidden" name="issuance_batch" value={issuanceBatchFilter} />}
 
                 <label className="text-xs font-bold text-slate-500 dark:text-slate-400">عدد السجلات</label>
                 <select

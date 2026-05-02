@@ -26,6 +26,7 @@ export async function POST(
     auditLog.action !== "BULK_DELETE_BENEFICIARY"
     && auditLog.action !== "BULK_RESTORE_BENEFICIARY"
     && auditLog.action !== "BULK_RENEW_BALANCE"
+    && auditLog.action !== "BULK_STABILIZE_LEGACY_WITH_BATCH"
     && auditLog.action !== "FIX_PARENT_CARD_PATTERNS"
     && auditLog.action !== "NORMALIZE_IMPORT_INTEGER_DISTRIBUTION"
   ) {
@@ -132,6 +133,11 @@ export async function POST(
         continue;
       }
 
+      if (auditLog.action === "BULK_STABILIZE_LEGACY_WITH_BATCH") {
+        // يتم تنفيذ هذا الفرع لاحقاً من undo_snapshot
+        continue;
+      }
+
       if (auditLog.action === "FIX_PARENT_CARD_PATTERNS") {
         // يتم تنفيذ هذا الفرع لاحقاً من undo_snapshot
         continue;
@@ -162,6 +168,25 @@ export async function POST(
         });
 
         revertedCount += 1;
+      }
+    }
+
+    if (auditLog.action === "BULK_STABILIZE_LEGACY_WITH_BATCH") {
+      for (const item of renewUndoSnapshot) {
+        const beneficiaryId = String(item.id ?? "").trim();
+        if (!beneficiaryId) continue;
+
+        const oldIsLegacy = Boolean(item.old_is_legacy_card);
+        const newIsLegacy = Boolean(item.new_is_legacy_card);
+
+        const updated = await tx.beneficiary.updateMany({
+          where: { id: beneficiaryId, is_legacy_card: newIsLegacy },
+          data: { is_legacy_card: oldIsLegacy },
+        });
+
+        if (updated.count > 0) {
+          revertedCount += 1;
+        }
       }
     }
 
@@ -313,6 +338,8 @@ export async function POST(
             ? "UNDO_BULK_RESTORE_BENEFICIARY"
             : auditLog.action === "BULK_RENEW_BALANCE"
               ? "UNDO_BULK_RENEW_BALANCE"
+              : auditLog.action === "BULK_STABILIZE_LEGACY_WITH_BATCH"
+                ? "UNDO_BULK_STABILIZE_LEGACY_WITH_BATCH"
               : auditLog.action === "NORMALIZE_IMPORT_INTEGER_DISTRIBUTION"
                 ? "UNDO_NORMALIZE_IMPORT_INTEGER_DISTRIBUTION"
                 : "UNDO_FIX_PARENT_CARD_PATTERNS",

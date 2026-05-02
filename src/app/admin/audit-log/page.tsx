@@ -33,6 +33,10 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "UNDO_BULK_RENEW_BALANCE",
     "UNDO_BULK_DELETE_BENEFICIARY",
     "UNDO_BULK_RESTORE_BENEFICIARY",
+    "BULK_SET_LEGACY_CARD_FLAG",
+    "SET_LEGACY_CARD_FLAG",
+    "BULK_STABILIZE_LEGACY_WITH_BATCH",
+    "UNDO_BULK_STABILIZE_LEGACY_WITH_BATCH",
     "UNDO_FIX_PARENT_CARD_PATTERNS",
     "NORMALIZE_IMPORT_INTEGER_DISTRIBUTION",
     "UNDO_NORMALIZE_IMPORT_INTEGER_DISTRIBUTION",
@@ -79,6 +83,10 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "UNDO_BULK_RENEW_BALANCE",
     "UNDO_BULK_DELETE_BENEFICIARY",
     "UNDO_BULK_RESTORE_BENEFICIARY",
+    "BULK_SET_LEGACY_CARD_FLAG",
+    "SET_LEGACY_CARD_FLAG",
+    "BULK_STABILIZE_LEGACY_WITH_BATCH",
+    "UNDO_BULK_STABILIZE_LEGACY_WITH_BATCH",
     "FIX_PARENT_CARD_PATTERNS",
   ],
   transactions: [
@@ -139,6 +147,14 @@ function actionLabel(action: string) {
       return "تراجع عن الحذف الجماعي";
     case "UNDO_BULK_RESTORE_BENEFICIARY":
       return "تراجع عن الاسترجاع الجماعي";
+    case "BULK_SET_LEGACY_CARD_FLAG":
+      return "تحديث حالة البطاقات القديمة";
+    case "SET_LEGACY_CARD_FLAG":
+      return "تحديث حالة بطاقة مستفيد";
+    case "BULK_STABILIZE_LEGACY_WITH_BATCH":
+      return "تحويل القديمة ذات الدفعة إلى مستقرة";
+    case "UNDO_BULK_STABILIZE_LEGACY_WITH_BATCH":
+      return "تراجع عن تحويل القديمة ذات الدفعة";
     case "DEDUCT_BALANCE":
       return "إضافة حركة خصم";
     case "EDIT_TRANSACTION":
@@ -602,11 +618,42 @@ function summarizeMetadata(action: string, metadata: unknown, auditLogId?: strin
     );
   }
 
+  if (action === "BULK_STABILIZE_LEGACY_WITH_BATCH") {
+    const details = Array.isArray(m.details) ? (m.details as Array<Record<string, unknown>>) : [];
+    const isRolledBack = Boolean(m.undo_reverted_at);
+    return (
+      <span className="flex flex-wrap gap-x-2 text-slate-500 dark:text-slate-400">
+        <span>مرشحون: <strong className="text-slate-700 dark:text-slate-300">{String(m.candidate_count ?? m.selected_count ?? details.length)}</strong></span>
+        <span>محوّلون: <strong className="text-slate-700 dark:text-slate-300">{String(m.updated_count ?? m.processed_count ?? "-")}</strong></span>
+        {auditLogId && details.length > 0 ? (
+          <a
+            href={`/api/export/audit-log?log_id=${encodeURIComponent(auditLogId)}`}
+            target="_blank"
+            className="inline-flex items-center gap-1 rounded border border-sky-200 dark:border-sky-700 bg-sky-50 dark:bg-sky-900/30 px-2 py-0.5 text-xs font-bold text-sky-700 dark:text-sky-400 hover:bg-sky-100 dark:hover:bg-sky-900/50 transition-colors"
+            title="تصدير تفاصيل هذه العملية بصيغة Excel"
+          >
+            ↓ تقرير تفصيلي ({details.length})
+          </a>
+        ) : null}
+        {auditLogId ? <BulkBeneficiaryRollbackButton logId={auditLogId} rolledBack={isRolledBack} /> : null}
+      </span>
+    );
+  }
+
   if (action === "UNDO_BULK_RENEW_BALANCE") {
     return (
       <span className="text-slate-500 dark:text-slate-400">
         عملية أصلية: <strong className="text-slate-700 dark:text-slate-300">{String(m.original_audit_log_id ?? "-")}</strong>
         <span className="mr-1.5">· مستفيدون مُرجعون: {String(m.reverted_count ?? "-")}</span>
+      </span>
+    );
+  }
+
+  if (action === "UNDO_BULK_STABILIZE_LEGACY_WITH_BATCH") {
+    return (
+      <span className="text-slate-500 dark:text-slate-400">
+        عملية أصلية: <strong className="text-slate-700 dark:text-slate-300">{String(m.original_audit_log_id ?? "-")}</strong>
+        <span className="mr-1.5">· عناصر مُرجعة: {String(m.reverted_count ?? "-")}</span>
       </span>
     );
   }
@@ -797,6 +844,7 @@ function badgeClassForAction(action: string) {
     action === "IMPORT_TRANSACTIONS" ||
     action === "BULK_RENEW_BALANCE" ||
     action === "UNDO_BULK_RENEW_BALANCE" ||
+    action === "UNDO_BULK_STABILIZE_LEGACY_WITH_BATCH" ||
     action === "UNDO_BULK_DELETE_BENEFICIARY" ||
     action === "UNDO_BULK_RESTORE_BENEFICIARY" ||
     action === "UNDO_FIX_PARENT_CARD_PATTERNS" ||
@@ -818,7 +866,7 @@ function badgeClassForAction(action: string) {
 export default async function AuditLogPage({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string; target?: string; actor?: string; start_date?: string; end_date?: string }>;
+  searchParams: Promise<{ page?: string; target?: string; actor?: string; q?: string; start_date?: string; end_date?: string }>;
 }) {
   const session = await getSession();
   if (!session) redirect("/login");
@@ -826,8 +874,9 @@ export default async function AuditLogPage({
   const canView = session.is_admin || (session.is_manager && session.manager_permissions?.view_audit_log);
   if (!canView) redirect("/dashboard");
 
-  const { page: pageParam, target: targetParam, actor, start_date, end_date } = await searchParams;
+  const { page: pageParam, target: targetParam, actor, q, start_date, end_date } = await searchParams;
   const actorTerm = actor?.trim() ?? "";
+  const searchTerm = q?.trim() ?? "";
 
   const target: TargetFilter =
     targetParam === "beneficiaries" || targetParam === "transactions" || targetParam === "facilities" || targetParam === "completed" || targetParam === "merges" || targetParam === "security"
@@ -866,15 +915,33 @@ export default async function AuditLogPage({
     })).map((f) => f.id)
     : [];
 
+  const actorFilter = actorTerm
+    ? {
+      OR: [
+        { user: { contains: actorTerm, mode: "insensitive" as const } },
+        ...(actorMatchedFacilityIds.length > 0
+          ? [{ facility_id: { in: actorMatchedFacilityIds } }]
+          : []),
+      ],
+    }
+    : null;
+
+  const searchFilter = searchTerm
+    ? {
+      OR: [
+        { user: { contains: searchTerm, mode: "insensitive" as const } },
+        { action: { contains: searchTerm, mode: "insensitive" as const } },
+      ],
+    }
+    : null;
+
   const where = {
     action: { in: TARGET_ACTIONS[target] },
-    ...(actorTerm
+    ...(actorFilter ? actorFilter : {}),
+    ...(searchFilter
       ? {
-        OR: [
-          { user: { contains: actorTerm, mode: "insensitive" as const } },
-          ...(actorMatchedFacilityIds.length > 0
-            ? [{ facility_id: { in: actorMatchedFacilityIds } }]
-            : []),
+        AND: [
+          searchFilter,
         ],
       }
       : {}),
@@ -1047,6 +1114,7 @@ export default async function AuditLogPage({
     params.set("page", String(nextPage));
     params.set("target", target);
     if (actor?.trim()) params.set("actor", actor.trim());
+    if (q?.trim()) params.set("q", q.trim());
     if (start_date) params.set("start_date", start_date);
     if (end_date) params.set("end_date", end_date);
     return `/admin/audit-log?${params.toString()}`;
@@ -1055,6 +1123,7 @@ export default async function AuditLogPage({
   const exportParams = new URLSearchParams();
   exportParams.set("target", target);
   if (actor?.trim()) exportParams.set("actor", actor.trim());
+  if (q?.trim()) exportParams.set("q", q.trim());
   if (start_date) exportParams.set("start_date", start_date);
   if (end_date) exportParams.set("end_date", end_date);
   const exportHref = `/api/export/audit-log?${exportParams.toString()}`;
@@ -1090,7 +1159,7 @@ export default async function AuditLogPage({
         </div>
 
         <Card className="p-4">
-          <form method="get" className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-5 md:items-end">
+          <form method="get" className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-6 md:items-end">
             <input type="hidden" name="page" value="1" />
 
             <div className="space-y-1">
@@ -1113,6 +1182,11 @@ export default async function AuditLogPage({
             <div className="space-y-1">
               <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">المنفذ</label>
               <Input name="actor" defaultValue={actor ?? ""} placeholder="اسم المستخدم" className="h-10" />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">بحث عام</label>
+              <Input name="q" defaultValue={q ?? ""} placeholder="اسم مستخدم أو نوع عملية" className="h-10" />
             </div>
 
             <div className="space-y-1">

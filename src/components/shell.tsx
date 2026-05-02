@@ -35,8 +35,10 @@ const cashClaimNav = { name: "كاش", href: "/cash-claim", icon: Banknote };
 const employeeHomeNav = { name: "الرئيسية", href: "/cash-claim", icon: Banknote };
 
 const maintenanceNavigation = [
+  { name: "ترقيم البطاقات", href: "/admin/card-numbering", icon: ListOrdered },
   { name: "النسخ الاحتياطي", href: "/admin/backup", icon: DatabaseBackup },
   { name: "إدارة المشاكل", href: "/admin/duplicates", icon: TriangleAlert },
+  { name: "جدول الحقيقة", href: "/admin/truth-registry", icon: ClipboardList },
 ];
 
 const superAdminNavigation = [

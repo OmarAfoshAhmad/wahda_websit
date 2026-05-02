@@ -70,8 +70,11 @@ export function BeneficiariesSelectionToolbar({ canExport, exportBaseHref }: Pro
   const exportSelectedHref = useMemo(() => {
     const base = exportBaseHref.includes("?") ? exportBaseHref : `${exportBaseHref}?`;
     const separator = base.endsWith("?") || base.endsWith("&") ? "" : "&";
-    const idsParam = encodeURIComponent(selectedIds.join(","));
-    return `${base}${separator}ids=${idsParam}`;
+    const deduped = Array.from(new Set(selectedIds.map((id) => id.trim()).filter(Boolean)));
+    if (deduped.length === 0) return base;
+
+    const params = deduped.map((id) => `id=${encodeURIComponent(id)}`).join("&");
+    return `${base}${separator}${params}`;
   }, [exportBaseHref, selectedIds]);
 
   const clearSelection = () => {

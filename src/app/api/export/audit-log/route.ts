@@ -46,6 +46,10 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "UNDO_BULK_RENEW_BALANCE",
     "UNDO_BULK_DELETE_BENEFICIARY",
     "UNDO_BULK_RESTORE_BENEFICIARY",
+    "BULK_SET_LEGACY_CARD_FLAG",
+    "SET_LEGACY_CARD_FLAG",
+    "BULK_STABILIZE_LEGACY_WITH_BATCH",
+    "UNDO_BULK_STABILIZE_LEGACY_WITH_BATCH",
     "DEDUCT_BALANCE",
     "EDIT_TRANSACTION",
     "CANCEL_TRANSACTION",
@@ -81,6 +85,10 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "UNDO_BULK_RENEW_BALANCE",
     "UNDO_BULK_DELETE_BENEFICIARY",
     "UNDO_BULK_RESTORE_BENEFICIARY",
+    "BULK_SET_LEGACY_CARD_FLAG",
+    "SET_LEGACY_CARD_FLAG",
+    "BULK_STABILIZE_LEGACY_WITH_BATCH",
+    "UNDO_BULK_STABILIZE_LEGACY_WITH_BATCH",
     "FIX_PARENT_CARD_PATTERNS",
     "UNDO_FIX_PARENT_CARD_PATTERNS",
     "NORMALIZE_IMPORT_INTEGER_DISTRIBUTION",
@@ -130,6 +138,14 @@ function actionLabel(action: string) {
       return "تراجع عن الحذف الجماعي";
     case "UNDO_BULK_RESTORE_BENEFICIARY":
       return "تراجع عن الاسترجاع الجماعي";
+    case "BULK_SET_LEGACY_CARD_FLAG":
+      return "تحديث حالة البطاقات القديمة";
+    case "SET_LEGACY_CARD_FLAG":
+      return "تحديث حالة بطاقة مستفيد";
+    case "BULK_STABILIZE_LEGACY_WITH_BATCH":
+      return "تحويل القديمة ذات الدفعة إلى مستقرة";
+    case "UNDO_BULK_STABILIZE_LEGACY_WITH_BATCH":
+      return "تراجع عن تحويل القديمة ذات الدفعة";
     case "DEDUCT_BALANCE":
       return "إضافة حركة خصم";
     case "EDIT_TRANSACTION":
@@ -367,6 +383,7 @@ export async function GET(request: NextRequest) {
   const targetParam = searchParams.get("target");
   const logId = searchParams.get("log_id")?.trim() ?? "";
   const actor = searchParams.get("actor")?.trim() ?? "";
+  const q = searchParams.get("q")?.trim() ?? "";
   const startDate = searchParams.get("start_date");
   const endDate = searchParams.get("end_date");
 
@@ -401,6 +418,15 @@ export async function GET(request: NextRequest) {
     })).map((f) => f.id)
     : [];
 
+  const searchFilter = q
+    ? {
+      OR: [
+        { user: { contains: q, mode: "insensitive" as const } },
+        { action: { contains: q, mode: "insensitive" as const } },
+      ],
+    }
+    : null;
+
   const where = {
     ...(logId ? { id: logId } : {}),
     action: { in: TARGET_ACTIONS[target] },
@@ -411,6 +437,13 @@ export async function GET(request: NextRequest) {
           ...(actorMatchedFacilityIds.length > 0
             ? [{ facility_id: { in: actorMatchedFacilityIds } }]
             : []),
+        ],
+      }
+      : {}),
+    ...(searchFilter
+      ? {
+        AND: [
+          searchFilter,
         ],
       }
       : {}),

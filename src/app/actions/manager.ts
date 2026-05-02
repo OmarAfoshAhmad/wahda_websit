@@ -359,6 +359,7 @@ export async function createEmployee(prevState: unknown, formData: FormData) {
       password_hash,
       is_admin: false,
       is_manager: false,
+      is_employee: true,
       manager_permissions: EMPLOYEE_PERMISSIONS as unknown as Record<string, boolean>,
       must_change_password: true,
     },

@@ -707,6 +707,7 @@ export async function updateBeneficiary(data: {
   card_number: string;
   birth_date?: string;
   status: "ACTIVE" | "FINISHED" | "SUSPENDED";
+  is_legacy_card?: boolean;
   total_balance?: number;
   remaining_balance?: number;
 }) {
@@ -735,6 +736,7 @@ export async function updateBeneficiary(data: {
           card_number: true,
           birth_date: true,
           status: true,
+          is_legacy_card: true,
           completed_via: true,
           total_balance: true,
           remaining_balance: true,
@@ -802,6 +804,7 @@ export async function updateBeneficiary(data: {
           card_number: normalizedCardNumber,
           birth_date: parsedBirthDate,
           status: payload.status,
+          is_legacy_card: payload.is_legacy_card,
           completed_via: payload.status === "FINISHED" ? (oldRecord.completed_via ?? "MANUAL") : null,
           total_balance: nextTotal,
           remaining_balance: nextRemaining,
@@ -822,11 +825,13 @@ export async function updateBeneficiary(data: {
             old_card_number: oldRecord?.card_number ?? null,
             old_birth_date: oldRecord?.birth_date?.toISOString() ?? null,
             old_status: oldRecord?.status ?? null,
+            old_is_legacy_card: oldRecord?.is_legacy_card ?? false,
             old_total_balance: oldRecord?.total_balance ?? null,
             old_remaining_balance: oldRecord?.remaining_balance ?? null,
             new_name: normalizedName,
             new_birth_date: parsedBirthDate?.toISOString() ?? null,
             new_status: payload.status,
+            new_is_legacy_card: payload.is_legacy_card,
             spent_amount_at_edit: spentAmount,
             new_total_balance: nextTotal,
             new_remaining_balance: nextRemaining,
@@ -851,6 +856,216 @@ export async function updateBeneficiary(data: {
     }
     logger.error("Update beneficiary error", { error: String(error) });
     return { error: "تعذر تحديث بيانات المستفيد" };
+  }
+}
+
+export async function bulkUpdateLegacyCardMarker(data: {
+  pattern: string;
+  setLegacy: boolean;
+}) {
+  const session = await requireActiveFacilitySession();
+  if (!session || !hasPermission(session, "edit_beneficiary")) {
+    return { error: "غير مصرح بهذه العملية" };
+  }
+
+  const pattern = String(data.pattern ?? "").trim();
+  if (!pattern || pattern.length < 2 || pattern.length > 32) {
+    return { error: "نمط البطاقة غير صالح" };
+  }
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const updateRes = await tx.beneficiary.updateMany({
+        where: {
+          deleted_at: null,
+          card_number: { contains: pattern, mode: "insensitive" },
+          is_legacy_card: { not: data.setLegacy },
+        },
+        data: { is_legacy_card: data.setLegacy },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          facility_id: session.id,
+          user: session.username,
+          action: "BULK_SET_LEGACY_CARD_FLAG",
+          metadata: {
+            pattern,
+            set_legacy: data.setLegacy,
+            updated_count: updateRes.count,
+          },
+        },
+      });
+
+      return updateRes;
+    });
+
+    revalidatePath("/beneficiaries");
+    revalidateTag("beneficiary-counts", "max");
+    revalidatePath("/admin/audit-log");
+    return { success: true, updatedCount: result.count };
+  } catch (error: unknown) {
+    logger.error("Bulk update legacy card marker error", { error: String(error), pattern, setLegacy: data.setLegacy });
+    return { error: "تعذر تحديث حالة البطاقات" };
+  }
+}
+
+export async function setSingleLegacyCardMarker(data: {
+  id: string;
+  setLegacy: boolean;
+}) {
+  const session = await requireActiveFacilitySession();
+  if (!session || !hasPermission(session, "edit_beneficiary")) {
+    return { error: "غير مصرح بهذه العملية" };
+  }
+
+  const id = String(data.id ?? "").trim();
+  if (!id) {
+    return { error: "معرف المستفيد غير صالح" };
+  }
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const existing = await tx.beneficiary.findFirst({
+        where: { id, deleted_at: null },
+        select: {
+          id: true,
+          name: true,
+          card_number: true,
+          is_legacy_card: true,
+        },
+      });
+
+      if (!existing) {
+        throw new Error("NOT_FOUND");
+      }
+
+      if (existing.is_legacy_card === data.setLegacy) {
+        return { updated: false, existing };
+      }
+
+      await tx.beneficiary.update({
+        where: { id: existing.id },
+        data: { is_legacy_card: data.setLegacy },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          facility_id: session.id,
+          user: session.username,
+          action: "SET_LEGACY_CARD_FLAG",
+          metadata: {
+            beneficiary_id: existing.id,
+            beneficiary_name: existing.name,
+            card_number: existing.card_number,
+            old_is_legacy_card: existing.is_legacy_card,
+            new_is_legacy_card: data.setLegacy,
+          },
+        },
+      });
+
+      return { updated: true, existing };
+    });
+
+    revalidatePath("/beneficiaries");
+    revalidateTag("beneficiary-counts", "max");
+    revalidatePath("/admin/duplicates");
+    revalidatePath("/admin/audit-log");
+
+    return { success: true, updated: result.updated };
+  } catch (error: unknown) {
+    if (error instanceof Error && error.message === "NOT_FOUND") {
+      return { error: "المستفيد غير موجود" };
+    }
+    logger.error("Set single legacy card marker error", { error: String(error), id, setLegacy: data.setLegacy });
+    return { error: "تعذر تحديث حالة البطاقة" };
+  }
+}
+
+export async function stabilizeLegacyCardsWithBatch() {
+  const session = await requireActiveFacilitySession();
+  if (!session || !hasPermission(session, "edit_beneficiary")) {
+    return { error: "غير مصرح بهذه العملية" };
+  }
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const candidates = await tx.$queryRaw<Array<{
+        id: string;
+        name: string;
+        card_number: string;
+        batch_number: string;
+        city: string;
+      }>>`
+        SELECT DISTINCT
+          b.id,
+          b.name,
+          b.card_number,
+          r.batch_number,
+          r.city
+        FROM "Beneficiary" b
+        INNER JOIN "CardIssuanceRegistry" r
+          ON UPPER(BTRIM(b.card_number)) = r.card_number_upper
+        WHERE b.deleted_at IS NULL
+          AND b.is_legacy_card = true
+          AND r.batch_number IS NOT NULL
+          AND BTRIM(r.batch_number) <> ''
+      `;
+
+      const candidateIds = [...new Set(candidates.map((c) => c.id).filter(Boolean))];
+      const updateRes = candidateIds.length > 0
+        ? await tx.beneficiary.updateMany({
+            where: { id: { in: candidateIds }, deleted_at: null, is_legacy_card: true },
+            data: { is_legacy_card: false },
+          })
+        : { count: 0 };
+
+      const candidateCount = candidateIds.length;
+      const updatedCount = Number(updateRes.count ?? 0);
+      const details = candidates.map((row) => ({
+        beneficiary_id: row.id,
+        beneficiary_name: row.name,
+        card_number: row.card_number,
+        batch_number: row.batch_number,
+        city: row.city,
+        old_is_legacy_card: true,
+        new_is_legacy_card: false,
+        result: "stabilized",
+      }));
+      const undoSnapshot = candidateIds.map((id) => ({
+        id,
+        old_is_legacy_card: true,
+        new_is_legacy_card: false,
+      }));
+
+      await tx.auditLog.create({
+        data: {
+          facility_id: session.id,
+          user: session.username,
+          action: "BULK_STABILIZE_LEGACY_WITH_BATCH",
+          metadata: {
+            selected_count: candidateCount,
+            processed_count: updatedCount,
+            candidate_count: candidateCount,
+            updated_count: updatedCount,
+            details,
+            undo_snapshot: undoSnapshot,
+          },
+        },
+      });
+
+      return { candidateCount, updatedCount };
+    });
+
+    revalidatePath("/beneficiaries");
+    revalidateTag("beneficiary-counts", "max");
+    revalidatePath("/admin/duplicates");
+    revalidatePath("/admin/audit-log");
+
+    return { success: true, ...result };
+  } catch (error: unknown) {
+    logger.error("Stabilize legacy cards with batch error", { error: String(error) });
+    return { error: "تعذر معالجة البطاقات القديمة ذات رقم الدفعة" };
   }
 }
 

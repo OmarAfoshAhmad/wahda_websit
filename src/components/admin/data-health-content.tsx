@@ -15,6 +15,10 @@ import { OrphanedNotificationsFixButton } from "@/components/orphaned-notificati
 import { ParentCardPatternFixButton } from "@/components/parent-card-pattern-fix-button";
 import { NormalizeImportIntegerDistributionButton } from "../normalize-import-integer-distribution-button";
 import { FixTotalBalancesButton } from "@/components/fix-total-balances-button";
+import { LegacyCardBatchTools } from "@/components/legacy-card-batch-tools";
+import { LegacyCardInlineToggleButton } from "@/components/legacy-card-inline-toggle-button";
+import { BeneficiaryDeleteButton } from "@/components/beneficiary-delete-button";
+import { LegacyWithBatchStabilizeButton } from "@/components/legacy-with-batch-stabilize-button";
 
 type UnlinkedCorrectionRow = {
   id: string;
@@ -161,6 +165,45 @@ type LegacyFractionalImportMemberRow = {
   member_remaining_balance: number;
 };
 
+type WeirdCardRow = {
+  id: string;
+  name: string;
+  card_number: string;
+  status: string;
+  is_legacy_card: boolean;
+  total_balance: number;
+  remaining_balance: number;
+  manual_transactions_count: number;
+  import_transactions_count: number;
+  total_transactions_count: number;
+  anomaly_type: string;
+};
+
+type LegacyCardStatusRow = {
+  id: string;
+  name: string;
+  card_number: string;
+  status: string;
+  is_legacy_card: boolean;
+  total_balance: number;
+  remaining_balance: number;
+  manual_transactions_count: number;
+  import_transactions_count: number;
+  total_transactions_count: number;
+};
+
+type LegacyWithBatchRow = {
+  id: string;
+  name: string;
+  card_number: string;
+  status: string;
+  batch_number: string;
+  city: string;
+  manual_transactions_count: number;
+  import_transactions_count: number;
+  total_transactions_count: number;
+};
+
 function Num({ value }: { value: number }) {
   return <span>{value.toLocaleString("ar-LY")}</span>;
 }
@@ -179,9 +222,11 @@ function Section({ title, count, children }: { title: string; count: number; chi
 export async function DataHealthContent({
   withinDuplicatesTab = false,
   searchQuery = "",
+  legacyMode = false,
 }: {
   withinDuplicatesTab?: boolean;
   searchQuery?: string;
+  legacyMode?: boolean;
 }) {
   const [
     unlinkedCorrections,
@@ -202,6 +247,10 @@ export async function DataHealthContent({
     totalBalanceDriftRows,
     legacyFractionalImportRows,
     legacyFractionalImportMemberRows,
+    weirdCardRows,
+    legacyOnlyRows,
+    stableOnlyRows,
+    legacyWithBatchRows,
   ] = await Promise.all([
     prisma.$queryRaw<UnlinkedCorrectionRow[]>`
       SELECT
@@ -547,6 +596,103 @@ export async function DataHealthContent({
       ORDER BY family_base_card, b.card_number
       LIMIT 2000
     `,
+
+    prisma.$queryRaw<WeirdCardRow[]>`
+      SELECT
+        b.id,
+        b.name,
+        b.card_number,
+        b.status::text AS status,
+        b.is_legacy_card,
+        b.total_balance::float8 AS total_balance,
+        b.remaining_balance::float8 AS remaining_balance,
+        COALESCE(COUNT(CASE WHEN t.type <> 'IMPORT' AND t.type <> 'CANCELLATION' THEN 1 END), 0)::int AS manual_transactions_count,
+        COALESCE(COUNT(CASE WHEN t.type = 'IMPORT' THEN 1 END), 0)::int AS import_transactions_count,
+        COALESCE(COUNT(t.id), 0)::int AS total_transactions_count,
+        CASE
+          WHEN b.card_number ~ '\\s' THEN 'يحتوي مسافات'
+          WHEN b.card_number !~ '^WAB2025[0-9]+([WHSDMFV][0-9]*)?$' THEN 'نمط غير قياسي'
+          ELSE 'أخرى'
+        END AS anomaly_type
+      FROM "Beneficiary" b
+      LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id AND t.is_cancelled = false
+      WHERE b.deleted_at IS NULL
+        AND (
+          b.card_number ~ '\\s'
+          OR b.card_number !~ '^WAB2025[0-9]+([WHSDMFV][0-9]*)?$'
+        )
+      GROUP BY b.id, b.name, b.card_number, b.status, b.is_legacy_card, b.total_balance, b.remaining_balance
+      ORDER BY b.card_number ASC
+      LIMIT 500
+    `,
+
+    prisma.$queryRaw<LegacyCardStatusRow[]>`
+      SELECT
+        b.id,
+        b.name,
+        b.card_number,
+        b.status::text AS status,
+        b.is_legacy_card,
+        b.total_balance::float8 AS total_balance,
+        b.remaining_balance::float8 AS remaining_balance,
+        COALESCE(COUNT(CASE WHEN t.type <> 'IMPORT' AND t.type <> 'CANCELLATION' THEN 1 END), 0)::int AS manual_transactions_count,
+        COALESCE(COUNT(CASE WHEN t.type = 'IMPORT' THEN 1 END), 0)::int AS import_transactions_count,
+        COALESCE(COUNT(t.id), 0)::int AS total_transactions_count
+      FROM "Beneficiary" b
+      LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id AND t.is_cancelled = false
+      WHERE b.deleted_at IS NULL
+        AND b.is_legacy_card = true
+      GROUP BY b.id, b.name, b.card_number, b.status, b.is_legacy_card, b.total_balance, b.remaining_balance
+      ORDER BY b.card_number ASC
+      LIMIT 500
+    `,
+
+    prisma.$queryRaw<LegacyCardStatusRow[]>`
+      SELECT
+        b.id,
+        b.name,
+        b.card_number,
+        b.status::text AS status,
+        b.is_legacy_card,
+        b.total_balance::float8 AS total_balance,
+        b.remaining_balance::float8 AS remaining_balance,
+        COALESCE(COUNT(CASE WHEN t.type <> 'IMPORT' AND t.type <> 'CANCELLATION' THEN 1 END), 0)::int AS manual_transactions_count,
+        COALESCE(COUNT(CASE WHEN t.type = 'IMPORT' THEN 1 END), 0)::int AS import_transactions_count,
+        COALESCE(COUNT(t.id), 0)::int AS total_transactions_count
+      FROM "Beneficiary" b
+      LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id AND t.is_cancelled = false
+      WHERE b.deleted_at IS NULL
+        AND b.is_legacy_card = false
+      GROUP BY b.id, b.name, b.card_number, b.status, b.is_legacy_card, b.total_balance, b.remaining_balance
+      ORDER BY b.card_number ASC
+      LIMIT 500
+    `,
+
+    prisma.$queryRaw<LegacyWithBatchRow[]>`
+      SELECT
+        b.id,
+        b.name,
+        b.card_number,
+        b.status::text AS status,
+        r.batch_number,
+        r.city,
+        COALESCE(COUNT(CASE WHEN t.type <> 'IMPORT' AND t.type <> 'CANCELLATION' THEN 1 END), 0)::int AS manual_transactions_count,
+        COALESCE(COUNT(CASE WHEN t.type = 'IMPORT' THEN 1 END), 0)::int AS import_transactions_count,
+        COALESCE(COUNT(t.id), 0)::int AS total_transactions_count
+      FROM "Beneficiary" b
+      INNER JOIN "CardIssuanceRegistry" r
+        ON UPPER(BTRIM(b.card_number)) = r.card_number_upper
+      LEFT JOIN "Transaction" t
+        ON t.beneficiary_id = b.id
+       AND t.is_cancelled = false
+      WHERE b.deleted_at IS NULL
+        AND b.is_legacy_card = true
+        AND r.batch_number IS NOT NULL
+        AND BTRIM(r.batch_number) <> ''
+      GROUP BY b.id, b.name, b.card_number, b.status, r.batch_number, r.city
+      ORDER BY r.batch_number ASC, b.card_number ASC
+      LIMIT 1000
+    `,
   ]);
 
   const legacyMembersByFamily = legacyFractionalImportMemberRows.reduce<Record<string, LegacyFractionalImportMemberRow[]>>((acc, row) => {
@@ -656,6 +802,39 @@ export async function DataHealthContent({
   const filteredLegacyFractionalImportRows = hasSearchQuery
     ? legacyFractionalImportRows.filter((row) => row.family_base_card.toLowerCase().includes(normalizedSearchQuery))
     : legacyFractionalImportRows;
+  const filteredWeirdCardRows = hasSearchQuery
+    ? weirdCardRows.filter(
+      (row) =>
+        row.name.toLowerCase().includes(normalizedSearchQuery) ||
+        row.card_number.toLowerCase().includes(normalizedSearchQuery) ||
+        row.anomaly_type.toLowerCase().includes(normalizedSearchQuery)
+    )
+    : weirdCardRows;
+  const filteredLegacyOnlyRows = hasSearchQuery
+    ? legacyOnlyRows.filter(
+      (row) =>
+        row.name.toLowerCase().includes(normalizedSearchQuery) ||
+        row.card_number.toLowerCase().includes(normalizedSearchQuery)
+    )
+    : legacyOnlyRows;
+  const filteredStableOnlyRows = hasSearchQuery
+    ? stableOnlyRows.filter(
+      (row) =>
+        row.name.toLowerCase().includes(normalizedSearchQuery) ||
+        row.card_number.toLowerCase().includes(normalizedSearchQuery)
+    )
+    : stableOnlyRows;
+  const filteredLegacyWithBatchRows = hasSearchQuery
+    ? legacyWithBatchRows.filter(
+      (row) =>
+        row.name.toLowerCase().includes(normalizedSearchQuery) ||
+        row.card_number.toLowerCase().includes(normalizedSearchQuery) ||
+        row.batch_number.toLowerCase().includes(normalizedSearchQuery) ||
+        row.city.toLowerCase().includes(normalizedSearchQuery)
+    )
+    : legacyWithBatchRows;
+  const showLegacySections = legacyMode;
+  const showGeneralSections = !legacyMode;
 
   return (
     <div className="space-y-4 pb-16">
@@ -671,6 +850,7 @@ export async function DataHealthContent({
         )}
       </header>
 
+      {showGeneralSections && (
       <Section title="تنظيف السجلات اليتيمة والقديمة" count={hygieneCandidates}>
         <p className="text-xs text-slate-600">
           تشمل هذه العملية: حذف الإشعارات اليتيمة، حذف الإشعارات المقروءة القديمة، تنظيف سجلات LOGIN/LOGOUT القديمة،
@@ -695,7 +875,205 @@ export async function DataHealthContent({
           />
         </div>
       </Section>
+      )}
 
+      {showLegacySections && (
+      <Section title="إدارة حالة البطاقات القديمة / المستقرة" count={0}>
+        <p className="text-xs text-slate-600 dark:text-slate-300">
+          يمكنك من هنا وسم البطاقات القديمة أو تحويلها إلى مستقرة حسب نمط البطاقة (مثال: 765). جميع العمليات تُسجل في سجل المراقبة.
+        </p>
+        <LegacyCardBatchTools />
+      </Section>
+      )}
+
+      {showLegacySections && (
+      <Section title="موسوم قديم + لديه رقم دفعة" count={filteredLegacyWithBatchRows.length}>
+        <p className="text-xs text-slate-600 dark:text-slate-300">
+          هذا القسم يعرض المستفيدين الموسومين كقديمة رغم وجود رقم دفعة لهم. يمكنك معالجتهم دفعة واحدة وتحويلهم إلى مستقرة.
+        </p>
+        <LegacyWithBatchStabilizeButton candidateCount={legacyWithBatchRows.length} />
+        {filteredLegacyWithBatchRows.length === 0 ? (
+          <p className="text-sm font-medium text-emerald-600">✓ لا توجد حالات مطابقة حالياً.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b bg-slate-50 text-right dark:border-slate-700 dark:bg-slate-800/60">
+                  <th className="p-2">الاسم</th>
+                  <th className="p-2">رقم البطاقة</th>
+                  <th className="p-2">المدينة</th>
+                  <th className="p-2">رقم الدفعة</th>
+                  <th className="p-2">الحالة</th>
+                  <th className="p-2">الحركات اليدوية</th>
+                  <th className="p-2">حركات الاستيراد</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredLegacyWithBatchRows.map((row) => (
+                  <tr key={row.id} className="border-b dark:border-slate-800">
+                    <td className="p-2">{row.name}</td>
+                    <td className="p-2 font-mono text-xs">{row.card_number}</td>
+                    <td className="p-2 text-xs">{row.city}</td>
+                    <td className="p-2 text-xs">{row.batch_number}</td>
+                    <td className="p-2 text-xs">{row.status}</td>
+                    <td className="p-2 text-xs">{row.manual_transactions_count.toLocaleString("ar-LY")}</td>
+                    <td className="p-2 text-xs">{row.import_transactions_count.toLocaleString("ar-LY")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
+      )}
+
+      {showLegacySections && (
+      <Section title="بطاقات غريبة / غير قياسية" count={filteredWeirdCardRows.length}>
+        <p className="text-xs text-slate-600 dark:text-slate-300">
+          هذه القائمة تعرض البطاقات ذات الأنماط غير المتوقعة لتسهيل مراجعتها. يمكن حذف البطاقة الغريبة فقط إذا لم يكن لها حركات.
+        </p>
+        {filteredWeirdCardRows.length === 0 ? (
+          <p className="text-sm font-medium text-emerald-600">✓ لا توجد بطاقات غريبة حالياً.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b bg-slate-50 text-right dark:border-slate-700 dark:bg-slate-800/60">
+                  <th className="p-2">الاسم</th>
+                  <th className="p-2">رقم البطاقة</th>
+                  <th className="p-2">نوع الخلل</th>
+                  <th className="p-2">الوضعية</th>
+                  <th className="p-2">الحركات اليدوية</th>
+                  <th className="p-2">حركات الاستيراد</th>
+                  <th className="p-2">إجراء سريع</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredWeirdCardRows.map((row) => (
+                  <tr key={row.id} className="border-b dark:border-slate-800">
+                    <td className="p-2">{row.name}</td>
+                    <td className="p-2 font-mono text-xs">{row.card_number}</td>
+                    <td className="p-2 text-xs text-amber-700 dark:text-amber-300">{row.anomaly_type}</td>
+                    <td className="p-2">
+                      {row.is_legacy_card ? (
+                        <span className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-bold text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+                          بطاقة قديمة
+                        </span>
+                      ) : (
+                        <span className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300">
+                          بطاقة مستقرة
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-2 text-xs">{row.manual_transactions_count.toLocaleString("ar-LY")}</td>
+                    <td className="p-2 text-xs">
+                      {row.import_transactions_count.toLocaleString("ar-LY")}
+                      {row.total_transactions_count > 0 ? (
+                        <span className="mr-2 font-bold text-amber-700 dark:text-amber-300">(لا يمكن الحذف)</span>
+                      ) : (
+                        <span className="mr-2 font-bold text-emerald-700 dark:text-emerald-300">(قابل للحذف)</span>
+                      )}
+                    </td>
+                    <td className="p-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <LegacyCardInlineToggleButton beneficiaryId={row.id} isLegacyCard={row.is_legacy_card} />
+                        <BeneficiaryDeleteButton
+                          id={row.id}
+                          name={row.name}
+                          hasTransactions={row.total_transactions_count > 0}
+                        />
+                        <Link
+                          href={`/beneficiaries?q=${encodeURIComponent(row.card_number)}`}
+                          className="text-xs font-bold text-primary hover:underline"
+                        >
+                          فتح المستفيد
+                        </Link>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
+      )}
+
+      {showLegacySections && (
+      <Section title="البطاقات القديمة" count={filteredLegacyOnlyRows.length}>
+        {filteredLegacyOnlyRows.length === 0 ? (
+          <p className="text-sm font-medium text-emerald-600">✓ لا توجد بطاقات قديمة ضمن نتائج البحث الحالية.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b bg-slate-50 text-right dark:border-slate-700 dark:bg-slate-800/60">
+                  <th className="p-2">الاسم</th>
+                  <th className="p-2">رقم البطاقة</th>
+                  <th className="p-2">الحالة</th>
+                  <th className="p-2">الحركات اليدوية</th>
+                  <th className="p-2">حركات الاستيراد</th>
+                  <th className="p-2">إجراء</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredLegacyOnlyRows.map((row) => (
+                  <tr key={row.id} className="border-b dark:border-slate-800">
+                    <td className="p-2">{row.name}</td>
+                    <td className="p-2 font-mono text-xs">{row.card_number}</td>
+                    <td className="p-2 text-xs">{row.status}</td>
+                    <td className="p-2 text-xs">{row.manual_transactions_count.toLocaleString("ar-LY")}</td>
+                    <td className="p-2 text-xs">{row.import_transactions_count.toLocaleString("ar-LY")}</td>
+                    <td className="p-2">
+                      <LegacyCardInlineToggleButton beneficiaryId={row.id} isLegacyCard={true} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
+      )}
+
+      {showLegacySections && (
+      <Section title="البطاقات المستقرة" count={filteredStableOnlyRows.length}>
+        {filteredStableOnlyRows.length === 0 ? (
+          <p className="text-sm font-medium text-emerald-600">✓ لا توجد بطاقات مستقرة ضمن نتائج البحث الحالية.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b bg-slate-50 text-right dark:border-slate-700 dark:bg-slate-800/60">
+                  <th className="p-2">الاسم</th>
+                  <th className="p-2">رقم البطاقة</th>
+                  <th className="p-2">الحالة</th>
+                  <th className="p-2">الحركات اليدوية</th>
+                  <th className="p-2">حركات الاستيراد</th>
+                  <th className="p-2">إجراء</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredStableOnlyRows.map((row) => (
+                  <tr key={row.id} className="border-b dark:border-slate-800">
+                    <td className="p-2">{row.name}</td>
+                    <td className="p-2 font-mono text-xs">{row.card_number}</td>
+                    <td className="p-2 text-xs">{row.status}</td>
+                    <td className="p-2 text-xs">{row.manual_transactions_count.toLocaleString("ar-LY")}</td>
+                    <td className="p-2 text-xs">{row.import_transactions_count.toLocaleString("ar-LY")}</td>
+                    <td className="p-2">
+                      <LegacyCardInlineToggleButton beneficiaryId={row.id} isLegacyCard={false} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
+      )}
+
+      {showGeneralSections && (
       <Section title="استيراد مجمع قديم بتوزيع كسور" count={filteredLegacyFractionalImportRows.length}>
         <p className="text-xs text-slate-600 dark:text-slate-300">
           هذه الحالات فيها خصومات استيراد مجمعة بمبالغ عشرية لكل فرد. المعالجة ستحولها إلى توزيع صحيح بالأعداد الصحيحة فقط،
@@ -785,7 +1163,9 @@ export async function DataHealthContent({
           </div>
         )}
       </Section>
+      )}
 
+      {showGeneralSections && (
       <Section title="انجراف الرصيد — remaining_balance ≠ المحسوب" count={filteredBalanceDriftRows.length}>
         <div className="mb-2 flex justify-start">
           <FixBalancesButton />
@@ -835,7 +1215,9 @@ export async function DataHealthContent({
           </>
         )}
       </Section>
+      )}
 
+      {showGeneralSections && (
       <Section title="تناقض حالة المستفيد مع رصيده" count={filteredStatusAnomalyRows.length}>
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <StatusAnomaliesCheckButton />
@@ -873,7 +1255,9 @@ export async function DataHealthContent({
           </div>
         )}
       </Section>
+      )}
 
+      {showGeneralSections && (
       <Section title="إشعارات لمستفيدين محذوفين (يتامى)" count={filteredOrphanedNotificationRows.length}>
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <OrphanedNotificationsCheckButton />
@@ -907,7 +1291,9 @@ export async function DataHealthContent({
           </div>
         )}
       </Section>
+      )}
 
+      {showGeneralSections && (
       <Section title="حركات مصححة غير مرتبطة" count={filteredUnlinkedCorrections.length}>
         <UnlinkedCorrectionsFixButton initialCount={filteredUnlinkedCorrections.length} />
         {filteredUnlinkedCorrections.length === 0 ? (
@@ -939,7 +1325,9 @@ export async function DataHealthContent({
           </div>
         )}
       </Section>
+      )}
 
+      {showGeneralSections && (
       <Section title="تكرارات الحركات للمستفيدين" count={filteredDuplicateMovements.length}>
         <DuplicateMovementsFixButton initialCount={duplicateMovementsCandidateCount} />
         <div className="overflow-x-auto">
@@ -969,7 +1357,9 @@ export async function DataHealthContent({
           </table>
         </div>
       </Section>
+      )}
 
+      {showGeneralSections && (
       <Section title="تكرارات حركات الاستيراد" count={filteredDuplicateImports.length}>
         <p className="text-xs text-slate-500">
           هذه القائمة تعرض المستفيدين الذين لديهم أكثر من حركة IMPORT فعالة.
@@ -1001,7 +1391,9 @@ export async function DataHealthContent({
           </table>
         </div>
       </Section>
+      )}
 
+      {showGeneralSections && (
       <Section title="مرافق فعالة بكلمة مرور غير صالحة" count={invalidPasswordFacilities.length}>
         <InvalidPasswordFacilitiesFixButton initialCount={invalidPasswordFacilities.length} />
         <div className="overflow-x-auto">
@@ -1027,7 +1419,9 @@ export async function DataHealthContent({
           </table>
         </div>
       </Section>
+      )}
 
+      {showGeneralSections && (
       <Section title="مرافق محذوفة (لا يمكنها تسجيل الدخول)" count={deletedFacilities.length}>
         <DeletedFacilitiesFixButton initialCount={deletedFacilities.length} />
         <p className="text-xs text-slate-600">
@@ -1054,7 +1448,9 @@ export async function DataHealthContent({
           </table>
         </div>
       </Section>
+      )}
 
+      {showGeneralSections && (
       <Section title="انجراف الرصيد الكلي (total_balance < remaining + المصروف)" count={filteredTotalBalanceDriftRows.length}>
         <p className="text-xs text-slate-600 dark:text-slate-300">
           هذه الحالات فيها <code>total_balance</code> أقل من <code>remaining_balance + مجموع الحركات</code>، مما يُسبب فشل عمليات الخصم برسالة &quot;تعذر تنفيذ عملية الخصم&quot;. الإصلاح يضبط <code>total_balance = remaining + مصروف</code> لكل حالة.
@@ -1097,7 +1493,9 @@ export async function DataHealthContent({
           </div>
         )}
       </Section>
+      )}
 
+      {showGeneralSections && (
       <Section title="حالات ترميز غير طبيعي في اللاحقة" count={filteredParentCardPatternRows.length}>
         <p className="text-xs text-slate-600 dark:text-slate-300">
           الإحصائيات بالأعلى تمثل كل النظام، بينما "الظاهر في الجدول" يتأثر بالبحث الحالي فقط.
@@ -1135,6 +1533,7 @@ export async function DataHealthContent({
           </div>
         )}
       </Section>
+      )}
     </div>
   );
 }

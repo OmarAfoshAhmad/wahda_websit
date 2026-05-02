@@ -31,6 +31,7 @@ export async function GET(request: NextRequest) {
   const completedViaParam = searchParams.get("completed_via");
   const cardAgeParam = searchParams.get("card_age");
   const idsParam = (searchParams.get("ids") ?? "").trim();
+  const idParams = searchParams.getAll("id");
   const isDeletedView = view === "deleted";
 
   const ALLOWED_STATUS = ["ACTIVE", "SUSPENDED", "FINISHED"] as const;
@@ -45,25 +46,37 @@ export async function GET(request: NextRequest) {
 
   const cardAgeFilter = cardAgeParam === "old" ? "old" : "all";
 
-  const selectedIds = idsParam
-    ? idsParam.split(",").map((id) => id.trim()).filter(Boolean).slice(0, EXPORT_LIMIT)
-    : [];
+  const selectedIds = Array.from(
+    new Set(
+      [
+        ...idParams,
+        ...(idsParam ? idsParam.split(",") : []),
+      ]
+        .map((id) => id.trim())
+        .filter(Boolean)
+    )
+  ).slice(0, EXPORT_LIMIT);
 
-  const where = {
-    ...(isDeletedView ? { deleted_at: { not: null } } : { deleted_at: null }),
-    ...(!isDeletedView && statusFilter ? { status: statusFilter } : {}),
-    ...(!isDeletedView && completedViaFilter ? { completed_via: completedViaFilter } : {}),
-    ...(!isDeletedView && cardAgeFilter === "old" ? { is_legacy_card: true } : {}),
-    ...(selectedIds.length > 0 ? { id: { in: selectedIds } } : {}),
-    ...(q
-      ? {
-          OR: getArabicSearchTerms(q).flatMap(t => [
-            { name: { contains: t, mode: "insensitive" as const } },
-            { card_number: { contains: t, mode: "insensitive" as const } },
-          ]),
-        }
-      : {}),
-  };
+  const hasExplicitSelection = selectedIds.length > 0;
+
+  const where = hasExplicitSelection
+    ? {
+        id: { in: selectedIds },
+      }
+    : {
+        ...(isDeletedView ? { deleted_at: { not: null } } : { deleted_at: null }),
+        ...(!isDeletedView && statusFilter ? { status: statusFilter } : {}),
+        ...(!isDeletedView && completedViaFilter ? { completed_via: completedViaFilter } : {}),
+        ...(!isDeletedView && cardAgeFilter === "old" ? { is_legacy_card: true } : {}),
+        ...(q
+          ? {
+              OR: getArabicSearchTerms(q).flatMap(t => [
+                { name: { contains: t, mode: "insensitive" as const } },
+                { card_number: { contains: t, mode: "insensitive" as const } },
+              ]),
+            }
+          : {}),
+      };
 
   try {
     const beneficiaries = await prisma.beneficiary.findMany({
