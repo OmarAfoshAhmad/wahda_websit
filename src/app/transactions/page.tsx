@@ -166,7 +166,7 @@ export default async function TransactionsPage({
     where.AND = [...existingAnd, { type: { not: "SETTLEMENT" } }];
   }
 
-  // فلتر المصدر (يدوي / استيراد) — المبرمج فقط
+  //  المصدر (يدوي / استيراد) — المبرمج فقط
   if (session.is_admin && sourceFilter === "import") {
     if (where.type) {
       // إذا كان هناك فلتر type سابق (مثل CANCELLATION)، ندمجهما بـ AND
