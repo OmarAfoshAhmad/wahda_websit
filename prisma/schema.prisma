@@ -247,6 +247,8 @@ enum CardNumberingStatus {
   READY
   MIGRATED
   DUPLICATE
+  DUPLICATE_FILE
+  DUPLICATE_SYSTEM
   ERROR
 }
 
@@ -262,9 +264,11 @@ model CardNumberingArchive {
   field3           String?
   created_at       DateTime  @default(now())
   migrated_at      DateTime?
+  deleted_at       DateTime?
   source_file      String?
 
   @@index([card_number])
   @@index([employee_number])
   @@index([created_at])
+  @@index([deleted_at])
 }

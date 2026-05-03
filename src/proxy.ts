@@ -16,21 +16,17 @@ export async function proxy(req: NextRequest) {
     publicRoutes.includes(path) || publicPrefixes.some((p) => path === p || path.startsWith(p + "/"));
 
   const cookie = req.cookies.get("session")?.value;
-  let session: { id: string; is_admin?: boolean; must_change_password?: boolean } | null = null;
+  let session: any = null;
 
   if (cookie) {
     try {
-      session = (await decrypt(cookie)) as unknown as {
-        id: string;
-        is_admin?: boolean;
-        must_change_password?: boolean;
-      };
+      session = await decrypt(cookie);
     } catch {
-      // رمز الجلسة غير صالح
+      // Invalid session cookie
     }
   }
 
-  // مسارات المستفيد — جلسة مختلفة (ben_session)
+  // Beneficiary routes - separate session logic (ben_session)
   if (path.startsWith("/beneficiary")) {
     if (beneficiaryPublicRoutes.includes(path)) {
       return NextResponse.next();
@@ -51,11 +47,14 @@ export async function proxy(req: NextRequest) {
     return NextResponse.next();
   }
 
+  // Auth protection for health facility routes
   if (!isPublicRoute && !session) {
-    return NextResponse.redirect(new URL("/login", req.nextUrl));
+    const loginUrl = new URL("/login", req.nextUrl);
+    // If it's a data request, we should still redirect but Next.js might need a specific response
+    return NextResponse.redirect(loginUrl);
   }
 
-  // المسارات العامة التي تظل متاحة حتى للمسجلين (لا توجيه)
+  // Routes that stay public even for logged-in users (e.g. health checks)
   const alwaysPublic = publicPrefixes.some((p) => path === p || path.startsWith(p + "/"));
 
   if (isPublicRoute && session && !alwaysPublic) {
@@ -65,25 +64,27 @@ export async function proxy(req: NextRequest) {
     return NextResponse.redirect(new URL("/dashboard", req.nextUrl));
   }
 
-  // إجبار المستخدم على تغيير كلمة المرور قبل أي صفحة أخرى
-  if (session?.must_change_password && path !== "/change-password") {
+  // Force password change before accessing other pages
+  if (session?.must_change_password && path !== "/change-password" && !path.startsWith("/api")) {
     return NextResponse.redirect(new URL("/change-password", req.nextUrl));
   }
 
-  // إذا لم يكن بحاجة لتغيير كلمة المرور لا يُسمح بالوصول لصفحة الإجبار
+  // Don't allow access to change-password if not required
   if (path === "/change-password" && session && !session.must_change_password) {
     return NextResponse.redirect(new URL("/dashboard", req.nextUrl));
   }
 
-  // حماية مسارات /admin للمشرفين فقط
+  // Protect /admin routes for admins only
   if (path.startsWith("/admin") && !session?.is_admin) {
     return NextResponse.redirect(new URL("/dashboard", req.nextUrl));
   }
 
-  // تجديد الجلسة (sliding window) لمنع انتهاء صلاحيتها أثناء الاستخدام
+  // Session renewal (sliding window) - FIX: preserve all session fields
   if (cookie && session) {
     const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    // We re-encrypt the WHOLE session object, not just a subset
     const refreshed = await encrypt({ ...session, expires });
+    
     const res = NextResponse.next();
     res.cookies.set({
       name: "session",

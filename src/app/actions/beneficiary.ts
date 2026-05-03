@@ -53,6 +53,53 @@ async function findCanonicalDuplicate(
   });
 }
 
+/**
+ * يضمن توفر رقم البطاقة للإنشاء أو التحديث.
+ * إذا كان هناك سجل نشط بنفس الرقم، يرمي خطأ.
+ * إذا كان هناك سجل محذوف ناعماً بنفس الرقم، يقوم بإعادة تسمية السجل المحذوف ليحرر الرقم للاستخدام الجديد.
+ */
+async function ensureCardNumberAvailability(
+  tx: Omit<typeof prisma, "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends">,
+  cardNumber: string,
+  excludeId?: string,
+) {
+  const normalized = normalizeCardNumber(cardNumber);
+
+  // 1. التحقق من وجود مستفيد نشط (خطأ)
+  const activeDuplicate = await tx.beneficiary.findFirst({
+    where: {
+      deleted_at: null,
+      ...(excludeId ? { id: { not: excludeId } } : {}),
+      card_number: { equals: normalized, mode: "insensitive" },
+    },
+    select: { id: true },
+  });
+
+  if (activeDuplicate) {
+    throw new Error("CARD_EXISTS");
+  }
+
+  // 2. التحقق من وجود مستفيدين محذوفين (إعادة تسميتهم لتحرير الرقم)
+  // هذا يحل مشكلة الـ Unique Index في قاعدة البيانات الذي قد لا يستثني المحذوفين.
+  const deletedDuplicates = await tx.beneficiary.findMany({
+    where: {
+      deleted_at: { not: null },
+      ...(excludeId ? { id: { not: excludeId } } : {}),
+      card_number: { equals: normalized, mode: "insensitive" },
+    },
+    select: { id: true },
+  });
+
+  for (const dd of deletedDuplicates) {
+    // إلحاق المعرف والوقت لضمان عدم التكرار حتى بين المحذوفين
+    const newCardName = `${normalized}_DEL_${Date.now()}_${dd.id.slice(-4)}`;
+    await tx.beneficiary.update({
+      where: { id: dd.id },
+      data: { card_number: newCardName },
+    });
+  }
+}
+
 // normalizePersonName مستوردة من @/lib/normalize لضمان التطابق مع الاستيراد وكشف التكرارات
 // (الفارق الحرج: النسخة القديمة لم تستخدم toUpperCase())
 
@@ -544,11 +591,7 @@ export async function createBeneficiary(data: {
       // قفل استشاري لمنع الإنشاء المتزامن بنفس رقم البطاقة
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${normalizedCardNumber}))`;
 
-      const existing = await findCanonicalDuplicate(tx, normalizedCardNumber);
-
-      if (existing) {
-        throw new Error("CARD_EXISTS");
-      }
+      await ensureCardNumberAvailability(tx, normalizedCardNumber);
 
       if (parsedBirthDate) {
         const existingPerson = await tx.beneficiary.findFirst({
@@ -754,11 +797,7 @@ export async function updateBeneficiary(data: {
         // قفل استشاري لمنع التحديث المتزامن بنفس رقم البطاقة
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${normalizedCardNumber}))`;
 
-        const existing = await findCanonicalDuplicate(tx, normalizedCardNumber, payload.id);
-
-        if (existing && existing.id !== payload.id) {
-          throw new Error("CARD_EXISTS");
-        }
+        await ensureCardNumberAvailability(tx, normalizedCardNumber, payload.id);
       }
 
       if (parsedBirthDate) {
@@ -1135,12 +1174,9 @@ export async function restoreBeneficiary(id: string) {
       return { error: "المستفيد غير موجود أو ليس محذوفاً" };
     }
 
-    // تحقق من عدم وجود مستفيد نشط بنفس رقم البطاقة
+    // تحقق من توفر رقم البطاقة (استبعاد المحذوفين عبر إعادة تسميتهم إن وجدوا)
     const normalizedCardNumber = normalizeCardNumber(beneficiary.card_number);
-    const duplicate = await findCanonicalDuplicate(prisma, normalizedCardNumber, id);
-    if (duplicate) {
-      return { error: "رقم البطاقة مستخدم مسبقاً ولا يمكن ربطه بشخصين" };
-    }
+    await ensureCardNumberAvailability(prisma, normalizedCardNumber, id);
 
     if (beneficiary.birth_date) {
       const duplicatePerson = await prisma.beneficiary.findFirst({
@@ -2556,5 +2592,126 @@ export async function ignoreDuplicatePairAction(formData: FormData) {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "خطأ غير معروف";
     return { error: "فشل تسجيل الاستبعاد: " + message };
+  }
+}
+
+/**
+ * تصفية البطاقات الموسومة كقديمة والتي ليس لها سجل في منظومة الدفع (Registry) أو ليس لها رقم دفعة.
+ * يتم نقل حركاتهم (الخصومات) إلى فرد آخر في العائلة (إن وُجد) ثم حذفهم.
+ */
+export async function purgeLegacyNoPayment() {
+  const session = await requireActiveFacilitySession();
+  if (!session || !session.is_admin) {
+    return { error: "غير مصرح بهذه العملية" };
+  }
+
+  try {
+    // 1. جلب المرشحين للتصفية: موسوم قديم + غير موجود في سجل الإصدار (أو بدون رقم دفعة)
+    const candidates = await prisma.$queryRaw<Array<{
+      id: string;
+      name: string;
+      card_number: string;
+    }>>`
+      SELECT b.id, b.name, b.card_number
+      FROM "Beneficiary" b
+      LEFT JOIN "CardIssuanceRegistry" r ON UPPER(BTRIM(b.card_number)) = r.card_number_upper
+      WHERE b.deleted_at IS NULL
+        AND b.is_legacy_card = true
+        AND (r.id IS NULL OR r.batch_number IS NULL OR BTRIM(r.batch_number) = '')
+      LIMIT 2000
+    `;
+
+    if (candidates.length === 0) {
+      return { success: true, updatedCount: 0, totalDeductedTransferred: 0 };
+    }
+
+    let updatedCount = 0;
+    let totalDeductedTransferred = 0;
+
+    for (const candidate of candidates) {
+      // تنفيذ كل مستفيد في transaction مستقلة لضمان جزئية العمليات
+      await prisma.$transaction(async (tx) => {
+        const baseCard = extractFamilyBaseCard(candidate.card_number);
+        
+        // البحث عن أفراد العائلة النشطين لنقل "عبء" الحركات إليهم
+        const familyMembers = await tx.beneficiary.findMany({
+          where: {
+            deleted_at: null,
+            id: { not: candidate.id },
+            card_number: { startsWith: baseCard },
+          },
+          orderBy: { card_number: 'asc' }
+        });
+
+        // تصفية الأفراد للتأكد من انتمائهم الفعلي لنفس العائلة (تجنب التشابه الجزئي في الأرقام)
+        const regex = new RegExp(`^${escapeRegex(baseCard)}[WSDMFHV][0-9]*$`);
+        const validFamily = familyMembers.filter(m => regex.test(m.card_number) || m.card_number === baseCard);
+
+        let recipientId: string | null = null;
+        if (validFamily.length > 0) {
+          // نفضل نقل الحركات لرب الأسرة (البطاقة الأساسية) أو أول فرد متاح
+          const recipient = validFamily.find(m => m.card_number === baseCard) || validFamily[0];
+          recipientId = recipient.id;
+
+          const transactions = await tx.transaction.findMany({
+            where: { beneficiary_id: candidate.id, is_cancelled: false },
+          });
+
+          if (transactions.length > 0) {
+            const totalAmount = transactions.reduce((sum, t) => sum + Number(t.amount), 0);
+            
+            // نقل الحركات إلى المستلم
+            await tx.transaction.updateMany({
+              where: { beneficiary_id: candidate.id },
+              data: { beneficiary_id: recipient.id }
+            });
+
+            // نقل الإشعارات المرتبطة بالحركات
+            await tx.notification.updateMany({
+              where: { beneficiary_id: candidate.id },
+              data: { beneficiary_id: recipient.id }
+            });
+
+            totalDeductedTransferred += totalAmount;
+            
+            // إعادة حساب رصيد المستلم (قد يصبح مديناً إذا زادت الحركات عن رصيده الكلي)
+            await recalculateBeneficiaryRemainingFromTransactions(tx, recipient.id);
+          }
+        }
+
+        // حذف المستفيد القديم (Soft Delete)
+        await tx.beneficiary.update({
+          where: { id: candidate.id },
+          data: { deleted_at: new Date() }
+        });
+
+        // تسجيل العملية في سجل المراقبة
+        await tx.auditLog.create({
+          data: {
+            facility_id: session.id,
+            user: session.username,
+            action: "PURGE_LEGACY_NO_PAYMENT",
+            metadata: {
+              beneficiary_id: candidate.id,
+              card_number: candidate.card_number,
+              name: candidate.name,
+              transferred_to_id: recipientId,
+              timestamp: new Date().toISOString()
+            }
+          }
+        });
+
+        updatedCount++;
+      });
+    }
+
+    revalidatePath("/admin/duplicates");
+    revalidatePath("/beneficiaries");
+    revalidateTag("beneficiary-counts", "max");
+
+    return { success: true, updatedCount, totalDeductedTransferred };
+  } catch (error: unknown) {
+    logger.error("Purge legacy no payment error", { error: String(error) });
+    return { error: "تعذر تنفيذ تصفية البطاقات القديمة" };
   }
 }

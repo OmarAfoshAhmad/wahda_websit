@@ -69,6 +69,8 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "UNDO_FIX_PARENT_CARD_PATTERNS",
     "NORMALIZE_IMPORT_INTEGER_DISTRIBUTION",
     "UNDO_NORMALIZE_IMPORT_INTEGER_DISTRIBUTION",
+    "CARD_NUMBERING_MIGRATION",
+    "ROLLBACK_MIGRATION",
   ],
   beneficiaries: [
     "CREATE_BENEFICIARY",
@@ -93,6 +95,8 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "UNDO_FIX_PARENT_CARD_PATTERNS",
     "NORMALIZE_IMPORT_INTEGER_DISTRIBUTION",
     "UNDO_NORMALIZE_IMPORT_INTEGER_DISTRIBUTION",
+    "CARD_NUMBERING_MIGRATION",
+    "ROLLBACK_MIGRATION",
   ],
   transactions: [
     "DEDUCT_BALANCE",
@@ -184,6 +188,10 @@ function actionLabel(action: string) {
       return "تصحيح توزيع الاستيراد المجمع";
     case "UNDO_NORMALIZE_IMPORT_INTEGER_DISTRIBUTION":
       return "تراجع عن تصحيح توزيع الاستيراد";
+    case "CARD_NUMBERING_MIGRATION":
+      return "ترحيل أرقام بطاقات";
+    case "ROLLBACK_MIGRATION":
+      return "تراجع عن ترحيل البطاقات";
     default:
       return action;
   }
@@ -309,6 +317,15 @@ function summarizeMetadata(action: string, metadata: unknown): string {
     return `عملية أصلية: ${String(m.original_audit_log_id ?? "-")} · عناصر مُرجعة: ${String(m.reverted_count ?? "-")}`;
   }
 
+  if (action === "CARD_NUMBERING_MIGRATION") {
+    const report = m.report as any;
+    return `إجمالي: ${report?.total} · إضافة: ${report?.added} · تحديث: ${report?.updated} · فشل: ${report?.failed}`;
+  }
+
+  if (action === "ROLLBACK_MIGRATION") {
+    return `تراجع عن العملية: ${String(m.originalLogId ?? "-")}`;
+  }
+
   return "-";
 }
 
@@ -346,7 +363,8 @@ function getBulkDetailRows(action: string, metadata: unknown): BulkDetailRow[] {
     Array.isArray(m.items) ? m.items
       : Array.isArray(m.details) ? m.details
         : Array.isArray(m.balance_changes) ? m.balance_changes
-          : [];
+          : Array.isArray(m.changes) ? m.changes
+            : [];
 
   return sourceRows
     .map((row) => {
@@ -357,9 +375,9 @@ function getBulkDetailRows(action: string, metadata: unknown): BulkDetailRow[] {
         beneficiaryName: String(item.beneficiary_name ?? item.name ?? "-"),
         cardNumber: String(item.card_number ?? item.old_card_number ?? "-"),
         amount: (item.amount ?? item.refunded_amount ?? item.deducted_amount ?? item.renewal_amount ?? "-") as number | string,
-        beforeValue: (item.balance_before ?? item.remaining_before ?? item.total_before ?? item.before_deleted_at ?? item.old_card_number ?? "-") as number | string,
-        afterValue: (item.balance_after ?? item.remaining_after ?? item.total_after ?? item.after_deleted_at ?? item.new_card_number ?? "-") as number | string,
-        result: String(item.result ?? item.status_after ?? "-"),
+        beforeValue: (item.balance_before ?? item.remaining_before ?? item.total_before ?? item.before_deleted_at ?? item.old_card_number ?? item.oldCard ?? "-") as number | string,
+        afterValue: (item.balance_after ?? item.remaining_after ?? item.total_after ?? item.after_deleted_at ?? item.new_card_number ?? item.newCard ?? "-") as number | string,
+        result: String(item.result ?? item.status_after ?? item.type ?? "-"),
       } satisfies BulkDetailRow;
     })
     .filter((row): row is BulkDetailRow => row !== null);

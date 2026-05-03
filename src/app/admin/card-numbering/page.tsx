@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
-import { canAccessAdmin } from "@/lib/session-guard";
+import { hasPermission } from "@/lib/session-guard";
 import { Shell } from "@/components/shell";
 import { CardNumberingClient } from "@/components/card-numbering-client";
 import { getCardNumberingArchive } from "@/app/actions/card-numbering";
@@ -9,16 +9,18 @@ export const metadata = {
   title: "ترقيم البطاقات | شركة الواحة",
 };
 
-export default async function CardNumberingPage() {
+export default async function CardNumberingPage(props: { searchParams: Promise<{ deleted?: string }> }) {
+  const searchParams = await props.searchParams;
   const session = await getSession();
   if (!session) redirect("/login");
   
-  // Only admins can access this maintenance tool
-  if (!canAccessAdmin(session)) {
+  // التحقق من الصلاحيات: حصراً للمشرف أو من لديه صلاحية ترقيم البطاقات
+  if (!hasPermission(session, "manage_card_numbering")) {
     redirect("/dashboard");
   }
 
-  const { items, error } = await getCardNumberingArchive();
+  const showDeleted = searchParams.deleted === "true";
+  const { items, error } = await getCardNumberingArchive(showDeleted);
 
   return (
     <Shell facilityName={session.name} session={session}>
@@ -35,7 +37,7 @@ export default async function CardNumberingPage() {
             {error}
           </div>
         ) : (
-          <CardNumberingClient initialItems={items || []} />
+          <CardNumberingClient initialItems={items || []} showDeleted={showDeleted} />
         )}
       </div>
     </Shell>

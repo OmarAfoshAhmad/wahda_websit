@@ -28,7 +28,8 @@ export type MaintenanceJobTask =
   | { kind: "fix_invalid_subunit_amounts" }
   | { kind: "fix_duplicate_import_cases"; facilityId?: string | null }
   | { kind: "settle_overdrawn_debt"; facilityId?: string | null }
-  | { kind: "stabilize_legacy_with_batch" };
+  | { kind: "stabilize_legacy_with_batch" }
+  | { kind: "purge_legacy_no_payment" };
 
 export type MaintenanceJobState = "queued" | "running" | "succeeded" | "failed";
 
@@ -82,6 +83,8 @@ function summarizeResult(task: MaintenanceJobTask, result: unknown): string {
       return `تسوية المديونية: ${Number(r.affectedDebtors ?? 0).toLocaleString("ar-LY")} حالة`;
     case "stabilize_legacy_with_batch":
       return `تحويل البطاقات القديمة ذات الدفعة: ${Number(r.updatedCount ?? 0).toLocaleString("ar-LY")} بطاقة`;
+    case "purge_legacy_no_payment":
+      return `تصفية القديمة بدون دفعة: تم حذف ${Number(r.updatedCount ?? 0).toLocaleString("ar-LY")} ونقل ${Number(r.totalDeductedTransferred ?? 0).toLocaleString("ar-LY")} د.ل`;
     default:
       return "تم التنفيذ";
   }
@@ -134,6 +137,14 @@ async function executeTask(
       });
     case "stabilize_legacy_with_batch": {
       const result = await stabilizeLegacyCardsWithBatch();
+      if (result.error) {
+        throw new Error(result.error);
+      }
+      return result;
+    }
+    case "purge_legacy_no_payment": {
+      const { purgeLegacyNoPayment } = await import("@/app/actions/beneficiary");
+      const result = await purgeLegacyNoPayment();
       if (result.error) {
         throw new Error(result.error);
       }

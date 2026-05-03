@@ -47,6 +47,7 @@ export type ManagerPermissions = {
   deduct_balance: boolean;
   delete_transaction: boolean;
   cash_claim: boolean;
+  manage_card_numbering: boolean;
 };
 
 export async function login(user: {

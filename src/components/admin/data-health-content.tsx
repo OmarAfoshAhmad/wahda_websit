@@ -19,6 +19,7 @@ import { LegacyCardBatchTools } from "@/components/legacy-card-batch-tools";
 import { LegacyCardInlineToggleButton } from "@/components/legacy-card-inline-toggle-button";
 import { BeneficiaryDeleteButton } from "@/components/beneficiary-delete-button";
 import { LegacyWithBatchStabilizeButton } from "@/components/legacy-with-batch-stabilize-button";
+import { LegacyNoPaymentPurgeButton } from "@/components/legacy-no-payment-purge-button";
 
 type UnlinkedCorrectionRow = {
   id: string;
@@ -251,6 +252,7 @@ export async function DataHealthContent({
     legacyOnlyRows,
     stableOnlyRows,
     legacyWithBatchRows,
+    legacyNoPaymentRows,
   ] = await Promise.all([
     prisma.$queryRaw<UnlinkedCorrectionRow[]>`
       SELECT
@@ -693,6 +695,29 @@ export async function DataHealthContent({
       ORDER BY r.batch_number ASC, b.card_number ASC
       LIMIT 1000
     `,
+
+    prisma.$queryRaw<LegacyCardStatusRow[]>`
+      SELECT
+        b.id,
+        b.name,
+        b.card_number,
+        b.status::text AS status,
+        b.is_legacy_card,
+        b.total_balance::float8 AS total_balance,
+        b.remaining_balance::float8 AS remaining_balance,
+        COALESCE(COUNT(CASE WHEN t.type <> 'IMPORT' AND t.type <> 'CANCELLATION' THEN 1 END), 0)::int AS manual_transactions_count,
+        COALESCE(COUNT(CASE WHEN t.type = 'IMPORT' THEN 1 END), 0)::int AS import_transactions_count,
+        COALESCE(COUNT(t.id), 0)::int AS total_transactions_count
+      FROM "Beneficiary" b
+      LEFT JOIN "CardIssuanceRegistry" r ON UPPER(BTRIM(b.card_number)) = r.card_number_upper
+      LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id AND t.is_cancelled = false
+      WHERE b.deleted_at IS NULL
+        AND b.is_legacy_card = true
+        AND (r.id IS NULL OR r.batch_number IS NULL OR BTRIM(r.batch_number) = '')
+      GROUP BY b.id, b.name, b.card_number, b.status, b.is_legacy_card, b.total_balance, b.remaining_balance
+      ORDER BY b.card_number ASC
+      LIMIT 1000
+    `,
   ]);
 
   const legacyMembersByFamily = legacyFractionalImportMemberRows.reduce<Record<string, LegacyFractionalImportMemberRow[]>>((acc, row) => {
@@ -833,6 +858,15 @@ export async function DataHealthContent({
         row.city.toLowerCase().includes(normalizedSearchQuery)
     )
     : legacyWithBatchRows;
+
+  const filteredLegacyNoPaymentRows = hasSearchQuery
+    ? legacyNoPaymentRows.filter(
+      (row) =>
+        row.name.toLowerCase().includes(normalizedSearchQuery) ||
+        row.card_number.toLowerCase().includes(normalizedSearchQuery)
+    )
+    : legacyNoPaymentRows;
+
   const showLegacySections = legacyMode;
   const showGeneralSections = !legacyMode;
 
@@ -918,6 +952,46 @@ export async function DataHealthContent({
                     <td className="p-2 text-xs">{row.status}</td>
                     <td className="p-2 text-xs">{row.manual_transactions_count.toLocaleString("ar-LY")}</td>
                     <td className="p-2 text-xs">{row.import_transactions_count.toLocaleString("ar-LY")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
+      )}
+
+      {showLegacySections && (
+      <Section title="موسوم قديم + ليس له دفعة (تصفية)" count={filteredLegacyNoPaymentRows.length}>
+        <p className="text-xs text-slate-600 dark:text-slate-300">
+          هذا القسم يعرض البطاقات الموسومة كقديمة والتي ليس لها سجل في منظومة الدفع (أو بدون رقم دفعة). 
+          يمكن حذفهم نهائياً وترحيل حركاتهم لأفراد عائلاتهم.
+        </p>
+        <LegacyNoPaymentPurgeButton candidateCount={legacyNoPaymentRows.length} />
+        {filteredLegacyNoPaymentRows.length === 0 ? (
+          <p className="text-sm font-medium text-emerald-600">✓ لا توجد حالات مطابقة حالياً.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b bg-slate-50 text-right dark:border-slate-700 dark:bg-slate-800/60">
+                  <th className="p-2">الاسم</th>
+                  <th className="p-2">رقم البطاقة</th>
+                  <th className="p-2">الحالة</th>
+                  <th className="p-2">الحركات اليدوية</th>
+                  <th className="p-2">حركات الاستيراد</th>
+                  <th className="p-2">إجمالي الحركات</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredLegacyNoPaymentRows.map((row) => (
+                  <tr key={row.id} className="border-b dark:border-slate-800">
+                    <td className="p-2">{row.name}</td>
+                    <td className="p-2 font-mono text-xs">{row.card_number}</td>
+                    <td className="p-2 text-xs">{row.status}</td>
+                    <td className="p-2 text-xs">{row.manual_transactions_count.toLocaleString("ar-LY")}</td>
+                    <td className="p-2 text-xs">{row.import_transactions_count.toLocaleString("ar-LY")}</td>
+                    <td className="p-2 text-xs font-bold">{row.total_transactions_count.toLocaleString("ar-LY")}</td>
                   </tr>
                 ))}
               </tbody>

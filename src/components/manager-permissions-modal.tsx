@@ -26,6 +26,7 @@ const PERMISSION_LABELS: Record<keyof ManagerPermissions, string> = {
   deduct_balance: "إمكانية خصم الرصيد (نقطة بيع)",
   delete_transaction: "حذف الحركات المالية (نهائياً أو مؤقتاً)",
   cash_claim: "إمكانية الكاش العائلي",
+  manage_card_numbering: "إدارة ترقيم البطاقات (استيراد وترحيل)",
 };
 
 interface Props {

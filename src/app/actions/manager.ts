@@ -34,6 +34,7 @@ const DEFAULT_PERMISSIONS: ManagerPermissions = {
   deduct_balance: true,
   delete_transaction: false,
   cash_claim: false,
+  manage_card_numbering: false,
 };
 
 const EMPLOYEE_PERMISSIONS: ManagerPermissions = {
@@ -56,6 +57,7 @@ const EMPLOYEE_PERMISSIONS: ManagerPermissions = {
   deduct_balance: false,
   delete_transaction: false,
   cash_claim: true,
+  manage_card_numbering: false,
 };
 
 // ── إنشاء حساب مدير جديد (المبرمج فقط) ──────────────────────────────
@@ -152,6 +154,7 @@ export async function updateManagerPermissions(
     deduct_balance: permissions.deduct_balance === true,
     delete_transaction: permissions.delete_transaction === true,
     cash_claim: permissions.cash_claim === true,
+    manage_card_numbering: permissions.manage_card_numbering === true,
   };
 
   await prisma.facility.update({

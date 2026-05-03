@@ -58,6 +58,8 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "IMPORT_FACILITIES",
     "UPDATE_FACILITY",
     "DELETE_FACILITY",
+    "CARD_NUMBERING_MIGRATION",
+    "ROLLBACK_MIGRATION",
     "ROLLBACK_IMPORT",
     "FIX_PARENT_CARD_PATTERNS",
     "NORMALIZE_IMPORT_INTEGER_DISTRIBUTION",
@@ -88,6 +90,8 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "BULK_STABILIZE_LEGACY_WITH_BATCH",
     "UNDO_BULK_STABILIZE_LEGACY_WITH_BATCH",
     "FIX_PARENT_CARD_PATTERNS",
+    "CARD_NUMBERING_MIGRATION",
+    "ROLLBACK_MIGRATION",
   ],
   transactions: [
     "DEDUCT_BALANCE",
@@ -213,6 +217,10 @@ function actionLabel(action: string) {
       return "تعديل مدير";
     case "DELETE_MANAGER":
       return "حذف مدير";
+    case "CARD_NUMBERING_MIGRATION":
+      return "ترحيل أرقام بطاقات";
+    case "ROLLBACK_MIGRATION":
+      return "تراجع عن ترحيل البطاقات";
     default:
       return action;
   }
@@ -806,6 +814,37 @@ function summarizeMetadata(action: string, metadata: unknown, auditLogId?: strin
     );
   }
 
+  if (action === "CARD_NUMBERING_MIGRATION") {
+    const report = m.report as any;
+    return (
+      <div className="space-y-1">
+        <div className="flex gap-2 text-xs">
+          <span>إجمالي: <strong>{report?.total}</strong></span>
+          <span className="text-emerald-600">إضافة: <strong>{report?.added}</strong></span>
+          <span className="text-blue-600">تحديث: <strong>{report?.updated}</strong></span>
+          <span className="text-rose-600">فشل: <strong>{report?.failed}</strong></span>
+        </div>
+        {auditLogId && (
+          <a
+            href={`/api/export/audit-log?log_id=${encodeURIComponent(auditLogId)}`}
+            target="_blank"
+            className="inline-flex items-center gap-1 rounded border border-emerald-200 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 transition-colors"
+          >
+            ↓ تقرير الترحيل التفصيلي
+          </a>
+        )}
+      </div>
+    );
+  }
+
+  if (action === "ROLLBACK_MIGRATION") {
+    return (
+      <span className="text-slate-500 dark:text-slate-400">
+        تراجع عن العملية: <strong className="font-mono text-[10px]">{String(m.originalLogId ?? "-")}</strong>
+      </span>
+    );
+  }
+
   if (action === "CREATE_FACILITY") {
     return (
       <span>
@@ -853,11 +892,12 @@ function badgeClassForAction(action: string) {
     action === "UNDO_NORMALIZE_IMPORT_INTEGER_DISTRIBUTION" ||
     action === "SETTLE_OVERDRAWN_FAMILY_DEBT" ||
     action === "IMPORT_BENEFICIARIES_BACKGROUND" ||
+    action === "CARD_NUMBERING_MIGRATION" ||
     action === "IMPORT_FACILITIES"
   ) {
     return "border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400";
   }
-  if (action.startsWith("DELETE") || action === "CANCEL_TRANSACTION" || action === "PERMANENT_DELETE_BENEFICIARY") {
+  if (action.startsWith("DELETE") || action === "CANCEL_TRANSACTION" || action === "PERMANENT_DELETE_BENEFICIARY" || action === "ROLLBACK_MIGRATION") {
     return "border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400";
   }
   return "border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 text-slate-700 dark:text-slate-300";

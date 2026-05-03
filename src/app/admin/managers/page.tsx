@@ -32,6 +32,7 @@ const PERMISSION_LABELS: Record<keyof ManagerPermissions, string> = {
   deduct_balance: "نقطة بيع",
   delete_transaction: "حذف حركات",
   cash_claim: "كاش عائلي",
+  manage_card_numbering: "ترقيم البطاقات",
 };
 
 export default async function ManagersPage({
@@ -129,6 +130,7 @@ export default async function ManagersPage({
                     deduct_balance: perms.deduct_balance ?? false,
                     delete_transaction: perms.delete_transaction ?? false,
                     cash_claim: perms.cash_claim ?? false,
+                    manage_card_numbering: perms.manage_card_numbering ?? false,
                   };
 
                   return (
