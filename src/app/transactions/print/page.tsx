@@ -81,6 +81,7 @@ export default async function TransactionPrintPage({
       orderBy: { created_at: "desc" },
       select: {
         id: true,
+        beneficiary_id: true,
         amount: true,
         type: true,
         is_cancelled: true,
