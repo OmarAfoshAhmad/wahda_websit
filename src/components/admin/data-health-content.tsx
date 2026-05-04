@@ -1111,42 +1111,7 @@ export async function DataHealthContent({
       </Section>
       )}
 
-      {showLegacySections && (
-      <Section title="البطاقات المستقرة" count={filteredStableOnlyRows.length}>
-        {filteredStableOnlyRows.length === 0 ? (
-          <p className="text-sm font-medium text-emerald-600">✓ لا توجد بطاقات مستقرة ضمن نتائج البحث الحالية.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
-              <thead>
-                <tr className="border-b bg-slate-50 text-right dark:border-slate-700 dark:bg-slate-800/60">
-                  <th className="p-2">الاسم</th>
-                  <th className="p-2">رقم البطاقة</th>
-                  <th className="p-2">الحالة</th>
-                  <th className="p-2">الحركات اليدوية</th>
-                  <th className="p-2">حركات الاستيراد</th>
-                  <th className="p-2">إجراء</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredStableOnlyRows.map((row) => (
-                  <tr key={row.id} className="border-b dark:border-slate-800">
-                    <td className="p-2">{row.name}</td>
-                    <td className="p-2 font-mono text-xs">{row.card_number}</td>
-                    <td className="p-2 text-xs">{row.status}</td>
-                    <td className="p-2 text-xs">{row.manual_transactions_count.toLocaleString("ar-LY")}</td>
-                    <td className="p-2 text-xs">{row.import_transactions_count.toLocaleString("ar-LY")}</td>
-                    <td className="p-2">
-                      <LegacyCardInlineToggleButton beneficiaryId={row.id} isLegacyCard={false} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Section>
-      )}
+
 
       {showGeneralSections && (
       <Section title="استيراد مجمع قديم بتوزيع كسور" count={filteredLegacyFractionalImportRows.length}>

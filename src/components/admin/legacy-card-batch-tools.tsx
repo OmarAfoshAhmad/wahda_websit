@@ -44,16 +44,6 @@ export function LegacyCardBatchTools() {
         variant="outline"
         className="h-9"
         disabled={isPending}
-        onClick={() => run(true)}
-      >
-        {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-        وسم كقديمة
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        className="h-9"
-        disabled={isPending}
         onClick={() => run(false)}
       >
         {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
