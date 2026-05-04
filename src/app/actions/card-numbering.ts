@@ -34,13 +34,13 @@ export async function getCardNumberingArchive(showDeleted: boolean = false) {
       },
       orderBy: { created_at: "desc" },
     });
-    return { 
+    return {
       items: items.map(item => ({
         ...item,
         created_at: item.created_at.toISOString(),
         migrated_at: item.migrated_at?.toISOString() || null,
         birth_date: item.birth_date?.toISOString().split('T')[0] || null,
-      })) 
+      }))
     };
   } catch (error) {
     return { error: "تعذر جلب الأرشيف" };
@@ -62,19 +62,21 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
       const name = String(item.name || "").trim();
       const statusVal = String(item.status || "").trim();
       const relVal = String(item.relationship || "").trim();
+      const notesVal = String(item.field3 || "").trim();
 
-      // استبعاد الحالات المطلوبة (متوفي أو ملحق) في أي من الحقول الأساسية
+      // استبعاد الحالات المطلوبة (متوفي أو ملحق) في أي من الحقول الأساسية أو الملاحظات
       const isExcluded = 
         statusVal.includes("متوفي") || statusVal.includes("متوفى") || statusVal.includes("وفاة") || statusVal.includes("ملحق") ||
         name.includes("متوفي") || name.includes("متوفى") || name.includes("وفاة") || name.includes("ملحق") ||
-        relVal.includes("متوفي") || relVal.includes("متوفى") || relVal.includes("وفاة") || relVal.includes("ملحق");
+        relVal.includes("متوفي") || relVal.includes("متوفى") || relVal.includes("وفاة") || relVal.includes("ملحق") ||
+        notesVal.includes("متوفي") || notesVal.includes("متوفى") || notesVal.includes("وفاة") || notesVal.includes("ملحق");
 
       if (isExcluded) {
         report.excluded++;
         report.excludedItems.push(item);
-        continue;
+        continue; // تجاهل السجل تماماً وعدم إدخاله لقاعدة البيانات
       }
-      
+
       let status: any = "READY";
       let errorMsg: string | null = null;
 
@@ -106,11 +108,11 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
         if (item.name.toLowerCase() === name.toLowerCase()) return true;
 
         // 2. إذا كان الاسم المسجل قديماً "مشبوهاً" (رقم أو تاريخ)، نعتبره هو نفس الشخص ونقوم بتصحيحه
-        const isSuspicious = 
-          item.name.includes("GMT") || 
-          item.name.includes("Time") || 
+        const isSuspicious =
+          item.name.includes("GMT") ||
+          item.name.includes("Time") ||
           /^\d+$/.test(item.name);
-          
+
         return isSuspicious;
       });
 
@@ -140,13 +142,13 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
       }
 
       const rowKey = `${empNum}-${rel || "M"}`;
-      
+
       // 1. الأولوية: التحقق من التكرار داخل نفس الملف الحالي (تصفية الملف أولاً)
       if (seenInBatch.has(rowKey)) {
         status = "DUPLICATE";
         errorMsg = "[FILE] مكرر في نفس الملف";
         report.duplicate++;
-      } 
+      }
       // 2. التحقق من التكرار في المنظومة الرئيسية (المستفيدين الفعليين)
       else {
         const existingInSystem = await prisma.beneficiary.findFirst({
@@ -157,7 +159,7 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
           status = "DUPLICATE";
           errorMsg = "[SYSTEM] موجود مسبقاً في المنظومة الرئيسية";
           report.duplicate++;
-        } 
+        }
         // 3. التحقق من التكرار في الأرشيف (دفعات سابقة)
         // السماح بإعادة الاستيراد كـ READY إذا لم يكن مرحلاً أصلاً
         else if (existingInArchive && existingInArchive.name.toLowerCase() === name.toLowerCase()) {
@@ -234,7 +236,7 @@ export async function migrateCardNumberingAction(ids: string[]) {
 
   try {
     const items = await prisma.cardNumberingArchive.findMany({
-      where: { 
+      where: {
         id: { in: ids },
         status: "READY"
       },
@@ -244,7 +246,7 @@ export async function migrateCardNumberingAction(ids: string[]) {
       try {
         // 1. البحث عن أي مستفيد موجود بنفس رقم البطاقة (حتى لو كان محذوفاً ناعماً)
         const existingByCard = await prisma.beneficiary.findFirst({
-          where: { 
+          where: {
             card_number: { equals: item.card_number.trim(), mode: "insensitive" }
           },
         });
@@ -254,7 +256,7 @@ export async function migrateCardNumberingAction(ids: string[]) {
           const oldData = { ...existingByCard };
           await prisma.beneficiary.update({
             where: { id: existingByCard.id },
-            data: { 
+            data: {
               name: item.name,
               birth_date: item.birth_date || existingByCard.birth_date,
               deleted_at: null, // استعادة السجل إذا كان في سلة المحذوفات
@@ -263,14 +265,14 @@ export async function migrateCardNumberingAction(ids: string[]) {
           });
           report.updated++;
           report.details.push({ name: item.name, status: "UPDATED", reason: existingByCard.deleted_at ? "استعادة وتحديث من المحذوفات" : "تحديث بيانات موجودة" });
-          changes.push({ 
-            type: "UPDATE", 
-            beneficiaryId: existingByCard.id, 
+          changes.push({
+            type: "UPDATE",
+            beneficiaryId: existingByCard.id,
             name: item.name,
-            oldCard: oldData.card_number, 
-            newCard: item.card_number 
+            oldCard: oldData.card_number,
+            newCard: item.card_number
           });
-          
+
           await prisma.cardNumberingArchive.update({
             where: { id: item.id },
             data: { status: "MIGRATED", migrated_at: new Date() },
@@ -280,10 +282,10 @@ export async function migrateCardNumberingAction(ids: string[]) {
 
         // 2. البحث بالرقم الوظيفي كخيار ثانٍ (إذا كان رقم البطاقة مختلفاً ولكن الشخص هو نفسه)
         const existingByEmp = await prisma.beneficiary.findFirst({
-          where: { 
-            card_number: { startsWith: item.employee_number }, 
+          where: {
+            card_number: { startsWith: item.employee_number },
             name: { equals: item.name, mode: "insensitive" },
-            deleted_at: null 
+            deleted_at: null
           },
         });
 
@@ -292,19 +294,19 @@ export async function migrateCardNumberingAction(ids: string[]) {
           const oldData = { ...existingByEmp };
           await prisma.beneficiary.update({
             where: { id: existingByEmp.id },
-            data: { 
+            data: {
               card_number: item.card_number,
               birth_date: item.birth_date || existingByEmp.birth_date,
             }
           });
           report.updated++;
           report.details.push({ name: item.name, status: "UPDATED", reason: "تحديث رقم البطاقة لمستفيد موجود" });
-          changes.push({ 
-            type: "UPDATE", 
-            beneficiaryId: existingByEmp.id, 
+          changes.push({
+            type: "UPDATE",
+            beneficiaryId: existingByEmp.id,
             name: item.name,
-            oldCard: oldData.card_number, 
-            newCard: item.card_number 
+            oldCard: oldData.card_number,
+            newCard: item.card_number
           });
         } else {
           // 3. إضافة جديد كلياً
@@ -320,8 +322,8 @@ export async function migrateCardNumberingAction(ids: string[]) {
           });
           report.added++;
           report.details.push({ name: item.name, status: "ADDED", reason: "مستفيد جديد" });
-          changes.push({ 
-            type: "CREATE", 
+          changes.push({
+            type: "CREATE",
             beneficiaryId: newBen.id,
             name: item.name,
             card_number: item.card_number
@@ -380,7 +382,7 @@ export async function rollbackMigrationAction(logId: string) {
     if (!log || log.action !== "CARD_NUMBERING_MIGRATION") return { error: "سجل غير صالح" };
 
     const { changes } = log.metadata as any;
-    
+
     for (const change of changes) {
       if (change.type === "CREATE") {
         await prisma.beneficiary.delete({ where: { id: change.beneficiaryId } });

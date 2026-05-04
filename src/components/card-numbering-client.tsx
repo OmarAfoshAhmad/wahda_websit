@@ -26,11 +26,11 @@ const StatusChip = ({ active, onClick, label, count, variant }: {
   variant: "all" | "success" | "warning" | "danger" | "info"
 }) => {
   const variants = {
-    all: active ? "bg-slate-900 text-white shadow-lg" : "bg-slate-100 text-slate-600 hover:bg-slate-200",
-    success: active ? "bg-emerald-600 text-white shadow-lg" : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100",
-    warning: active ? "bg-amber-600 text-white shadow-lg" : "bg-amber-50 text-amber-700 hover:bg-amber-100",
-    danger: active ? "bg-rose-600 text-white shadow-lg" : "bg-rose-50 text-rose-700 hover:bg-rose-100",
-    info: active ? "bg-blue-600 text-white shadow-lg" : "bg-blue-50 text-blue-700 hover:bg-blue-100",
+    all: active ? "bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 shadow-lg" : "bg-slate-100 dark:bg-slate-800/50 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800",
+    success: active ? "bg-emerald-600 dark:bg-emerald-500 text-white shadow-lg" : "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-500/20",
+    warning: active ? "bg-amber-600 dark:bg-amber-500 text-white shadow-lg" : "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-500/20",
+    danger: active ? "bg-rose-600 dark:bg-rose-500 text-white shadow-lg" : "bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-500/20",
+    info: active ? "bg-blue-600 dark:bg-blue-500 text-white shadow-lg" : "bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-500/20",
   };
 
   return (
@@ -180,13 +180,15 @@ export function CardNumberingClient({
             bDate = String(bDateRaw || "").trim();
           }
 
+          const notesKey = findKey(["ملاحظات", "Notes", "البيان", "ملاحظة"]);
+          
           return {
             name: String(name || "").trim(),
             employee_number: String(empNum || "").trim(),
             relationship: String(rel || "").trim(),
             birth_date: bDate,
             status: statusKey ? String(row[statusKey] || "").trim() : "",
-            field3: "",
+            field3: notesKey ? String(row[notesKey] || "").trim() : "",
           };
         });
 
@@ -305,7 +307,7 @@ export function CardNumberingClient({
     if (rawData.length === 0) return;
 
     const isExcluded = (item: any) => {
-      const text = `${item.name} ${item.status || ""} ${item.relationship || ""}`.toLowerCase();
+      const text = `${item.name} ${item.status || ""} ${item.relationship || ""} ${item.error_message || ""}`.toLowerCase();
       return text.includes("ملحق") || text.includes("متوفي") || text.includes("متوفى") || text.includes("وفاة");
     };
 
@@ -314,29 +316,31 @@ export function CardNumberingClient({
 
     const wb = XLSX.utils.book_new();
 
-    // ورقة المستفيدين الجاهزين
-    const exportData = validItems.map((item, index) => ({
-      "متسلسل": index + 1,
-      "باركود": item.card_number,
-      "اسم المستفيد": item.name,
-      "رقم البطاقة": item.card_number,
-      "الميلاد": item.birth_date ? new Date(item.birth_date).toLocaleDateString('en-GB') : "",
-      "الرقم الوظيفي": item.employee_number,
-      "الحالة": item.status || "نشط"
-    }));
-    const ws1 = XLSX.utils.json_to_sheet(exportData);
-    XLSX.utils.book_append_sheet(wb, ws1, "المستفيدين الجاهزين");
+    // الورقة الأولى: الأسماء بدون ملحق أو متوفي
+    if (validItems.length > 0) {
+      const exportData = validItems.map((item, index) => ({
+        "متسلسل": index + 1,
+        "الاسم": item.name,
+        "الرقم الوظيفي": item.employee_number,
+        "رقم البطاقة": item.card_number,
+        "صلة القرابة": item.relationship || "موظف",
+        "الميلاد": item.birth_date ? new Date(item.birth_date).toLocaleDateString('en-GB') : "",
+        "الحالة": item.status === "MIGRATED" ? "تم الترحيل" : "نشط"
+      }));
+      const ws1 = XLSX.utils.json_to_sheet(exportData);
+      XLSX.utils.book_append_sheet(wb, ws1, "المستفيدين الفعليين");
+    }
 
-    // ورقة الملحقين والمتوفين
+    // الورقة الثانية: أسماء الملحقين والمتوفين
     if (excludedItems.length > 0) {
       const excludedData = excludedItems.map((item, index) => ({
         "متسلسل": index + 1,
         "الاسم": item.name,
         "الرقم الوظيفي": item.employee_number,
+        "رقم البطاقة": item.card_number,
         "صلة القرابة": item.relationship || "",
-        "الحالة": item.status || "",
         "تاريخ الميلاد": item.birth_date ? new Date(item.birth_date).toLocaleDateString('en-GB') : "",
-        "ملاحظة": "مستبعد (ملحق أو متوفي)"
+        "الحالة": "مستبعد (ملحق أو متوفي)"
       }));
       const ws2 = XLSX.utils.json_to_sheet(excludedData);
       XLSX.utils.book_append_sheet(wb, ws2, "الملحقين والمتوفين");
@@ -534,10 +538,10 @@ export function CardNumberingClient({
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-black text-slate-950 dark:text-white">ترقيم البطاقات</h1>
-          <p className="mt-1 text-xs font-bold text-slate-500">استيراد الموظفين وترقيم بطاقاتهم تلقائياً بناءً على الرقم الوظيفي.</p>
+          <p className="mt-1 text-xs font-bold text-slate-500">إدارة واستيراد البطاقات تلقائياً.</p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {canManage && (
             <>
               <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx, .xls" className="hidden" />
@@ -555,7 +559,7 @@ export function CardNumberingClient({
                 onClick={() => window.location.href = showDeleted ? "/admin/card-numbering" : "/admin/card-numbering?deleted=true"} 
                 variant="outline" 
                 size="sm"
-                className={cn("gap-2 h-9", showDeleted ? "bg-amber-50 text-amber-600 border-amber-200" : "text-slate-600 border-slate-200")}
+                className={cn("gap-2 h-9", showDeleted ? "bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-500/20" : "text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 dark:bg-slate-800 hover:dark:bg-slate-700")}
               >
                 {showDeleted ? <History className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
                 {showDeleted ? "الأرشيف" : "السلة"}
@@ -576,11 +580,11 @@ export function CardNumberingClient({
             <>
               {canManage && (
                 <>
-                  <Button onClick={handleRestoreSelected} variant="outline" size="sm" disabled={selectedIds.length === 0} className="gap-2 text-emerald-600 border-emerald-200 h-9">
+                  <Button onClick={handleRestoreSelected} variant="outline" size="sm" disabled={selectedIds.length === 0} className="gap-2 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20 hover:dark:bg-emerald-500/10 h-9">
                     <CheckCircle2 className="h-4 w-4" />
                     استعادة
                   </Button>
-                  <Button onClick={handlePermanentDeleteSelected} variant="outline" size="sm" disabled={selectedIds.length === 0} className="gap-2 text-red-600 border-red-200 h-9">
+                  <Button onClick={handlePermanentDeleteSelected} variant="outline" size="sm" disabled={selectedIds.length === 0} className="gap-2 text-red-600 dark:text-red-400 border-red-200 dark:border-red-500/20 hover:dark:bg-red-500/10 h-9">
                     <Trash className="h-4 w-4" />
                     حذف
                   </Button>
@@ -588,16 +592,22 @@ export function CardNumberingClient({
               )}
             </>
           ) : (
-            <div className="flex gap-2">
-              <Button onClick={handleExport} variant="outline" size="sm" disabled={items.length === 0} className="gap-2 text-slate-600 border-slate-200 h-9">
+            <>
+              {canManage && selectedIds.length > 0 && (
+                <Button onClick={handleDeleteSelected} variant="outline" size="sm" className="gap-2 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-500/20 bg-rose-50 dark:bg-transparent hover:bg-rose-100 hover:dark:bg-rose-500/10 h-9">
+                  <Trash2 className="h-4 w-4" />
+                  نقل للسلة ({selectedIds.length})
+                </Button>
+              )}
+              <Button onClick={handleExport} variant="outline" size="sm" disabled={items.length === 0} className="gap-2 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 dark:bg-slate-800 hover:dark:bg-slate-700 h-9">
                 <FileSpreadsheet className="h-4 w-4" />
                 تصدير
               </Button>
-              <Button onClick={handlePrintVerification} variant="outline" size="sm" disabled={items.length === 0} className="gap-2 text-slate-900 border-slate-300 bg-slate-50 h-9">
+              <Button onClick={handlePrintVerification} variant="outline" size="sm" disabled={items.length === 0} className="gap-2 text-slate-900 dark:text-slate-100 border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 hover:bg-slate-100 hover:dark:bg-slate-600 h-9">
                 <Download className="h-4 w-4" />
                 طباعة
               </Button>
-            </div>
+            </>
           )}
         </div>
       </div>
