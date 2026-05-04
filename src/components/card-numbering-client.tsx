@@ -671,11 +671,11 @@ export function CardNumberingClient({
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                className="w-full pr-10 pl-3 py-2.5 text-sm bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none"
+                className="w-full pr-10 pl-3 py-2.5 text-sm bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-slate-900 dark:text-white"
                 placeholder="بحث بالاسم أو الرقم الوظيفي..."
               />
             </div>
-            <Button onClick={handleSearch} className="rounded-xl px-6 bg-slate-900 hover:bg-slate-800 shadow-md">بحث</Button>
+            <Button onClick={handleSearch} className="rounded-xl px-6 bg-slate-900 dark:bg-blue-600 hover:bg-slate-800 dark:hover:bg-blue-700 text-white shadow-md">بحث</Button>
           </div>
 
           {/* معلومات العرض */}
@@ -765,7 +765,7 @@ export function CardNumberingClient({
                 </tr>
               ) : (
                 paginatedItems.map((item) => (
-                  <tr key={item.id} className={cn("hover:bg-slate-50 transition-colors border-b dark:border-slate-800", selectedIds.includes(item.id) && "bg-primary/5")}>
+                  <tr key={item.id} className={cn("hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors border-b dark:border-slate-800", selectedIds.includes(item.id) && "bg-blue-50/50 dark:bg-blue-900/20")}>
                     <td className="p-4">
                       <button onClick={() => setSelectedIds(prev => prev.includes(item.id) ? prev.filter(i => i !== item.id) : [...prev, item.id])}>
                         {selectedIds.includes(item.id) ? <CheckSquare className="h-5 w-5 text-primary" /> : <Square className="h-5 w-5 text-slate-300" />}
