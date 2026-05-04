@@ -8,14 +8,9 @@ import { logger } from "@/lib/logger";
 import { emitNotification } from "@/lib/sse-notifications";
 import { formatCurrency, roundCurrency } from "@/lib/money";
 import { normalizeCardInput } from "@/lib/card-number";
+import { extractBaseCard } from "@/lib/normalize";
 import { assertBeneficiariesBalanceInvariant, buildIdempotencyKey } from "@/lib/tx-balance-guard";
 import { Prisma } from "@prisma/client";
-
-// ─── استخراج قاعدة رقم بطاقة العائلة ────────────────────────────────
-function extractFamilyBaseCard(cardNumber: string): string {
-  const match = cardNumber.match(/^(.*?)([WSDMFHV])(\d+)$/i);
-  return match ? match[1] : cardNumber;
-}
 
 // ─── نوع بيانات عضو العائلة ─────────────────────────────────────────
 export type FamilyMember = {
@@ -75,7 +70,7 @@ export async function lookupFamily(query: string): Promise<{
   }
 
   // استخراج رقم العائلة الأساسي
-  const baseCard = extractFamilyBaseCard(beneficiary.card_number.toUpperCase());
+  const baseCard = extractBaseCard(beneficiary.card_number.toUpperCase());
 
   // جلب كل أفراد العائلة (غير المحذوفين)
   const allMembers = await prisma.beneficiary.findMany({
@@ -93,7 +88,7 @@ export async function lookupFamily(query: string): Promise<{
 
   // فلترة الأفراد حسب قاعدة رقم البطاقة
   const familyMembers = allMembers
-    .filter((m) => extractFamilyBaseCard(m.card_number.toUpperCase()) === baseCard)
+    .filter((m) => extractBaseCard(m.card_number.toUpperCase()) === baseCard)
     .map((m) => ({
       id: m.id,
       card_number: m.card_number,

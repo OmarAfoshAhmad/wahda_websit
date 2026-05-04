@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { KeyRound, Loader2, Check } from "lucide-react";
-import { ConfirmationModal } from "@/components/confirmation-modal";
+import { ConfirmationModal } from "@/components/ui";
 
 export function BeneficiaryResetPinButton({ beneficiaryId }: { beneficiaryId: string }) {
   const [loading, setLoading] = useState(false);

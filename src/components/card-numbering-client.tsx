@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef } from "react";
-import { Upload, FileSpreadsheet, Send, Trash2, Download, CheckCircle2, AlertCircle, History, Trash, CheckSquare, Square, Info, XCircle } from "lucide-react";
+import { Upload, FileSpreadsheet, Send, Trash2, Download, CheckCircle2, AlertCircle, History, Trash, CheckSquare, Square, Info, XCircle, Search } from "lucide-react";
 import * as XLSX from "xlsx";
 import { Button, Card, Badge, Input } from "./ui";
 import { 
@@ -16,6 +16,41 @@ import {
 } from "@/app/actions/card-numbering";
 import { useToast } from "./toast";
 import { cn } from "./ui";
+
+// مكون فرعي للأزرار (Chips) الخاصة بالفلاتر لضمان التراصف والجمالية
+const StatusChip = ({ active, onClick, label, count, variant }: { 
+  active: boolean, 
+  onClick: () => void, 
+  label: string, 
+  count: number,
+  variant: "all" | "success" | "warning" | "danger" | "info"
+}) => {
+  const variants = {
+    all: active ? "bg-slate-900 text-white shadow-lg" : "bg-slate-100 text-slate-600 hover:bg-slate-200",
+    success: active ? "bg-emerald-600 text-white shadow-lg" : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100",
+    warning: active ? "bg-amber-600 text-white shadow-lg" : "bg-amber-50 text-amber-700 hover:bg-amber-100",
+    danger: active ? "bg-rose-600 text-white shadow-lg" : "bg-rose-50 text-rose-700 hover:bg-rose-100",
+    info: active ? "bg-blue-600 text-white shadow-lg" : "bg-blue-50 text-blue-700 hover:bg-blue-100",
+  };
+
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all duration-300 transform active:scale-95",
+        variants[variant]
+      )}
+    >
+      <span>{label}</span>
+      <span className={cn(
+        "px-1.5 py-0.5 rounded-md text-[10px]",
+        active ? "bg-white/20" : "bg-black/5"
+      )}>
+        {count}
+      </span>
+    </button>
+  );
+};
 
 export function CardNumberingClient({ initialItems, showDeleted }: { initialItems: any[], showDeleted: boolean }) {
   const toast = useToast();
@@ -38,6 +73,9 @@ export function CardNumberingClient({ initialItems, showDeleted }: { initialItem
   const [usePadding, setUsePadding] = useState(true);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [pendingData, setPendingData] = useState<{data: any[], fileName: string} | null>(null);
+  const [confirmModal, setConfirmModal] = useState<{ open: boolean, title: string, message: string, onConfirm: () => void, variant?: "danger" | "warning" | "info" }>({
+    open: false, title: "", message: "", onConfirm: () => {}
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -68,10 +106,10 @@ export function CardNumberingClient({ initialItems, showDeleted }: { initialItem
             keys.find(k => keywords.some(kw => String(k).includes(kw)));
 
           // كلمات مفتاحية أكثر دقة
-          const nameKey = findKey(["الاسم", "Name", "المستفيد", "اسم الموظف", "اسم العضو"]);
-          const empNumKey = findKey(["الوظيفي", "Employee", "رقم الموظف", "رقم العضو"]);
-          const relKey = findKey(["صلة", "القرابة", "Relationship", "النوع", "الصلة"]);
-          const bDateKey = findKey(["ميلاد", "Birth", "تاريخ"]);
+          const nameKey = findKey(["الاسم", "Name", "المستفيد", "اسم الموظف", "اسم العضو", "Full Name"]);
+          const empNumKey = findKey(["الوظيفي", "Employee", "رقم الموظف", "رقم العضو", "الرقم", "ID"]);
+          const relKey = findKey(["صلة", "القرابة", "Relationship", "النوع", "الصلة", "Rel"]);
+          const bDateKey = findKey(["ميلاد", "Birth", "تاريخ", "BDate", "DOB"]);
 
           // استخراج القيم
           let empNum = empNumKey ? row[empNumKey] : "";
@@ -155,7 +193,11 @@ export function CardNumberingClient({ initialItems, showDeleted }: { initialItem
 
       if (res.success) {
         setImportReport(res.report);
-        toast.success("تم الانتهاء من معالجة الملف");
+        if (res.report.total === 0) {
+          toast.info("تمت المعالجة ولكن لم يتم العثور على بيانات صالحة. تأكد من مسميات الأعمدة.");
+        } else {
+          toast.success(`تم معالجة ${res.report.total} سجل بنجاح`);
+        }
         setTimeout(() => window.location.reload(), 3000);
       } else {
         toast.error(res.error || "فشل الاستيراد");
@@ -179,25 +221,34 @@ export function CardNumberingClient({ initialItems, showDeleted }: { initialItem
       return;
     }
 
-    if (!confirm(`سيتم ترحيل ${toMigrate.length} مستفيد جديد برصيد 600 دينار لكل منهم. هل تريد الاستمرار؟`)) {
-      return;
-    }
-
-    setIsMigrating(true);
-    setMigrationReport(null);
-    setShowMigrationModal(true);
-    try {
-      const res = await migrateCardNumberingAction(toMigrate);
-      if (res.success) {
-        setMigrationReport(res.report);
-        toast.success(`اكتملت العملية: تم إضافة ${res.report.added} وتحديث ${res.report.updated}`);
-      } else {
-        toast.error(res.error || "فشل الترحيل");
-        setShowMigrationModal(false);
+    setConfirmModal({
+      open: true,
+      title: "تأكيد عملية الترحيل",
+      message: `سيتم ترحيل ${toMigrate.length} مستفيد جديد برصيد 600 دينار لكل منهم. هل تريد الاستمرار؟`,
+      variant: "info",
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, open: false }));
+        setIsMigrating(true);
+        setMigrationReport(null);
+        setShowMigrationModal(true);
+        try {
+          const res = await migrateCardNumberingAction(toMigrate);
+          if (res.success) {
+            setMigrationReport(res.report);
+            toast.success(`اكتملت العملية: تم إضافة ${res.report.added} وتحديث ${res.report.updated}`);
+          } else {
+            toast.error(res.error || "فشل الترحيل");
+            setShowMigrationModal(false);
+          }
+        } finally {
+          setIsMigrating(false);
+        }
       }
-    } finally {
-      setIsMigrating(false);
-    }
+    });
+  };
+
+  const executeMigrate = async (toMigrate: string[]) => {
+    // This part is now handled inside onConfirm
   };
 
   const handleDownloadTemplate = () => {
@@ -224,32 +275,63 @@ export function CardNumberingClient({ initialItems, showDeleted }: { initialItem
   };
 
   const handleDeleteSelected = async () => {
-    if (selectedIds.length === 0) return;
-    if (!confirm(`حذف ${selectedIds.length} سجل؟`)) return;
-    const res = await deleteCardNumberingArchiveItemsAction(selectedIds);
-    if (res.success) window.location.reload();
+    setConfirmModal({
+      open: true,
+      title: "نقل للسلة",
+      message: `هل أنت متأكد من نقل ${selectedIds.length} سجل إلى سلة المحذوفات؟`,
+      variant: "warning",
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, open: false }));
+        const res = await deleteCardNumberingArchiveItemsAction(selectedIds);
+        if (res.success) window.location.reload();
+      }
+    });
   };
 
   const handleRestoreSelected = async () => {
     if (selectedIds.length === 0) return;
-    if (!confirm(`استعادة ${selectedIds.length} سجل؟`)) return;
-    const res = await restoreCardNumberingArchiveItemsAction(selectedIds);
-    if (res.success) window.location.reload();
+    setConfirmModal({
+      open: true,
+      title: "استعادة السجلات",
+      message: `هل تريد استعادة ${selectedIds.length} سجل من سلة المحذوفات؟`,
+      variant: "info",
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, open: false }));
+        const res = await restoreCardNumberingArchiveItemsAction(selectedIds);
+        if (res.success) window.location.reload();
+      }
+    });
   };
 
   const handlePermanentDeleteSelected = async () => {
     if (selectedIds.length === 0) return;
-    if (!confirm(`تحذير: سيتم حذف ${selectedIds.length} سجل نهائياً من النظام. لا يمكن التراجع عن هذه العملية. هل أنت متأكد؟`)) return;
-    const res = await permanentlyDeleteCardNumberingArchiveItemsAction(selectedIds);
-    if (res.success) window.location.reload();
+    setConfirmModal({
+      open: true,
+      title: "حذف نهائي",
+      message: `تحذير: سيتم حذف ${selectedIds.length} سجل نهائياً من النظام. لا يمكن التراجع عن هذه العملية. هل أنت متأكد؟`,
+      variant: "danger",
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, open: false }));
+        const res = await permanentlyDeleteCardNumberingArchiveItemsAction(selectedIds);
+        if (res.success) window.location.reload();
+      }
+    });
   };
 
   const handleClear = async () => {
-    if (!confirm("مسح الأرشيف بالكامل؟")) return;
-    setIsClearing(true);
-    const res = await clearCardNumberingArchiveAction();
-    if (res.success) window.location.reload();
-    setIsClearing(false);
+    setConfirmModal({
+      open: true,
+      title: "مسح الأرشيف",
+      message: "هل أنت متأكد من مسح الأرشيف بالكامل؟ لا يمكن التراجع عن هذه العملية.",
+      variant: "danger",
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, open: false }));
+        setIsClearing(true);
+        const res = await clearCardNumberingArchiveAction();
+        if (res.success) window.location.reload();
+        setIsClearing(false);
+      }
+    });
   };
   
   const handleSearch = () => {
@@ -314,68 +396,84 @@ export function CardNumberingClient({ initialItems, showDeleted }: { initialItem
         </Card>
       )}
       
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
-        <div className="flex flex-wrap items-center gap-4">
-            <div className="flex gap-2">
+      <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+          {/* قسم البحث - يمين (RTL) */}
+          <div className="flex-1 max-w-md flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
               <input
                 type="text"
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                className="block w-full p-2.5 pr-10 text-sm text-slate-900 border border-slate-300 rounded-lg bg-slate-50 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-800 dark:border-slate-700 dark:placeholder-slate-400 dark:text-white"
-                placeholder="بحث بالاسم أو الرقم الوظيفي أو البطاقة..."
+                className="w-full pr-10 pl-3 py-2.5 text-sm bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none"
+                placeholder="بحث بالاسم أو الرقم الوظيفي..."
               />
-              <Button onClick={handleSearch} className="h-10">بحث</Button>
             </div>
+            <Button onClick={handleSearch} className="rounded-xl px-6 bg-slate-900 hover:bg-slate-800 shadow-md">بحث</Button>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => setStatusFilter("ALL")}
-              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${statusFilter === "ALL" ? "bg-slate-900 text-white shadow-md" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
-            >
-              الكل ({items.length})
-            </button>
-            <button
-              onClick={() => setStatusFilter("READY")}
-              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${statusFilter === "READY" ? "bg-emerald-600 text-white shadow-md" : "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"}`}
-            >
-              جاهز ({items.filter(i => i.status === "READY").length})
-            </button>
-            <button
-              onClick={() => setStatusFilter("DUPLICATE_FILE")}
-              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${statusFilter === "DUPLICATE_FILE" ? "bg-orange-600 text-white shadow-md" : "bg-orange-100 text-orange-700 hover:bg-orange-200"}`}
-            >
-              مكرر في الملف ({items.filter(i => i.status === "DUPLICATE_FILE").length})
-            </button>
-            <button
-              onClick={() => setStatusFilter("DUPLICATE_SYSTEM")}
-              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${statusFilter === "DUPLICATE_SYSTEM" ? "bg-amber-600 text-white shadow-md" : "bg-amber-100 text-amber-700 hover:bg-amber-200"}`}
-            >
-              مكرر في المنظومة ({items.filter(i => i.status === "DUPLICATE" && i.error_message?.includes("[SYSTEM]")).length})
-            </button>
-            <button
-              onClick={() => setStatusFilter("DUPLICATE_ARCHIVE")}
-              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${statusFilter === "DUPLICATE_ARCHIVE" ? "bg-orange-600 text-white shadow-md" : "bg-orange-100 text-orange-700 hover:bg-orange-200"}`}
-            >
-              مكرر في الأرشيف ({items.filter(i => i.status === "DUPLICATE" && i.error_message?.includes("[ARCHIVE]")).length})
-            </button>
-            <button
-              onClick={() => setStatusFilter("ERROR")}
-              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${statusFilter === "ERROR" ? "bg-rose-600 text-white shadow-md" : "bg-rose-100 text-rose-700 hover:bg-rose-200"}`}
-            >
-              أخطاء ({items.filter(i => i.status === "ERROR").length})
-            </button>
-            <button
-              onClick={() => setStatusFilter("MIGRATED")}
-              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${statusFilter === "MIGRATED" ? "bg-blue-600 text-white shadow-md" : "bg-blue-100 text-blue-700 hover:bg-blue-200"}`}
-            >
-              مرحل ({items.filter(i => i.status === "MIGRATED").length})
-            </button>
-            <div className="text-xs font-bold text-slate-400 mr-2">
-              المعروض: {filteredItems.length}
-            </div>
+
+          {/* معلومات العرض */}
+          <div className="hidden md:flex items-center gap-2 px-4 py-2 bg-slate-50 dark:bg-slate-800 rounded-xl border border-dashed">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">المعروض حالياً</span>
+            <span className="text-sm font-black text-slate-900 dark:text-white">{filteredItems.length}</span>
+            <span className="text-xs text-slate-400">من أصل {items.length}</span>
           </div>
         </div>
+
+        <div className="flex flex-wrap items-center gap-2 pb-2 border-b border-slate-100 dark:border-slate-800/50">
+          <StatusChip 
+            active={statusFilter === "ALL"} 
+            onClick={() => setStatusFilter("ALL")}
+            label="الكل"
+            count={items.length}
+            variant="all"
+          />
+          <StatusChip 
+            active={statusFilter === "READY"} 
+            onClick={() => setStatusFilter("READY")}
+            label="جاهز للترحيل"
+            count={items.filter(i => i.status === "READY").length}
+            variant="success"
+          />
+          <StatusChip 
+            active={statusFilter === "DUPLICATE_FILE"} 
+            onClick={() => setStatusFilter("DUPLICATE_FILE")}
+            label="مكرر في الملف"
+            count={items.filter(i => i.status === "DUPLICATE_FILE").length}
+            variant="warning"
+          />
+          <StatusChip 
+            active={statusFilter === "DUPLICATE_SYSTEM"} 
+            onClick={() => setStatusFilter("DUPLICATE_SYSTEM")}
+            label="مكرر بالمنظومة"
+            count={items.filter(i => i.status === "DUPLICATE" && i.error_message?.includes("[SYSTEM]")).length}
+            variant="warning"
+          />
+          <StatusChip 
+            active={statusFilter === "DUPLICATE_ARCHIVE"} 
+            onClick={() => setStatusFilter("DUPLICATE_ARCHIVE")}
+            label="مكرر بالأرشيف"
+            count={items.filter(i => i.status === "DUPLICATE" && i.error_message?.includes("[ARCHIVE]")).length}
+            variant="warning"
+          />
+          <StatusChip 
+            active={statusFilter === "ERROR"} 
+            onClick={() => setStatusFilter("ERROR")}
+            label="أخطاء"
+            count={items.filter(i => i.status === "ERROR").length}
+            variant="danger"
+          />
+          <StatusChip 
+            active={statusFilter === "MIGRATED"} 
+            onClick={() => setStatusFilter("MIGRATED")}
+            label="تم ترحيله"
+            count={items.filter(i => i.status === "MIGRATED").length}
+            variant="info"
+          />
+        </div>
+      </div>
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap gap-2">
@@ -538,6 +636,118 @@ export function CardNumberingClient({ initialItems, showDeleted }: { initialItem
           </ul>
         </div>
       </div>
+      {/* مودال إعدادات الاستيراد */}
+      {showSettingsModal && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-4">
+          <Card className="w-full max-w-md shadow-2xl animate-in zoom-in duration-300 overflow-hidden">
+            <div className="p-6 space-y-6">
+              <div className="flex items-center gap-3 border-b pb-4">
+                <div className="p-2 bg-blue-100 rounded-lg"><Upload className="h-6 w-6 text-blue-600" /></div>
+                <h3 className="font-black text-xl">إعدادات الاستيراد</h3>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">بادئة رقم البطاقة (Prefix)</label>
+                  <Input 
+                    value={importPrefix} 
+                    onChange={(e) => setImportPrefix(e.target.value)} 
+                    placeholder="مثال: WAB2025"
+                    className="text-left font-mono"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">سيتم إضافة هذا النص قبل الرقم الوظيفي</p>
+                </div>
+
+                <div className="flex items-center gap-2 mb-2">
+                  <button 
+                    onClick={() => setUsePadding(!usePadding)}
+                    className={cn("p-1 rounded border", usePadding ? "bg-blue-600 border-blue-600 text-white" : "border-slate-300 text-transparent")}
+                  >
+                    <CheckSquare className="h-4 w-4" />
+                  </button>
+                  <label className="text-sm font-bold text-slate-700 cursor-pointer" onClick={() => setUsePadding(!usePadding)}>تكملة الأصفار (Padding)</label>
+                </div>
+
+                {usePadding && (
+                  <div>
+                    <Input 
+                      type="number"
+                      value={importPadding} 
+                      onChange={(e) => setImportPadding(parseInt(e.target.value) || 0)} 
+                      className="text-left font-mono"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">مثال: 6 تعني أن الرقم 123 سيصبح 000123</p>
+                  </div>
+                )}
+
+                <div className="bg-amber-50 p-3 rounded-lg border border-amber-100 flex gap-2">
+                  <Info className="h-4 w-4 text-amber-600 shrink-0" />
+                  <p className="text-xs text-amber-800 leading-relaxed">
+                    تم العثور على <strong>{pendingData?.data.length}</strong> سجل صالح في الملف. 
+                    سيتم تدقيق التكرار تلقائياً عند البدء.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <Button onClick={executeImport} className="flex-1 bg-blue-600 hover:bg-blue-700 h-11 font-bold">
+                  بدء الاستيراد والتدقيق
+                </Button>
+                <Button variant="outline" onClick={() => setShowSettingsModal(false)} className="h-11 font-bold">
+                  إلغاء
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* مودال التأكيد المخصص */}
+      {confirmModal.open && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-4">
+          <Card className="w-full max-w-md shadow-2xl animate-in zoom-in duration-300">
+            <div className="p-6 space-y-4">
+              <div className="flex items-center gap-3 border-b pb-4">
+                <div className={cn(
+                  "p-2 rounded-lg",
+                  confirmModal.variant === "danger" ? "bg-rose-100 text-rose-600" :
+                  confirmModal.variant === "warning" ? "bg-amber-100 text-amber-600" :
+                  "bg-blue-100 text-blue-600"
+                )}>
+                  <AlertCircle className="h-6 w-6" />
+                </div>
+                <h3 className="font-black text-xl">{confirmModal.title}</h3>
+              </div>
+              
+              <p className="text-slate-600 leading-relaxed font-bold">
+                {confirmModal.message}
+              </p>
+
+              <div className="flex gap-3 pt-4">
+                <Button 
+                  onClick={confirmModal.onConfirm}
+                  className={cn(
+                    "flex-1 h-11 font-bold",
+                    confirmModal.variant === "danger" ? "bg-rose-600 hover:bg-rose-700" :
+                    confirmModal.variant === "warning" ? "bg-amber-600 hover:bg-amber-700" :
+                    "bg-blue-600 hover:bg-blue-700"
+                  )}
+                >
+                  تأكيد
+                </Button>
+                <Button 
+                  variant="outline" 
+                  onClick={() => setConfirmModal(prev => ({ ...prev, open: false }))}
+                  className="flex-1 h-11 font-bold"
+                >
+                  إلغاء
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
+
       {/* مودال نتائج الترحيل */}
       {showMigrationModal && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-4">

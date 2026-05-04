@@ -87,7 +87,8 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json(result, { status: 201 });
-  } catch {
+  } catch (error) {
+    console.error("[api/import-jobs]", error);
     return NextResponse.json({ error: "فشل في قراءة ملف Excel على الخادم." }, { status: 400 });
   }
 }

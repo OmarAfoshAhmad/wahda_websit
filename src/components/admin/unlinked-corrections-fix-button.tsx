@@ -4,15 +4,15 @@ import { useState, useTransition } from "react";
 import { Loader2, ShieldCheck } from "lucide-react";
 import { runDataHygieneSweepAction } from "@/app/actions/data-hygiene";
 import { startMaintenanceJobAction } from "@/app/actions/maintenance-jobs";
-import { ConfirmationModal } from "@/components/confirmation-modal";
+import { ConfirmationModal } from "@/components/ui";
 import { useRouter } from "next/navigation";
-import { useMaintenanceJobProgress } from "@/components/use-maintenance-job-progress";
+import { useMaintenanceJobProgress } from "./hooks/use-maintenance-job-progress";
 
 type Props = {
   initialCount: number;
 };
 
-export function DeletedFacilitiesFixButton({ initialCount }: Props) {
+export function UnlinkedCorrectionsFixButton({ initialCount }: Props) {
   const router = useRouter();
   const [count, setCount] = useState(initialCount);
   const [isPending, startTransition] = useTransition();
@@ -33,14 +33,13 @@ export function DeletedFacilitiesFixButton({ initialCount }: Props) {
     setError(result.error ?? "فشلت المهمة");
     setJobId(null);
   });
-
   const isRunning = isPending || job.isRunning;
 
   const runFix = () => {
     setError(null);
     setStatusMessage(null);
     startTransition(async () => {
-      const queued = await startMaintenanceJobAction({ kind: "data_hygiene_sweep", mode: "deleted_facilities" });
+      const queued = await startMaintenanceJobAction({ kind: "data_hygiene_sweep", mode: "unlinked_corrections" });
       if (!queued.success || !queued.job) {
         setError(queued.error ?? "تعذر بدء المعالجة بالخلفية");
         return;
@@ -56,18 +55,17 @@ export function DeletedFacilitiesFixButton({ initialCount }: Props) {
     setError(null);
     setStatusMessage(null);
     startTransition(async () => {
-      const res = await runDataHygieneSweepAction({ mode: "deleted_facilities", dryRun: true });
+      const res = await runDataHygieneSweepAction({ mode: "unlinked_corrections", dryRun: true });
       if (!res.success) {
         setError(res.error ?? "تعذر تنفيذ الفحص");
         return;
       }
-      setCount(res.deleted_facilities);
+      setCount(res.unlinked_corrections);
       setLastAffected(null);
-
-      if (res.deleted_facilities === 0) {
-        setStatusMessage("الفحص: لا توجد مرافق محذوفة تحتاج معالجة حاليا.");
+      if (res.unlinked_corrections === 0) {
+        setStatusMessage("الفحص: لا توجد حاليا حالات غير مرتبطة قابلة للمعالجة.");
       } else {
-        setStatusMessage(`الفحص: تم العثور على ${res.deleted_facilities.toLocaleString("ar-LY")} مرفق محذوف قابل للحذف النهائي.`);
+        setStatusMessage(`الفحص: تم العثور على ${res.unlinked_corrections.toLocaleString("ar-LY")} حالة قابلة للمعالجة.`);
       }
     });
   };
@@ -82,7 +80,7 @@ export function DeletedFacilitiesFixButton({ initialCount }: Props) {
           className="inline-flex h-10 w-56 items-center justify-center gap-2 whitespace-nowrap rounded-md border border-slate-300 bg-white px-4 text-sm font-black text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
         >
           {isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-          فحص مرافق محذوفة ({count.toLocaleString("ar-LY")})
+          فحص الحركات غير المرتبطة ({count.toLocaleString("ar-LY")})
         </button>
 
         <button
@@ -92,7 +90,7 @@ export function DeletedFacilitiesFixButton({ initialCount }: Props) {
           className="inline-flex h-10 w-56 items-center justify-center gap-2 whitespace-nowrap rounded-md bg-[#0f2a4a] px-4 text-sm font-black text-white transition-colors hover:bg-[#0b1f38] disabled:opacity-60"
         >
           {isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-          حذف نهائي للمرافق المحذوفة
+          معالجة الحركات غير المرتبطة
         </button>
       </div>
 
@@ -113,7 +111,7 @@ export function DeletedFacilitiesFixButton({ initialCount }: Props) {
 
       {lastAffected !== null && (
         <p className="text-xs font-bold text-emerald-700 dark:text-emerald-400">
-          تمت معالجة {lastAffected.toLocaleString("ar-LY")} مرفق محذوف.
+          تمت معالجة {lastAffected.toLocaleString("ar-LY")} حركة غير مرتبطة.
         </p>
       )}
 
@@ -131,11 +129,11 @@ export function DeletedFacilitiesFixButton({ initialCount }: Props) {
 
       <ConfirmationModal
         isOpen={confirmOpen}
-        onClose={() => !isPending && setConfirmOpen(false)}
+        onClose={() => !isRunning && setConfirmOpen(false)}
         onConfirm={runFix}
-        title="تأكيد الحذف النهائي للمرافق المحذوفة"
-        description="سيتم حذف السجلات المحذوفة نهائيا من جدول المرافق إذا لم تكن مرتبطة بحركات."
-        confirmLabel="نعم، نفذ الحذف النهائي"
+        title="تأكيد معالجة الحركات غير المرتبطة"
+        description="سيتم وضع الحركات المصححة غير المرتبطة (بدون مرجع حركة أصلية) كملغاة بشكل آمن."
+        confirmLabel="نعم، نفذ المعالجة"
         cancelLabel="إلغاء"
         variant="warning"
         isLoading={isRunning}

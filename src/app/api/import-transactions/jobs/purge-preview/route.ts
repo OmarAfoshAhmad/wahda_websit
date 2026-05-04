@@ -62,7 +62,8 @@ export async function POST(request: Request) {
     });
 
     return NextResponse.json({ preview }, { status: 200 });
-  } catch {
+  } catch (error) {
+    console.error("[api/import-transactions/jobs/purge-preview]", error);
     return NextResponse.json({ error: "تعذر حساب معاينة التنظيف." }, { status: 400 });
   }
 }

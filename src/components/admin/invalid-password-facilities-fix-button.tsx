@@ -4,15 +4,15 @@ import { useState, useTransition } from "react";
 import { Loader2, ShieldCheck } from "lucide-react";
 import { runDataHygieneSweepAction } from "@/app/actions/data-hygiene";
 import { startMaintenanceJobAction } from "@/app/actions/maintenance-jobs";
-import { ConfirmationModal } from "@/components/confirmation-modal";
+import { ConfirmationModal } from "@/components/ui";
 import { useRouter } from "next/navigation";
-import { useMaintenanceJobProgress } from "@/components/use-maintenance-job-progress";
+import { useMaintenanceJobProgress } from "./hooks/use-maintenance-job-progress";
 
 type Props = {
   initialCount: number;
 };
 
-export function DuplicateMovementsFixButton({ initialCount }: Props) {
+export function InvalidPasswordFacilitiesFixButton({ initialCount }: Props) {
   const router = useRouter();
   const [count, setCount] = useState(initialCount);
   const [isPending, startTransition] = useTransition();
@@ -39,7 +39,7 @@ export function DuplicateMovementsFixButton({ initialCount }: Props) {
     setError(null);
     setStatusMessage(null);
     startTransition(async () => {
-      const queued = await startMaintenanceJobAction({ kind: "data_hygiene_sweep", mode: "duplicate_movements" });
+      const queued = await startMaintenanceJobAction({ kind: "data_hygiene_sweep", mode: "invalid_password_facilities" });
       if (!queued.success || !queued.job) {
         setError(queued.error ?? "تعذر بدء المعالجة بالخلفية");
         return;
@@ -55,18 +55,18 @@ export function DuplicateMovementsFixButton({ initialCount }: Props) {
     setError(null);
     setStatusMessage(null);
     startTransition(async () => {
-      const res = await runDataHygieneSweepAction({ mode: "duplicate_movements", dryRun: true });
+      const res = await runDataHygieneSweepAction({ mode: "invalid_password_facilities", dryRun: true });
       if (!res.success) {
         setError(res.error ?? "تعذر تنفيذ الفحص");
         return;
       }
-
-      setCount(res.duplicate_movements);
+      setCount(res.invalid_password_facilities);
       setLastAffected(null);
-      if (res.duplicate_movements === 0) {
-        setStatusMessage("الفحص: لا توجد حاليا تكرارات حركات قابلة للمعالجة.");
+
+      if (res.invalid_password_facilities === 0) {
+        setStatusMessage("الفحص: لا توجد مرافق فعالة بكلمة مرور غير صالحة حاليا.");
       } else {
-        setStatusMessage(`الفحص: تم العثور على ${res.duplicate_movements.toLocaleString("ar-LY")} حركة مكررة قابلة للمعالجة.`);
+        setStatusMessage(`الفحص: تم العثور على ${res.invalid_password_facilities.toLocaleString("ar-LY")} مرفق يحتاج معالجة.`);
       }
     });
   };
@@ -81,7 +81,7 @@ export function DuplicateMovementsFixButton({ initialCount }: Props) {
           className="inline-flex h-10 w-56 items-center justify-center gap-2 whitespace-nowrap rounded-md border border-slate-300 bg-white px-4 text-sm font-black text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
         >
           {isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-          فحص تكرارات الحركات ({count.toLocaleString("ar-LY")})
+          فحص كلمة مرور غير صالحة ({count.toLocaleString("ar-LY")})
         </button>
 
         <button
@@ -91,7 +91,7 @@ export function DuplicateMovementsFixButton({ initialCount }: Props) {
           className="inline-flex h-10 w-56 items-center justify-center gap-2 whitespace-nowrap rounded-md bg-[#0f2a4a] px-4 text-sm font-black text-white transition-colors hover:bg-[#0b1f38] disabled:opacity-60"
         >
           {isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-          معالجة تكرارات الحركات
+          معالجة كلمة مرور غير صالحة
         </button>
       </div>
 
@@ -112,7 +112,7 @@ export function DuplicateMovementsFixButton({ initialCount }: Props) {
 
       {lastAffected !== null && (
         <p className="text-xs font-bold text-emerald-700 dark:text-emerald-400">
-          تمت معالجة {lastAffected.toLocaleString("ar-LY")} حركة مكررة.
+          تمت معالجة {lastAffected.toLocaleString("ar-LY")} مرفق.
         </p>
       )}
 
@@ -132,8 +132,8 @@ export function DuplicateMovementsFixButton({ initialCount }: Props) {
         isOpen={confirmOpen}
         onClose={() => !isRunning && setConfirmOpen(false)}
         onConfirm={runFix}
-        title="تأكيد معالجة تكرارات الحركات"
-        description="سيتم إلغاء الحركات المكررة الزائدة فقط (الإبقاء على أول حركة حسب التاريخ) ضمن نفس اليوم والنوع والقيمة للمستفيد."
+        title="تأكيد معالجة مرافق كلمة المرور غير الصالحة"
+        description="سيتم وضع كلمة مرور آمنة انتقالية وتفعيل إجبار تغيير كلمة المرور لهذه المرافق عند المعالجة."
         confirmLabel="نعم، نفذ المعالجة"
         cancelLabel="إلغاء"
         variant="warning"

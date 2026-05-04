@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { Loader2, ShieldCheck } from "lucide-react";
-import { ConfirmationModal } from "@/components/confirmation-modal";
+import { ConfirmationModal } from "@/components/ui";
 import { getMaintenanceJobAction, startMaintenanceJobAction } from "@/app/actions/maintenance-jobs";
 import { useRouter } from "next/navigation";
 

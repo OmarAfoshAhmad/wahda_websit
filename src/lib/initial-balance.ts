@@ -31,7 +31,8 @@ export async function getCurrentInitialBalance(): Promise<number> {
     const metadata = latest.metadata as Record<string, unknown>;
     const parsed = parseInitialBalance(metadata.value);
     return parsed ?? INITIAL_BALANCE;
-  } catch {
+  } catch (err) {
+    console.error("[INITIAL_BALANCE] Failed to read from DB, using default", String(err));
     return INITIAL_BALANCE;
   }
 }

@@ -2,10 +2,10 @@
 
 import { useState, useTransition } from "react";
 import { Loader2, Wrench } from "lucide-react";
-import { ConfirmationModal } from "@/components/confirmation-modal";
+import { ConfirmationModal } from "@/components/ui";
 import { startMaintenanceJobAction } from "@/app/actions/maintenance-jobs";
 import { useRouter } from "next/navigation";
-import { useMaintenanceJobProgress } from "@/components/use-maintenance-job-progress";
+import { useMaintenanceJobProgress } from "./hooks/use-maintenance-job-progress";
 
 export function StatusAnomaliesFixButton() {
   const router = useRouter();

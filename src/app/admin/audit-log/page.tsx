@@ -9,9 +9,10 @@ import prisma from "@/lib/prisma";
 import { Activity, Download } from "lucide-react";
 // SEC-FIX: تم تعطيل زر حذف سجلات التدقيق — السجلات محمية ولا تقبل الحذف
 // import { AuditLogClearButton } from "../../../components/audit-log-clear-button";
-import { ImportRollbackButton } from "@/components/import-rollback-button";
-import { TransactionRollbackButton } from "@/components/transaction-rollback-button";
-import { BulkBeneficiaryRollbackButton } from "@/components/bulk-beneficiary-rollback-button";
+import { ImportRollbackButton } from "@/components/admin";
+import { TransactionRollbackButton } from "@/components/admin";
+import { BulkBeneficiaryRollbackButton } from "@/components/admin";
+import { MigrationRollbackButton } from "@/components/admin/migration-rollback-button";
 import { formatDateTimeTripoli } from "@/lib/datetime";
 
 type TargetFilter = "all" | "beneficiaries" | "transactions" | "facilities" | "completed" | "merges" | "security";
@@ -754,6 +755,50 @@ function summarizeMetadata(action: string, metadata: unknown, auditLogId?: strin
     );
   }
 
+  if (action === "CARD_NUMBERING_MIGRATION") {
+    const report = m.report as any;
+    const changes = Array.isArray(m.changes) ? (m.changes as Array<Record<string, unknown>>) : [];
+    return (
+      <div className="text-slate-500 dark:text-slate-400 space-y-1">
+        <div className="flex flex-wrap items-center gap-x-2">
+          <span>إجمالي: <strong className="text-slate-700 dark:text-slate-300">{String(report?.total ?? "-")}</strong></span>
+          <span>إضافة: <strong className="text-emerald-600 dark:text-emerald-400">{String(report?.added ?? "-")}</strong></span>
+          <span>تحديث: <strong className="text-blue-600 dark:text-blue-400">{String(report?.updated ?? "-")}</strong></span>
+          <span>فشل: <strong className="text-rose-600 dark:text-rose-400">{String(report?.failed ?? "-")}</strong></span>
+          {auditLogId && changes.length > 0 && (
+            <div className="flex items-center gap-2">
+              <a
+                href={`/api/export/audit-log?log_id=${encodeURIComponent(auditLogId)}`}
+                target="_blank"
+                className="inline-flex items-center gap-1 rounded border border-sky-200 dark:border-sky-700 bg-sky-50 dark:bg-sky-900/30 px-2 py-0.5 text-xs font-bold text-sky-700 dark:text-sky-400 hover:bg-sky-100 dark:hover:bg-sky-900/50 transition-colors"
+                title="تصدير تفاصيل الترحيل (الأسماء وأرقام البطاقات) بصيغة Excel"
+              >
+                ↓ تقرير الأسماء والبطاقات ({changes.length})
+              </a>
+              <MigrationRollbackButton logId={auditLogId} isRolledBack={Boolean(m.undo_reverted_at)} />
+            </div>
+          )}
+        </div>
+        {changes.length > 0 && (
+          <div className="text-[11px] font-medium text-slate-400 dark:text-slate-500 leading-relaxed">
+            {changes.slice(0, 2).map((ch, idx) => (
+              <span key={idx} className="ml-3 inline-block">
+                • {String(ch.name ?? "-")} (
+                {ch.type === "CREATE" ? (
+                  <span className="text-emerald-600 dark:text-emerald-500">جديد: {String(ch.card_number ?? "-")}</span>
+                ) : (
+                  <span className="text-blue-600 dark:text-blue-500">{String(ch.oldCard ?? "-")} ← {String(ch.newCard ?? "-")}</span>
+                )}
+                )
+              </span>
+            ))}
+            {changes.length > 2 ? <span>... +{changes.length - 2} مستفيداً آخر</span> : null}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   if (action === "IMPORT_TRANSACTIONS") {
     const appliedRowsCount = Array.isArray(m.appliedRows) ? m.appliedRows.length : 0;
     const rollbackStatus = String(m.rollbackStatus ?? "").toLowerCase();
@@ -966,11 +1011,39 @@ export default async function AuditLogPage({
     }
     : null;
 
+  const searchMatchedFacilityIds = searchTerm
+    ? (await prisma.facility.findMany({
+      where: {
+        OR: [
+          { name: { contains: searchTerm, mode: "insensitive" } },
+          { username: { contains: searchTerm, mode: "insensitive" } },
+        ],
+      },
+      select: { id: true },
+      take: 200,
+    })).map((f) => f.id)
+    : [];
+
   const searchFilter = searchTerm
     ? {
       OR: [
         { user: { contains: searchTerm, mode: "insensitive" as const } },
         { action: { contains: searchTerm, mode: "insensitive" as const } },
+        ...(searchMatchedFacilityIds.length > 0
+          ? [{ facility_id: { in: searchMatchedFacilityIds } }]
+          : []),
+        {
+          metadata: {
+            path: ["beneficiary_name"],
+            string_contains: searchTerm,
+          },
+        },
+        {
+          metadata: {
+            path: ["card_number"],
+            string_contains: searchTerm,
+          },
+        },
       ],
     }
     : null;
@@ -1014,7 +1087,7 @@ export default async function AuditLogPage({
     ? await prisma.facility.findMany({
       where: {
         OR: [
-          ...(actorUsernames.length > 0 ? [{ username: { in: actorUsernames } }] : []),
+          ...(actorUsernames.length > 0 ? [{ id: { in: actorUsernames } }] : []),
           ...(actorFacilityIds.length > 0 ? [{ id: { in: actorFacilityIds } }] : []),
         ],
       },
@@ -1031,7 +1104,7 @@ export default async function AuditLogPage({
   const actorLookups: ActorLookupMaps = {
     byUsername: new Map(
       actorFacilities.map((f) => [
-        f.username,
+        f.id,
         { name: f.name, is_admin: f.is_admin, is_manager: f.is_manager },
       ])
     ),

@@ -1,38 +1,8 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
-
-function extractFamilyBaseCard(cardNumber: string): string {
-  const normalized = String(cardNumber ?? "").trim().toUpperCase();
-  const match = normalized.match(/^(.*?)([WSDMFHV])(\d+)$/i);
-  return match ? match[1] : normalized;
-}
-
-function round2(value: number): number {
-  return Math.round((value + Number.EPSILON) * 100) / 100;
-}
-
-async function ensureFamilyImportArchiveTable() {
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "FamilyImportArchive" (
-      "family_base_card" TEXT PRIMARY KEY,
-      "family_count_from_file" INTEGER NOT NULL DEFAULT 0,
-      "total_balance_from_file" NUMERIC(12, 2) NOT NULL DEFAULT 0,
-      "used_balance_from_file" NUMERIC(12, 2) NOT NULL DEFAULT 0,
-      "source_row_number" INTEGER,
-      "imported_by" TEXT,
-      "source_file_name" TEXT,
-      "last_imported_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-  `);
-
-  await prisma.$executeRawUnsafe(`
-    ALTER TABLE "FamilyImportArchive"
-    ADD COLUMN IF NOT EXISTS "source_file_name" TEXT;
-  `);
-}
+import { roundCurrency } from "@/lib/money";
+import { extractBaseCard } from "@/lib/normalize";
 
 function extractImportSourceFileName(payload: unknown): string | null {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
@@ -76,9 +46,8 @@ export async function GET(
     return NextResponse.json({ error: "المستفيد غير موجود" }, { status: 404 });
   }
 
-  await ensureFamilyImportArchiveTable();
 
-  const familyBaseCard = extractFamilyBaseCard(beneficiary.card_number);
+  const familyBaseCard = extractBaseCard(beneficiary.card_number);
   const familyCandidates = await prisma.beneficiary.findMany({
     where: {
       deleted_at: null,
@@ -97,7 +66,7 @@ export async function GET(
   });
 
   const familyMembers = familyCandidates
-    .filter((m) => extractFamilyBaseCard(m.card_number) === familyBaseCard)
+    .filter((m) => extractBaseCard(m.card_number) === familyBaseCard)
     .map((m) => ({
       id: m.id,
       name: m.name,
@@ -108,26 +77,17 @@ export async function GET(
       is_selected: m.id === beneficiary.id,
     }));
 
-  const familyArchiveRows = await prisma.$queryRaw<Array<{
-    family_count_from_file: number;
-    total_balance_from_file: number;
-    used_balance_from_file: number;
-    source_file_name: string | null;
-    imported_by: string | null;
-    last_imported_at: Date;
-  }>>`
-    SELECT
-      "family_count_from_file"::int AS family_count_from_file,
-      "total_balance_from_file"::float8 AS total_balance_from_file,
-      "used_balance_from_file"::float8 AS used_balance_from_file,
-      "source_file_name",
-      "imported_by",
-      "last_imported_at"
-    FROM "FamilyImportArchive"
-    WHERE "family_base_card" = ${familyBaseCard}
-    LIMIT 1
-  `;
-  const familyArchive = familyArchiveRows[0] ?? null;
+  const familyArchive = await prisma.familyImportArchive.findFirst({
+    where: { family_base_card: familyBaseCard },
+    select: {
+      family_count_from_file: true,
+      total_balance_from_file: true,
+      used_balance_from_file: true,
+      source_file_name: true,
+      imported_by: true,
+      last_imported_at: true,
+    },
+  });
 
   const familyMemberIds = familyMembers.map((m) => m.id);
   const familySystemSpendingAll = familyMemberIds.length > 0
@@ -207,19 +167,19 @@ export async function GET(
     .filter((t) => t.type !== "CANCELLATION")
     .reduce((sum, t) => sum + Number(t.amount), 0);
 
-  const familyTotalBalanceSystem = round2(
+  const familyTotalBalanceSystem = roundCurrency(
     familyMembers.reduce((sum, member) => sum + Number(member.total_balance || 0), 0),
   );
-  const familyRemainingBalanceSystem = round2(
+  const familyRemainingBalanceSystem = roundCurrency(
     familyMembers.reduce((sum, member) => sum + Number(member.remaining_balance || 0), 0),
   );
-  const familyDistributedFromSystem = round2(Number(familySystemSpendingAll?._sum.amount ?? 0));
-  const familyDistributedFromImportOnly = round2(Number(familyImportSpending?._sum.amount ?? 0));
-  const familyDebtToCompany = round2(Math.max(0, familyDistributedFromSystem - familyTotalBalanceSystem));
-  const expectedFromFile = familyArchive ? round2(Number(familyArchive.used_balance_from_file ?? 0)) : null;
+  const familyDistributedFromSystem = roundCurrency(Number(familySystemSpendingAll?._sum.amount ?? 0));
+  const familyDistributedFromImportOnly = roundCurrency(Number(familyImportSpending?._sum.amount ?? 0));
+  const familyDebtToCompany = roundCurrency(Math.max(0, familyDistributedFromSystem - familyTotalBalanceSystem));
+  const expectedFromFile = familyArchive ? roundCurrency(Number(familyArchive.used_balance_from_file ?? 0)) : null;
   const importDistributionDiff = expectedFromFile === null
     ? null
-    : round2(familyDistributedFromImportOnly - expectedFromFile);
+    : roundCurrency(familyDistributedFromImportOnly - expectedFromFile);
   const importDistributionIsMatch = importDistributionDiff === null
     ? null
     : Math.abs(importDistributionDiff) <= 0.01;
@@ -246,8 +206,8 @@ export async function GET(
           imported_by: familyArchive?.imported_by ?? null,
           last_imported_at: familyArchive?.last_imported_at ?? null,
           family_count_from_file: familyArchive ? Number(familyArchive.family_count_from_file ?? 0) : null,
-          total_balance_from_file: familyArchive ? round2(Number(familyArchive.total_balance_from_file ?? 0)) : null,
-          used_balance_from_file: familyArchive ? round2(Number(familyArchive.used_balance_from_file ?? 0)) : null,
+          total_balance_from_file: familyArchive ? roundCurrency(Number(familyArchive.total_balance_from_file ?? 0)) : null,
+          used_balance_from_file: familyArchive ? roundCurrency(Number(familyArchive.used_balance_from_file ?? 0)) : null,
         },
         system: {
           family_members_in_system: familyMembers.length,
@@ -268,7 +228,7 @@ export async function GET(
         transactions_count: transactions.length,
         active_transactions_count: activeTx.length,
         cancelled_transactions_count: transactions.length - activeTx.length,
-        total_used: Math.round(totalUsed * 100) / 100,
+        total_used: roundCurrency(totalUsed),
       },
       transactions: transactions.map((t) => ({
         id: t.id,

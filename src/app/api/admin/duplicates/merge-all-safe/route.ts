@@ -25,7 +25,8 @@ export async function POST() {
       truncatedCount: Number(result.truncatedCount ?? 0),
       firstAuditId: result.firstAuditId ?? null,
     });
-  } catch {
+  } catch (error) {
+    console.error("[api/admin/duplicates/merge-all-safe]", error);
     return NextResponse.json({ error: "تعذر تنفيذ الدمج الآمن حالياً" }, { status: 500 });
   }
 }

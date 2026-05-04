@@ -82,7 +82,7 @@ describe('DeductForm Component', () => {
         name: 'أحمد محمود',
         card_number: '123456',
         remaining_balance: 500,
-        status: 'ACTIVE' } as MockBeneficiary
+        status: 'ACTIVE' } as any
     });
 
     // محاكاة استجابة عملية الخصم

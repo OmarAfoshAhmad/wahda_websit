@@ -373,9 +373,9 @@ function getBulkDetailRows(action: string, metadata: unknown): BulkDetailRow[] {
       return {
         action: actionLabel(action),
         beneficiaryName: String(item.beneficiary_name ?? item.name ?? "-"),
-        cardNumber: String(item.card_number ?? item.old_card_number ?? "-"),
+        cardNumber: String(item.card_number ?? item.newCard ?? item.oldCard ?? item.old_card_number ?? "-"),
         amount: (item.amount ?? item.refunded_amount ?? item.deducted_amount ?? item.renewal_amount ?? "-") as number | string,
-        beforeValue: (item.balance_before ?? item.remaining_before ?? item.total_before ?? item.before_deleted_at ?? item.old_card_number ?? item.oldCard ?? "-") as number | string,
+        beforeValue: (item.balance_before ?? item.remaining_before ?? item.total_before ?? item.after_deleted_at ?? item.old_card_number ?? item.oldCard ?? "-") as number | string,
         afterValue: (item.balance_after ?? item.remaining_after ?? item.total_after ?? item.after_deleted_at ?? item.new_card_number ?? item.newCard ?? "-") as number | string,
         result: String(item.result ?? item.status_after ?? item.type ?? "-"),
       } satisfies BulkDetailRow;

@@ -73,7 +73,8 @@ async function probeRedisReachability(): Promise<boolean> {
     setProbeResult(true);
     setProbeUntil(now + 5_000);
     return true;
-  } catch {
+  } catch (err) {
+    console.warn("[REDIS] Probe failed, marking down for cooldown", String(err));
     setProbeResult(false);
     setProbeUntil(now + REDIS_DOWN_COOLDOWN_MS);
     setDownUntil(now + REDIS_DOWN_COOLDOWN_MS);

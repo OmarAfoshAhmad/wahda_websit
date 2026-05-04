@@ -15,6 +15,29 @@ export function normalizePersonName(value: string): string {
 }
 
 /**
+ * تطبيع النصوص العربية للبحث: توحيد الهمزات والتاء المربوطة.
+ */
+export function getArabicNormalization(text: string): string {
+  if (!text) return "";
+  return text
+    .trim()
+    .replace(/[أإآ]/g, "ا")
+    .replace(/ة/g, "ه")
+    .replace(/ى/g, "ي")
+    .replace(/\s+/g, " ");
+}
+
+/**
+ * استخراج مصطلحات البحث العربية: الاسم الأصلي + الاسم المطبع.
+ */
+export function getArabicSearchTerms(query: string): string[] {
+  const q = query.trim();
+  if (!q) return [];
+  const normalized = getArabicNormalization(q);
+  return [...new Set([q, normalized])];
+}
+
+/**
  * تطبيع رقم البطاقة: حذف الفراغات + تحويل لأحرف كبيرة.
  */
 export function normalizeCardNumber(value: string): string {

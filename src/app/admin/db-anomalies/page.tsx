@@ -5,7 +5,7 @@ import { Shell } from "@/components/shell";
 import prisma from "@/lib/prisma";
 import { formatDateTripoli } from "@/lib/datetime";
 import { AlertTriangle } from "lucide-react";
-import { DataHygieneSweepButton } from "@/components/data-hygiene-sweep-button";
+import { DataHygieneSweepButton } from "@/components/admin";
 
 type UnlinkedCorrectionRow = {
   id: string;

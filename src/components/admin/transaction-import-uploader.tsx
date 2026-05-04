@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2, Download, RotateCcw, RefreshCw } from "lucide-react";
-import { Button, Card } from "./ui";
+import { Button, Card } from "../ui";
 
 import { 
   type TransactionImportSummary, 

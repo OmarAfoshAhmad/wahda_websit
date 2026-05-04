@@ -40,7 +40,8 @@ export async function GET(req: NextRequest) {
       heartbeatTimer = setInterval(() => {
         try {
           ctrl.enqueue(encoder.encode(`: ping\n\n`));
-        } catch {
+        } catch (error) {
+          console.error("[api/beneficiary/notifications/stream] Heartbeat failed", error);
           clearInterval(heartbeatTimer);
         }
       }, 25_000);

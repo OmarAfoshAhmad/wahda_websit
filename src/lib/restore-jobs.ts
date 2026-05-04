@@ -842,7 +842,9 @@ export async function processRestoreJob(jobId: string, username: string) {
 
     try {
       revalidateTag("beneficiary-counts", "max");
-    } catch { }
+    } catch (err) {
+      console.warn("[RESTORE] revalidateTag failed (may be outside request context)", String(err));
+    }
 
     return { job: toSnapshot(completedJob) };
   } catch (error) {

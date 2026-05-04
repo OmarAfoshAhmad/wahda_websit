@@ -10,7 +10,7 @@ import { SmartPrintButton } from "@/components/smart-print-button";
 import { ExportButton } from "@/components/export-button";
 import { PaginationButtons } from "@/components/pagination-buttons";
 import { bulkTransactionSelectionAction } from "@/app/actions/cancel-transaction";
-import { BulkTransactionActionButton } from "@/components/bulk-transaction-action-button";
+import { BulkTransactionActionButton } from "@/components/admin";
 import { SelectAllTransactionsCheckbox } from "@/components/select-all-transactions-checkbox";
 import { TransactionEditModal } from "../../components/transaction-edit-modal";
 import { TransactionCancelButton } from "@/components/transaction-cancel-button";

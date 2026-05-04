@@ -4,9 +4,8 @@ import { useActionState, useEffect, useRef, useState, useCallback } from "react"
 import { useRouter } from "next/navigation";
 import { addTransactionFromForm } from "@/app/actions/transaction";
 import { getBeneficiaryFamilyImportInsights, searchBeneficiaries } from "@/app/actions/beneficiary";
-import { Button, Card, Input } from "@/components/ui";
-import { ConfirmationModal } from "@/components/confirmation-modal";
-import { formatCurrency } from "@/lib/money";
+import { Button, Card, Input, ConfirmationModal } from "@/components/ui";
+import { formatCurrency, roundCurrency } from "@/lib/money";
 import {
   AMOUNT_POLICY_ERROR,
   isAllowedDeductionAmount,
@@ -322,7 +321,7 @@ export function AddTransactionForm({
   const remainingBefore = selectedBeneficiary ? Number(selectedBeneficiary.remaining_balance) : null;
   const remainingAfter =
     remainingBefore !== null && hasValidAmount
-      ? Math.round((remainingBefore - amountValue + Number.EPSILON) * 100) / 100
+      ? roundCurrency(remainingBefore - amountValue)
       : null;
   const isBalanceEnded =
     selectedBeneficiary !== null

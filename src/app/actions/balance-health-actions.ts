@@ -3,6 +3,7 @@
 import prisma from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { AUDIT_ACTIONS } from "@/lib/constants";
+import { roundCurrency } from "@/lib/money";
 
 type BackgroundActor = {
   username: string;
@@ -333,13 +334,13 @@ export async function recalcBalancesAction(actor?: BackgroundActor): Promise<Rec
           metadata: {
             fixed_count: changes.length,
             status_changes,
-            total_drift: Math.round(total_drift * 100) / 100,
+            total_drift: roundCurrency(total_drift),
           },
         },
       }),
     ]);
 
-    return { success: true, fixed_count: changes.length, status_changes, total_drift };
+    return { success: true, fixed_count: changes.length, status_changes, total_drift: roundCurrency(total_drift) };
   } catch (err) {
     console.error("[recalcBalancesAction]", err);
     return { success: false, fixed_count: 0, status_changes: 0, total_drift: 0, error: "حدث خطأ أثناء الإصلاح" };
@@ -396,7 +397,7 @@ export async function fixTotalBalanceDriftAction(actor?: BackgroundActor): Promi
       ...candidates.map((c) =>
         prisma.beneficiary.update({
           where: { id: c.id },
-          data: { total_balance: Math.round(c.correct_total * 100) / 100 },
+          data: { total_balance: roundCurrency(c.correct_total) },
         }),
       ),
       prisma.auditLog.create({
@@ -406,21 +407,21 @@ export async function fixTotalBalanceDriftAction(actor?: BackgroundActor): Promi
           metadata: {
             fix_type: "total_balance_drift",
             fixed_count: candidates.length,
-            total_corrected: Math.round(totalCorrected * 100) / 100,
+            total_corrected: roundCurrency(totalCorrected),
             details: candidates.map((c) => ({
               id: c.id,
               name: c.name,
               card_number: c.card_number,
               stored_total: c.stored_total,
               correct_total: c.correct_total,
-              diff: Math.round((c.correct_total - c.stored_total) * 100) / 100,
+              diff: roundCurrency(c.correct_total - c.stored_total),
             })),
           },
         },
       }),
     ]);
 
-    return { success: true, fixed_count: candidates.length, total_corrected: Math.round(totalCorrected * 100) / 100 };
+    return { success: true, fixed_count: candidates.length, total_corrected: roundCurrency(totalCorrected) };
   } catch (err) {
     console.error("[fixTotalBalanceDriftAction]", err);
     return { success: false, fixed_count: 0, total_corrected: 0, error: "حدث خطأ أثناء إصلاح انجراف الرصيد الكلي" };

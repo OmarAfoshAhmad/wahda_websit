@@ -37,7 +37,8 @@ export async function POST(request: Request) {
         "Content-Disposition": `attachment; filename="not-found-${Date.now()}.xlsx"`,
       },
     });
-  } catch {
+  } catch (error) {
+    console.error("[api/import-transactions/not-found-report]", error);
     return NextResponse.json({ error: "فشل إنشاء التقرير." }, { status: 500 });
   }
 }

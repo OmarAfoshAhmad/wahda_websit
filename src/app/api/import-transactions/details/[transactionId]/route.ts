@@ -2,32 +2,9 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireActiveFacilitySession } from "@/lib/session-guard";
 import { extractBaseCard } from "@/lib/normalize";
+import { roundCurrency } from "@/lib/money";
 
-function round2(value: number): number {
-  return Math.round((value + Number.EPSILON) * 100) / 100;
-}
-
-async function ensureFamilyImportArchiveTable() {
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "FamilyImportArchive" (
-      "family_base_card" TEXT PRIMARY KEY,
-      "family_count_from_file" INTEGER NOT NULL DEFAULT 0,
-      "total_balance_from_file" NUMERIC(12, 2) NOT NULL DEFAULT 0,
-      "used_balance_from_file" NUMERIC(12, 2) NOT NULL DEFAULT 0,
-      "source_row_number" INTEGER,
-      "imported_by" TEXT,
-      "source_file_name" TEXT,
-      "last_imported_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-  `);
-
-  await prisma.$executeRawUnsafe(`
-    ALTER TABLE "FamilyImportArchive"
-    ADD COLUMN IF NOT EXISTS "source_file_name" TEXT;
-  `);
-}
+// تم استخدام roundCurrency من lib/money.ts و ensureFamilyImportArchiveTable من lib/prisma-utils.ts
 
 export async function GET(
   _req: Request,
@@ -48,7 +25,6 @@ export async function GET(
   }
 
   try {
-    await ensureFamilyImportArchiveTable();
 
     const tx = await prisma.transaction.findFirst({
       where: { id: cleanId },
@@ -106,35 +82,25 @@ export async function GET(
       ORDER BY b.card_number ASC
     `;
 
-    const archiveRows = await prisma.$queryRaw<Array<{
-      family_count_from_file: number;
-      total_balance_from_file: number;
-      used_balance_from_file: number;
-      source_row_number: number | null;
-      source_file_name: string | null;
-      last_imported_at: Date;
-    }>>`
-      SELECT
-        "family_count_from_file"::int AS family_count_from_file,
-        "total_balance_from_file"::float8 AS total_balance_from_file,
-        "used_balance_from_file"::float8 AS used_balance_from_file,
-        "source_row_number"::int AS source_row_number,
-        "source_file_name",
-        "last_imported_at"
-      FROM "FamilyImportArchive"
-      WHERE "family_base_card" = ${familyBaseCard}
-      LIMIT 1
-    `;
-
-    const archive = archiveRows[0] ?? null;
+    const archive = await prisma.familyImportArchive.findFirst({
+      where: { family_base_card: familyBaseCard },
+      select: {
+        family_count_from_file: true,
+        total_balance_from_file: true,
+        used_balance_from_file: true,
+        source_row_number: true,
+        source_file_name: true,
+        last_imported_at: true,
+      },
+    });
     const sourceUsedRaw = archive ? Number(archive.used_balance_from_file ?? 0) : 0;
-    const sourceUsedBalance = archive ? round2(Math.max(0, sourceUsedRaw)) : null;
+    const sourceUsedBalance = archive ? roundCurrency(Math.max(0, sourceUsedRaw)) : null;
     const sourceFamilyCount = archive ? Number(archive.family_count_from_file ?? 0) : 0;
     const expectedDeductionPerMember = sourceUsedBalance !== null && sourceFamilyCount > 0
-      ? round2(sourceUsedBalance / sourceFamilyCount)
+      ? roundCurrency(sourceUsedBalance / sourceFamilyCount)
       : 0;
-    const actualDeduction = round2(expectedDeductionPerMember * members.length);
-    const recordedDeduction = round2(members.reduce((sum, m) => sum + Number(m.import_deducted ?? 0), 0));
+    const actualDeduction = roundCurrency(expectedDeductionPerMember * members.length);
+    const recordedDeduction = roundCurrency(members.reduce((sum, m) => sum + Number(m.import_deducted ?? 0), 0));
 
     return NextResponse.json(
       {
@@ -149,8 +115,8 @@ export async function GET(
           family_base_card: familyBaseCard,
           source: {
             family_count_from_file: archive ? Number(archive.family_count_from_file ?? 0) : null,
-            total_balance_from_file: archive ? round2(Number(archive.total_balance_from_file ?? 0)) : null,
-            used_balance_from_file: archive ? round2(sourceUsedRaw) : null,
+            total_balance_from_file: archive ? roundCurrency(Number(archive.total_balance_from_file ?? 0)) : null,
+            used_balance_from_file: archive ? roundCurrency(sourceUsedRaw) : null,
             source_row_number: archive?.source_row_number ?? null,
             source_file_name: archive?.source_file_name ?? null,
             last_imported_at: archive?.last_imported_at ?? null,
@@ -162,7 +128,7 @@ export async function GET(
             source_used_balance: sourceUsedBalance,
             expected_deduction: expectedDeductionPerMember,
             actual_deduction: actualDeduction,
-            deduction_diff: round2(recordedDeduction - actualDeduction),
+            deduction_diff: roundCurrency(recordedDeduction - actualDeduction),
             recorded_deduction: recordedDeduction,
             calculation_basis: "الخصم المتوقع (حصة الفرد) = الرصيد المجمع المستخدم من الملف / عدد أفراد الأسرة بالمصدر. الخصم الحقيقي = حصة الفرد × عدد الأفراد الموجودين في المنظومة",
           },
@@ -173,9 +139,9 @@ export async function GET(
             status: m.status,
             total_balance: Number(m.total_balance),
             remaining_balance: Number(m.remaining_balance),
-            import_deducted: round2(Number(m.import_deducted)),
-            manual_deducted: round2(Number(m.manual_deducted)),
-            consumed_total: round2(Number(m.consumed_total)),
+            import_deducted: roundCurrency(Number(m.import_deducted)),
+            manual_deducted: roundCurrency(Number(m.manual_deducted)),
+            consumed_total: roundCurrency(Number(m.consumed_total)),
           })),
         },
       },

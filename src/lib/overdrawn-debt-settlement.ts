@@ -55,9 +55,6 @@ export type DebtSettlementRun = {
   totalDebtAfter: number;
 };
 
-function extractFamilyBaseCard(cardNumber: string): string {
-  return extractBaseCard(cardNumber);
-}
 
 function idempotencyPrefixBySource(sourceType: DebtCaseSource): string {
   return sourceType === "IMPORT_GAP" ? IMPORT_GAP_SETTLE_IDEMPOTENCY_PREFIX : DEBT_SETTLE_IDEMPOTENCY_PREFIX;
@@ -189,7 +186,7 @@ export async function getOverdrawnDebtCases(): Promise<OverdrawnDebtCase[]> {
 
   // استخرج بادئات البطاقات العائلية لجلب الأفراد المرتبطين
   const familyBasePrefixes = [...new Set([
-    ...debtorRows.map((b) => extractFamilyBaseCard(b.card_number)),
+    ...debtorRows.map((b) => extractBaseCard(b.card_number)),
     ...archiveRows.map((a) => String(a.family_base_card ?? "").trim()).filter(Boolean),
   ])];
 
@@ -236,7 +233,7 @@ export async function getOverdrawnDebtCases(): Promise<OverdrawnDebtCase[]> {
 
   const membersByBaseCard = new Map<string, typeof allRows>();
   for (const b of allRows) {
-    const base = extractFamilyBaseCard(b.card_number);
+    const base = extractBaseCard(b.card_number);
     const arr = membersByBaseCard.get(base) ?? [];
     arr.push(b);
     membersByBaseCard.set(base, arr);
@@ -254,7 +251,7 @@ export async function getOverdrawnDebtCases(): Promise<OverdrawnDebtCase[]> {
     // لذلك لا نطرح تسويات سابقة مرة ثانية حتى لا يختفي دين متبقٍ بالخطأ.
     const debtAmount = debtAmountRaw;
 
-    const baseCard = extractFamilyBaseCard(b.card_number);
+    const baseCard = extractBaseCard(b.card_number);
     const allFamilyMembers = membersByBaseCard.get(baseCard) ?? [];
 
     const familyMembers = allFamilyMembers

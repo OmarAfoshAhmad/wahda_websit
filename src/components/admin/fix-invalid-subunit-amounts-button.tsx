@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Loader2, ShieldCheck } from "lucide-react";
-import { ConfirmationModal } from "@/components/confirmation-modal";
+import { ConfirmationModal } from "@/components/ui";
 import { startMaintenanceJobAction } from "@/app/actions/maintenance-jobs";
 
 type Props = {

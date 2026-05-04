@@ -38,7 +38,8 @@ export async function POST(request: Request) {
     redirectUrl.searchParams.set("job", queued.job.id);
 
     return NextResponse.redirect(redirectUrl, { status: 303 });
-  } catch {
+  } catch (error) {
+    console.error("[api/admin/duplicates/import-cases/fix-all]", error);
     const redirectUrl = new URL("/admin/duplicates", request.url);
     redirectUrl.searchParams.set("tab", "import");
     redirectUrl.searchParams.set("err", "تعذر تنفيذ المعالجة الدفعة الواحدة حالياً");

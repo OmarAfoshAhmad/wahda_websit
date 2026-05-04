@@ -70,7 +70,8 @@ function appendPoolParams(url: string): string {
     }
 
     return u.toString();
-  } catch {
+  } catch (err) {
+    console.warn("[PRISMA] Failed to parse DATABASE_URL for pool config", String(err));
     return url;
   }
 }

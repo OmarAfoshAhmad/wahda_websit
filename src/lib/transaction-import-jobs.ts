@@ -196,7 +196,8 @@ async function estimateRowsFromWorkbook(buffer: Buffer): Promise<number> {
     });
 
     return Math.max(1, rows);
-  } catch {
+  } catch (err) {
+    console.warn("[TX_IMPORT] Failed to estimate rows from workbook", String(err));
     return 1;
   }
 }

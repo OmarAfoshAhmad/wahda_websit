@@ -1,6 +1,7 @@
 import { TransactionType } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { getLedgerRemainingByBeneficiaryIds } from "@/lib/ledger-balance";
+import { roundCurrency } from "@/lib/money";
 
 export type ImportDuplicateCase = {
   beneficiaryId: string;
@@ -24,9 +25,7 @@ type ImportDuplicateCasesOptions = {
   includeMultiFileRepeat?: boolean;
 };
 
-function round2(value: number): number {
-  return Math.round((value + Number.EPSILON) * 100) / 100;
-}
+// round2 مُوحَّدة → roundCurrency (lib/money.ts)
 
 export async function getActiveImportDuplicateCases(options?: ImportDuplicateCasesOptions): Promise<ImportDuplicateCase[]> {
   const includeMultiFileRepeat = options?.includeMultiFileRepeat === true;
@@ -114,9 +113,9 @@ export async function getActiveImportDuplicateCases(options?: ImportDuplicateCas
 
     const keepTx = txs[0];
     const deleteTxs = txs.slice(1);
-    const extraAmount = round2(deleteTxs.reduce((sum, tx) => sum + Number(tx.amount), 0));
-    const currentRemaining = round2(ledgerRemainingById.get(beneficiary.id) ?? 0);
-    const fixedRemaining = round2(currentRemaining + extraAmount);
+    const extraAmount = roundCurrency(deleteTxs.reduce((sum, tx) => sum + Number(tx.amount), 0));
+    const currentRemaining = roundCurrency(ledgerRemainingById.get(beneficiary.id) ?? 0);
+    const fixedRemaining = roundCurrency(currentRemaining + extraAmount);
     const fixedStatus = fixedRemaining <= 0 ? "FINISHED" : "ACTIVE";
     const caseType = hasActiveDuplicate ? "ACTIVE_IMPORT_DUPLICATE" : "MULTI_FILE_REPEAT";
 
@@ -124,7 +123,7 @@ export async function getActiveImportDuplicateCases(options?: ImportDuplicateCas
       beneficiaryId: beneficiary.id,
       name: beneficiary.name,
       cardNumber: beneficiary.card_number,
-      totalBalance: round2(Number(beneficiary.total_balance) || 0),
+      totalBalance: roundCurrency(Number(beneficiary.total_balance) || 0),
       importCount: txs.length,
       importFileCount: fileCount,
       caseType,
@@ -179,7 +178,7 @@ export async function applyActiveImportDuplicateFix(params: { user: string; faci
     }
   });
 
-  const totalExtraAmount = round2(cases.reduce((sum, item) => sum + item.extraAmount, 0));
+  const totalExtraAmount = roundCurrency(cases.reduce((sum, item) => sum + item.extraAmount, 0));
 
   await prisma.auditLog.create({
     data: {

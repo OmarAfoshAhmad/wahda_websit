@@ -13,7 +13,7 @@ import { DuplicateManualMergeForm } from "@/components/duplicate-manual-merge-fo
 import { DuplicateSameNameGroup } from "@/components/duplicate-same-name-group";
 import { BatchMergeButton } from "@/components/batch-merge-button";
 import { AutoMergeAllZeroVariantsButton } from "@/components/auto-merge-all-zero-variants-button";
-import { DataHealthContent } from "@/components/admin/data-health-content";
+import { DataHealthContent } from "@/components/admin";
 import { DebtSettlementBackgroundButton } from "@/components/debt-settlement-background-button";
 import {
   mergeGroupAction,

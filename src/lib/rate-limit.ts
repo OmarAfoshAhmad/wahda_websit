@@ -21,10 +21,10 @@ interface RateLimitConfig {
 }
 
 const RATE_LIMITS: Record<string, RateLimitConfig> = {
-  login:   { windowMs: 15 * 60 * 1000, maxAttempts: 7 },    // 7 محاولات / 15 دقيقة
-  search:  { windowMs: 60 * 1000,       maxAttempts: 60 },   // 60 طلب / دقيقة
-  deduct:  { windowMs: 60 * 1000,       maxAttempts: 30 },   // 30 عملية / دقيقة
-  api:     { windowMs: 60 * 1000,       maxAttempts: 100 },  // 100 طلب / دقيقة
+  login: { windowMs: 15 * 60 * 1000, maxAttempts: 7 },    // 7 محاولات / 15 دقيقة
+  search: { windowMs: 60 * 1000, maxAttempts: 60 },   // 60 طلب / دقيقة
+  deduct: { windowMs: 60 * 1000, maxAttempts: 30 },   // 30 عملية / دقيقة
+  api: { windowMs: 60 * 1000, maxAttempts: 100 },  // 100 طلب / دقيقة
 };
 
 const DEFAULT_CONFIG: RateLimitConfig = { windowMs: 15 * 60 * 1000, maxAttempts: 10 };
@@ -81,7 +81,8 @@ export async function checkRateLimit(key: string, category: string = "login"): P
       }
 
       return null;
-    } catch {
+    } catch (err) {
+      console.warn("[RATE-LIMIT] Redis error, falling back", String(err));
       // إذا فشل Redis — اسقط للـ fallback فقط في التطوير
     }
   }
@@ -111,7 +112,8 @@ export async function resetRateLimit(key: string, category: string = "login"): P
 
   try {
     await redis.del(`rate-limit:${category}:${key}`);
-  } catch {
+  } catch (err) {
+    console.warn("[RATE-LIMIT] Redis reset failed", String(err));
     // best effort
   }
 }

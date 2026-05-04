@@ -21,7 +21,8 @@ export async function GET(request: NextRequest) {
       { status: "ok", timestamp: new Date().toISOString() },
       { status: 200 }
     );
-  } catch {
+  } catch (error) {
+    console.error("[api/health]", error);
     return NextResponse.json(
       { status: "error", timestamp: new Date().toISOString() },
       { status: 503 }

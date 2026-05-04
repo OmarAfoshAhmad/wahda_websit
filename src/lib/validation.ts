@@ -1,10 +1,12 @@
 import { z } from "zod";
+import { roundCurrency } from "@/lib/money";
 
 const AMOUNT_EPSILON = 1e-9;
 export const MAX_DEDUCTION_AMOUNT = 600;
 
+// مُوحَّدة مع roundCurrency — المصدر الوحيد للحقيقة في التقريب المالي
 export function normalizeMoneyAmount(value: number): number {
-  return Math.round(value * 100) / 100;
+  return roundCurrency(value);
 }
 
 export function isAllowedDeductionAmount(value: number): boolean {

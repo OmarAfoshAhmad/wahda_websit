@@ -22,7 +22,7 @@ import { BulkRenewalButton } from "@/components/bulk-renewal-button";
 import { BeneficiariesSelectionToolbar } from "../../components/beneficiaries-selection-toolbar";
 import { unstable_cache } from "next/cache";
 import { getBeneficiariesIssuanceMeta } from "@/lib/card-issuance-index";
-import { LegacyCardBatchTools } from "@/components/legacy-card-batch-tools";
+import { LegacyCardBatchTools } from "@/components/admin";
 
 // كاش إحصائيات أعداد المستفيدين — يُبطَل فور أي تغيير عبر revalidateTag("beneficiary-counts")
 const getCachedStatusCounts = unstable_cache(

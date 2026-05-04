@@ -2,11 +2,11 @@
 
 import { useState, useTransition } from "react";
 import { Wrench, Loader2, SearchCheck } from "lucide-react";
-import { ConfirmationModal } from "@/components/confirmation-modal";
+import { ConfirmationModal } from "@/components/ui";
 import { checkBalanceDriftAction } from "@/app/actions/balance-health-actions";
 import { startMaintenanceJobAction } from "@/app/actions/maintenance-jobs";
 import { useRouter } from "next/navigation";
-import { useMaintenanceJobProgress } from "@/components/use-maintenance-job-progress";
+import { useMaintenanceJobProgress } from "./hooks/use-maintenance-job-progress";
 
 export function FixBalancesButton() {
   const router = useRouter();

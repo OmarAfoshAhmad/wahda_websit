@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { Loader2, ShieldCheck, Clock3 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { ConfirmationModal } from "@/components/confirmation-modal";
+import { ConfirmationModal } from "@/components/ui";
 import { type ParentCardPatternFixMode } from "@/app/actions/data-hygiene";
 import { getMaintenanceJobAction, startMaintenanceJobAction } from "@/app/actions/maintenance-jobs";
 

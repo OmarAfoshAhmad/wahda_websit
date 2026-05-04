@@ -1,7 +1,7 @@
 import { getSession } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { Shell } from "@/components/shell";
-import { TransactionImportUploader } from "@/components/transaction-import-uploader";
+import { TransactionImportUploader } from "@/components/admin";
 import { Badge } from "@/components/ui";
 
 export default async function ImportTransactionsPage() {
