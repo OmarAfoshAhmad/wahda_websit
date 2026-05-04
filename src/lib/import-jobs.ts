@@ -42,7 +42,7 @@ type PreparedImportRow = {
   rowNumber: number | null;
 };
 
-type SkippedImportReason = "invalid_row" | "missing_required_fields" | "duplicate_in_file" | "already_exists" | "duplicate_person";
+type SkippedImportReason = "invalid_row" | "missing_required_fields" | "duplicate_in_file" | "already_exists" | "duplicate_person" | "excluded_deceased_appendix";
 
 type SkippedImportRowReport = {
   rowNumber: number | null;
@@ -113,6 +113,8 @@ function getSkippedReasonLabel(reason: SkippedImportReason) {
       return "رقم البطاقة موجود مسبقاً في النظام";
     case "duplicate_person":
       return "المستفيد نفسه (الاسم وتاريخ الميلاد) موجود مسبقاً";
+    case "excluded_deceased_appendix":
+      return "تم الاستبعاد (ملحق أو متوفي)";
     default:
       return "غير معروف";
   }
@@ -227,6 +229,19 @@ function normalizeImportRow(row: unknown): { data?: NormalizedImportRow; error?:
 
   if (!cardNumber || !name) {
     return { error: "missing_required_fields" };
+  }
+
+  // التحقق من الكلمات المستبعدة (ملحق أو متوفي)
+  const statusVal = normalizeString(getField(parsed.data, "status", "الحالة", "الوضع"));
+  const relVal = normalizeString(getField(parsed.data, "relationship", "صلة القرابة", "الصلة", "صلة"));
+  
+  const isExcluded = 
+    name.includes("متوفي") || name.includes("متوفى") || name.includes("وفاة") || name.includes("ملحق") ||
+    statusVal.includes("متوفي") || statusVal.includes("متوفى") || statusVal.includes("وفاة") || statusVal.includes("ملحق") ||
+    relVal.includes("متوفي") || relVal.includes("متوفى") || relVal.includes("وفاة") || relVal.includes("ملحق");
+
+  if (isExcluded) {
+    return { error: "excluded_deceased_appendix" };
   }
 
   const birthDateValue = extractBirthDate(parsed.data);

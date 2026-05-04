@@ -1,11 +1,11 @@
-import { getSession } from "@/lib/auth";
+import { getSessionWithFreshPermissions } from "@/lib/session-guard";
 import { redirect } from "next/navigation";
 import { Shell } from "@/components/shell";
 import { Badge } from "@/components/ui";
 import { ReportImportUploader } from "@/components/report-import-uploader";
 
 export default async function ImportReportPage() {
-  const session = await getSession();
+  const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
   if (!session.is_admin) redirect("/dashboard");
 

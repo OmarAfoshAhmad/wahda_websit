@@ -1,12 +1,11 @@
 import { redirect } from "next/navigation";
-import { getSession } from "@/lib/auth";
-import { canAccessAdmin } from "@/lib/session-guard";
+import { getSessionWithFreshPermissions, canAccessAdmin } from "@/lib/session-guard";
 import { Shell } from "@/components/shell";
 import { AddTransactionForm } from "@/components/add-transaction-form";
 import prisma from "@/lib/prisma";
 
 export default async function AddTransactionPage() {
-  const session = await getSession();
+  const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
   if (!canAccessAdmin(session)) redirect("/dashboard");
 

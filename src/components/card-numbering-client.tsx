@@ -52,7 +52,17 @@ const StatusChip = ({ active, onClick, label, count, variant }: {
   );
 };
 
-export function CardNumberingClient({ initialItems, showDeleted }: { initialItems: any[], showDeleted: boolean }) {
+export function CardNumberingClient({ 
+  initialItems, 
+  showDeleted,
+  canManage = true,
+  canMigrate = true
+}: { 
+  initialItems: any[], 
+  showDeleted: boolean,
+  canManage?: boolean,
+  canMigrate?: boolean
+}) {
   const toast = useToast();
   const [items, setItems] = useState(initialItems);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -84,35 +94,43 @@ export function CardNumberingClient({ initialItems, showDeleted }: { initialItem
 
     setIsParsing(true);
     setImportReport(null);
+    toast.info("جاري قراءة الملف، يرجى الانتظار...");
+    
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
-        const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: "binary", cellDates: true });
+        console.log("File loaded, starting parse...");
+        const arrayBuffer = evt.target?.result as ArrayBuffer;
+        const data = new Uint8Array(arrayBuffer);
+        const wb = XLSX.read(data, { type: "array", cellDates: true });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
-        const data = XLSX.utils.sheet_to_json(ws) as any[];
+        const rawRows = XLSX.utils.sheet_to_json(ws) as any[];
 
-        if (data.length === 0) {
+        if (rawRows.length === 0) {
           toast.error("الملف فارغ");
+          setIsParsing(false);
           return;
         }
 
-        const mappedData = data.map(row => {
+        const mappedData = rawRows.map(row => {
           const keys = Object.keys(row);
           const values = Object.values(row).map(v => String(v || "").trim());
           
           const findKey = (keywords: string[]) => 
             keys.find(k => keywords.some(kw => String(k).includes(kw)));
 
-          // كلمات مفتاحية أكثر دقة
+          const getField = (row: any, ...keywords: string[]) => {
+            const key = keys.find(k => keywords.some(kw => String(k).includes(kw)));
+            return key ? row[key] : null;
+          };
+
           const nameKey = findKey(["الاسم", "Name", "المستفيد", "اسم الموظف", "اسم العضو", "Full Name"]);
-          const empNumKey = findKey(["الوظيفي", "Employee", "رقم الموظف", "رقم العضو", "الرقم", "ID"]);
+          let empNum = String(getField(row, "employee_number", "رقم الموظف", "الرقم الوظيفي", "رقم_الموظف", "الرقم_الوظيفي", "employee number", "employee_id", "رقم الموظف/المستفيد", "الرقم") || "").trim();
           const relKey = findKey(["صلة", "القرابة", "Relationship", "النوع", "الصلة", "Rel"]);
           const bDateKey = findKey(["ميلاد", "Birth", "تاريخ", "BDate", "DOB"]);
 
           // استخراج القيم
-          let empNum = empNumKey ? row[empNumKey] : "";
           let name = nameKey ? row[nameKey] : "";
           let rel = relKey ? row[relKey] : "";
           let bDateRaw = bDateKey ? row[bDateKey] : "";
@@ -153,6 +171,8 @@ export function CardNumberingClient({ initialItems, showDeleted }: { initialItem
             if (relCol) rel = relCol;
           }
           
+          const statusKey = findKey(["الحالة", "Status", "الوضع"]);
+          
           let bDate = "";
           if (bDateRaw instanceof Date) {
             bDate = bDateRaw.toISOString().split('T')[0];
@@ -165,19 +185,37 @@ export function CardNumberingClient({ initialItems, showDeleted }: { initialItem
             employee_number: String(empNum || "").trim(),
             relationship: String(rel || "").trim(),
             birth_date: bDate,
+            status: statusKey ? String(row[statusKey] || "").trim() : "",
             field3: "",
           };
-        }).filter(item => item.name && item.name.length > 2 && item.employee_number);
+        });
 
-        setPendingData({ data: mappedData, fileName: file.name });
+        const filteredData = mappedData.filter(item => item.name && item.name.length > 2 && item.employee_number);
+
+        if (filteredData.length === 0) {
+          const firstRow = rawRows[0] ? JSON.stringify(Object.keys(rawRows[0])) : "لا توجد أعمدة";
+          toast.error(`لم يتم العثور على سجلات صالحة. الأعمدة المكتشفة: ${firstRow}`);
+          setIsParsing(false);
+          return;
+        }
+
+        setPendingData({ data: filteredData, fileName: file.name });
         setShowSettingsModal(true);
+        setIsParsing(false);
+        toast.success(`تم العثور على ${filteredData.length} سجل جاهز للمراجعة.`);
       } catch (err) {
-        toast.error("فشل قراءة الملف.");
+        console.error("File parsing error:", err);
+        toast.error("حدث خطأ أثناء تحليل بيانات الملف.");
       } finally {
         setIsParsing(false);
+        if (e.target) e.target.value = ""; 
       }
     };
-    reader.readAsBinaryString(file);
+    reader.onerror = () => {
+      toast.error("فشل في قراءة الملف من الجهاز.");
+      setIsParsing(false);
+    };
+    reader.readAsArrayBuffer(file);
   };
 
   const executeImport = async () => {
@@ -263,15 +301,143 @@ export function CardNumberingClient({ initialItems, showDeleted }: { initialItem
   };
 
   const handleExport = () => {
-    const dataToExport = selectedIds.length > 0 ? items.filter(i => selectedIds.includes(i.id)) : items;
-    if (dataToExport.length === 0) return;
-    const exportData = dataToExport.map(item => ({
-      "الرقم الوظيفي": item.employee_number, "الاسم": item.name, "رقم البطاقة": item.card_number, "الحالة": item.status, "الخطأ": item.error_message || ""
+    const rawData = selectedIds.length > 0 ? items.filter(i => selectedIds.includes(i.id)) : items;
+    if (rawData.length === 0) return;
+
+    const isExcluded = (item: any) => {
+      const text = `${item.name} ${item.status || ""} ${item.relationship || ""}`.toLowerCase();
+      return text.includes("ملحق") || text.includes("متوفي") || text.includes("متوفى") || text.includes("وفاة");
+    };
+
+    const validItems = rawData.filter(i => !isExcluded(i));
+    const excludedItems = rawData.filter(i => isExcluded(i));
+
+    const wb = XLSX.utils.book_new();
+
+    // ورقة المستفيدين الجاهزين
+    const exportData = validItems.map((item, index) => ({
+      "متسلسل": index + 1,
+      "باركود": item.card_number,
+      "اسم المستفيد": item.name,
+      "رقم البطاقة": item.card_number,
+      "الميلاد": item.birth_date ? new Date(item.birth_date).toLocaleDateString('en-GB') : "",
+      "الرقم الوظيفي": item.employee_number,
+      "الحالة": item.status || "نشط"
     }));
+    const ws1 = XLSX.utils.json_to_sheet(exportData);
+    XLSX.utils.book_append_sheet(wb, ws1, "المستفيدين الجاهزين");
+
+    // ورقة الملحقين والمتوفين
+    if (excludedItems.length > 0) {
+      const excludedData = excludedItems.map((item, index) => ({
+        "متسلسل": index + 1,
+        "الاسم": item.name,
+        "الرقم الوظيفي": item.employee_number,
+        "صلة القرابة": item.relationship || "",
+        "الحالة": item.status || "",
+        "تاريخ الميلاد": item.birth_date ? new Date(item.birth_date).toLocaleDateString('en-GB') : "",
+        "ملاحظة": "مستبعد (ملحق أو متوفي)"
+      }));
+      const ws2 = XLSX.utils.json_to_sheet(excludedData);
+      XLSX.utils.book_append_sheet(wb, ws2, "الملحقين والمتوفين");
+    }
+
+    XLSX.writeFile(wb, `تقرير_ترقيم_البطاقات_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  const handleDownloadExcludedReport = () => {
+    if (!importReport?.excludedItems || importReport.excludedItems.length === 0) return;
+    
+    const exportData = importReport.excludedItems.map((item: any, index: number) => ({
+      "متسلسل": index + 1,
+      "الرقم الوظيفي": item.employee_number,
+      "اسم المستفيد": item.name,
+      "صلة القرابة": item.relationship,
+      "تاريخ الميلاد": item.birth_date,
+      "الحالة": item.status,
+      "سبب الاستبعاد": "ملحق أو متوفي"
+    }));
+
     const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Report");
-    XLSX.writeFile(wb, "card_numbering_report.xlsx");
+    XLSX.utils.book_append_sheet(wb, ws, "المستبعدين");
+    XLSX.writeFile(wb, `تقرير_المستبعدين_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  const handlePrintVerification = () => {
+    const dataToPrint = selectedIds.length > 0 ? items.filter(i => selectedIds.includes(i.id)) : items;
+    if (dataToPrint.length === 0) return;
+
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) return;
+
+    const tableRows = dataToPrint.map((item, index) => {
+      const bDate = item.birth_date ? new Date(item.birth_date).toLocaleDateString('en-GB') : "";
+      return `
+        <tr>
+          <td>${index + 1}</td>
+          <td style="font-family: monospace;">${item.card_number}</td>
+          <td>${item.name}</td>
+          <td>${item.card_number}</td>
+          <td>${bDate}</td>
+          <td style="width: 80px;"></td>
+        </tr>
+      `;
+    }).join("");
+
+    printWindow.document.write(`
+      <html dir="rtl">
+        <head>
+          <title>تقرير التصدي - ${new Date().toLocaleDateString('ar-LY')}</title>
+          <style>
+            @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;900&display=swap');
+            body { font-family: 'Tajawal', sans-serif; padding: 20px; font-size: 12px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            th, td { border: 1px solid #000; padding: 8px; text-align: center; word-break: break-all; }
+            th { background-color: #f2f2f2; font-weight: 900; }
+            .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #000; padding-bottom: 10px; }
+            .logo { height: 60px; }
+            @media print {
+              @page { margin: 1cm; }
+              .no-print { display: none; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div>
+              <h1 style="margin: 0; font-size: 20px;">شركة الواحة للرعاية الصحية</h1>
+              <p style="margin: 5px 0 0 0;">تقرير التصدي لترقيم البطاقات</p>
+            </div>
+            <div style="text-align: left;">
+              <p style="margin: 0;">التاريخ: ${new Date().toLocaleDateString('ar-LY')}</p>
+              <p style="margin: 0;">العدد: ${dataToPrint.length}</p>
+            </div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 40px;">#</th>
+                <th>باركود</th>
+                <th style="width: 30%;">اسم المستفيد</th>
+                <th>رقم البطاقة</th>
+                <th>الميلاد</th>
+                <th style="width: 100px;">صورة</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRows}
+            </tbody>
+          </table>
+          <script>
+            window.onload = () => {
+              window.print();
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
   };
 
   const handleDeleteSelected = async () => {
@@ -365,6 +531,77 @@ export function CardNumberingClient({ initialItems, showDeleted }: { initialItem
 
   return (
     <div className="space-y-6 text-right" dir="rtl">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h1 className="text-2xl font-black text-slate-950 dark:text-white">ترقيم البطاقات</h1>
+          <p className="mt-1 text-xs font-bold text-slate-500">استيراد الموظفين وترقيم بطاقاتهم تلقائياً بناءً على الرقم الوظيفي.</p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {canManage && (
+            <>
+              <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx, .xls" className="hidden" />
+              <Button onClick={() => fileInputRef.current?.click()} disabled={isParsing || isImporting} size="sm" className="gap-2 bg-blue-600 hover:bg-blue-700 shadow-md h-9">
+                <Upload className="h-4 w-4" />
+                {isParsing ? "قراءة..." : (isImporting ? "استيراد..." : "استيراد وتدقيق")}
+              </Button>
+
+              <Button onClick={handleDownloadTemplate} variant="outline" size="sm" className="gap-2 border-blue-600 text-blue-600 h-9">
+                <FileSpreadsheet className="h-4 w-4" />
+                النموذج
+              </Button>
+
+              <Button 
+                onClick={() => window.location.href = showDeleted ? "/admin/card-numbering" : "/admin/card-numbering?deleted=true"} 
+                variant="outline" 
+                size="sm"
+                className={cn("gap-2 h-9", showDeleted ? "bg-amber-50 text-amber-600 border-amber-200" : "text-slate-600 border-slate-200")}
+              >
+                {showDeleted ? <History className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
+                {showDeleted ? "الأرشيف" : "السلة"}
+              </Button>
+            </>
+          )}
+
+          {canMigrate && (
+            <Button onClick={handleMigrate} disabled={isMigrating || items.length === 0} size="sm" className="gap-2 bg-emerald-600 hover:bg-emerald-700 shadow-md h-9">
+              <Send className="h-4 w-4" />
+              {isMigrating ? "ترحيل..." : "ترحيل (600 د.ل)"}
+            </Button>
+          )}
+
+          <div className="h-6 w-px bg-slate-200 dark:bg-slate-800 mx-1 hidden md:block" />
+
+          {showDeleted ? (
+            <>
+              {canManage && (
+                <>
+                  <Button onClick={handleRestoreSelected} variant="outline" size="sm" disabled={selectedIds.length === 0} className="gap-2 text-emerald-600 border-emerald-200 h-9">
+                    <CheckCircle2 className="h-4 w-4" />
+                    استعادة
+                  </Button>
+                  <Button onClick={handlePermanentDeleteSelected} variant="outline" size="sm" disabled={selectedIds.length === 0} className="gap-2 text-red-600 border-red-200 h-9">
+                    <Trash className="h-4 w-4" />
+                    حذف
+                  </Button>
+                </>
+              )}
+            </>
+          ) : (
+            <div className="flex gap-2">
+              <Button onClick={handleExport} variant="outline" size="sm" disabled={items.length === 0} className="gap-2 text-slate-600 border-slate-200 h-9">
+                <FileSpreadsheet className="h-4 w-4" />
+                تصدير
+              </Button>
+              <Button onClick={handlePrintVerification} variant="outline" size="sm" disabled={items.length === 0} className="gap-2 text-slate-900 border-slate-300 bg-slate-50 h-9">
+                <Download className="h-4 w-4" />
+                طباعة
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+
       {importReport && (
         <Card className="p-4 bg-slate-900 text-white border-none shadow-xl animate-in fade-in slide-in-from-top-4 duration-500">
           <div className="flex items-center justify-between">
@@ -385,13 +622,30 @@ export function CardNumberingClient({ initialItems, showDeleted }: { initialItem
                 <p className="text-[10px] uppercase text-slate-500">مكرر</p>
               </div>
               <div className="text-center">
+                <p className="text-2xl font-black text-rose-400">{importReport.excluded || 0}</p>
+                <p className="text-[10px] uppercase text-slate-500">مستبعد</p>
+              </div>
+              <div className="text-center">
                 <p className="text-2xl font-black text-red-400">{importReport.error}</p>
                 <p className="text-[10px] uppercase text-slate-500">خطأ</p>
               </div>
             </div>
-            <Button variant="ghost" size="sm" onClick={() => setImportReport(null)} className="text-slate-400 hover:text-white">
-              <XCircle className="h-5 w-5" />
-            </Button>
+            <div className="flex items-center gap-3">
+              {(importReport.excluded > 0) && (
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={handleDownloadExcludedReport}
+                  className="bg-white/10 border-white/20 text-white hover:bg-white/20 gap-2"
+                >
+                  <Download className="h-4 w-4" />
+                  تحميل تقرير المستبعدين
+                </Button>
+              )}
+              <Button variant="ghost" size="sm" onClick={() => setImportReport(null)} className="text-slate-400 hover:text-white">
+                <XCircle className="h-5 w-5" />
+              </Button>
+            </div>
           </div>
         </Card>
       )}
@@ -472,65 +726,6 @@ export function CardNumberingClient({ initialItems, showDeleted }: { initialItem
             count={items.filter(i => i.status === "MIGRATED").length}
             variant="info"
           />
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap gap-2">
-          <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx, .xls" className="hidden" />
-          <Button onClick={() => fileInputRef.current?.click()} disabled={isParsing || isImporting} className="gap-2 bg-blue-600 hover:bg-blue-700">
-            <Upload className="h-4 w-4" />
-            {isParsing ? "جاري قراءة الملف..." : (isImporting ? "جاري الاستيراد..." : "استيراد وتدقيق")}
-          </Button>
-
-          <Button onClick={handleDownloadTemplate} variant="outline" className="gap-2 border-blue-600 text-blue-600">
-            <FileSpreadsheet className="h-4 w-4" />
-            نموذج الاستيراد
-          </Button>
-
-          <Button 
-            onClick={() => window.location.href = showDeleted ? "/admin/card-numbering" : "/admin/card-numbering?deleted=true"} 
-            variant="outline" 
-            className={cn("gap-2", showDeleted ? "bg-amber-50 text-amber-600 border-amber-200" : "text-slate-600")}
-          >
-            {showDeleted ? <History className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
-            {showDeleted ? "العودة للأرشيف النشط" : "سلة المحذوفات"}
-          </Button>
-
-          <Button onClick={handleMigrate} disabled={isMigrating || items.length === 0} className="gap-2 bg-emerald-600 hover:bg-emerald-700">
-            <Send className="h-4 w-4" />
-            {isMigrating ? "جاري الترحيل..." : "ترحيل الجاهز (600 د.ل)"}
-          </Button>
-        </div>
-
-        <div className="flex gap-2">
-          {showDeleted ? (
-            <>
-              <Button onClick={handleRestoreSelected} variant="outline" disabled={selectedIds.length === 0} className="gap-2 text-emerald-600 border-emerald-200">
-                <CheckCircle2 className="h-4 w-4" />
-                استعادة المحدد
-              </Button>
-              <Button onClick={handlePermanentDeleteSelected} variant="outline" disabled={selectedIds.length === 0} className="gap-2 text-red-600 border-red-200">
-                <Trash className="h-4 w-4" />
-                حذف نهائي
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button onClick={handleExport} variant="outline" disabled={items.length === 0} className="gap-2 text-slate-600">
-                <Download className="h-4 w-4" />
-                تصدير التقرير
-              </Button>
-              <Button onClick={handleDeleteSelected} variant="outline" disabled={selectedIds.length === 0} className="gap-2 text-red-600 border-red-200">
-                <Trash className="h-4 w-4" />
-                نقل للسلة
-              </Button>
-              <Button onClick={handleClear} variant="outline" disabled={isClearing || items.length === 0} className="gap-2 text-red-600 border-red-200">
-                <Trash className="h-4 w-4" />
-                مسح الأرشيف
-              </Button>
-            </>
-          )}
         </div>
       </div>
 
@@ -638,7 +833,7 @@ export function CardNumberingClient({ initialItems, showDeleted }: { initialItem
       </div>
       {/* مودال إعدادات الاستيراد */}
       {showSettingsModal && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-4">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-4">
           <Card className="w-full max-w-md shadow-2xl animate-in zoom-in duration-300 overflow-hidden">
             <div className="p-6 space-y-6">
               <div className="flex items-center gap-3 border-b pb-4">

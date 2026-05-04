@@ -1,5 +1,4 @@
-import { getSession } from "@/lib/auth";
-import { hasPermission } from "@/lib/session-guard";
+import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-guard";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
@@ -76,7 +75,7 @@ export default async function TransactionsPage({
 }: {
   searchParams: Promise<{ start_date?: string; end_date?: string; facility_id?: string; page?: string; pageSize?: string; q?: string; sort?: string; order?: string; status?: string; source?: string; focus_tx?: string }>;
 }) {
-  const session = await getSession();
+  const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
 
   const { start_date, end_date, facility_id, page: pageParam, pageSize: pageSizeParam, q, sort, order, status: _status, source, focus_tx } = await searchParams;

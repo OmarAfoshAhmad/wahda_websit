@@ -1,4 +1,4 @@
-import { getSession } from "@/lib/auth";
+import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-guard";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { Shell } from "@/components/shell";
@@ -6,7 +6,6 @@ import { DeductForm } from "@/components/deduct-form";
 import { Card } from "@/components/ui";
 import { Users, CreditCard, TrendingDown, Building2, AlertTriangle } from "lucide-react";
 import { unstable_cache } from "next/cache";
-import { hasPermission } from "@/lib/session-guard";
 
 // ─── كاش إحصائيات المشرف: تتحدث كل 60 ثانية ───
 const getCachedAdminStats = unstable_cache(
@@ -61,12 +60,25 @@ function getCachedTodayStats(facilityId: string) {
 }
 
 export default async function Dashboard() {
-  const session = await getSession();
-  if (!session) redirect("/login");
-  if (session.is_employee) redirect("/cash-claim");
+  const session = await getSessionWithFreshPermissions();
+  
+  if (!session) {
+    redirect("/login");
+  }
+
+  const canUseCashClaim = hasPermission(session, "cash_claim");
+  const hasAdminNav = hasPermission(session, "view_facilities") || 
+                      hasPermission(session, "view_beneficiaries") ||
+                      hasPermission(session, "manage_card_numbering") ||
+                      hasPermission(session, "view_audit_log");
+
+  // التوجيه التلقائي للموظف لصفحة الكاش فقط إذا لم يكن لديه صلاحيات إدارية أخرى
+  if (session.is_employee && canUseCashClaim && !hasAdminNav) {
+    redirect("/cash-claim");
+  }
 
   const canViewStats = session.is_admin || session.is_manager;
-  const isAdmin = session.is_admin || session.is_manager;
+  const isAdmin = session.is_admin;
   const canUseDeduct = !session.is_employee && (!session.is_manager || hasPermission(session, "deduct_balance"));
   const cacheTag = isAdmin ? "admin" : session.id;
 

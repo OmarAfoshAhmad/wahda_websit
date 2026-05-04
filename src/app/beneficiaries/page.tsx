@@ -2,9 +2,8 @@ import { redirect } from "next/navigation";
 import { Search, Users, CalendarDays, CreditCard, Trash2, RotateCcw, Upload, Download } from "lucide-react";
 import Link from "next/link";
 import prisma from "@/lib/prisma";
-import { getSession } from "@/lib/auth";
+import { getSessionWithFreshPermissions, canAccessAdmin, hasPermission } from "@/lib/session-guard";
 import { getLedgerRemainingByBeneficiaryIds } from "@/lib/ledger-balance";
-import { canAccessAdmin, hasPermission } from "@/lib/session-guard";
 import { getArabicSearchTerms } from "@/lib/search";
 import { formatDateTripoli } from "@/lib/datetime";
 import { Shell } from "@/components/shell";
@@ -22,7 +21,6 @@ import { BulkRenewalButton } from "@/components/bulk-renewal-button";
 import { BeneficiariesSelectionToolbar } from "../../components/beneficiaries-selection-toolbar";
 import { unstable_cache } from "next/cache";
 import { getBeneficiariesIssuanceMeta } from "@/lib/card-issuance-index";
-import { LegacyCardBatchTools } from "@/components/admin";
 
 // كاش إحصائيات أعداد المستفيدين — يُبطَل فور أي تغيير عبر revalidateTag("beneficiary-counts")
 const getCachedStatusCounts = unstable_cache(
@@ -49,9 +47,11 @@ export default async function BeneficiariesPage({
 }: {
   searchParams: Promise<{ q?: string; page?: string; pageSize?: string; view?: string; sort?: string; order?: string; status?: string; completed_via?: string; balance_range?: string; card_age?: string; issuance_city?: string; issuance_batch?: string; focus_beneficiary?: string; bulk_msg?: string; bulk_type?: string }>;
 }) {
-  const session = await getSession();
+  const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
-  if (!canAccessAdmin(session)) redirect("/dashboard");
+  if (!canAccessAdmin(session) || !hasPermission(session, "view_beneficiaries")) {
+    redirect("/dashboard");
+  }
 
   const { q, page: pageParam, pageSize: pageSizeParam, view, sort, order, status, completed_via: completedViaParam, balance_range: balanceRangeParam, card_age: cardAgeParam, issuance_city: issuanceCityParam, issuance_batch: issuanceBatchParam, focus_beneficiary, bulk_msg: bulkMsgParam, bulk_type: bulkTypeParam } = await searchParams;
   const query = (q?.trim() ?? "").slice(0, 100);
@@ -94,7 +94,6 @@ export default async function BeneficiariesPage({
     if (statusFilter !== "all" && !isStrictOldCardView) p.set("status", statusFilter);
     if (completedViaFilter !== "all" && !isStrictOldCardView) p.set("completed_via", completedViaFilter);
     if (balanceRangeFilter !== "all" && !isDeletedView && !isStrictOldCardView) p.set("balance_range", balanceRangeFilter);
-    if (cardAgeFilter !== "all" && !isDeletedView) p.set("card_age", cardAgeFilter);
     if (issuanceCityFilter && !isDeletedView) p.set("issuance_city", issuanceCityFilter);
     if (issuanceBatchFilter && !isDeletedView) p.set("issuance_batch", issuanceBatchFilter);
     p.set("pageSize", String(PAGE_SIZE));
@@ -482,17 +481,8 @@ export default async function BeneficiariesPage({
                 رصيد 0-10 د.ل
               </Link>
 
-              <Link
-                href={cardAgeFilter === "old" ? cardAgeAllHref : cardAgeOnlyHref}
-                className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-sm font-bold transition-colors ${cardAgeFilter === "old"
-                  ? "border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400"
-                  : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700"
-                  }`}
-              >
-                بطاقة قديمة فقط
-              </Link>
 
-              {canEdit && !isDeletedView && <LegacyCardBatchTools />}
+
 
               <form className="flex flex-wrap items-center gap-2">
                 {!isStrictOldCardView && <input type="hidden" name="q" value={query} />}
@@ -503,7 +493,7 @@ export default async function BeneficiariesPage({
                 {statusFilter !== "all" && !isStrictOldCardView && <input type="hidden" name="status" value={statusFilter} />}
                 {completedViaFilter !== "all" && !isStrictOldCardView && <input type="hidden" name="completed_via" value={completedViaFilter} />}
                 {balanceRangeFilter !== "all" && !isStrictOldCardView && <input type="hidden" name="balance_range" value={balanceRangeFilter} />}
-                {cardAgeFilter !== "all" && <input type="hidden" name="card_age" value={cardAgeFilter} />}
+
 
                 <select
                   name="issuance_city"
@@ -732,15 +722,6 @@ export default async function BeneficiariesPage({
                           {!isDeletedView && (
                             <div className="mt-1 flex flex-wrap items-center gap-1">
 
-                              {(beneficiary.in_import_file) ? (
-                                <span className="inline-flex items-center rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-black text-amber-700 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
-                                  بطاقة قديمة
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-black text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300">
-                                  بطاقة مستقرة
-                                </span>
-                              )}
                             </div>
                           )}
                         </td>

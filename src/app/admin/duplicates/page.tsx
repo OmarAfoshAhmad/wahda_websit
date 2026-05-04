@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import prisma from "@/lib/prisma";
-import { getSession } from "@/lib/auth";
+import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-guard";
 import { getLedgerRemainingByBeneficiaryIds } from "@/lib/ledger-balance";
 import { Shell } from "@/components/shell";
 import { Card, Badge, Input, Button } from "@/components/ui";
@@ -61,7 +61,7 @@ export default async function DuplicatesAdminPage({
     rcity?: string; rbatch?: string;
   }>;
 }) {
-  const session = await getSession();
+  const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
   if (!session.is_admin) redirect("/dashboard");
 
@@ -599,26 +599,34 @@ export default async function DuplicatesAdminPage({
               استكشاف حالات التكرار ومعالجتها داخل المنظومة.
             </p>
           </div>
-          <div className="w-full sm:w-auto flex flex-col sm:flex-row gap-2 sm:items-center">
-            <form className="w-full sm:w-80">
-              <input type="hidden" name="tab" value={activeTab} />
-              <input type="hidden" name="pz" value="1" />
-              <input type="hidden" name="pn" value="1" />
-              <input type="hidden" name="pr" value="1" />
-              <input type="hidden" name="dp" value="1" />
-              <input type="hidden" name="rp" value="1" />
-              <input type="hidden" name="np" value="1" />
-              {registryCity && <input type="hidden" name="rcity" value={registryCity} />}
-              {registryBatch && <input type="hidden" name="rbatch" value={registryBatch} />}
-              <Input name="q" defaultValue={q ?? ""} placeholder="بحث بالاسم أو رقم البطاقة" autoComplete="off" />
-            </form>
-            <Link href={exportHref} className="inline-flex">
-              <Button type="button" variant="outline" className="h-10 w-full sm:w-auto">تصدير Excel</Button>
-            </Link>
-            <Link href="/api/admin/duplicates/over-limit" className="inline-flex">
-              <Button type="button" variant="outline" className="h-10 w-full sm:w-auto text-red-600 border-red-300 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20">تصدير متجاوزي الحد (600+)</Button>
-            </Link>
-          </div>
+        <Card className="p-4">
+          <form method="get" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5 lg:items-end">
+            <input type="hidden" name="tab" value={activeTab} />
+            <input type="hidden" name="pz" value="1" />
+            <input type="hidden" name="pn" value="1" />
+            <input type="hidden" name="pr" value="1" />
+            <input type="hidden" name="dp" value="1" />
+            <input type="hidden" name="rp" value="1" />
+            <input type="hidden" name="np" value="1" />
+            {registryCity && <input type="hidden" name="rcity" value={registryCity} />}
+            {registryBatch && <input type="hidden" name="rbatch" value={registryBatch} />}
+
+            <div className="space-y-1 lg:col-span-2">
+              <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">بحث سريع</label>
+              <Input name="q" defaultValue={q ?? ""} placeholder="بحث بالاسم أو رقم البطاقة" className="h-10" />
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-2 lg:col-span-3">
+              <Button type="submit" className="h-10 flex-1">تطبيق الفلتر</Button>
+              <Link href={exportHref} className="inline-flex flex-1">
+                <Button type="button" variant="outline" className="h-10 w-full">تصدير Excel</Button>
+              </Link>
+              <Link href="/api/admin/duplicates/over-limit" className="inline-flex flex-1">
+                <Button type="button" variant="outline" className="h-10 w-full text-red-600 border-red-300 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20">تصدير متجاوزي الحد (600+)</Button>
+              </Link>
+            </div>
+          </form>
+        </Card>
         </div>
 
         {(ok || err) && (

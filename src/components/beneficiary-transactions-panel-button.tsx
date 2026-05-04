@@ -18,6 +18,7 @@ type TxItem = {
   created_at: string;
   facility_name: string;
   original_transaction_id: string | null;
+  idempotency_key: string | null;
   import_source_file_name: string | null;
 };
 
@@ -76,11 +77,13 @@ type Payload = {
   transactions: TxItem[];
 };
 
-function typeLabel(type: string) {
+function typeLabel(type: string, idempotencyKey?: string | null) {
+  if (idempotencyKey?.startsWith("MIG-")) return "ترحيل بطاقات قديمة";
   if (type === "SUPPLIES") return "كشف عام";
   if (type === "MEDICINE") return "أدوية";
   if (type === "IMPORT") return "استيراد";
   if (type === "CANCELLATION") return "تصحيح/إرجاع";
+  if (type === "SETTLEMENT") return "تسوية";
   return type;
 }
 
@@ -371,7 +374,7 @@ export function BeneficiaryTransactionsPanelButton({ beneficiaryId, beneficiaryN
                       ) : (
                         data.transactions.map((tx) => (
                           <tr key={tx.id} className="border-b dark:border-slate-800">
-                            <td className="p-2">{typeLabel(tx.type)}</td>
+                            <td className="p-2">{typeLabel(tx.type, tx.idempotency_key)}</td>
                             <td className="p-2">{tx.amount.toLocaleString("ar-LY")} د.ل</td>
                             <td className="p-2" title={tx.import_source_file_name ?? "—"}>{tx.import_source_file_name ?? "—"}</td>
                             <td className="p-2">{tx.facility_name}</td>

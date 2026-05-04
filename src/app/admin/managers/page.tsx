@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { UserCog } from "lucide-react";
 import { Prisma } from "@prisma/client";
-import { getSession } from "@/lib/auth";
+import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-guard";
 import prisma from "@/lib/prisma";
 import { Shell } from "@/components/shell";
 import { ManagerCreateForm } from "@/components/manager-create-form";
@@ -33,6 +33,8 @@ const PERMISSION_LABELS: Record<keyof ManagerPermissions, string> = {
   delete_transaction: "حذف حركات",
   cash_claim: "كاش عائلي",
   manage_card_numbering: "ترقيم البطاقات",
+  migrate_card_numbering: "ترحيل البطاقات",
+  manage_users: "إدارة الحسابات",
 };
 
 export default async function ManagersPage({
@@ -40,9 +42,10 @@ export default async function ManagersPage({
 }: {
   searchParams: Promise<{ view?: string }>;
 }) {
-  const session = await getSession();
+  const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
-  if (!session.is_admin) redirect("/dashboard");
+  const canView = hasPermission(session, "manage_users");
+  if (!canView) redirect("/dashboard");
 
   const { view } = await searchParams;
   const isDeletedView = view === "deleted";
@@ -131,6 +134,8 @@ export default async function ManagersPage({
                     delete_transaction: perms.delete_transaction ?? false,
                     cash_claim: perms.cash_claim ?? false,
                     manage_card_numbering: perms.manage_card_numbering ?? false,
+                    migrate_card_numbering: perms.migrate_card_numbering ?? false,
+                    manage_users: perms.manage_users ?? false,
                   };
 
                   return (

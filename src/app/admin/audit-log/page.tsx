@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { Badge, Card, Input, Button } from "@/components/ui";
 import { DateInput } from "@/components/date-input";
 import { Shell } from "@/components/shell";
-import { getSession } from "@/lib/auth";
+import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-guard";
 import prisma from "@/lib/prisma";
 import { Activity, Download } from "lucide-react";
 // SEC-FIX: تم تعطيل زر حذف سجلات التدقيق — السجلات محمية ولا تقبل الحذف
@@ -13,6 +13,7 @@ import { ImportRollbackButton } from "@/components/admin";
 import { TransactionRollbackButton } from "@/components/admin";
 import { BulkBeneficiaryRollbackButton } from "@/components/admin";
 import { MigrationRollbackButton } from "@/components/admin/migration-rollback-button";
+import { PurgeRollbackButton } from "@/components/admin/purge-rollback-button";
 import { formatDateTimeTripoli } from "@/lib/datetime";
 
 type TargetFilter = "all" | "beneficiaries" | "transactions" | "facilities" | "completed" | "merges" | "security";
@@ -70,6 +71,7 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "CREATE_MANAGER",
     "UPDATE_MANAGER",
     "DELETE_MANAGER",
+    "PURGE_LEGACY_NO_PAYMENT",
   ],
   beneficiaries: [
     "CREATE_BENEFICIARY",
@@ -222,6 +224,8 @@ function actionLabel(action: string) {
       return "ترحيل أرقام بطاقات";
     case "ROLLBACK_MIGRATION":
       return "تراجع عن ترحيل البطاقات";
+    case "PURGE_LEGACY_NO_PAYMENT":
+      return "تصفية بطاقة قديمة";
     default:
       return action;
   }
@@ -870,13 +874,16 @@ function summarizeMetadata(action: string, metadata: unknown, auditLogId?: strin
           <span className="text-rose-600">فشل: <strong>{report?.failed}</strong></span>
         </div>
         {auditLogId && (
-          <a
-            href={`/api/export/audit-log?log_id=${encodeURIComponent(auditLogId)}`}
-            target="_blank"
-            className="inline-flex items-center gap-1 rounded border border-emerald-200 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 transition-colors"
-          >
-            ↓ تقرير الترحيل التفصيلي
-          </a>
+          <div className="flex items-center gap-2">
+            <a
+              href={`/api/export/audit-log?log_id=${encodeURIComponent(auditLogId)}`}
+              target="_blank"
+              className="inline-flex items-center gap-1 rounded border border-emerald-200 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 transition-colors"
+            >
+              ↓ تقرير الترحيل التفصيلي
+            </a>
+            <MigrationRollbackButton logId={auditLogId} />
+          </div>
         )}
       </div>
     );
@@ -918,6 +925,23 @@ function summarizeMetadata(action: string, metadata: unknown, auditLogId?: strin
     );
   }
 
+  if (action === "PURGE_LEGACY_NO_PAYMENT") {
+    const isUndone = Boolean(m.undone_at);
+    return (
+      <div className="flex flex-wrap gap-x-2 items-center text-slate-500 dark:text-slate-400">
+        <span>تم تصفية (حذف) البطاقة القديمة</span>
+        {m.transferred_to_id ? (
+          <span className="text-blue-600 dark:text-blue-400 font-bold">
+            (تم ترحيل الحركات إلى المستفيد المتبقي)
+          </span>
+        ) : (
+          <span className="text-slate-400 dark:text-slate-600">(لا توجد حركات للترحيل)</span>
+        )}
+        {auditLogId && <PurgeRollbackButton logId={auditLogId} isUndone={isUndone} />}
+      </div>
+    );
+  }
+
   return "-";
 }
 
@@ -953,11 +977,12 @@ export default async function AuditLogPage({
 }: {
   searchParams: Promise<{ page?: string; target?: string; actor?: string; q?: string; start_date?: string; end_date?: string }>;
 }) {
-  const session = await getSession();
+  const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
-
-  const canView = session.is_admin || (session.is_manager && session.manager_permissions?.view_audit_log);
-  if (!canView) redirect("/dashboard");
+  const canView = hasPermission(session, "view_audit_log");
+  if (!canView) {
+    redirect("/dashboard");
+  }
 
   const { page: pageParam, target: targetParam, actor, q, start_date, end_date } = await searchParams;
   const actorTerm = actor?.trim() ?? "";
@@ -1041,6 +1066,30 @@ export default async function AuditLogPage({
         {
           metadata: {
             path: ["card_number"],
+            string_contains: searchTerm,
+          },
+        },
+        {
+          metadata: {
+            path: ["beneficiaryName"],
+            string_contains: searchTerm,
+          },
+        },
+        {
+          metadata: {
+            path: ["cardNumber"],
+            string_contains: searchTerm,
+          },
+        },
+        {
+          metadata: {
+            path: ["new_name"],
+            string_contains: searchTerm,
+          },
+        },
+        {
+          metadata: {
+            path: ["migrationId"],
             string_contains: searchTerm,
           },
         },
@@ -1332,6 +1381,7 @@ export default async function AuditLogPage({
                     <tr>
                       <th className="px-5 py-3 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">العملية</th>
                       <th className="px-5 py-3 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">المنفذ</th>
+                      <th className="px-5 py-3 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">المستفيد/البطاقة</th>
                       <th className="px-5 py-3 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">التفاصيل</th>
                       <th className="px-5 py-3 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">التاريخ</th>
                     </tr>
@@ -1349,6 +1399,20 @@ export default async function AuditLogPage({
                             {formatExecutorLabel(row.user, row.facility_id, actorLookups)}
                           </div>
                           <div className="text-xs text-slate-400 dark:text-slate-500">{row.user}</div>
+                        </td>
+                        <td className="px-5 py-3 text-sm">
+                          {(() => {
+                            const m = (row.metadata || {}) as Record<string, any>;
+                            const name = getMetadataValue(m, "beneficiary_name", "new_name", "old_name", "beneficiaryName", "name");
+                            const card = getMetadataValue(m, "card_number", "cardNumber", "card");
+                            return (
+                              <div className="flex flex-col">
+                                {name !== "-" && <span className="font-bold text-slate-800 dark:text-slate-200">{String(name)}</span>}
+                                {card !== "-" && <span className="font-mono text-xs text-slate-500 dark:text-slate-400">{String(card)}</span>}
+                                {name === "-" && card === "-" && <span className="text-slate-300 dark:text-slate-600">—</span>}
+                              </div>
+                            );
+                          })()}
                         </td>
                         <td className="px-5 py-3 text-sm text-slate-600 dark:text-slate-400">{summarizeMetadata(row.action, row.metadata, row.id, lookups)}</td>
                         <td className="px-5 py-3 text-sm text-slate-500 dark:text-slate-400">

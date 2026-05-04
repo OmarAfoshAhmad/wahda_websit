@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { Settings2, X } from "lucide-react";
 import { updateManagerPermissions } from "@/app/actions/manager";
 import { Button } from "@/components/ui";
-import type { ManagerPermissions } from "@/lib/auth";
+import type { ManagerPermissions } from "@/lib/permissions";
 
 const PERMISSION_LABELS: Record<keyof ManagerPermissions, string> = {
   import_beneficiaries: "استيراد مستفيدين",
@@ -28,6 +28,7 @@ const PERMISSION_LABELS: Record<keyof ManagerPermissions, string> = {
   cash_claim: "إمكانية الكاش العائلي",
   manage_card_numbering: "إدارة ترقيم البطاقات (استيراد ومعاينة)",
   migrate_card_numbering: "ترحيل أرقام البطاقات (تنفيذ نهائي)",
+  manage_users: "إدارة الحسابات (إنشاء، تعديل، حذف، صلاحيات)",
 };
 
 interface Props {

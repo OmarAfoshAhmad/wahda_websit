@@ -205,11 +205,8 @@ export async function stabilizeLegacyCardsWithBatch() {
       return { candidateCount, updatedCount };
     });
 
-    revalidatePath("/beneficiaries");
-    revalidateTag("beneficiary-counts", "max");
-    revalidatePath("/admin/duplicates");
-    revalidatePath("/admin/audit-log");
-
+    // revalidatePath and revalidateTag are not safe for background tasks.
+    // The UI handles refresh when the job is done.
     return { success: true, ...result };
   } catch (error: unknown) {
     logger.error("Stabilize legacy cards with batch error", { error: String(error) });

@@ -23,3 +23,4 @@ export * from "./bulk-beneficiary-rollback-button";
 export * from "./transaction-rollback-button";
 export * from "./bulk-transaction-action-button";
 export * from "./audit-log-clear-button";
+export * from "./purge-rollback-button";

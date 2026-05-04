@@ -2,7 +2,7 @@
 
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
-import { requireActiveFacilitySession } from "@/lib/session-guard";
+import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 import { revalidatePath } from "next/cache";
 import type { ManagerPermissions } from "@/lib/auth";
 
@@ -35,6 +35,8 @@ const DEFAULT_PERMISSIONS: ManagerPermissions = {
   delete_transaction: false,
   cash_claim: false,
   manage_card_numbering: false,
+  migrate_card_numbering: false,
+  manage_users: false,
 };
 
 const EMPLOYEE_PERMISSIONS: ManagerPermissions = {
@@ -58,13 +60,15 @@ const EMPLOYEE_PERMISSIONS: ManagerPermissions = {
   delete_transaction: false,
   cash_claim: true,
   manage_card_numbering: false,
+  migrate_card_numbering: false,
+  manage_users: false,
 };
 
 // ── إنشاء حساب مدير جديد (المبرمج فقط) ──────────────────────────────
 export async function createManager(prevState: unknown, formData: FormData) {
   const session = await requireActiveFacilitySession();
-  if (!session?.is_admin) {
-    return { error: "غير مصرح بهذه العملية — المبرمج فقط" };
+  if (!session || !hasPermission(session, "manage_users")) {
+    return { error: "غير مصرح بهذه العملية" };
   }
 
   const name = formData.get("name")?.toString().trim() ?? "";
@@ -121,8 +125,8 @@ export async function updateManagerPermissions(
   permissions: ManagerPermissions
 ): Promise<{ error?: string; success?: boolean }> {
   const session = await requireActiveFacilitySession();
-  if (!session?.is_admin) {
-    return { error: "غير مصرح بهذه العملية — المبرمج فقط" };
+  if (!session || !hasPermission(session, "manage_users")) {
+    return { error: "غير مصرح بهذه العملية" };
   }
 
   const manager = await prisma.facility.findUnique({
@@ -155,6 +159,8 @@ export async function updateManagerPermissions(
     delete_transaction: permissions.delete_transaction === true,
     cash_claim: permissions.cash_claim === true,
     manage_card_numbering: permissions.manage_card_numbering === true,
+    migrate_card_numbering: permissions.migrate_card_numbering === true,
+    manage_users: permissions.manage_users === true,
   };
 
   await prisma.facility.update({
@@ -180,8 +186,8 @@ export async function deleteManager(
   managerId: string
 ): Promise<{ error?: string; success?: boolean }> {
   const session = await requireActiveFacilitySession();
-  if (!session?.is_admin) {
-    return { error: "غير مصرح بهذه العملية — المبرمج فقط" };
+  if (!session || !hasPermission(session, "manage_users")) {
+    return { error: "غير مصرح بهذه العملية" };
   }
 
   if (managerId === session.id) {
@@ -232,8 +238,8 @@ export async function restoreManager(
   managerId: string
 ): Promise<{ error?: string; success?: boolean }> {
   const session = await requireActiveFacilitySession();
-  if (!session?.is_admin) {
-    return { error: "غير مصرح بهذه العملية — المبرمج فقط" };
+  if (!session || !hasPermission(session, "manage_users")) {
+    return { error: "غير مصرح بهذه العملية" };
   }
 
   const manager = await prisma.facility.findUnique({
@@ -277,8 +283,8 @@ export async function permanentlyDeleteManager(
   managerId: string
 ): Promise<{ error?: string; success?: boolean }> {
   const session = await requireActiveFacilitySession();
-  if (!session?.is_admin) {
-    return { error: "غير مصرح بهذه العملية — المبرمج فقط" };
+  if (!session || !hasPermission(session, "manage_users")) {
+    return { error: "غير مصرح بهذه العملية" };
   }
 
   if (managerId === session.id) {
@@ -329,8 +335,8 @@ export async function permanentlyDeleteManager(
 // ── إنشاء حساب موظف جديد (المبرمج فقط) ──────────────────────────────
 export async function createEmployee(prevState: unknown, formData: FormData) {
   const session = await requireActiveFacilitySession();
-  if (!session?.is_admin) {
-    return { error: "غير مصرح بهذه العملية — المبرمج فقط" };
+  if (!session || !hasPermission(session, "manage_users")) {
+    return { error: "غير مصرح بهذه العملية" };
   }
 
   const name = formData.get("name")?.toString().trim() ?? "";

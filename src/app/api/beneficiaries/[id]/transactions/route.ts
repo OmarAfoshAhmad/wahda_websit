@@ -124,6 +124,7 @@ export async function GET(
       created_at: true,
       facility: { select: { name: true } },
       original_transaction_id: true,
+      idempotency_key: true,
     },
   });
 
@@ -238,6 +239,7 @@ export async function GET(
         created_at: t.created_at,
         facility_name: t.facility?.name ?? "-",
         original_transaction_id: t.original_transaction_id,
+        idempotency_key: t.idempotency_key,
         import_source_file_name: t.type === "IMPORT"
           ? (familyArchive?.source_file_name ?? findClosestImportFileName(t.created_at) ?? null)
           : null,

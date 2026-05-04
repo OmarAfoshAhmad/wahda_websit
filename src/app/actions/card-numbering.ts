@@ -10,6 +10,7 @@ export type CardNumberingItem = {
   employee_number: string;
   relationship?: string; // صلة القرابة (موظف، زوجة، ابن، الخ)
   birth_date?: string;   // تاريخ الميلاد
+  status?: string;       // الحالة (نشط، متوفي، ملحق)
   field3?: string;
 };
 
@@ -52,13 +53,27 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
 
   try {
     const { prefix = "WAB2025", padding = 6, sourceFile = "يدوي" } = options;
-    const report = { total: data.length, ready: 0, duplicate: 0, error: 0 };
+    const report = { total: data.length, ready: 0, duplicate: 0, error: 0, excluded: 0, excludedItems: [] as CardNumberingItem[] };
     const countsPerEmp = new Map<string, Record<string, number>>();
     const seenInBatch = new Set<string>();
 
     for (const item of data) {
       const empNum = String(item.employee_number || "").trim();
       const name = String(item.name || "").trim();
+      const statusVal = String(item.status || "").trim();
+      const relVal = String(item.relationship || "").trim();
+
+      // استبعاد الحالات المطلوبة (متوفي أو ملحق) في أي من الحقول الأساسية
+      const isExcluded = 
+        statusVal.includes("متوفي") || statusVal.includes("متوفى") || statusVal.includes("وفاة") || statusVal.includes("ملحق") ||
+        name.includes("متوفي") || name.includes("متوفى") || name.includes("وفاة") || name.includes("ملحق") ||
+        relVal.includes("متوفي") || relVal.includes("متوفى") || relVal.includes("وفاة") || relVal.includes("ملحق");
+
+      if (isExcluded) {
+        report.excluded++;
+        report.excludedItems.push(item);
+        continue;
+      }
       
       let status: any = "READY";
       let errorMsg: string | null = null;
@@ -316,6 +331,17 @@ export async function migrateCardNumberingAction(ids: string[]) {
         await prisma.cardNumberingArchive.update({
           where: { id: item.id },
           data: { status: "MIGRATED", migrated_at: new Date() },
+        });
+
+        // تسجيل عملية الترحيل في سجل حركات المستفيد
+        await prisma.transaction.create({
+          data: {
+            beneficiary_id: changes[changes.length - 1].beneficiaryId,
+            facility_id: session.id,
+            amount: 0,
+            type: "SETTLEMENT",
+            idempotency_key: `MIG-REC-${item.id}`
+          }
         });
 
       } catch (err) {

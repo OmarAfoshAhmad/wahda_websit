@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { getSession } from "@/lib/auth";
+import { getSessionWithFreshPermissions } from "@/lib/session-guard";
 import { Shell } from "@/components/shell";
 import prisma from "@/lib/prisma";
 import { formatDateTripoli } from "@/lib/datetime";
@@ -158,7 +158,7 @@ function Section({ title, count, children }: { title: string; count: number; chi
 }
 
 export default async function DbAnomaliesPage() {
-  const session = await getSession();
+  const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
   if (!session.is_admin) redirect("/dashboard");
 

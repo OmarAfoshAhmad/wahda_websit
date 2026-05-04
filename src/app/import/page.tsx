@@ -1,13 +1,12 @@
-import { getSession } from "@/lib/auth";
+import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-guard";
 import { redirect } from "next/navigation";
 import { Shell } from "@/components/shell";
 import { ImportUploader } from "@/components/import-uploader";
 import { Badge } from "@/components/ui";
 import { getCurrentInitialBalance } from "@/lib/initial-balance";
-import { hasPermission } from "@/lib/session-guard";
 
 export default async function ImportPage() {
-  const session = await getSession();
+  const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
 
   if (!hasPermission(session, "import_beneficiaries")) {

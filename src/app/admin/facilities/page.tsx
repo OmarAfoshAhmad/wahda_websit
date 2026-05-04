@@ -3,8 +3,7 @@ import Link from "next/link";
 import { User, Download } from "lucide-react";
 import prisma from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
-import { getSession } from "@/lib/auth";
-import { hasPermission } from "@/lib/session-guard";
+import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-guard";
 import { getArabicSearchTerms } from "@/lib/search";
 import { getFacilityTypeLabel, inferFacilityTypeFromText, normalizeFacilityTypeOverride } from "@/lib/facility-type";
 import { Shell } from "@/components/shell";
@@ -25,9 +24,9 @@ export default async function FacilitiesPage({
 }: {
   searchParams: Promise<{ q?: string; page?: string; sort?: string; order?: string; view?: string }>;
 }) {
-  const session = await getSession();
+  const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
-  if (!session.is_admin && !(session.is_manager && hasPermission(session, "view_facilities"))) {
+  if (!hasPermission(session, "view_facilities")) {
     redirect("/dashboard");
   }
 

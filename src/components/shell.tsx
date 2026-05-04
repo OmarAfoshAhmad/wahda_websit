@@ -1,49 +1,50 @@
 "use client";
 
+import React, { useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { cn } from "./ui";
-import { LayoutDashboard, ListOrdered, LogOut, Users, Building2, KeyRound, DatabaseBackup, ClipboardList, UserCog, Banknote, TriangleAlert, Wrench } from "lucide-react";
+import { cn } from "@/components/ui/core";
+import { 
+  LogOut, 
+  KeyRound, 
+  Wrench,
+  ChevronDown
+} from "lucide-react";
 import { logout } from "@/app/actions/auth";
 import { ThemeSwitcher } from "./theme-switcher";
-import type { ManagerPermissions, Session } from "@/lib/auth";
-
-// تابع مساعد للتحقق من الصلاحيات (يُحاكي lib/session-guard)
-function checkClientPerm(session: Session, key: keyof ManagerPermissions) {
-  if (session.is_admin) return true;
-  if (!session.is_manager && !session.is_employee) return false;
-  return session.manager_permissions?.[key] === true;
-}
+import { hasPermission } from "@/lib/permissions";
+import { 
+  BASE_NAV, 
+  MANAGER_NAV, 
+  SUPER_ADMIN_NAV, 
+  MAINTENANCE_NAV, 
+  CASH_CLAIM_NAV, 
+  EMPLOYEE_HOME_NAV 
+} from "@/lib/navigation";
+import type { Session } from "@/lib/permissions";
 
 const safeLogout = async () => {
   try { await logout(); } catch { window.location.href = "/login"; }
 };
 
-const baseNavigation = [
-  { name: "الرئيسية", href: "/dashboard", icon: LayoutDashboard },
-  { name: "الحركات", href: "/transactions", icon: ListOrdered },
-];
-
-const managerNavigation: Array<{ name: string; href: string; icon: typeof LayoutDashboard; perm: keyof ManagerPermissions }> = [
-  { name: "المستفيدون", href: "/beneficiaries", icon: Users, perm: "view_beneficiaries" },
-  { name: "المرافق الصحية", href: "/admin/facilities", icon: Building2, perm: "view_facilities" },
-  { name: "سجل المراقبة", href: "/admin/audit-log", icon: ClipboardList, perm: "view_audit_log" },
-];
-
-const cashClaimNav = { name: "كاش", href: "/cash-claim", icon: Banknote };
-const employeeHomeNav = { name: "الرئيسية", href: "/cash-claim", icon: Banknote };
-
-const maintenanceNavigation = [
-  { name: "ترقيم البطاقات", href: "/admin/card-numbering", icon: ListOrdered },
-  { name: "النسخ الاحتياطي", href: "/admin/backup", icon: DatabaseBackup },
-  { name: "إدارة المشاكل", href: "/admin/duplicates", icon: TriangleAlert },
-  { name: "جدول الحقيقة", href: "/admin/truth-registry", icon: ClipboardList },
-];
-
-const superAdminNavigation = [
-  { name: "المديرون", href: "/admin/managers", icon: UserCog },
-];
+function NavLink({ item, isActive }: { item: any, isActive: boolean }) {
+  const Icon = item.icon;
+  return (
+    <Link
+      href={item.href}
+      className={cn(
+        "inline-flex min-w-fit items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-bold transition-colors",
+        isActive
+          ? "border border-primary/20 bg-primary/10 text-primary dark:border-primary/30 dark:bg-primary/20 dark:text-blue-400"
+          : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200"
+      )}
+    >
+      <Icon className="h-3.5 w-3.5" />
+      {item.name}
+    </Link>
+  );
+}
 
 export function Shell({
   children,
@@ -54,31 +55,49 @@ export function Shell({
   facilityName: string;
   session: Session;
 }) {
+  const pathname = usePathname();
+  const [isMaintenanceOpen, setIsMaintenanceOpen] = useState(false);
+
   const isAdmin = session.is_admin;
   const isManager = session.is_manager;
-  const pathname = usePathname();
+  const isEmployee = session.is_employee;
+  const canUseCashClaim = (isEmployee || isManager) && hasPermission(session, "cash_claim");
 
-  const filteredManagerNav = managerNavigation.filter(item => {
-    return checkClientPerm(session, item.perm);
-  });
+  const permsHash = useMemo(() => JSON.stringify(session.manager_permissions), [session.manager_permissions]);
 
-  const canUseCashClaim = session.is_employee && checkClientPerm(session, "cash_claim");
+  const allNav = useMemo(() => {
+    const filteredManagerNav = MANAGER_NAV.filter(item => hasPermission(session, item.perm));
+    const filteredSuperAdminNav = SUPER_ADMIN_NAV.filter(item => hasPermission(session, item.perm));
 
-  const allNav = isAdmin
-    ? [...baseNavigation, ...managerNavigation, ...(canUseCashClaim ? [cashClaimNav] : []), ...superAdminNavigation]
-    : isManager
-      ? [...baseNavigation, ...filteredManagerNav, ...(canUseCashClaim ? [cashClaimNav] : [])]
-      : session.is_employee
-        ? [
-            ...(canUseCashClaim ? [employeeHomeNav] : []),
-            { name: "الحركات", href: "/transactions", icon: ListOrdered },
-          ]
-        : baseNavigation;
+    if (isAdmin) {
+      return [...BASE_NAV, ...MANAGER_NAV, ...(canUseCashClaim ? [CASH_CLAIM_NAV] : []), ...SUPER_ADMIN_NAV];
+    }
+    
+    if (isManager || isEmployee) {
+      return [
+        ...(isEmployee && canUseCashClaim ? [EMPLOYEE_HOME_NAV, BASE_NAV[1]] : BASE_NAV),
+        ...filteredManagerNav,
+        ...(isManager && canUseCashClaim ? [CASH_CLAIM_NAV] : []),
+        ...filteredSuperAdminNav,
+      ];
+    }
 
-  const roleLabel = isAdmin ? "المبرمج" : isManager ? "مدير" : session.is_employee ? "موظف" : "مرفق";
+    return BASE_NAV;
+  }, [isAdmin, isManager, isEmployee, canUseCashClaim, permsHash]);
+
+  const filteredMaintenanceNav = useMemo(() => {
+    return MAINTENANCE_NAV.filter(item => {
+      if (isAdmin) return true;
+      if (item.perms.length === 0) return false;
+      return item.perms.some(p => hasPermission(session, p));
+    });
+  }, [isAdmin, permsHash]);
+
+  const showMaintenance = filteredMaintenanceNav.length > 0;
+  const roleLabel = isAdmin ? "المبرمج" : isManager ? "مدير" : isEmployee ? "موظف" : "مرفق";
 
   return (
-    <div suppressHydrationWarning className="page-shell min-h-screen pb-5 bg-slate-50 dark:bg-[#0b1120] text-slate-900 dark:text-slate-100 transition-colors">
+    <div className="page-shell min-h-screen pb-5 bg-slate-50 dark:bg-[#0b1120] text-slate-900 dark:text-slate-100 transition-colors">
       <nav className="sticky top-0 z-50 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 transition-colors">
         <div className="mx-auto max-w-7xl px-3 py-2.5 sm:px-5">
           <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
@@ -111,56 +130,57 @@ export function Shell({
 
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
               <div className="flex items-center gap-1 pb-1 lg:pb-0">
-                <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto scrollbar-hide">
+                <div className="flex">
                   {allNav.map((item) => (
-                    <Link
-                      key={item.name}
-                      href={item.href}
-                      className={cn(
-                        "inline-flex min-w-fit items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-bold transition-colors",
-                        pathname === item.href || pathname.startsWith(item.href + "/")
-                          ? "border border-primary/20 bg-primary/10 text-primary dark:border-primary/30 dark:bg-primary/20 dark:text-blue-400"
-                          : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200"
-                      )}
-                    >
-                      <item.icon className="h-3.5 w-3.5" />
-                      {item.name}
-                    </Link>
+                    <NavLink 
+                      key={item.href} 
+                      item={item} 
+                      isActive={pathname === item.href} 
+                    />
                   ))}
-                </div>
 
-                {isAdmin && (
-                  <details className="group relative shrink-0">
-                    <summary
-                      className={cn(
-                        "inline-flex min-w-fit cursor-pointer list-none items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-bold transition-colors [&::-webkit-details-marker]:hidden",
-                        pathname.startsWith("/admin/backup") || pathname.startsWith("/admin/duplicates")
-                          ? "border border-primary/20 bg-primary/10 text-primary dark:border-primary/30 dark:bg-primary/20 dark:text-blue-400"
-                          : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200"
+                  {showMaintenance && (
+                    <div className="relative">
+                      <button
+                        onClick={() => setIsMaintenanceOpen(!isMaintenanceOpen)}
+                        className={cn(
+                          "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-bold transition-colors",
+                          isMaintenanceOpen || pathname.includes("/admin/")
+                            ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-200"
+                            : "text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
+                        )}
+                      >
+                        <Wrench className="h-3.5 w-3.5" />
+                        <span>صيانة</span>
+                        <ChevronDown className={cn("h-3 w-3 transition-transform", isMaintenanceOpen && "rotate-180")} />
+                      </button>
+
+                      {isMaintenanceOpen && (
+                        <>
+                          <div className="fixed inset-0 z-40" onClick={() => setIsMaintenanceOpen(false)} />
+                          <div className="absolute right-0 top-full z-50 mt-2 min-w-48 rounded-md border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900">
+                            {filteredMaintenanceNav.map((item) => (
+                              <Link
+                                key={item.href}
+                                href={item.href}
+                                onClick={() => setIsMaintenanceOpen(false)}
+                                className={cn(
+                                  "flex items-center gap-2 rounded-sm px-3 py-2 text-xs font-bold transition-colors",
+                                  pathname === item.href
+                                    ? "bg-primary/10 text-primary dark:bg-primary/20 dark:text-blue-400"
+                                    : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200"
+                                )}
+                              >
+                                <item.icon className="h-3.5 w-3.5" />
+                                {item.name}
+                              </Link>
+                            ))}
+                          </div>
+                        </>
                       )}
-                    >
-                      <Wrench className="h-3.5 w-3.5" />
-                      صيانة
-                    </summary>
-                    <div className="absolute right-0 top-full z-50 mt-2 min-w-48 rounded-md border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900">
-                      {maintenanceNavigation.map((item) => (
-                        <Link
-                          key={item.name}
-                          href={item.href}
-                          className={cn(
-                            "flex items-center gap-2 rounded-md px-2 py-2 text-[13px] font-bold transition-colors",
-                            pathname === item.href || pathname.startsWith(item.href + "/")
-                              ? "bg-primary/10 text-primary dark:bg-primary/20 dark:text-blue-400"
-                              : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-                          )}
-                        >
-                          <item.icon className="h-3.5 w-3.5" />
-                          {item.name}
-                        </Link>
-                      ))}
                     </div>
-                  </details>
-                )}
+                  )}
+                </div>
               </div>
 
               <div className="flex items-center justify-between gap-3 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-2.5 py-1.5 lg:min-w-48.75">
@@ -191,7 +211,7 @@ export function Shell({
         </div>
       </nav>
 
-      <main suppressHydrationWarning className="mx-auto max-w-7xl px-3 py-4 sm:px-5 lg:px-6">
+      <main className="mx-auto max-w-7xl px-3 py-4 sm:px-5 lg:px-6">
         {children}
       </main>
     </div>

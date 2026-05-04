@@ -1,5 +1,6 @@
 import prisma from "@/lib/prisma";
-import { getSession, type Session, type ManagerPermissions } from "@/lib/auth";
+import { getSession } from "@/lib/auth";
+import { type Session, type ManagerPermissions, hasPermission, canAccessAdmin } from "./permissions";
 
 /**
  * يسترجع الجلسة الحالية ويتحقق من أن المرفق لم يُحذف ناعماً.
@@ -13,8 +14,23 @@ export async function requireActiveFacilitySession(): Promise<Session | null> {
   const session = await getSession();
   if (!session) return null;
 
-  // المشرف والمدير والموظف ليسوا ضمن جدول المرافق العادية
-  if (session.is_admin || session.is_manager || session.is_employee) {
+  // المشرف لا يحتاج لفحص DB — لديه جميع الصلاحيات تلقائياً
+  if (session.is_admin) {
+    return session;
+  }
+
+  // المدير والموظف: نجلب الصلاحيات الفعلية من DB لضمان تحديثها فوراً
+  // (الـ JWT قد يحمل صلاحيات قديمة إذا عُدّلت بعد تسجيل الدخول)
+  if (session.is_manager || session.is_employee) {
+    const dbRecord = await prisma.facility.findFirst({
+      where: { id: session.id, deleted_at: null },
+      select: { manager_permissions: true },
+    });
+
+    if (!dbRecord) return null; // الحساب محذوف
+
+    // تحديث الصلاحيات في الجلسة من قاعدة البيانات
+    session.manager_permissions = (dbRecord.manager_permissions as ManagerPermissions) ?? null;
     return session;
   }
 
@@ -28,26 +44,43 @@ export async function requireActiveFacilitySession(): Promise<Session | null> {
 }
 
 /**
- * صحيح إذا كان المستخدم مشرفاً أو مديراً (يحق له الوصول لصفحات الإدارة)
+ * يسترجع الجلسة مع تحديث الصلاحيات من DB للمديرين والموظفين.
+ * يُستخدم في صفحات Server Components التي تحتاج صلاحيات محدثة.
+ * أخف من requireActiveFacilitySession — لا يفحص حذف المرفق الناعم.
  */
-export function canAccessAdmin(session: Session): boolean {
-  return session.is_admin || session.is_manager || session.is_employee;
+export async function getSessionWithFreshPermissions(): Promise<Session | null> {
+  const session = await getSession();
+  if (!session || !session.id) return null;
+
+  const dbRecord = await prisma.facility.findUnique({
+    where: { id: session.id },
+    select: { 
+      is_admin: true,
+      is_manager: true, 
+      is_employee: true, 
+      manager_permissions: true,
+      name: true,
+      deleted_at: true
+    },
+  });
+
+  if (!dbRecord || dbRecord.deleted_at !== null) {
+    return null;
+  }
+
+  let perms = dbRecord.manager_permissions;
+  
+  return {
+    ...session,
+    id: session.id,
+    is_admin: dbRecord.is_admin,
+    is_manager: dbRecord.is_manager,
+    is_employee: dbRecord.is_employee,
+    name: dbRecord.name,
+    manager_permissions: perms as any as ManagerPermissions || null,
+  };
 }
 
-/**
- * صحيح إذا كان للمستخدم صلاحية تنفيذ عملية معينة.
- * - المشرف (is_admin) دائماً لديه جميع الصلاحيات.
- * - المدير (is_manager) يملك فقط الصلاحيات التي فُعِّلت له.
- * - المرافق الصحية العادية لا تملك أي صلاحية إدارية.
- */
-export function hasPermission(
-  session: Session,
-  permission: keyof ManagerPermissions
-): boolean {
-  if (session.is_admin) return true;
-  if (session.is_manager || session.is_employee) {
-    const perms = session.manager_permissions;
-    return perms?.[permission] === true;
-  }
-  return false;
-}
+// يتم تصدير canAccessAdmin و hasPermission الآن من permissions.ts لضمان إمكانية استخدامهما في المكونات الأمامية
+export { canAccessAdmin, hasPermission };
+export type { Session, ManagerPermissions };

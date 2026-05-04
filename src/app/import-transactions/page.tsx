@@ -1,11 +1,11 @@
-import { getSession } from "@/lib/auth";
+import { getSessionWithFreshPermissions } from "@/lib/session-guard";
 import { redirect } from "next/navigation";
 import { Shell } from "@/components/shell";
 import { TransactionImportUploader } from "@/components/admin";
 import { Badge } from "@/components/ui";
 
 export default async function ImportTransactionsPage() {
-  const session = await getSession();
+  const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
   if (!session.is_admin) redirect("/dashboard");
 
