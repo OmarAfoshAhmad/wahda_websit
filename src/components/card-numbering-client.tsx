@@ -81,6 +81,8 @@ export function CardNumberingClient({
   const [importPrefix, setImportPrefix] = useState("WAB2025");
   const [importPadding, setImportPadding] = useState(6);
   const [usePadding, setUsePadding] = useState(true);
+  const [importCity, setImportCity] = useState(""); // حقل المدينة اليدوي
+  const [importBatchNumber, setImportBatchNumber] = useState(""); // حقل الدفعة اليدوي
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [pendingData, setPendingData] = useState<{data: any[], fileName: string} | null>(null);
   const [confirmModal, setConfirmModal] = useState<{ open: boolean, title: string, message: string, onConfirm: () => void, variant?: "danger" | "warning" | "info" }>({
@@ -91,6 +93,15 @@ export function CardNumberingClient({
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    // استخراج رقم الدفعة من اسم الملف تلقائياً (مثلاً "دفعة 17" سيستخرج 17)
+    const fileName = file.name;
+    const batchMatch = fileName.match(/\d+/);
+    if (batchMatch) {
+      setImportBatchNumber(batchMatch[0]);
+    } else {
+      setImportBatchNumber("");
+    }
 
     setIsParsing(true);
     setImportReport(null);
@@ -105,6 +116,21 @@ export function CardNumberingClient({
         const wb = XLSX.read(data, { type: "array", cellDates: true });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
+
+        // --- إصلاح الخلايا المدمجة (Merged Cells Fill-Down) ---
+        const merges = ws['!merges'] || [];
+        merges.forEach(merge => {
+          const startCell = ws[XLSX.utils.encode_cell({ r: merge.s.r, c: merge.s.c })];
+          if (!startCell) return;
+          for (let r = merge.s.r; r <= merge.e.r; r++) {
+            for (let c = merge.s.c; c <= merge.e.c; c++) {
+              if (r === merge.s.r && c === merge.s.c) continue;
+              const addr = XLSX.utils.encode_cell({ r, c });
+              if (!ws[addr]) ws[addr] = { ...startCell };
+            }
+          }
+        });
+
         const rawRows = XLSX.utils.sheet_to_json(ws) as any[];
 
         if (rawRows.length === 0) {
@@ -113,6 +139,7 @@ export function CardNumberingClient({
           return;
         }
 
+        let lastEmpNum = ""; 
         const mappedData = rawRows.map(row => {
           const keys = Object.keys(row);
           const values = Object.values(row).map(v => String(v || "").trim());
@@ -120,58 +147,44 @@ export function CardNumberingClient({
           const findKey = (keywords: string[]) => 
             keys.find(k => keywords.some(kw => String(k).includes(kw)));
 
-          const getField = (row: any, ...keywords: string[]) => {
-            const key = keys.find(k => keywords.some(kw => String(k).includes(kw)));
-            return key ? row[key] : null;
-          };
-
           const nameKey = findKey(["الاسم", "Name", "المستفيد", "اسم الموظف", "اسم العضو", "Full Name"]);
-          let empNum = String(getField(row, "employee_number", "رقم الموظف", "الرقم الوظيفي", "رقم_الموظف", "الرقم_الوظيفي", "employee number", "employee_id", "رقم الموظف/المستفيد", "الرقم") || "").trim();
           const relKey = findKey(["صلة", "القرابة", "Relationship", "النوع", "الصلة", "Rel"]);
           const bDateKey = findKey(["ميلاد", "Birth", "تاريخ", "BDate", "DOB"]);
+          const statusKey = findKey(["الحالة", "Status", "الوضع"]);
+          const notesKey = findKey(["ملاحظات", "Notes", "البيان", "ملاحظة"]);
 
-          // استخراج القيم
+          // استخراج القيم الأساسية
           let name = nameKey ? row[nameKey] : "";
           let rel = relKey ? row[relKey] : "";
           let bDateRaw = bDateKey ? row[bDateKey] : "";
+          let empNum = "";
 
-          // كلمات يجب استبعادها من أن تكون "اسماً"
-          const forbiddenWords = ["زوجة", "زوج", "ابن", "ابنة", "ام", "اب", "موظف", "موظفة", "متقاعد", "متقاعدة", "رب الأسرة", "وفاة", "موقوف"];
+          // --- بحث مرن عن الرقم الوظيفي في كل الأعمدة ---
+          const potentialEmpNum = values.find(v => /^\d{3,}$/.test(v));
+          if (potentialEmpNum) {
+            empNum = potentialEmpNum;
+            lastEmpNum = empNum;
+          } else if (lastEmpNum) {
+            empNum = lastEmpNum;
+          }
 
-          // إذا فشل البحث بالأسماء، نحاول التخمين بناءً على المحتوى
+          const forbiddenWords = ["زوجة", "زوج", "ابن", "ابنة", "ام", "اب", "موظف", "موظفة", "متقاعد", "متقاعدة", "رب الأسرة", "وفاة", "موقوف", "بنت", "ولد", "والدة", "والد"];
+          
           if (!name || forbiddenWords.includes(String(name).trim())) {
-            // نبحث عن كافة النصوص التي قد تكون أسماء
             const candidates = values.filter(v => 
-              v.length > 2 && 
-              !/^\d+$/.test(v) && 
-              !forbiddenWords.includes(v) &&
-              !v.toLowerCase().includes("gmt") &&
-              !v.toLowerCase().includes("utc") &&
-              !v.toLowerCase().includes("time")
+              v.length > 2 && !/^\d+$/.test(v) && !forbiddenWords.includes(v) &&
+              /[\u0600-\u06FF]/.test(v) 
             );
-
-            // نختار "أطول" نص يحتوي على حروف عربية (لضمان أنه الاسم الثلاثي/الرباعي وليس مجرد كلمة صلة)
-            const arabicCandidates = candidates.filter(v => /[\u0600-\u06FF]/.test(v));
-            if (arabicCandidates.length > 0) {
-              name = arabicCandidates.reduce((a, b) => b.length > a.length ? b : a, "");
-            } else if (candidates.length > 0) {
+            if (candidates.length > 0) {
               name = candidates.reduce((a, b) => b.length > a.length ? b : a, "");
             }
           }
 
-          // تخمين الرقم الوظيفي إذا لم يوجد (أول عمود يحتوي على أرقام فقط)
-          if (!empNum) {
-            const numCol = values.find(v => /^\d+$/.test(v) && v.length > 1);
-            if (numCol) empNum = numCol;
+          const relKeywords = ["زوجة", "زوج", "ابن", "ابنة", "ام", "اب", "موظف", "رب الأسرة", "صاحب البطاقة", "بنت", "ولد", "والدة", "والد"];
+          if (!rel || rel.length < 2) {
+            const foundRel = values.find(v => relKeywords.includes(v));
+            if (foundRel) rel = foundRel;
           }
-
-          // تخمين الصلة
-          if (!rel) {
-            const relCol = values.find(v => ["زوجة", "زوج", "ابن", "ابنة", "ام", "اب", "موظف", "رب الأسرة"].includes(v));
-            if (relCol) rel = relCol;
-          }
-          
-          const statusKey = findKey(["الحالة", "Status", "الوضع"]);
           
           let bDate = "";
           if (bDateRaw instanceof Date) {
@@ -180,8 +193,6 @@ export function CardNumberingClient({
             bDate = String(bDateRaw || "").trim();
           }
 
-          const notesKey = findKey(["ملاحظات", "Notes", "البيان", "ملاحظة"]);
-          
           return {
             name: String(name || "").trim(),
             employee_number: String(empNum || "").trim(),
@@ -192,11 +203,10 @@ export function CardNumberingClient({
           };
         });
 
-        const filteredData = mappedData.filter(item => item.name && item.name.length > 2 && item.employee_number);
+        const filteredData = mappedData.filter(item => item.name && item.name.length > 2);
 
         if (filteredData.length === 0) {
-          const firstRow = rawRows[0] ? JSON.stringify(Object.keys(rawRows[0])) : "لا توجد أعمدة";
-          toast.error(`لم يتم العثور على سجلات صالحة. الأعمدة المكتشفة: ${firstRow}`);
+          toast.error("لم يتم العثور على سجلات صالحة.");
           setIsParsing(false);
           return;
         }
@@ -204,18 +214,13 @@ export function CardNumberingClient({
         setPendingData({ data: filteredData, fileName: file.name });
         setShowSettingsModal(true);
         setIsParsing(false);
-        toast.success(`تم العثور على ${filteredData.length} سجل جاهز للمراجعة.`);
+        toast.success(`تم العثور على ${filteredData.length} سجل.`);
       } catch (err) {
-        console.error("File parsing error:", err);
         toast.error("حدث خطأ أثناء تحليل بيانات الملف.");
       } finally {
         setIsParsing(false);
         if (e.target) e.target.value = ""; 
       }
-    };
-    reader.onerror = () => {
-      toast.error("فشل في قراءة الملف من الجهاز.");
-      setIsParsing(false);
     };
     reader.readAsArrayBuffer(file);
   };
@@ -228,17 +233,15 @@ export function CardNumberingClient({
       const res = await importCardNumberingAction(pendingData.data, { 
         prefix: importPrefix, 
         padding: usePadding ? importPadding : 0, 
-        sourceFile: pendingData.fileName 
+        sourceFile: pendingData.fileName,
+        city: importCity,          // إرسال المدينة المدخلة
+        batchNumber: importBatchNumber // إرسال رقم الدفعة المدخل
       });
 
       if (res.success) {
         setImportReport(res.report);
-        if (res.report.total === 0) {
-          toast.info("تمت المعالجة ولكن لم يتم العثور على بيانات صالحة. تأكد من مسميات الأعمدة.");
-        } else {
-          toast.success(`تم معالجة ${res.report.total} سجل بنجاح`);
-        }
-        setTimeout(() => window.location.reload(), 3000);
+        toast.success(`تم معالجة ${res.report.total} سجل بنجاح`);
+        setTimeout(() => window.location.reload(), 2000);
       } else {
         toast.error(res.error || "فشل الاستيراد");
       }
@@ -246,8 +249,47 @@ export function CardNumberingClient({
       toast.error("حدث خطأ أثناء الاستيراد");
     } finally {
       setIsImporting(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
     }
+  };
+
+  // ... (رسم الواجهة في المودال)
+  // سأقوم بتعديل جزء المودال في استبدال لاحق لضمان الدقة
+
+  const downloadMigrationReport = () => {
+    if (!migrationReport || !migrationReport.details) return;
+
+    const successData = migrationReport.details
+      .filter((item: any) => item.status !== "FAIL")
+      .map((item: any) => ({
+        "اسم المستفيد": item.name,
+        "رقم البطاقة": item.card_number,
+        "الحالة": item.status === "ADDED" ? "إضافة جديدة" : "تحديث بيانات",
+        "الملاحظة": item.reason
+      }));
+
+    const failedData = migrationReport.details
+      .filter((item: any) => item.status === "FAIL")
+      .map((item: any) => ({
+        "اسم المستفيد": item.name,
+        "رقم البطاقة": item.card_number,
+        "الحالة": "فشل الترحيل",
+        "سبب الفشل": item.reason
+      }));
+
+    const wb = XLSX.utils.book_new();
+    
+    if (successData.length > 0) {
+      const wsSuccess = XLSX.utils.json_to_sheet(successData);
+      XLSX.utils.book_append_sheet(wb, wsSuccess, "الناجحين");
+    }
+    
+    if (failedData.length > 0) {
+      const wsFailed = XLSX.utils.json_to_sheet(failedData);
+      XLSX.utils.book_append_sheet(wb, wsFailed, "الفاشلين");
+    }
+
+    XLSX.writeFile(wb, `تقرير_الترحيل_${new Date().toISOString().split('T')[0]}.xlsx`);
+    toast.success("تم تحميل التقرير (الناجحين والفاشلين)");
   };
 
   const handleMigrate = async () => {
@@ -306,44 +348,52 @@ export function CardNumberingClient({
     const rawData = selectedIds.length > 0 ? items.filter(i => selectedIds.includes(i.id)) : items;
     if (rawData.length === 0) return;
 
-    const isExcluded = (item: any) => {
+    const getExclusionReason = (item: any) => {
       const text = `${item.name} ${item.status || ""} ${item.relationship || ""} ${item.error_message || ""}`.toLowerCase();
-      return text.includes("ملحق") || text.includes("متوفي") || text.includes("متوفى") || text.includes("وفاة");
+      if (text.includes("متوفي") || text.includes("متوفى") || text.includes("وفاة")) {
+        return "متوفي";
+      }
+      if (text.includes("ملحق")) {
+        return "ملحق";
+      }
+      if (!item.birth_date || String(item.birth_date).trim() === "") {
+        return "تاريخ الميلاد مفقود";
+      }
+      return null;
     };
 
-    const validItems = rawData.filter(i => !isExcluded(i));
-    const excludedItems = rawData.filter(i => isExcluded(i));
+    const validItems = rawData.filter(i => !getExclusionReason(i));
+    const excludedItems = rawData.filter(i => getExclusionReason(i));
 
     const wb = XLSX.utils.book_new();
 
-    // الورقة الأولى: الأسماء بدون ملحق أو متوفي
+    // الورقة الأولى: الأسماء بدون ملحق أو متوفي أو نواقص
     if (validItems.length > 0) {
       const exportData = validItems.map((item, index) => ({
-        "متسلسل": index + 1,
-        "الاسم": item.name,
-        "الرقم الوظيفي": item.employee_number,
+        "رقم تسلسلي": index + 1,
+        "باركود": item.card_number,
+        "اسم المستفيد": item.name,
         "رقم البطاقة": item.card_number,
-        "صلة القرابة": item.relationship || "موظف",
-        "الميلاد": item.birth_date ? new Date(item.birth_date).toLocaleDateString('en-GB') : "",
-        "الحالة": item.status === "MIGRATED" ? "تم الترحيل" : "نشط"
+        "المواليد": item.birth_date ? new Date(item.birth_date).toLocaleDateString('en-GB') : "",
+        "image": ""
       }));
       const ws1 = XLSX.utils.json_to_sheet(exportData);
       XLSX.utils.book_append_sheet(wb, ws1, "المستفيدين الفعليين");
     }
 
-    // الورقة الثانية: أسماء الملحقين والمتوفين
+    // الورقة الثانية: باقي الحالات (المستبعدين)
     if (excludedItems.length > 0) {
       const excludedData = excludedItems.map((item, index) => ({
-        "متسلسل": index + 1,
-        "الاسم": item.name,
-        "الرقم الوظيفي": item.employee_number,
+        "رقم تسلسلي": index + 1,
+        "باركود": item.card_number,
+        "اسم المستفيد": item.name,
         "رقم البطاقة": item.card_number,
-        "صلة القرابة": item.relationship || "",
-        "تاريخ الميلاد": item.birth_date ? new Date(item.birth_date).toLocaleDateString('en-GB') : "",
-        "الحالة": "مستبعد (ملحق أو متوفي)"
+        "المواليد": item.birth_date ? new Date(item.birth_date).toLocaleDateString('en-GB') : "",
+        "image": "",
+        "سبب الاستبعاد": getExclusionReason(item) || "مستبعد"
       }));
       const ws2 = XLSX.utils.json_to_sheet(excludedData);
-      XLSX.utils.book_append_sheet(wb, ws2, "الملحقين والمتوفين");
+      XLSX.utils.book_append_sheet(wb, ws2, "باقي الحالات");
     }
 
     XLSX.writeFile(wb, `تقرير_ترقيم_البطاقات_${new Date().toISOString().split('T')[0]}.xlsx`);
@@ -353,12 +403,12 @@ export function CardNumberingClient({
     if (!importReport?.excludedItems || importReport.excludedItems.length === 0) return;
     
     const exportData = importReport.excludedItems.map((item: any, index: number) => ({
-      "متسلسل": index + 1,
-      "الرقم الوظيفي": item.employee_number,
+      "رقم تسلسلي": index + 1,
+      "باركود": item.card_number,
       "اسم المستفيد": item.name,
-      "صلة القرابة": item.relationship,
-      "تاريخ الميلاد": item.birth_date,
-      "الحالة": item.status,
+      "رقم البطاقة": item.card_number,
+      "المواليد": item.birth_date ? new Date(item.birth_date).toLocaleDateString('en-GB') : "",
+      "image": "",
       "سبب الاستبعاد": "ملحق أو متوفي"
     }));
 
@@ -853,6 +903,25 @@ export function CardNumberingClient({
 
               <div className="space-y-4">
                 <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">المدينة</label>
+                  <Input 
+                    value={importCity} 
+                    onChange={(e) => setImportCity(e.target.value)} 
+                    placeholder="مثال: طرابلس، بنغازي..."
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">رقم الدفعة</label>
+                  <Input 
+                    value={importBatchNumber} 
+                    onChange={(e) => setImportBatchNumber(e.target.value)} 
+                    placeholder="مثال: 17"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">يُجلب تلقائياً من اسم الملف ويمكنك تعديله</p>
+                </div>
+
+                <div>
                   <label className="block text-sm font-bold text-slate-700 mb-1">بادئة رقم البطاقة (Prefix)</label>
                   <Input 
                     value={importPrefix} 
@@ -860,7 +929,6 @@ export function CardNumberingClient({
                     placeholder="مثال: WAB2025"
                     className="text-left font-mono"
                   />
-                  <p className="text-[10px] text-slate-400 mt-1">سيتم إضافة هذا النص قبل الرقم الوظيفي</p>
                 </div>
 
                 <div className="flex items-center gap-2 mb-2">
@@ -881,7 +949,6 @@ export function CardNumberingClient({
                       onChange={(e) => setImportPadding(parseInt(e.target.value) || 0)} 
                       className="text-left font-mono"
                     />
-                    <p className="text-[10px] text-slate-400 mt-1">مثال: 6 تعني أن الرقم 123 سيصبح 000123</p>
                   </div>
                 )}
 
@@ -979,51 +1046,51 @@ export function CardNumberingClient({
                   <p className="font-bold text-slate-600 animate-pulse">جاري ترحيل البيانات وتحديث السجلات...</p>
                 </div>
               ) : (
-                <div className="space-y-6">
-                  <div className="grid grid-cols-4 gap-4">
-                    <div className="p-4 bg-slate-50 rounded-xl text-center">
-                      <p className="text-2xl font-black text-slate-900">{migrationReport?.total}</p>
-                      <p className="text-[10px] text-slate-500 uppercase">الإجمالي</p>
+                <div className="space-y-8 py-4">
+                  <div className="text-center space-y-2">
+                    <h4 className="text-xl font-bold text-slate-800">اكتملت عملية الترحيل بنجاح</h4>
+                    <p className="text-slate-500">تمت معالجة كافة السجلات المختارة وفقاً للقواعد المتبعة.</p>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="p-6 bg-slate-50 rounded-2xl text-center border border-slate-100">
+                      <p className="text-3xl font-black text-slate-900">{migrationReport?.total}</p>
+                      <p className="text-xs text-slate-500 font-bold uppercase mt-1">الإجمالي</p>
                     </div>
-                    <div className="p-4 bg-emerald-50 rounded-xl text-center">
-                      <p className="text-2xl font-black text-emerald-600">{migrationReport?.added}</p>
-                      <p className="text-[10px] text-emerald-600 uppercase">إضافة جديدة</p>
+                    <div className="p-6 bg-emerald-50 rounded-2xl text-center border border-emerald-100">
+                      <p className="text-3xl font-black text-emerald-600">
+                        {(migrationReport?.added || 0) + (migrationReport?.updated || 0)}
+                      </p>
+                      <p className="text-xs text-emerald-600 font-bold uppercase mt-1">ناجح</p>
                     </div>
-                    <div className="p-4 bg-blue-50 rounded-xl text-center">
-                      <p className="text-2xl font-black text-blue-600">{migrationReport?.updated}</p>
-                      <p className="text-[10px] text-blue-600 uppercase">تحديث بيانات</p>
-                    </div>
-                    <div className="p-4 bg-rose-50 rounded-xl text-center">
-                      <p className="text-2xl font-black text-rose-600">{migrationReport?.failed}</p>
-                      <p className="text-[10px] text-rose-600 uppercase">فشل</p>
+                    <div className="p-6 bg-rose-50 rounded-2xl text-center border border-rose-100">
+                      <p className="text-3xl font-black text-rose-600">{migrationReport?.failed}</p>
+                      <p className="text-xs text-rose-600 font-bold uppercase mt-1">فشل</p>
                     </div>
                   </div>
 
-                  <div className="border rounded-xl overflow-hidden">
-                    <div className="max-height-[300px] overflow-y-auto scrollbar-thin">
-                      <table className="w-full text-sm text-right">
-                        <thead className="bg-slate-50 sticky top-0">
-                          <tr>
-                            <th className="px-4 py-2">المستفيد</th>
-                            <th className="px-4 py-2">الحالة</th>
-                            <th className="px-4 py-2">السبب</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y">
-                          {migrationReport?.details.map((d: any, i: number) => (
-                            <tr key={i} className="hover:bg-slate-50">
-                              <td className="px-4 py-2 font-bold">{d.name}</td>
-                              <td className="px-4 py-2">
-                                {d.status === "ADDED" && <Badge variant="success">إضافة</Badge>}
-                                {d.status === "UPDATED" && <Badge variant="info">تحديث</Badge>}
-                                {d.status === "FAIL" && <Badge variant="danger">فشل</Badge>}
-                              </td>
-                              <td className="px-4 py-2 text-xs text-slate-500">{d.reason}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                  <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex items-center gap-3">
+                    <Info className="h-5 w-5 text-blue-600" />
+                    <p className="text-sm text-blue-800 font-bold">
+                      يمكنك مراجعة المستفيدين المترحلين الآن في القائمة الرئيسية.
+                    </p>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <Button 
+                      onClick={downloadMigrationReport}
+                      variant="outline"
+                      className="flex-1 border-slate-200 hover:bg-slate-50 h-12 font-bold rounded-xl flex items-center justify-center gap-2"
+                    >
+                      <Download className="h-5 w-5" />
+                      تحميل تقرير التفاصيل
+                    </Button>
+                    <Button 
+                      onClick={() => { setShowMigrationModal(false); window.location.reload(); }} 
+                      className="flex-1 bg-slate-900 hover:bg-slate-800 h-12 text-lg font-bold rounded-xl"
+                    >
+                      إغلاق
+                    </Button>
                   </div>
                 </div>
               )}

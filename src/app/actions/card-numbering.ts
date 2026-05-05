@@ -16,12 +16,14 @@ export type CardNumberingItem = {
 
 // رموز اللاحقة للعائلة
 const RELATIONSHIP_CODE_MAP: Record<string, string> = {
-  "زوجة": "W", "ابن": "S", "ابنة": "D", "أم": "M", "أب": "F", "أخ": "B", "زوج": "H",
-  "W": "W", "S": "S", "D": "D", "M": "M", "F": "F", "B": "B", "H": "H",
-  "ابنه": "D", "ولد": "S", "والدة": "M", "والد": "F",
+  "زوجة": "W", "زوج": "H",
+  "ابن": "S", "ابنة": "D", "ابنه": "D", "ولد": "S", "بنت": "D",
+  "أم": "M", "ام": "M", "والدة": "M",
+  "أب": "F", "اب": "F", "والد": "F",
+  "W": "W", "S": "S", "D": "D", "M": "M", "F": "F", "H": "H"
 };
 
-const MAIN_ACCOUNT_TERMS = ["موظف", "رب الأسرة", "صاحب البطاقة", "رئيسي", "MAIN", "EMPLOYEE"];
+const MAIN_ACCOUNT_TERMS = ["موظف", "موظفة", "رب الأسرة", "صاحب البطاقة", "رئيسي", "MAIN", "EMPLOYEE", "متوفي", "متوفى", "وفاة", "ملحق", "ملحقة"];
 
 export async function getCardNumberingArchive(showDeleted: boolean = false) {
   const session = await getSession();
@@ -47,109 +49,85 @@ export async function getCardNumberingArchive(showDeleted: boolean = false) {
   }
 }
 
-export async function importCardNumberingAction(data: CardNumberingItem[], options: { prefix: string, padding: number, sourceFile?: string }) {
+export async function importCardNumberingAction(data: CardNumberingItem[], options: { prefix: string, padding: number, sourceFile?: string, city?: string, batchNumber?: string }) {
   const session = await getSession();
   if (!session || !hasPermission(session, "manage_card_numbering")) return { error: "غير مصرح" };
 
   try {
-    const { prefix = "WAB2025", padding = 6, sourceFile = "يدوي" } = options;
+    const { prefix = "WAB2025", padding = 0, sourceFile = "يدوي", city: manualCity, batchNumber: manualBatch } = options;
     const report = { total: data.length, ready: 0, duplicate: 0, error: 0, excluded: 0, excludedItems: [] as CardNumberingItem[] };
-    const countsPerEmp = new Map<string, Record<string, number>>();
+    const countsPerEmp = new Map<string, number>();
     const seenInBatch = new Set<string>();
 
     for (const item of data) {
-      const empNum = String(item.employee_number || "").trim();
+      const empNumRaw = String(item.employee_number || "").trim();
+      // إزالة الأصفار البادئة لضمان عدم تكرار الحشو (Double Padding)
+      const empNum = empNumRaw.replace(/^0+/, "");
       const name = String(item.name || "").trim();
       const statusVal = String(item.status || "").trim();
       const relVal = String(item.relationship || "").trim();
       const notesVal = String(item.field3 || "").trim();
 
       // استبعاد الحالات المطلوبة (متوفي أو ملحق) في أي من الحقول الأساسية أو الملاحظات
-      const isExcluded = 
-        statusVal.includes("متوفي") || statusVal.includes("متوفى") || statusVal.includes("وفاة") || statusVal.includes("ملحق") ||
-        name.includes("متوفي") || name.includes("متوفى") || name.includes("وفاة") || name.includes("ملحق") ||
-        relVal.includes("متوفي") || relVal.includes("متوفى") || relVal.includes("وفاة") || relVal.includes("ملحق") ||
-        notesVal.includes("متوفي") || notesVal.includes("متوفى") || notesVal.includes("وفاة") || notesVal.includes("ملحق");
+      const fullTextSearch = `${statusVal} ${name} ${relVal} ${notesVal}`.toLowerCase();
+      const isDeceased = fullTextSearch.includes("متوفي") || fullTextSearch.includes("متوفى") || fullTextSearch.includes("وفاة");
+      const isAppendix = fullTextSearch.includes("ملحق");
 
-      if (isExcluded) {
-        report.excluded++;
-        report.excludedItems.push(item);
-        continue; // تجاهل السجل تماماً وعدم إدخاله لقاعدة البيانات
+      const birthDateVal = String(item.birth_date || "").trim();
+      const isMissingBirthDate = !birthDateVal;
+
+      let exclusionReason = null;
+      let errorMsg: string | null = null;
+
+      if (isDeceased) {
+        exclusionReason = "متوفي";
+      } else if (isAppendix) {
+        exclusionReason = "ملحق";
+      } 
+      
+      // لا نستبعد بسبب تاريخ الميلاد، فقط نعطي ملاحظة
+      if (isMissingBirthDate && !exclusionReason) {
+        errorMsg = "⚠️ تاريخ الميلاد مفقود";
       }
 
       let status: any = "READY";
-      let errorMsg: string | null = null;
 
-      if (!empNum || !name) {
+      if (exclusionReason) {
+        status = "ERROR";
+        errorMsg = exclusionReason;
+        report.excluded++;
+        report.excludedItems.push({ ...item, error_message: exclusionReason });
+      } else if (!empNum || !name) {
         status = "ERROR";
         errorMsg = "الاسم والرقم الوظيفي مطلوبان";
         report.error++;
       }
 
-      const baseCard = prefix + empNum.padStart(padding, "0");
+      const baseCard = prefix + (padding > 0 ? empNum.padStart(padding, "0") : empNum);
       let rel = String(item.relationship || "").trim();
       const isMain = !rel || MAIN_ACCOUNT_TERMS.includes(rel) || rel === "Employee";
-      let relCode = isMain ? null : (RELATIONSHIP_CODE_MAP[rel] || null);
 
+      // رقم البطاقة النهائي: للموظف الرئيسي نستخدم الرقم الأساسي، وللتابعين نستخدم نظام الترميز
       let finalCardNumber = baseCard;
-
-      // جلب كافة سجلات هذا الموظف من الأرشيف للمقارنة
-      const empArchiveItems = await prisma.cardNumberingArchive.findMany({
-        where: { employee_number: empNum },
-        select: { id: true, name: true, relationship: true, card_number: true }
-      });
-
-      // تلافي التكرار والذكاء في التصحيح (داخل الكود لتجنب أخطاء قاعدة البيانات)
-      const existingInArchive = empArchiveItems.find(item => {
-        const isSameRel = item.relationship === (rel || null);
-        if (!isSameRel) return false;
-
-        // 1. تطابق تام بالاسم
-        if (item.name.toLowerCase() === name.toLowerCase()) return true;
-
-        // 2. إذا كان الاسم المسجل قديماً "مشبوهاً" (رقم أو تاريخ)، نعتبره هو نفس الشخص ونقوم بتصحيحه
-        const isSuspicious =
-          item.name.includes("GMT") ||
-          item.name.includes("Time") ||
-          /^\d+$/.test(item.name);
-
-        return isSuspicious;
-      });
-
-      if (existingInArchive) {
-        finalCardNumber = existingInArchive.card_number;
-      } else if (relCode && status !== "ERROR") {
-        if (!countsPerEmp.has(empNum)) {
-          const existing = await prisma.cardNumberingArchive.findMany({
-            where: { employee_number: empNum, relationship: { not: null } },
-            select: { card_number: true }
-          });
-          const dbCounts: Record<string, number> = {};
-          existing.forEach(e => {
-            const m = e.card_number.match(/[A-Z](\d+)$/);
-            if (m) {
-              const code = e.card_number.charAt(baseCard.length);
-              const idx = parseInt(m[1], 10);
-              dbCounts[code] = Math.max(dbCounts[code] || 0, idx);
-            }
-          });
-          countsPerEmp.set(empNum, dbCounts);
-        }
-        const batchCounts = countsPerEmp.get(empNum)!;
-        const nextIdx = (batchCounts[relCode] || 0) + 1;
-        batchCounts[relCode] = nextIdx;
-        finalCardNumber = `${baseCard}${relCode}${nextIdx}`;
+      if (!isMain) {
+        const relCode = RELATIONSHIP_CODE_MAP[rel] || "X"; // استخدم X كافتراضي لمنع التصادم
+        
+        const relCountKey = `rel_${empNum}_${relCode}`;
+        const currentRelCount = (countsPerEmp.get(relCountKey) || 0) + 1;
+        countsPerEmp.set(relCountKey, currentRelCount);
+        
+        finalCardNumber = baseCard + relCode + currentRelCount;
       }
 
-      const rowKey = `${empNum}-${rel || "M"}`;
+      const rowKey = `${finalCardNumber}`;
 
-      // 1. الأولوية: التحقق من التكرار داخل نفس الملف الحالي (تصفية الملف أولاً)
+      // 1. الأولوية: التحقق من التكرار داخل نفس الملف الحالي
       if (seenInBatch.has(rowKey)) {
         status = "DUPLICATE";
         errorMsg = "[FILE] مكرر في نفس الملف";
         report.duplicate++;
       }
-      // 2. التحقق من التكرار في المنظومة الرئيسية (المستفيدين الفعليين)
+      // 2. التحقق من التكرار في المنظومة الرئيسية
       else {
         const existingInSystem = await prisma.beneficiary.findFirst({
           where: { card_number: { equals: finalCardNumber, mode: "insensitive" }, deleted_at: null }
@@ -161,19 +139,24 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
           report.duplicate++;
         }
         // 3. التحقق من التكرار في الأرشيف (دفعات سابقة)
-        // السماح بإعادة الاستيراد كـ READY إذا لم يكن مرحلاً أصلاً
-        else if (existingInArchive && existingInArchive.name.toLowerCase() === name.toLowerCase()) {
-          const isMigrated = (existingInArchive as any).status === "MIGRATED";
-          if (isMigrated) {
-            status = "DUPLICATE";
-            errorMsg = "[ARCHIVE] هذا المستفيد تم ترحيله مسبقاً";
-            report.duplicate++;
+        else {
+          const existingInArchive = await prisma.cardNumberingArchive.findFirst({
+            where: { card_number: { equals: finalCardNumber, mode: "insensitive" } }
+          });
+          
+          if (existingInArchive) {
+            const isMigrated = existingInArchive.status === "MIGRATED";
+            if (isMigrated) {
+              status = "DUPLICATE";
+              errorMsg = "[ARCHIVE] هذا المستفيد تم ترحيله مسبقاً";
+              report.duplicate++;
+            } else {
+              status = "READY";
+              report.ready++;
+            }
           } else {
-            status = "READY";
             report.ready++;
           }
-        } else {
-          report.ready++;
         }
       }
 
@@ -192,10 +175,12 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
           employee_number: empNum,
           relationship: rel || null,
           birth_date: bDate,
+          city: manualCity || item.city || null,         // استخدام القيمة اليدوية إذا وجدت
+          batch_number: manualBatch || item.batch_number || null, // استخدام القيمة اليدوية إذا وجدت
           status,
           error_message: errorMsg,
           source_file: sourceFile,
-          deleted_at: null // استعادة السجل إذا تمت إعادة استيراده
+          deleted_at: null
         },
         create: {
           card_number: finalCardNumber,
@@ -203,6 +188,8 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
           employee_number: empNum,
           relationship: rel || null,
           birth_date: bDate,
+          city: manualCity || item.city || null,
+          batch_number: manualBatch || item.batch_number || null,
           status,
           error_message: errorMsg,
           source_file: sourceFile,
@@ -259,12 +246,14 @@ export async function migrateCardNumberingAction(ids: string[]) {
             data: {
               name: item.name,
               birth_date: item.birth_date || existingByCard.birth_date,
+              city: item.city || existingByCard.city,           // ترحيل المدينة
+              batch_number: item.batch_number || existingByCard.batch_number, // ترحيل رقم الدفعة
               deleted_at: null, // استعادة السجل إذا كان في سلة المحذوفات
               status: "ACTIVE"
             }
           });
           report.updated++;
-          report.details.push({ name: item.name, status: "UPDATED", reason: existingByCard.deleted_at ? "استعادة وتحديث من المحذوفات" : "تحديث بيانات موجودة" });
+          report.details.push({ name: item.name, card_number: item.card_number, status: "UPDATED", reason: existingByCard.deleted_at ? "استعادة وتحديث من المحذوفات" : "تحديث بيانات موجودة" });
           changes.push({
             type: "UPDATE",
             beneficiaryId: existingByCard.id,
@@ -297,10 +286,12 @@ export async function migrateCardNumberingAction(ids: string[]) {
             data: {
               card_number: item.card_number,
               birth_date: item.birth_date || existingByEmp.birth_date,
+              city: item.city || existingByEmp.city,           // ترحيل المدينة
+              batch_number: item.batch_number || existingByEmp.batch_number, // ترحيل رقم الدفعة
             }
           });
           report.updated++;
-          report.details.push({ name: item.name, status: "UPDATED", reason: "تحديث رقم البطاقة لمستفيد موجود" });
+          report.details.push({ name: item.name, card_number: item.card_number, status: "UPDATED", reason: "تحديث رقم البطاقة لمستفيد موجود" });
           changes.push({
             type: "UPDATE",
             beneficiaryId: existingByEmp.id,
@@ -315,6 +306,8 @@ export async function migrateCardNumberingAction(ids: string[]) {
               name: item.name,
               card_number: item.card_number,
               birth_date: item.birth_date,
+              city: item.city,           // ترحيل المدينة للجديد
+              batch_number: item.batch_number, // ترحيل رقم الدفعة للجديد
               status: "ACTIVE",
               total_balance: 600,
               remaining_balance: 600,

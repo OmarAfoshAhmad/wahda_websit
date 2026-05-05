@@ -36,6 +36,8 @@ model Beneficiary {
   status            BeneficiaryStatus @default(ACTIVE)
   created_at        DateTime          @default(now())
   birth_date        DateTime?
+  city              String?           // ← الحقل الجديد
+  batch_number      String?           // ← الحقل الجديد
   deleted_at        DateTime?
   failed_attempts   Int               @default(0)
   locked_until      DateTime?
@@ -258,6 +260,8 @@ model CardNumberingArchive {
   employee_number  String
   relationship     String?   // صلة القرابة (W, S, D, M, F, B, etc.)
   birth_date       DateTime? // تاريخ الميلاد
+  city             String?   // ← الحقل الجديد
+  batch_number     String?   // ← الحقل الجديد
   card_number      String    @unique
   status           CardNumberingStatus @default(READY)
   error_message    String?
