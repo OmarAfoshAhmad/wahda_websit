@@ -28,6 +28,17 @@ const RELATIONSHIP_CODE_MAP: Record<string, string> = {
 
 const MAIN_ACCOUNT_TERMS = ["موظف", "موظفة", "رب الأسرة", "صاحب البطاقة", "رئيسي", "MAIN", "EMPLOYEE", "متوفي", "متوفى", "وفاة", "ملحق", "ملحقة"];
 
+const getRelRank = (rel: string) => {
+  const r = String(rel || "").trim().toLowerCase();
+  if (!r || MAIN_ACCOUNT_TERMS.includes(r) || r === "employee") return 1;
+  if (["أب", "اب", "والد"].includes(r)) return 2;
+  if (["أم", "ام", "والدة"].includes(r)) return 3;
+  if (["زوجة", "زوج"].includes(r)) return 4;
+  if (["ابن", "ولد"].includes(r)) return 5;
+  if (["ابنة", "بنت", "ابنه"].includes(r)) return 6;
+  return 7;
+};
+
 export async function getCardNumberingArchive(showDeleted: boolean = false) {
   const session = await getSession();
   if (!session || (!hasPermission(session, "manage_card_numbering") && !hasPermission(session, "migrate_card_numbering"))) return { error: "غير مصرح" };
@@ -37,14 +48,17 @@ export async function getCardNumberingArchive(showDeleted: boolean = false) {
       where: {
         deleted_at: showDeleted ? { not: null } : null
       },
-      orderBy: { created_at: "desc" },
+      orderBy: [
+        { employee_number: "asc" },
+        { card_number: "asc" }
+      ],
     });
     return {
       items: items.map(item => ({
         ...item,
         created_at: item.created_at.toISOString(),
         migrated_at: item.migrated_at?.toISOString() || null,
-        birth_date: item.birth_date?.toISOString().split('T')[0] || null,
+        birth_date: item.birth_date ? `${item.birth_date.getUTCFullYear()}-${String(item.birth_date.getUTCMonth() + 1).padStart(2, '0')}-${String(item.birth_date.getUTCDate()).padStart(2, '0')}` : null,
       }))
     };
   } catch (error) {
@@ -58,6 +72,30 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
 
   try {
     const { prefix = "WAB2025", padding = 0, sourceFile = "يدوي", city: manualCity, batchNumber: manualBatch } = options;
+
+    // --- فرز البيانات لضمان ترقيم صحيح حسب العمر داخل العائلة ---
+    const empOrder = new Map();
+    data.forEach((item, index) => {
+      if (!empOrder.has(item.employee_number)) empOrder.set(item.employee_number, index);
+    });
+
+    data.sort((a, b) => {
+      const orderA = empOrder.get(a.employee_number);
+      const orderB = empOrder.get(b.employee_number);
+      if (orderA !== orderB) return orderA - orderB;
+      
+      const rankA = getRelRank(a.relationship || "");
+      const rankB = getRelRank(b.relationship || "");
+      if (rankA !== rankB) return rankA - rankB;
+      
+      if (a.birth_date && b.birth_date) {
+        const dateA = new Date(a.birth_date).getTime();
+        const dateB = new Date(b.birth_date).getTime();
+        if (!isNaN(dateA) && !isNaN(dateB)) return dateA - dateB;
+      }
+      return 0;
+    });
+
     const report = { total: data.length, ready: 0, duplicate: 0, error: 0, excluded: 0, excludedItems: [] as CardNumberingItem[] };
     const countsPerEmp = new Map<string, number>();
     const seenInBatch = new Set<string>();
@@ -167,8 +205,12 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
 
       let bDate = null;
       if (item.birth_date) {
+        // التحقق من صحة التاريخ قبل الحفظ
         const d = new Date(item.birth_date);
-        if (!isNaN(d.getTime())) bDate = d;
+        if (!isNaN(d.getTime())) {
+          // نستخدم التاريخ كما هو لضمان عدم تأثره بالمنطقة الزمنية عند الاسترجاع
+          bDate = d;
+        }
       }
 
       await prisma.cardNumberingArchive.upsert({

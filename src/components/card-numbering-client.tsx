@@ -113,7 +113,8 @@ export function CardNumberingClient({
         console.log("File loaded, starting parse...");
         const arrayBuffer = evt.target?.result as ArrayBuffer;
         const data = new Uint8Array(arrayBuffer);
-        const wb = XLSX.read(data, { type: "array", cellDates: true });
+        // إيقاف cellDates لمنع مكتبة الإكسيل من إنشاء كائنات Date تتأثر بالمنطقة الزمنية للمستخدم
+        const wb = XLSX.read(data, { type: "array", cellDates: false });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
 
@@ -152,6 +153,7 @@ export function CardNumberingClient({
           const bDateKey = findKey(["ميلاد", "Birth", "تاريخ", "BDate", "DOB"]);
           const statusKey = findKey(["الحالة", "Status", "الوضع"]);
           const notesKey = findKey(["ملاحظات", "Notes", "البيان", "ملاحظة"]);
+          const empNumKey = findKey(["الرقم الوظيفي", "رقم الموظف", "رقم العضو", "رقم التامين", "رقم التأمين", "Emp", "ID", "الرقم التسلسلي", "رقم"]);
 
           // استخراج القيم الأساسية
           let name = nameKey ? row[nameKey] : "";
@@ -159,10 +161,17 @@ export function CardNumberingClient({
           let bDateRaw = bDateKey ? row[bDateKey] : "";
           let empNum = "";
 
-          // --- بحث مرن عن الرقم الوظيفي في كل الأعمدة ---
-          const potentialEmpNum = values.find(v => /^\d{3,}$/.test(v));
-          if (potentialEmpNum) {
-            empNum = potentialEmpNum;
+          // --- استخراج الرقم الوظيفي مع دعم التعبئة لأسفل (Fill-Down) ---
+          let extractedEmpNum = empNumKey ? String(row[empNumKey] || "").trim() : "";
+          
+          if (!extractedEmpNum && !empNumKey) {
+             // إذا لم نجد عموداً واضحاً للرقم الوظيفي، نبحث عن أول قيمة رقمية (التي لا تمثل تاريخاً)
+             const potentialEmpNum = values.find(v => /^\d{3,}$/.test(v) && !v.includes('-') && !v.includes('/'));
+             if (potentialEmpNum) extractedEmpNum = potentialEmpNum;
+          }
+
+          if (extractedEmpNum) {
+            empNum = extractedEmpNum;
             lastEmpNum = empNum;
           } else if (lastEmpNum) {
             empNum = lastEmpNum;
@@ -188,9 +197,29 @@ export function CardNumberingClient({
           
           let bDate = "";
           if (bDateRaw instanceof Date) {
-            bDate = bDateRaw.toISOString().split('T')[0];
+            const y = bDateRaw.getFullYear();
+            const m = String(bDateRaw.getMonth() + 1).padStart(2, '0');
+            const d = String(bDateRaw.getDate()).padStart(2, '0');
+            bDate = `${y}-${m}-${d}`;
+          } else if (typeof bDateRaw === "number") {
+            const date = new Date(Math.round((bDateRaw - 25569) * 86400 * 1000));
+            const y = date.getUTCFullYear();
+            const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+            const d = String(date.getUTCDate()).padStart(2, '0');
+            bDate = `${y}-${m}-${d}`;
           } else {
-            bDate = String(bDateRaw || "").trim();
+            // إزالة الأحرف غير المرئية (LTR/RTL) التي يضيفها الإكسيل وتتسبب في فشل التحليل
+            let strDate = String(bDateRaw || "").replace(/[^\d\/\-]/g, "").trim();
+            
+            if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}$/.test(strDate)) {
+               const parts = strDate.split(/[\/\-]/);
+               bDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+            } else if (/^\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}$/.test(strDate)) {
+               const parts = strDate.split(/[\/\-]/);
+               bDate = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+            } else {
+               bDate = strDate;
+            }
           }
 
           return {
@@ -361,6 +390,47 @@ export function CardNumberingClient({
       }
       return null;
     };
+
+    // --- فرز العائلات بشكل منظم ---
+    const getRelRank = (rel: string) => {
+      const r = String(rel || "").trim().toLowerCase();
+      if (!r || ["موظف", "موظفة", "رئيسي", "صاحب البطاقة", "رب الأسرة", "employee"].includes(r)) return 1;
+      if (["أب", "اب", "والد"].includes(r)) return 2;
+      if (["أم", "ام", "والدة"].includes(r)) return 3;
+      if (["زوجة", "زوج"].includes(r)) return 4;
+      if (["ابن", "ولد"].includes(r)) return 5;
+      if (["ابنة", "بنت", "ابنه"].includes(r)) return 6;
+      return 7;
+    };
+
+    const empOrder = new Map();
+    rawData.forEach((item, index) => {
+      const empNum = String(item.employee_number || "");
+      if (!empOrder.has(empNum)) {
+        empOrder.set(empNum, index);
+      }
+    });
+
+    rawData.sort((a, b) => {
+      const empA = String(a.employee_number || "");
+      const empB = String(b.employee_number || "");
+      const orderA = empOrder.get(empA);
+      const orderB = empOrder.get(empB);
+      
+      // الترتيب حسب العائلات مع الحفاظ على الترتيب الأصلي لظهورها في الملف
+      if (orderA !== orderB) return orderA - orderB;
+      
+      // داخل العائلة الواحدة: الترتيب حسب صلة القرابة
+      const rankA = getRelRank(a.relationship);
+      const rankB = getRelRank(b.relationship);
+      if (rankA !== rankB) return rankA - rankB;
+      
+      // في حال نفس درجة القرابة (أبناء مثلاً): الترتيب حسب العمر (الأكبر أولاً)
+      if (a.birth_date && b.birth_date) {
+        return new Date(a.birth_date).getTime() - new Date(b.birth_date).getTime();
+      }
+      return 0;
+    });
 
     const validItems = rawData.filter(i => !getExclusionReason(i));
     const excludedItems = rawData.filter(i => getExclusionReason(i));
@@ -566,6 +636,9 @@ export function CardNumberingClient({
       item.card_number.toLowerCase().includes(activeSearchTerm.toLowerCase());
     
     if (statusFilter !== "ALL") {
+      if (statusFilter === "SUSPICIOUS_DATE") {
+        return matchesSearch && item.birth_date?.endsWith("-12-31");
+      }
       if (statusFilter === "DUPLICATE_FILE") {
         return matchesSearch && item.status === "DUPLICATE" && item.error_message?.includes("[FILE]");
       }
@@ -786,6 +859,13 @@ export function CardNumberingClient({
             count={items.filter(i => i.status === "MIGRATED").length}
             variant="info"
           />
+          <StatusChip 
+            active={statusFilter === "SUSPICIOUS_DATE"} 
+            onClick={() => setStatusFilter("SUSPICIOUS_DATE")}
+            label="زحزحة تاريخ محتملة"
+            count={items.filter(i => i.birth_date?.endsWith("-12-31")).length}
+            variant="warning"
+          />
         </div>
       </div>
 
@@ -801,6 +881,7 @@ export function CardNumberingClient({
                 </th>
                 <th className="px-4 py-3 font-black text-slate-500">المستفيد / الرقم الوظيفي</th>
                 <th className="px-4 py-3 font-black text-slate-500">رقم البطاقة</th>
+                <th className="px-4 py-3 font-black text-slate-500">المواليد</th>
                 <th className="px-4 py-3 font-black text-slate-500">الدفعة</th>
                 <th className="px-4 py-3 font-black text-slate-500">الحالة</th>
                 <th className="px-4 py-3 font-black text-slate-500">التفاصيل / الأخطاء</th>
@@ -809,7 +890,7 @@ export function CardNumberingClient({
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {paginatedItems.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-slate-500">
+                  <td colSpan={7} className="px-6 py-12 text-center text-slate-500">
                     {activeSearchTerm ? "لا توجد نتائج تطابق بحثك." : "لا توجد بيانات بانتظار المعالجة."}
                   </td>
                 </tr>
@@ -826,6 +907,9 @@ export function CardNumberingClient({
                       <p className="text-xs font-mono text-slate-400">{item.employee_number} ({item.relationship || "موظف"})</p>
                     </td>
                     <td className="px-4 py-3 font-mono text-sm">{item.card_number}</td>
+                    <td className="px-4 py-3 text-xs font-bold text-slate-600">
+                      {item.birth_date || "---"}
+                    </td>
                     <td className="px-4 py-3 text-xs text-slate-400 max-w-[120px] truncate" title={item.source_file || "يدوي"}>
                       {item.source_file || "يدوي"}
                     </td>
