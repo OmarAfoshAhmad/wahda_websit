@@ -4,12 +4,12 @@ const isProduction = process.env.NODE_ENV === "production";
 
 const cspPolicy = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline' blob:${isProduction ? "" : " 'unsafe-eval'"}`,
+  `script-src 'self' 'unsafe-inline' blob: https://www.googletagmanager.com${isProduction ? "" : " 'unsafe-eval'"}`,
   "script-src-attr 'none'",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
-  "img-src 'self' data: blob:",
-  `connect-src 'self'${isProduction ? "" : " ws: wss:"}`,
+  "img-src 'self' data: blob: https://www.google-analytics.com",
+  `connect-src 'self' https://www.google-analytics.com https://analytics.google.com https://stats.g.doubleclick.net${isProduction ? "" : " ws: wss:"}`,
   "frame-src 'none'",
   "manifest-src 'self'",
   "worker-src 'self' blob:",
@@ -37,6 +37,11 @@ const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
   serverExternalPackages: ["bullmq", "ioredis"],
+  compiler: {
+    removeConsole: isProduction ? {
+      exclude: ["error"], // نحتفظ بالأخطاء فقط لأغراض التتبع إذا حدثت مشكلة حرجة
+    } : false,
+  },
   async headers() {
     return [
       {
