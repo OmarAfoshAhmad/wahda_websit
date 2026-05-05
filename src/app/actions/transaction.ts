@@ -5,6 +5,7 @@ import prisma from "@/lib/prisma";
 import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { formatCurrency, roundCurrency } from "@/lib/money";
+import { assertBeneficiaryBalanceInvariant } from "@/lib/tx-balance-guard";
 import { Prisma } from "@prisma/client";
 import {
   AMOUNT_POLICY_ERROR,
@@ -298,6 +299,8 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
           },
         },
       });
+
+      await assertBeneficiaryBalanceInvariant(tx, transaction.beneficiary_id, "updateTransactionEntry");
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     revalidatePath("/transactions");

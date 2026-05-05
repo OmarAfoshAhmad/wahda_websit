@@ -8,10 +8,13 @@ import { hasPermission } from "@/lib/session-guard";
 export type CardNumberingItem = {
   name: string;
   employee_number: string;
-  relationship?: string; // صلة القرابة (موظف، زوجة، ابن، الخ)
-  birth_date?: string;   // تاريخ الميلاد
-  status?: string;       // الحالة (نشط، متوفي، ملحق)
+  relationship?: string; 
+  birth_date?: string;   
+  city?: string;         // المدينة
+  batch_number?: string; // رقم الدفعة
+  status?: string;       
   field3?: string;
+  error_message?: string; // رسالة الخطأ
 };
 
 // رموز اللاحقة للعائلة
@@ -96,7 +99,7 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
         status = "ERROR";
         errorMsg = exclusionReason;
         report.excluded++;
-        report.excludedItems.push({ ...item, error_message: exclusionReason });
+        report.excludedItems.push({ ...item, error_message: exclusionReason } as any);
       } else if (!empNum || !name) {
         status = "ERROR";
         errorMsg = "الاسم والرقم الوظيفي مطلوبان";

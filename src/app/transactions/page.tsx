@@ -78,7 +78,7 @@ export default async function TransactionsPage({
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
 
-  const { start_date, end_date, facility_id, page: pageParam, pageSize: pageSizeParam, q, sort, order, status: _status, source, focus_tx } = await searchParams;
+  const { start_date, end_date, facility_id, page: pageParam, pageSize: pageSizeParam, q, sort, order, status: _status, tx_type, source, focus_tx } = await searchParams;
   const allowedPageSizes = [10, 25, 50, 100, 200, 500, 1000];
   const requestedPageSize = parseInt(pageSizeParam ?? "10", 10);
   const PAGE_SIZE = allowedPageSizes.includes(requestedPageSize) ? requestedPageSize : 10;
@@ -96,6 +96,9 @@ export default async function TransactionsPage({
     : session.name;
 
   const statusFilter = "active" as const;
+
+  const allowedTxTypes = ["all", "supplies", "medicine"] as const;
+  const txTypeFilter = allowedTxTypes.includes(tx_type as any) ? (tx_type as string) : "all";
 
   const ALLOWED_SOURCE = ["all", "manual", "import"] as const;
   type TxSource = typeof ALLOWED_SOURCE[number];
@@ -122,6 +125,7 @@ export default async function TransactionsPage({
     if (q) p.set("q", q);
     if (focus_tx) p.set("focus_tx", focus_tx);
     p.set("status", statusFilter);
+    if (txTypeFilter !== "all") p.set("tx_type", txTypeFilter);
     if (sourceFilter !== "all") p.set("source", sourceFilter);
     p.set("pageSize", String(PAGE_SIZE));
     p.set("sort", sortCol);
@@ -179,6 +183,15 @@ export default async function TransactionsPage({
     } else {
       where.type = { in: ["MEDICINE", "SUPPLIES", "SETTLEMENT"] };
     }
+  }
+
+  // نوع الحركة
+  if (txTypeFilter === "supplies") {
+    const existingAnd = Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : [];
+    where.AND = [...existingAnd, { type: "SUPPLIES" }];
+  } else if (txTypeFilter === "medicine") {
+    const existingAnd = Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : [];
+    where.AND = [...existingAnd, { type: { in: ["MEDICINE", "IMPORT"] } }];
   }
 
   // فلترة بالبحث (اسم أو رقم بطاقة)
@@ -356,6 +369,11 @@ export default async function TransactionsPage({
 
   return (
     <Shell facilityName={session.name} session={session}>
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          @page { size: A4 landscape; margin: 1cm; }
+        }
+      ` }} />
       <div id="printable-report" className="space-y-4 pb-20">
 
         {/* Print-only header */}
@@ -364,6 +382,7 @@ export default async function TransactionsPage({
           <img src="/logo.png" alt="Waha Health Care" className="h-16 w-auto object-contain mb-2" />
           <h1 className="text-xl font-black text-black">Waha Health Care</h1>
           <h2 className="text-lg font-bold text-black mt-1">سجل الحركات (المراجعة الطبية)</h2>
+          <p className="text-sm font-bold text-black mt-1">الفترة الزمنية: {start_date ? `من ${start_date}` : "من البداية"} - {end_date ? `إلى ${end_date}` : "إلى الآن"}</p>
           <p className="text-sm text-black mt-1 opacity-75">تاريخ استخراج التقرير: {formatDateTripoli(new Date(), "en-GB")}</p>
           {session.is_admin && resolvedFacilityId && <p className="text-sm font-bold mt-1 text-black">خاص بالمرفق: {selectedFacility?.name}</p>}
         </div>
@@ -435,6 +454,7 @@ export default async function TransactionsPage({
                     sort: sortCol,
                     order: sortDir,
                     status: statusFilter,
+                    tx_type: txTypeFilter,
                     source: sourceFilter,
                     tx_ids: transactionRows.filter(tx => !tx.is_cancelled && tx.type !== "CANCELLATION").map((tx) => tx.id).join(","),
                   }}
@@ -470,6 +490,7 @@ export default async function TransactionsPage({
           <input type="hidden" name="end_date" value={end_date ?? ""} />
           <input type="hidden" name="facility_id" value={facility_id ?? ""} />
           <input type="hidden" name="status" value={statusFilter} />
+          {txTypeFilter !== "all" && <input type="hidden" name="tx_type" value={txTypeFilter} />}
           {sourceFilter !== "all" && <input type="hidden" name="source" value={sourceFilter} />}
           <div className="w-full">
             <label className="block text-xs font-black text-slate-400 mb-1">بحث باسم المستفيد أو رقم البطاقة</label>
@@ -503,13 +524,15 @@ export default async function TransactionsPage({
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">الحالة</label>
+                <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">نوع الحركة</label>
                 <select
-                  name="status"
-                  defaultValue={statusFilter}
+                  name="tx_type"
+                  defaultValue={txTypeFilter}
                   className="flex h-10 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
                 >
-                  <option value="active">منفذة فعلياً</option>
+                  <option value="all">الكل</option>
+                  <option value="supplies">كشف عام</option>
+                  <option value="medicine">أدوية صرف عام</option>
                 </select>
               </div>
 

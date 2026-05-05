@@ -9,12 +9,12 @@ import { AutoPrint } from "@/components/auto-print";
 export default async function TransactionPrintPage({
   searchParams,
 }: {
-  searchParams: Promise<{ start_date?: string; end_date?: string; facility_id?: string; q?: string; status?: string; source?: string }>;
+  searchParams: Promise<{ start_date?: string; end_date?: string; facility_id?: string; q?: string; status?: string; tx_type?: string; source?: string }>;
 }) {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const { start_date, end_date, facility_id, q, source } = await searchParams;
+  const { start_date, end_date, facility_id, q, source, tx_type } = await searchParams;
 
   const facilities = session.is_admin
     ? await prisma.facility.findMany({ where: { deleted_at: null }, select: { id: true, name: true } })
@@ -43,6 +43,13 @@ export default async function TransactionPrintPage({
     where.AND = [...(where.AND || []), { type: "IMPORT" }];
   } else if (session.is_admin && sourceFilter === "manual") {
     if (!where.type) where.type = { in: ["MEDICINE", "SUPPLIES", "SETTLEMENT"] };
+  }
+
+  const txTypeFilter = tx_type ?? "all";
+  if (txTypeFilter === "supplies") {
+    where.AND = [...(where.AND || []), { type: "SUPPLIES" }];
+  } else if (txTypeFilter === "medicine") {
+    where.AND = [...(where.AND || []), { type: { in: ["MEDICINE", "IMPORT"] } }];
   }
 
   const searchQuery = q?.trim().slice(0, 100) ?? "";
@@ -197,9 +204,9 @@ export default async function TransactionPrintPage({
                  <div style={{ fontSize: '22px', fontWeight: 'bold' }}>{reportTotalAmount.toLocaleString("ar-LY")} د.ل</div>
               </td>
               <td style={{ width: '33.33%' }}>
-                 <div style={{ fontSize: '12px' }}>{isSingleBeneficiary ? "الرصيد المتبقي" : "الفترة الزمانية"}</div>
+                 <div style={{ fontSize: '12px' }}>الفترة الزمنية</div>
                  <div style={{ fontSize: '20px', fontWeight: 'bold' }}>
-                    {isSingleBeneficiary ? reportTotalRemaining.toLocaleString("ar-LY") + " د.ل" : `${start_date || "من البداية"} - ${end_date || "اليوم"}`}
+                    {`${start_date || "من البداية"} - ${end_date || "اليوم"}`}
                  </div>
               </td>
             </tr>

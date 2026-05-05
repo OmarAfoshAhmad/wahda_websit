@@ -21,6 +21,7 @@ import { LegacyNoPaymentPurgeButton } from "./legacy-no-payment-purge-button";
 import { StatusAnomaliesCheckButton } from "./status-anomalies-check-button";
 import { OrphanedNotificationsCheckButton } from "./orphaned-notifications-check-button";
 import { FixInvalidSubunitAmountsButton } from "./fix-invalid-subunit-amounts-button";
+import { PharmacySuppliesFixSection, PharmacySupplyAnomalyRow } from "./pharmacy-supplies-fix-section";
 
 type UnlinkedCorrectionRow = {
   id: string;
@@ -254,6 +255,7 @@ export async function DataHealthContent({
     stableOnlyRows,
     legacyWithBatchRows,
     legacyNoPaymentRows,
+    pharmacySupplyRows,
   ] = await Promise.all([
     prisma.$queryRaw<UnlinkedCorrectionRow[]>`
       SELECT
@@ -719,6 +721,24 @@ export async function DataHealthContent({
       ORDER BY b.card_number ASC
       LIMIT 1000
     `,
+
+    prisma.$queryRaw<PharmacySupplyAnomalyRow[]>`
+      SELECT
+        t.id,
+        b.name AS beneficiary_name,
+        b.card_number,
+        f.name AS facility_name,
+        t.amount::float8 AS amount,
+        t.created_at
+      FROM "Transaction" t
+      JOIN "Beneficiary" b ON b.id = t.beneficiary_id
+      JOIN "Facility" f ON f.id = t.facility_id
+      WHERE t.type = 'SUPPLIES'
+        AND t.is_cancelled = false
+        AND f.name LIKE '%صيدل%'
+      ORDER BY t.created_at DESC
+      LIMIT 500
+    `,
   ]);
 
   const legacyMembersByFamily = legacyFractionalImportMemberRows.reduce<Record<string, LegacyFractionalImportMemberRow[]>>((acc, row) => {
@@ -868,6 +888,15 @@ export async function DataHealthContent({
     )
     : legacyNoPaymentRows;
 
+  const filteredPharmacySupplyRows = hasSearchQuery
+    ? pharmacySupplyRows.filter(
+      (row) =>
+        row.beneficiary_name.toLowerCase().includes(normalizedSearchQuery) ||
+        row.card_number.toLowerCase().includes(normalizedSearchQuery) ||
+        row.facility_name.toLowerCase().includes(normalizedSearchQuery)
+    )
+    : pharmacySupplyRows;
+
   const showLegacySections = legacyMode;
   const showGeneralSections = !legacyMode;
 
@@ -909,6 +938,16 @@ export async function DataHealthContent({
             }}
           />
         </div>
+      </Section>
+      )}
+
+      {showGeneralSections && (
+      <Section title="كشوفات صيدليات (تحتاج تحويل لأدوية)" count={filteredPharmacySupplyRows.length}>
+        <p className="text-xs text-slate-600 dark:text-slate-300">
+          يعرض هذا القسم الحركات التي تم تسجيلها كـ (كشف عام) ولكنها نُفذت في مرافق تحتوي أسماؤها على كلمة &quot;صيدلية&quot;، 
+          مما يعني أنه ينبغي تحويل نوعها لتصبح (أدوية صرف عام) لضبط التقارير الإحصائية. لا يؤثر هذا على الرصيد المالي المتبقي.
+        </p>
+        <PharmacySuppliesFixSection rows={filteredPharmacySupplyRows} />
       </Section>
       )}
 

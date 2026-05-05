@@ -427,3 +427,39 @@ export async function fixTotalBalanceDriftAction(actor?: BackgroundActor): Promi
     return { success: false, fixed_count: 0, total_corrected: 0, error: "حدث خطأ أثناء إصلاح انجراف الرصيد الكلي" };
   }
 }
+
+export async function convertPharmacySuppliesToMedicineAction(transactionIds: string[]) {
+  try {
+    const session = await getSession();
+    if (!session?.is_admin) return { success: false, error: "غير مصرح" };
+
+    if (!transactionIds.length) return { success: true, count: 0 };
+
+    const { count } = await prisma.transaction.updateMany({
+      where: {
+        id: { in: transactionIds },
+        type: 'SUPPLIES'
+      },
+      data: {
+        type: 'MEDICINE'
+      }
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        user: session.username,
+        action: "ADMIN_MAINTENANCE",
+        metadata: {
+          sub_action: "CONVERT_PHARMACY_SUPPLIES",
+          updated_count: count,
+          transaction_ids: transactionIds,
+        },
+      },
+    });
+
+    return { success: true, count };
+  } catch (error: any) {
+    console.error("convertPharmacySuppliesToMedicineAction error:", error);
+    return { success: false, error: error.message || "حدث خطأ غير متوقع" };
+  }
+}
