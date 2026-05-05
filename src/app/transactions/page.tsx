@@ -73,7 +73,7 @@ function getTransactionStatusLabel(tx: TransactionRow): string {
 export default async function TransactionsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ start_date?: string; end_date?: string; facility_id?: string; page?: string; pageSize?: string; q?: string; sort?: string; order?: string; status?: string; source?: string; focus_tx?: string }>;
+  searchParams: Promise<{ start_date?: string; end_date?: string; facility_id?: string; page?: string; pageSize?: string; q?: string; sort?: string; order?: string; status?: string; source?: string; focus_tx?: string; tx_type?: string }>;
 }) {
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
