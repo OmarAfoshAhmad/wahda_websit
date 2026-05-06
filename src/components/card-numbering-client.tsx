@@ -83,6 +83,7 @@ export function CardNumberingClient({
   const [usePadding, setUsePadding] = useState(true);
   const [importCity, setImportCity] = useState(""); // حقل المدينة اليدوي
   const [importBatchNumber, setImportBatchNumber] = useState(""); // حقل الدفعة اليدوي
+  const [batchFilter, setBatchFilter] = useState(""); // فلتر الدفعة للعرض
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [pendingData, setPendingData] = useState<{data: any[], fileName: string} | null>(null);
   const [confirmModal, setConfirmModal] = useState<{ open: boolean, title: string, message: string, onConfirm: () => void, variant?: "danger" | "warning" | "info" }>({
@@ -148,7 +149,7 @@ export function CardNumberingClient({
           const findKey = (keywords: string[]) => 
             keys.find(k => keywords.some(kw => String(k).includes(kw)));
 
-          const nameKey = findKey(["الاسم", "Name", "المستفيد", "اسم الموظف", "اسم العضو", "Full Name"]);
+          const nameKey = findKey(["الأسم", "الاسم", "الإسم", "اسم المستفيد", "المستفيد", "Name", "اسم الموظف", "اسم العضو", "Full Name"]);
           const relKey = findKey(["صلة", "القرابة", "Relationship", "النوع", "الصلة", "Rel"]);
           const bDateKey = findKey(["ميلاد", "Birth", "تاريخ", "BDate", "DOB"]);
           const statusKey = findKey(["الحالة", "Status", "الوضع"]);
@@ -177,7 +178,7 @@ export function CardNumberingClient({
             empNum = lastEmpNum;
           }
 
-          const forbiddenWords = ["زوجة", "زوج", "ابن", "ابنة", "ام", "اب", "موظف", "موظفة", "متقاعد", "متقاعدة", "رب الأسرة", "وفاة", "موقوف", "بنت", "ولد", "والدة", "والد"];
+          const forbiddenWords = ["زوجة", "زوج", "ابن", "ابنة", "ابنه", "ابنته", "ام", "اب", "موظف", "موظفة", "متقاعد", "متقاعدة", "رب الأسرة", "وفاة", "موقوف", "بنت", "ولد", "والدة", "والد", "صاحب البطاقة"];
           
           if (!name || forbiddenWords.includes(String(name).trim())) {
             const candidates = values.filter(v => 
@@ -374,8 +375,15 @@ export function CardNumberingClient({
   };
 
   const handleExport = () => {
-    const rawData = selectedIds.length > 0 ? items.filter(i => selectedIds.includes(i.id)) : items;
-    if (rawData.length === 0) return;
+    // إذا كان هناك تحديد، نستخدم المحدد، وإلا نستخدم القائمة المفلترة الحالية
+    const rawData = selectedIds.length > 0 
+      ? items.filter(i => selectedIds.includes(i.id)) 
+      : filteredItems;
+    
+    if (rawData.length === 0) {
+      toast.info("لا توجد سجلات للتصدير.");
+      return;
+    }
 
     const getExclusionReason = (item: any) => {
       const text = `${item.name} ${item.status || ""} ${item.relationship || ""} ${item.error_message || ""}`.toLowerCase();
@@ -635,22 +643,24 @@ export function CardNumberingClient({
       item.employee_number.includes(activeSearchTerm) ||
       item.card_number.toLowerCase().includes(activeSearchTerm.toLowerCase());
     
+    const matchesBatch = !batchFilter || String(item.batch_number || "").includes(batchFilter);
+
     if (statusFilter !== "ALL") {
       if (statusFilter === "SUSPICIOUS_DATE") {
-        return matchesSearch && item.birth_date?.endsWith("-12-31");
+        return matchesSearch && matchesBatch && item.birth_date?.endsWith("-12-31");
       }
       if (statusFilter === "DUPLICATE_FILE") {
-        return matchesSearch && item.status === "DUPLICATE" && item.error_message?.includes("[FILE]");
+        return matchesSearch && matchesBatch && item.status === "DUPLICATE" && item.error_message?.includes("[FILE]");
       }
       if (statusFilter === "DUPLICATE_SYSTEM") {
-        return matchesSearch && item.status === "DUPLICATE" && item.error_message?.includes("[SYSTEM]");
+        return matchesSearch && matchesBatch && item.status === "DUPLICATE" && item.error_message?.includes("[SYSTEM]");
       }
       if (statusFilter === "DUPLICATE_ARCHIVE") {
-        return matchesSearch && item.status === "DUPLICATE" && item.error_message?.includes("[ARCHIVE]");
+        return matchesSearch && matchesBatch && item.status === "DUPLICATE" && item.error_message?.includes("[ARCHIVE]");
       }
-      return matchesSearch && item.status === statusFilter;
+      return matchesSearch && matchesBatch && item.status === statusFilter;
     }
-    return matchesSearch;
+    return matchesSearch && matchesBatch;
   });
 
   const paginatedItems = filteredItems.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
@@ -798,7 +808,21 @@ export function CardNumberingClient({
                 placeholder="بحث بالاسم أو الرقم الوظيفي..."
               />
             </div>
-            <Button onClick={handleSearch} className="rounded-xl px-6 bg-slate-900 dark:bg-blue-600 hover:bg-slate-800 dark:hover:bg-blue-700 text-white shadow-md">بحث</Button>
+            <div className="w-32">
+              <input
+                type="text"
+                value={batchFilter}
+                onChange={(e) => {
+                  setBatchFilter(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="w-full px-3 py-2.5 text-sm bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-slate-900 dark:text-white"
+                placeholder="دفعة..."
+              />
+            </div>
+            <Button onClick={handleSearch} size="sm" className="h-[42px] px-6 rounded-xl bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-bold">
+              بحث
+            </Button>
           </div>
 
           {/* معلومات العرض */}

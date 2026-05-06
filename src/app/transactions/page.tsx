@@ -16,7 +16,7 @@ import { TransactionCancelButton } from "@/components/transaction-cancel-button"
 import { ImportSourceBadgeWithPanel } from "@/components/import-source-badge-with-panel";
 import Link from "next/link";
 import { FileInput, PlusCircle } from "lucide-react";
-import { formatDateTripoli, formatTimeTripoli } from "@/lib/datetime";
+import { formatDateTripoli, formatTimeTripoli, getStartOfDayTripoli, getEndOfDayTripoli } from "@/lib/datetime";
 
 type TransactionRow = {
   id: string;
@@ -128,7 +128,6 @@ export default async function TransactionsPage({
     if (txTypeFilter !== "all") p.set("tx_type", txTypeFilter);
     if (sourceFilter !== "all") p.set("source", sourceFilter);
     p.set("pageSize", String(PAGE_SIZE));
-    p.set("sort", sortCol);
     p.set("order", sortDir);
     Object.entries(overrides).forEach(([k, v]) => {
       if (v === "") {
@@ -215,22 +214,26 @@ export default async function TransactionsPage({
   // عند عدم تحديد أي تاريخ: نعرض آخر 30 يوم فقط لضمان الأداء
   const hasDateFilter = !!(start_date || end_date);
   where.created_at = {};
+  
   if (start_date) {
-    const start = new Date(start_date);
+    const start = getStartOfDayTripoli(start_date);
     if (!isNaN(start.getTime())) {
       where.created_at.gte = start;
     }
   } else if (!hasDateFilter) {
-    const defaultStart = new Date();
-    defaultStart.setDate(defaultStart.getDate() - 30);
-    defaultStart.setHours(0, 0, 0, 0);
-    where.created_at.gte = defaultStart;
+    // التقصير لآخر 30 يوم حسب توقيت طرابلس
+    const nowTripoli = new Date(new Date().toLocaleString("en-US", { timeZone: "Africa/Tripoli" }));
+    nowTripoli.setDate(nowTripoli.getDate() - 30);
+    nowTripoli.setHours(0, 0, 0, 0);
+    
+    // تحويل الوقت من "قيمة طرابلس في كائن التاريخ" إلى لحظة زمنية صحيحة (UTC+2)
+    const dateStr = nowTripoli.toISOString().split('T')[0];
+    where.created_at.gte = getStartOfDayTripoli(dateStr);
   }
+  
   if (end_date) {
-    const end = new Date(end_date);
+    const end = getEndOfDayTripoli(end_date);
     if (!isNaN(end.getTime())) {
-      // نضبط الوقت لنهاية اليوم لضمان شمولية اليوم المحدد
-      end.setHours(23, 59, 59, 999);
       where.created_at.lte = end;
     }
   }

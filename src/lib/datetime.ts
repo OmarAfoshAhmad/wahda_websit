@@ -21,3 +21,19 @@ export function formatDateTimeTripoli(
 ): string {
   return toDate(value).toLocaleString(locale, { ...options, timeZone: TRIPOLI_TIMEZONE });
 }
+
+/**
+ * Returns a Date object representing the start of the day (00:00:00) 
+ * for the given YYYY-MM-DD string in Africa/Tripoli timezone.
+ */
+export function getStartOfDayTripoli(dateStr: string): Date {
+  return new Date(`${dateStr}T00:00:00+02:00`);
+}
+
+/**
+ * Returns a Date object representing the end of the day (23:59:59.999) 
+ * for the given YYYY-MM-DD string in Africa/Tripoli timezone.
+ */
+export function getEndOfDayTripoli(dateStr: string): Date {
+  return new Date(`${dateStr}T23:59:59.999+02:00`);
+}

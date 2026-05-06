@@ -4,6 +4,8 @@ import { getSessionWithFreshPermissions } from "@/lib/session-guard";
 import { Shell } from "@/components/shell";
 import { Card, Button, Input } from "@/components/ui";
 import prisma from "@/lib/prisma";
+import { TruthRegistryImport } from "@/components/admin/truth-registry-import";
+import { Import } from "lucide-react";
 
 type RegistryRow = {
   id: string;
@@ -250,10 +252,25 @@ export default async function TruthRegistryPage({
               مصدر الحقيقة لبيانات إصدار البطاقات CardIssuanceRegistry.
             </p>
           </div>
-          <Link href="/admin/duplicates" className="inline-flex">
-            <Button type="button" variant="outline" className="h-10">العودة إلى إدارة المشاكل</Button>
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link href="/admin/duplicates" className="inline-flex">
+              <Button type="button" variant="outline" className="h-10 text-xs">العودة لإدارة المشاكل</Button>
+            </Link>
+          </div>
         </div>
+
+        <details className="group">
+          <summary className="flex cursor-pointer items-center justify-between rounded-lg bg-slate-100 p-4 font-bold dark:bg-slate-800 list-none">
+            <div className="flex items-center gap-2">
+              <Import className="h-5 w-5 text-primary" />
+              <span>استيراد بيانات جديدة لجدول الحقيقة</span>
+            </div>
+            <span className="text-xs text-slate-500 group-open:rotate-180 transition-transform">▼</span>
+          </summary>
+          <div className="mt-4">
+            <TruthRegistryImport />
+          </div>
+        </details>
 
         <Card className="p-4">
           <form className="flex flex-wrap items-center gap-2">

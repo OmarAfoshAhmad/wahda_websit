@@ -5,7 +5,7 @@ import prisma from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { logger } from "@/lib/logger";
 import { getArabicSearchTerms } from "@/lib/search";
-import { formatDateTripoli, formatTimeTripoli } from "@/lib/datetime";
+import { formatDateTripoli, formatTimeTripoli, getStartOfDayTripoli, getEndOfDayTripoli } from "@/lib/datetime";
 import ExcelJS from "exceljs";
 
 export async function GET(request: NextRequest) {
@@ -22,6 +22,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const start_date = searchParams.get("start_date");
   const end_date = searchParams.get("end_date");
+  const batch_number = (searchParams.get("batch_number") ?? "").trim();
   const rawFacilityFilter = (searchParams.get("facility_id") ?? "").trim();
   const q = searchParams.get("q");
   const txIdsParam = (searchParams.get("tx_ids") ?? "").trim();
@@ -63,6 +64,10 @@ export async function GET(request: NextRequest) {
     where.type = { in: ["MEDICINE", "SUPPLIES"] };
   }
 
+  if (batch_number) {
+    where.beneficiary = { ...where.beneficiary as object, batch_number };
+  }
+
   if (q && q.trim() !== "") {
     where.OR = getArabicSearchTerms(q.trim()).flatMap(t => [
       { beneficiary: { name: { contains: t, mode: "insensitive" as const } } },
@@ -98,20 +103,20 @@ export async function GET(request: NextRequest) {
   const hasDateFilter = !!(start_date || end_date);
   where.created_at = {};
   if (start_date) {
-    const start = new Date(start_date);
+    const start = getStartOfDayTripoli(start_date);
     if (!isNaN(start.getTime())) {
       where.created_at.gte = start;
     }
   } else if (!hasDateFilter) {
-    const defaultStart = new Date();
-    defaultStart.setDate(defaultStart.getDate() - 30);
-    defaultStart.setHours(0, 0, 0, 0);
-    where.created_at.gte = defaultStart;
+    const nowTripoli = new Date(new Date().toLocaleString("en-US", { timeZone: "Africa/Tripoli" }));
+    nowTripoli.setDate(nowTripoli.getDate() - 30);
+    nowTripoli.setHours(0, 0, 0, 0);
+    const dateStr = nowTripoli.toISOString().split('T')[0];
+    where.created_at.gte = getStartOfDayTripoli(dateStr);
   }
   if (end_date) {
-    const end = new Date(end_date);
+    const end = getEndOfDayTripoli(end_date);
     if (!isNaN(end.getTime())) {
-      end.setHours(23, 59, 59, 999);
       where.created_at.lte = end;
     }
   }

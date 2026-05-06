@@ -20,7 +20,7 @@ export type CardNumberingItem = {
 // رموز اللاحقة للعائلة
 const RELATIONSHIP_CODE_MAP: Record<string, string> = {
   "زوجة": "W", "زوج": "H",
-  "ابن": "S", "ابنة": "D", "ابنه": "D", "ولد": "S", "بنت": "D",
+  "ابن": "S", "ابنة": "D", "ابنه": "D", "ابنته": "D", "ولد": "S", "بنت": "D",
   "أم": "M", "ام": "M", "والدة": "M",
   "أب": "F", "اب": "F", "والد": "F",
   "W": "W", "S": "S", "D": "D", "M": "M", "F": "F", "H": "H"
@@ -35,7 +35,7 @@ const getRelRank = (rel: string) => {
   if (["أم", "ام", "والدة"].includes(r)) return 3;
   if (["زوجة", "زوج"].includes(r)) return 4;
   if (["ابن", "ولد"].includes(r)) return 5;
-  if (["ابنة", "بنت", "ابنه"].includes(r)) return 6;
+  if (["ابنة", "بنت", "ابنه", "ابنته"].includes(r)) return 6;
   return 7;
 };
 
@@ -205,12 +205,24 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
 
       let bDate = null;
       if (item.birth_date) {
-        // التحقق من صحة التاريخ قبل الحفظ
         const d = new Date(item.birth_date);
         if (!isNaN(d.getTime())) {
-          // نستخدم التاريخ كما هو لضمان عدم تأثره بالمنطقة الزمنية عند الاسترجاع
           bDate = d;
         }
+      }
+
+      // --- جلب البيانات المرجعية من جدول الحقيقة (CardIssuanceRegistry) ---
+      let autoCity = item.city;
+      let autoBatch = item.batch_number;
+
+      // نبحث عن بيانات الموظف الرئيسي في جدول الحقيقة باستخدام رقم البطاقة الأساسي
+      const registryEntry = await prisma.cardIssuanceRegistry.findUnique({
+        where: { card_number_upper: baseCard }
+      });
+
+      if (registryEntry) {
+        autoCity = registryEntry.city;
+        autoBatch = registryEntry.batch_number || autoBatch;
       }
 
       await prisma.cardNumberingArchive.upsert({
@@ -220,8 +232,8 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
           employee_number: empNum,
           relationship: rel || null,
           birth_date: bDate,
-          city: manualCity || item.city || null,         // استخدام القيمة اليدوية إذا وجدت
-          batch_number: manualBatch || item.batch_number || null, // استخدام القيمة اليدوية إذا وجدت
+          city: manualCity || autoCity || null,
+          batch_number: manualBatch || autoBatch || null,
           status,
           error_message: errorMsg,
           source_file: sourceFile,
@@ -233,8 +245,8 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
           employee_number: empNum,
           relationship: rel || null,
           birth_date: bDate,
-          city: manualCity || item.city || null,
-          batch_number: manualBatch || item.batch_number || null,
+          city: manualCity || autoCity || null,
+          batch_number: manualBatch || autoBatch || null,
           status,
           error_message: errorMsg,
           source_file: sourceFile,

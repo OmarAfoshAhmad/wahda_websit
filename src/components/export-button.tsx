@@ -10,11 +10,22 @@ interface ExportButtonProps {
 export function ExportButton({ searchParams }: ExportButtonProps) {
   const handleExport = () => {
     const params = new URLSearchParams();
-    Object.entries(searchParams).forEach(([key, value]) => {
-      // نتجاهل المعرفات الفردية وخصائص التقسيم للصفحات لأن التصدير يجب أن يشمل جميع النتائج المطلوبة
-      if (!value || key === "tx_ids" || key === "page" || key === "pageSize") return;
-      params.append(key, value);
-    });
+    
+    // 1. البحث عن السجلات المحددة يدوياً عبر Checkboxes في الصفحة
+    const checkedCheckboxes = document.querySelectorAll('input[data-bulk-tx-checkbox="1"]:checked');
+    const selectedIds = Array.from(checkedCheckboxes).map((cb) => (cb as HTMLInputElement).value);
+
+    if (selectedIds.length > 0) {
+      // إذا تم تحديد سجلات، نصدرها هي فقط
+      params.append("tx_ids", selectedIds.join(","));
+    } else {
+      // إذا لم يتم تحديد شيء، نستخدم الفلاتر الحالية لتصدير الكل
+      Object.entries(searchParams).forEach(([key, value]) => {
+        // نتجاهل المعرفات الفردية (لأننا لم نحدد شيء) وخصائص التقسيم للصفحات
+        if (!value || key === "tx_ids" || key === "page" || key === "pageSize") return;
+        params.append(key, value);
+      });
+    }
     
     // فتح الرابط في نافذة جديدة ليبدأ التحميل
     window.open(`/api/export/transactions?${params.toString()}`, "_blank");
