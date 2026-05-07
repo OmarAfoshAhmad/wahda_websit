@@ -2,7 +2,7 @@ import { getSession } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { getArabicSearchTerms } from "@/lib/search";
-import { formatDateTripoli, formatTimeTripoli } from "@/lib/datetime";
+import { formatDateTripoli, formatTimeTripoli, getStartOfDayTripoli, getEndOfDayTripoli } from "@/lib/datetime";
 import { BackButton } from "@/components/back-button";
 import { AutoPrint } from "@/components/auto-print";
 
@@ -62,23 +62,28 @@ export default async function TransactionPrintPage({
   }
 
   const hasDateFilter = !!(start_date || end_date);
-  if (start_date || end_date || !hasDateFilter) {
-    where.created_at = {};
-    if (start_date) {
-      const start = new Date(start_date);
-      if (!isNaN(start.getTime())) where.created_at.gte = start;
-    } else if (!hasDateFilter) {
-      const defaultStart = new Date();
-      defaultStart.setDate(defaultStart.getDate() - 30);
-      defaultStart.setHours(0, 0, 0, 0);
-      where.created_at.gte = defaultStart;
+  where.created_at = {};
+  
+  if (start_date) {
+    const start = getStartOfDayTripoli(start_date);
+    if (!isNaN(start.getTime())) {
+      where.created_at.gte = start;
     }
-    if (end_date) {
-      const end = new Date(end_date);
-      if (!isNaN(end.getTime())) {
-        end.setHours(23, 59, 59, 999);
-        where.created_at.lte = end;
-      }
+  } else if (!hasDateFilter) {
+    // التقصير لآخر 30 يوم حسب توقيت طرابلس
+    const nowTripoli = new Date(new Date().toLocaleString("en-US", { timeZone: "Africa/Tripoli" }));
+    nowTripoli.setDate(nowTripoli.getDate() - 30);
+    nowTripoli.setHours(0, 0, 0, 0);
+    
+    // تحويل الوقت من "قيمة طرابلس في كائن التاريخ" إلى لحظة زمنية صحيحة (UTC+2)
+    const dateStr = nowTripoli.toISOString().split('T')[0];
+    where.created_at.gte = getStartOfDayTripoli(dateStr);
+  }
+  
+  if (end_date) {
+    const end = getEndOfDayTripoli(end_date);
+    if (!isNaN(end.getTime())) {
+      where.created_at.lte = end;
     }
   }
 
