@@ -197,20 +197,25 @@ export function CardNumberingClient({
           }
           
           let bDate = "";
+          let originalDate = "";  // التاريخ الأصلي من الملف
+          
           if (bDateRaw instanceof Date) {
             const y = bDateRaw.getFullYear();
             const m = String(bDateRaw.getMonth() + 1).padStart(2, '0');
             const d = String(bDateRaw.getDate()).padStart(2, '0');
             bDate = `${y}-${m}-${d}`;
+            originalDate = bDate;
           } else if (typeof bDateRaw === "number") {
             const date = new Date(Math.round((bDateRaw - 25569) * 86400 * 1000));
             const y = date.getUTCFullYear();
             const m = String(date.getUTCMonth() + 1).padStart(2, '0');
             const d = String(date.getUTCDate()).padStart(2, '0');
             bDate = `${y}-${m}-${d}`;
+            originalDate = bDate;
           } else {
             // إزالة الأحرف غير المرئية (LTR/RTL) التي يضيفها الإكسيل وتتسبب في فشل التحليل
             let strDate = String(bDateRaw || "").replace(/[^\d\/\-]/g, "").trim();
+            originalDate = strDate;  // حفظ التاريخ الأصلي قبل أي معالجة
             
             if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}$/.test(strDate)) {
                const parts = strDate.split(/[\/\-]/);
@@ -228,6 +233,7 @@ export function CardNumberingClient({
             employee_number: String(empNum || "").trim(),
             relationship: String(rel || "").trim(),
             birth_date: bDate,
+            original_date: originalDate,  // إضافة التاريخ الأصلي
             status: statusKey ? String(row[statusKey] || "").trim() : "",
             field3: notesKey ? String(row[notesKey] || "").trim() : "",
           };
@@ -649,6 +655,9 @@ export function CardNumberingClient({
       if (statusFilter === "SUSPICIOUS_DATE") {
         return matchesSearch && matchesBatch && item.birth_date?.endsWith("-12-31");
       }
+      if (statusFilter === "MISMATCHED") {
+        return matchesSearch && matchesBatch && item.match_percentage !== null && item.match_percentage < 100;
+      }
       if (statusFilter === "DUPLICATE_FILE") {
         return matchesSearch && matchesBatch && item.status === "DUPLICATE" && item.error_message?.includes("[FILE]");
       }
@@ -890,6 +899,13 @@ export function CardNumberingClient({
             count={items.filter(i => i.birth_date?.endsWith("-12-31")).length}
             variant="warning"
           />
+          <StatusChip 
+            active={statusFilter === "MISMATCHED"} 
+            onClick={() => setStatusFilter("MISMATCHED")}
+            label="بيانات غير متطابقة"
+            count={items.filter(i => i.match_percentage !== null && i.match_percentage < 100).length}
+            variant="warning"
+          />
         </div>
       </div>
 
@@ -905,8 +921,11 @@ export function CardNumberingClient({
                 </th>
                 <th className="px-4 py-3 font-black text-slate-500">المستفيد / الرقم الوظيفي</th>
                 <th className="px-4 py-3 font-black text-slate-500">رقم البطاقة</th>
-                <th className="px-4 py-3 font-black text-slate-500">المواليد</th>
+                <th className="px-4 py-3 font-black text-slate-500">تاريخ الميلاد</th>
+                <th className="px-4 py-3 font-black text-slate-500">التاريخ الأصلي</th>
+                <th className="px-4 py-3 font-black text-slate-500">نسبة التطابق</th>
                 <th className="px-4 py-3 font-black text-slate-500">الدفعة</th>
+                <th className="px-4 py-3 font-black text-slate-500">المدينة</th>
                 <th className="px-4 py-3 font-black text-slate-500">الحالة</th>
                 <th className="px-4 py-3 font-black text-slate-500">التفاصيل / الأخطاء</th>
               </tr>
@@ -914,7 +933,7 @@ export function CardNumberingClient({
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {paginatedItems.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-slate-500">
+                  <td colSpan={10} className="px-6 py-12 text-center text-slate-500">
                     {activeSearchTerm ? "لا توجد نتائج تطابق بحثك." : "لا توجد بيانات بانتظار المعالجة."}
                   </td>
                 </tr>
@@ -934,8 +953,34 @@ export function CardNumberingClient({
                     <td className="px-4 py-3 text-xs font-bold text-slate-600">
                       {item.birth_date || "---"}
                     </td>
-                    <td className="px-4 py-3 text-xs text-slate-400 max-w-[120px] truncate" title={item.source_file || "يدوي"}>
-                      {item.source_file || "يدوي"}
+                    <td className="px-4 py-3 text-xs font-bold text-slate-500" title={item.original_date || ""}>
+                      {item.original_date || "---"}
+                    </td>
+                    <td className="px-4 py-3">
+                      {item.match_percentage !== null && item.match_percentage !== undefined ? (
+                        <div className="flex items-center gap-2">
+                          <div className="w-16 h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                            <div 
+                              className={cn(
+                                "h-full transition-all",
+                                item.match_percentage === 100 ? "bg-emerald-500" :
+                                item.match_percentage >= 75 ? "bg-amber-500" :
+                                "bg-red-500"
+                              )}
+                              style={{ width: `${item.match_percentage}%` }}
+                            />
+                          </div>
+                          <span className="text-xs font-bold text-slate-600 min-w-[30px]">{Math.round(item.match_percentage)}%</span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-slate-400">N/A</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-slate-400 max-w-[120px] truncate" title={item.batch_number || "يدوي"}>
+                      {item.batch_number || "---"}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-slate-400 max-w-[100px] truncate" title={item.city || ""}>
+                      {item.city || "---"}
                     </td>
                     <td className="px-4 py-3">
                       {item.status === "READY" && <Badge variant="success">جاهز</Badge>}
@@ -947,7 +992,21 @@ export function CardNumberingClient({
                       {item.status === "ERROR" && <Badge variant="danger">خطأ</Badge>}
                     </td>
                     <td className="px-4 py-3 text-sm">
-                      {item.error_message ? <span className="text-red-500 flex items-center gap-1"><AlertCircle className="h-3.5 w-3.5" /> {item.error_message}</span> : <span className="text-slate-400 italic">سليم</span>}
+                      {item.mismatch_reasons ? (
+                        <div className="flex items-start gap-1">
+                          <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+                          <div className="flex flex-col gap-1">
+                            {item.error_message && <span className="text-red-500 text-xs">{item.error_message}</span>}
+                            {JSON.parse(item.mismatch_reasons || "[]").map((reason: string, idx: number) => (
+                              <span key={idx} className="text-amber-600 text-xs">⚠️ {reason}</span>
+                            ))}
+                          </div>
+                        </div>
+                      ) : item.error_message ? (
+                        <span className="text-red-500 flex items-center gap-1"><AlertCircle className="h-3.5 w-3.5" /> {item.error_message}</span>
+                      ) : (
+                        <span className="text-slate-400 italic">سليم</span>
+                      )}
                     </td>
                   </tr>
                 ))
@@ -1012,11 +1071,15 @@ export function CardNumberingClient({
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-1">المدينة</label>
-                  <Input 
+                  <select 
                     value={importCity} 
-                    onChange={(e) => setImportCity(e.target.value)} 
-                    placeholder="مثال: طرابلس، بنغازي..."
-                  />
+                    onChange={(e) => setImportCity(e.target.value)}
+                    className="w-full px-3 py-2.5 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-slate-900 dark:text-white"
+                  >
+                    <option value="">-- اختر المدينة --</option>
+                    <option value="بنغازي">بنغازي</option>
+                    <option value="طرابلس">طرابلس</option>
+                  </select>
                 </div>
 
                 <div>

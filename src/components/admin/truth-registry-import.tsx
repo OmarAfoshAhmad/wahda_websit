@@ -202,7 +202,7 @@ export function TruthRegistryImport() {
 
             <div className="flex gap-3 justify-end">
               <Button
-                variant="default"
+                variant="primary"
                 className="bg-emerald-600 hover:bg-emerald-700 text-white"
                 onClick={handleImport}
                 disabled={isSaving}

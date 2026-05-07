@@ -10,6 +10,7 @@ export type CardNumberingItem = {
   employee_number: string;
   relationship?: string; 
   birth_date?: string;   
+  original_date?: string; // التاريخ الأصلي من الملف
   city?: string;         // المدينة
   batch_number?: string; // رقم الدفعة
   status?: string;       
@@ -37,6 +38,54 @@ const getRelRank = (rel: string) => {
   if (["ابن", "ولد"].includes(r)) return 5;
   if (["ابنة", "بنت", "ابنه", "ابنته"].includes(r)) return 6;
   return 7;
+};
+
+// دالة لحساب نسبة التطابق بين التاريخ الأصلي والمحسوب
+const calculateMatchPercentage = (originalDate: string | undefined, calculatedDate: string | undefined): { percentage: number; mismatches: string[] } => {
+  const mismatches: string[] = [];
+  let matchScore = 100;
+
+  if (!originalDate || !calculatedDate) {
+    if (!originalDate && !calculatedDate) {
+      return { percentage: 100, mismatches: [] };
+    }
+    return { percentage: 0, mismatches: ["أحد التاريخين مفقود"] };
+  }
+
+  // استخراج أجزاء التاريخ
+  const original = originalDate.trim();
+  const calculated = calculatedDate.trim();
+
+  if (original === calculated) {
+    return { percentage: 100, mismatches: [] };
+  }
+
+  // محاولة مطابقة الأجزاء
+  const origParts = original.split(/[-\/]/).filter(p => p);
+  const calcParts = calculated.split(/[-\/]/).filter(p => p);
+
+  if (origParts.length > 0 && calcParts.length > 0) {
+    // السنة
+    if (origParts[0] !== calcParts[0]) {
+      mismatches.push("السنة مختلفة");
+      matchScore -= 40;
+    }
+    // الشهر
+    if (origParts[1] && calcParts[1] && origParts[1] !== calcParts[1]) {
+      mismatches.push("الشهر مختلف");
+      matchScore -= 30;
+    }
+    // اليوم
+    if (origParts[2] && calcParts[2] && origParts[2] !== calcParts[2]) {
+      mismatches.push("اليوم مختلف");
+      matchScore -= 30;
+    }
+  }
+
+  return { 
+    percentage: Math.max(0, matchScore), 
+    mismatches 
+  };
 };
 
 export async function getCardNumberingArchive(showDeleted: boolean = false) {
@@ -211,6 +260,12 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
         }
       }
 
+      // --- حساب نسبة التطابق بين التاريخ الأصلي والمحسوب ---
+      const { percentage: matchPercentage, mismatches } = calculateMatchPercentage(
+        item.original_date,
+        item.birth_date
+      );
+
       // --- جلب البيانات المرجعية من جدول الحقيقة (CardIssuanceRegistry) ---
       let autoCity = item.city;
       let autoBatch = item.batch_number;
@@ -232,11 +287,15 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
           employee_number: empNum,
           relationship: rel || null,
           birth_date: bDate,
+          original_date: item.original_date || null,
+          original_city: item.city || null,
           city: manualCity || autoCity || null,
           batch_number: manualBatch || autoBatch || null,
           status,
           error_message: errorMsg,
           source_file: sourceFile,
+          match_percentage: matchPercentage,
+          mismatch_reasons: mismatches.length > 0 ? JSON.stringify(mismatches) : null,
           deleted_at: null
         },
         create: {
@@ -245,11 +304,15 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
           employee_number: empNum,
           relationship: rel || null,
           birth_date: bDate,
+          original_date: item.original_date || null,
+          original_city: item.city || null,
           city: manualCity || autoCity || null,
           batch_number: manualBatch || autoBatch || null,
           status,
           error_message: errorMsg,
           source_file: sourceFile,
+          match_percentage: matchPercentage,
+          mismatch_reasons: mismatches.length > 0 ? JSON.stringify(mismatches) : null,
           deleted_at: null
         },
       });
