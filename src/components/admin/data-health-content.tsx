@@ -737,7 +737,7 @@ export async function DataHealthContent({
         AND t.is_cancelled = false
         AND f.name LIKE '%صيدل%'
       ORDER BY t.created_at DESC
-      LIMIT 500
+      LIMIT 5000
     `,
   ]);
 

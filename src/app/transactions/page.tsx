@@ -95,7 +95,9 @@ export default async function TransactionsPage({
     ? (selectedFacility?.name ?? rawFacilityFilter)
     : session.name;
 
-  const statusFilter = "active" as const;
+  const ALLOWED_STATUSES = ["all", "active", "deleted"] as const;
+  type TxStatus = typeof ALLOWED_STATUSES[number];
+  const statusFilter: TxStatus = (ALLOWED_STATUSES as ReadonlyArray<string>).includes(_status ?? "") ? _status as TxStatus : "active";
 
   const allowedTxTypes = ["all", "supplies", "medicine"] as const;
   const txTypeFilter = allowedTxTypes.includes(tx_type as any) ? (tx_type as string) : "all";
@@ -158,8 +160,13 @@ export default async function TransactionsPage({
     where.is_cancelled = false;
     where.idempotency_key = { startsWith: "cash-claim:" };
   } else {
-    // إخفاء كافة الحركات الملغاة بناءً على طلب المستخدم
-    where.is_cancelled = false;
+    // بناءً على حالة statusFilter
+    if (statusFilter === "active") {
+      where.is_cancelled = false;
+    } else if (statusFilter === "deleted") {
+      where.is_cancelled = true;
+    }
+    // "all" doesn't add any condition on is_cancelled
   }
 
   const canViewSettlement = session.is_admin || session.is_manager;
@@ -211,30 +218,20 @@ export default async function TransactionsPage({
   }
 
   // فلترة بالتاريخ (من - إلى)
-  // عند عدم تحديد أي تاريخ: نعرض آخر 30 يوم فقط لضمان الأداء
   const hasDateFilter = !!(start_date || end_date);
-  where.created_at = {};
-  
-  if (start_date) {
-    const start = getStartOfDayTripoli(start_date);
-    if (!isNaN(start.getTime())) {
-      where.created_at.gte = start;
+  if (hasDateFilter) {
+    where.created_at = {};
+    if (start_date) {
+      const start = getStartOfDayTripoli(start_date);
+      if (!isNaN(start.getTime())) {
+        where.created_at.gte = start;
+      }
     }
-  } else if (!hasDateFilter) {
-    // التقصير لآخر 30 يوم حسب توقيت طرابلس
-    const nowTripoli = new Date(new Date().toLocaleString("en-US", { timeZone: "Africa/Tripoli" }));
-    nowTripoli.setDate(nowTripoli.getDate() - 30);
-    nowTripoli.setHours(0, 0, 0, 0);
-    
-    // تحويل الوقت من "قيمة طرابلس في كائن التاريخ" إلى لحظة زمنية صحيحة (UTC+2)
-    const dateStr = nowTripoli.toISOString().split('T')[0];
-    where.created_at.gte = getStartOfDayTripoli(dateStr);
-  }
-  
-  if (end_date) {
-    const end = getEndOfDayTripoli(end_date);
-    if (!isNaN(end.getTime())) {
-      where.created_at.lte = end;
+    if (end_date) {
+      const end = getEndOfDayTripoli(end_date);
+      if (!isNaN(end.getTime())) {
+        where.created_at.lte = end;
+      }
     }
   }
 
@@ -410,7 +407,7 @@ export default async function TransactionsPage({
             <div className="min-w-0">
               <h1 className="text-xl font-black text-slate-900 dark:text-white sm:text-2xl">سجل الحركات (المراجعة الطبية)</h1>
               <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                {hasDateFilter ? "نتائج مفلترة" : "آخر 30 يوم — حدد تاريخاً لعرض فترة مختلفة"}
+                {hasDateFilter ? "نتائج مفلترة بالتاريخ" : "عرض كافة الحركات من البداية"}
               </p>
             </div>
             {/* أزرار الرأس — أيقونات فقط على الجوال، نص كامل على الشاشات الكبيرة */}
@@ -516,7 +513,7 @@ export default async function TransactionsPage({
             <input type="hidden" name="pageSize" value={String(PAGE_SIZE)} />
             <input type="hidden" name="q" value={q ?? ""} />
 
-            <div className={`grid grid-cols-1 gap-4 ${session.is_admin ? "md:grid-cols-6" : "md:grid-cols-4"}`}>
+            <div className={`grid grid-cols-1 gap-4 ${session.is_admin ? "md:grid-cols-7" : "md:grid-cols-5"}`}>
               <div className="space-y-1">
                 <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">من تاريخ</label>
                 <Input type="date" name="start_date" defaultValue={start_date} lang="en-GB" className="[direction:ltr] text-right" />
@@ -524,6 +521,19 @@ export default async function TransactionsPage({
               <div className="space-y-1">
                 <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">إلى تاريخ</label>
                 <Input type="date" name="end_date" defaultValue={end_date} lang="en-GB" className="[direction:ltr] text-right" />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">حالة الحركة</label>
+                <select
+                  name="status"
+                  defaultValue={statusFilter}
+                  className="flex h-10 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                >
+                  <option value="all">الكل</option>
+                  <option value="active">النشطة فقط</option>
+                  <option value="deleted">المحذوفة فقط</option>
+                </select>
               </div>
 
               <div className="space-y-1">

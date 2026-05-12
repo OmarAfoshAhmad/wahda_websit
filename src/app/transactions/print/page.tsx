@@ -14,7 +14,7 @@ export default async function TransactionPrintPage({
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const { start_date, end_date, facility_id, q, source, tx_type } = await searchParams;
+  const { start_date, end_date, facility_id, q, source, tx_type, status } = await searchParams;
 
   const facilities = session.is_admin
     ? await prisma.facility.findMany({ where: { deleted_at: null }, select: { id: true, name: true } })
@@ -32,7 +32,12 @@ export default async function TransactionPrintPage({
     where.facility_id = session.id;
   }
 
-  where.is_cancelled = false;
+  const statusFilter = status ?? "active";
+  if (statusFilter === "active") {
+    where.is_cancelled = false;
+  } else if (statusFilter === "deleted") {
+    where.is_cancelled = true;
+  }
 
   const canViewSettlement = session.is_admin || session.is_manager;
   if (!canViewSettlement) {
@@ -62,28 +67,19 @@ export default async function TransactionPrintPage({
   }
 
   const hasDateFilter = !!(start_date || end_date);
-  where.created_at = {};
-  
-  if (start_date) {
-    const start = getStartOfDayTripoli(start_date);
-    if (!isNaN(start.getTime())) {
-      where.created_at.gte = start;
+  if (hasDateFilter) {
+    where.created_at = {};
+    if (start_date) {
+      const start = getStartOfDayTripoli(start_date);
+      if (!isNaN(start.getTime())) {
+        where.created_at.gte = start;
+      }
     }
-  } else if (!hasDateFilter) {
-    // التقصير لآخر 30 يوم حسب توقيت طرابلس
-    const nowTripoli = new Date(new Date().toLocaleString("en-US", { timeZone: "Africa/Tripoli" }));
-    nowTripoli.setDate(nowTripoli.getDate() - 30);
-    nowTripoli.setHours(0, 0, 0, 0);
-    
-    // تحويل الوقت من "قيمة طرابلس في كائن التاريخ" إلى لحظة زمنية صحيحة (UTC+2)
-    const dateStr = nowTripoli.toISOString().split('T')[0];
-    where.created_at.gte = getStartOfDayTripoli(dateStr);
-  }
-  
-  if (end_date) {
-    const end = getEndOfDayTripoli(end_date);
-    if (!isNaN(end.getTime())) {
-      where.created_at.lte = end;
+    if (end_date) {
+      const end = getEndOfDayTripoli(end_date);
+      if (!isNaN(end.getTime())) {
+        where.created_at.lte = end;
+      }
     }
   }
 
@@ -104,7 +100,7 @@ export default async function TransactionPrintPage({
       take: 20000, 
     }),
     prisma.transaction.aggregate({
-      where: { ...where, is_cancelled: false },
+      where,
       _sum: { amount: true },
       _count: { id: true },
     }),
@@ -123,7 +119,18 @@ export default async function TransactionPrintPage({
         style { display: none !important; }
         
         @media print {
-          @page { size: A4 landscape; margin: 1.5cm; } /* هوامش حقيقية لتجنب تداخل البيانات */
+          @page { 
+            size: A4 landscape; 
+            margin: 1cm 1cm 1.6cm 1cm; /* هوامش متوازنة تسمح بمزيد من السجلات وتزيد الارتفاع المتاح للطباعة */
+            
+            @bottom-left {
+              content: "صفحة " counter(page);
+              font-size: 11px;
+              color: black;
+              font-family: inherit;
+              padding-left: 1cm;
+            }
+          }
           html, body { 
             background: white !important; 
             margin: 0 !important; 
@@ -144,27 +151,8 @@ export default async function TransactionPrintPage({
           th, td { border: 1px solid black !important; padding: 6px !important; color: black !important; font-size: 11px !important; }
           
           thead { display: table-header-group !important; }
-          tfoot { display: table-footer-group !important; }
-
-          #page-footer-content {
-            display: block !important;
-            position: fixed;
-            bottom: -1cm; /* الترقيم داخل منطقة الهامش الحقيقية */
-            width: 100%;
-            left: 0;
-            text-align: center;
-            font-size: 11px;
-            color: black !important;
-            visibility: visible !important;
-          }
-          
-          .page-number:after {
-            counter-increment: page;
-            content: "صفحة " counter(page);
-          }
         }
 
-        #page-footer-content { display: none; }
         #printable-report { visibility: visible !important; padding: 20px; }
 
         .main-print-table {
@@ -255,10 +243,6 @@ export default async function TransactionPrintPage({
             ))}
           </tbody>
         </table>
-
-        <div id="page-footer-content">
-          <span className="page-number"></span>
-        </div>
       </div>
 
       <AutoPrint delay={1500} />
