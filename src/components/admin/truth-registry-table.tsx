@@ -93,7 +93,7 @@ export function TruthRegistryTable({ rows, totalCount, filters }: TruthRegistryT
           ? (res.deletedCount ?? totalCount) 
           : selectedIds.size;
           
-        success(`تم حذف ${countDeleted.toLocaleString("ar-LY")} سجل بنجاح من جدول الحقيقة!`);
+        success(`تم حذف ${countDeleted.toLocaleString()} سجل بنجاح من جدول الحقيقة!`);
         setSelectedIds(new Set());
         setIsAllDatabaseSelected(false);
         router.refresh();
