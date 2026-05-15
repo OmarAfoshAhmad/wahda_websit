@@ -88,7 +88,11 @@ export function TruthRegistryTable({ rows, totalCount, filters }: TruthRegistryT
       if (res.error) {
         error(res.error);
       } else {
-        const countDeleted = isAllDatabaseSelected ? (res.deletedCount ?? totalCount) : selectedIds.size;
+        // نستخدم النوع المناسب أو الحجم المحدد بناءً على نوع الحذف
+        const countDeleted = (isAllDatabaseSelected && "deletedCount" in res) 
+          ? (res.deletedCount ?? totalCount) 
+          : selectedIds.size;
+          
         success(`تم حذف ${countDeleted.toLocaleString("ar-LY")} سجل بنجاح من جدول الحقيقة!`);
         setSelectedIds(new Set());
         setIsAllDatabaseSelected(false);
