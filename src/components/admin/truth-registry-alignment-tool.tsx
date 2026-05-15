@@ -170,7 +170,7 @@ export function TruthRegistryAlignmentTool() {
                           <Button
                             type="button"
                             variant="outline"
-                            size="xs"
+                            size="sm"
                             disabled={isPending}
                             onClick={() => handleAlignSingle(row.beneficiary_id, row.registry_card_number)}
                             className="h-7 text-xs px-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 hover:text-emerald-600"
