@@ -28,6 +28,13 @@ export const metadata: Metadata = {
   description: "نظام إدارة المستفيدين الصحيين — شركة الواحة للرعاية الصحية",
 };
 
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html lang="ar" dir="rtl" data-scroll-behavior="smooth" suppressHydrationWarning>
       <head>
         <Script 
           src="/scripts/pre-hydration.js"
