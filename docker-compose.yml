@@ -15,19 +15,6 @@ services:
       timeout: 5s
       retries: 10
 
-  redis:
-    image: redis:7-alpine
-    container_name: waad-redis
-    restart: unless-stopped
-    command: redis-server --requirepass ${REDIS_PASSWORD:-waad_redis_change_me} --maxmemory 128mb --maxmemory-policy noeviction
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-waad_redis_change_me}", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   app:
     image: waad-temp-website:prod
     build:
@@ -42,11 +29,8 @@ services:
       NODE_ENV: production
       PORT: 3000
       DATABASE_URL: postgresql://${DB_USER:-waad}:${DB_PASSWORD:-waad_change_me}@db:5432/${DB_NAME:-waad}?schema=public
-      REDIS_URL: redis://:${REDIS_PASSWORD:-waad_redis_change_me}@redis:6379
     depends_on:
       db:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     ports:
       - "${APP_PORT:-3000}:3000"
@@ -65,4 +49,3 @@ services:
 
 volumes:
   postgres_data:
-  redis_data:

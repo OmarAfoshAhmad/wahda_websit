@@ -36,6 +36,7 @@ model Beneficiary {
   status            BeneficiaryStatus @default(ACTIVE)
   created_at        DateTime          @default(now())
   birth_date        DateTime?
+  phone_number      String?           // ← الحقل الجديد للتسجيل بالهاتف
   city              String?           // ← الحقل الجديد
   batch_number      String?           // ← الحقل الجديد
   deleted_at        DateTime?
@@ -63,6 +64,7 @@ model CardIssuanceRegistry {
   canonical_card    String
   beneficiary_name  String?
   birth_date        DateTime?
+  phone_number      String?
   batch_number      String?
   city              String
   source_file       String?
@@ -187,6 +189,7 @@ model CardIssuanceRegistryAll {
   canonical_card    String
   beneficiary_name  String?
   birth_date        DateTime?
+  phone_number      String?
   batch_number      String?
   city              String
   source_file       String?
@@ -260,6 +263,7 @@ model CardNumberingArchive {
   employee_number   String
   relationship      String?   // صلة القرابة (W, S, D, M, F, B, etc.)
   birth_date        DateTime? // تاريخ الميلاد المحسوب
+  phone_number      String?   // رقم الهاتف
   original_date     String?   // التاريخ الأصلي كما ظهر في الملف المستورد
   city              String?   // المدينة من الملف
   original_city     String?   // المدينة الأصلية من الملف قبل التعديل
@@ -279,4 +283,23 @@ model CardNumberingArchive {
   @@index([employee_number])
   @@index([created_at])
   @@index([deleted_at])
+}
+
+model SystemSetting {
+  key         String   @id
+  value       String   @db.Text
+  description String?
+  updated_at  DateTime @default(now()) @updatedAt
+}
+
+model OtpCode {
+  id           String   @id @default(cuid())
+  phone_number String
+  code         String
+  expires_at   DateTime
+  created_at   DateTime @default(now())
+  is_used      Boolean  @default(false)
+
+  @@index([phone_number, code])
+  @@index([expires_at])
 }

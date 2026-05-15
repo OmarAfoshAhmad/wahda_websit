@@ -30,6 +30,9 @@ export function SearchEngine() {
         <form onSubmit={handleSearch} className="flex flex-col gap-3 sm:flex-row">
           <div className="relative flex-1" ref={searchBoxRef}>
             <Input
+              id="beneficiary-search"
+              name="beneficiary-search"
+              aria-label="البحث عن مستفيد"
               value={searchInput}
               onChange={(e) => {
                 const v = e.target.value;

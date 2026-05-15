@@ -34,12 +34,13 @@ export default function LoginPage() {
           <form action={action} className="space-y-6">
             <div className="space-y-4">
               <div className="space-y-2">
-                <label className="mr-1 block text-xs font-black uppercase tracking-[0.24em] text-slate-400 dark:text-slate-500">
+                <label htmlFor="username" className="mr-1 block text-xs font-black uppercase tracking-[0.24em] text-slate-400 dark:text-slate-500">
                   اسم المستخدم
                 </label>
                 <div className="relative group">
                   <User className="absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400 dark:text-slate-500 transition-colors group-focus-within:text-primary dark:group-focus-within:text-blue-400" />
                   <Input
+                    id="username"
                     name="username"
                     autoComplete="username"
                     placeholder="اكتب اسم المستخدم"
@@ -49,12 +50,13 @@ export default function LoginPage() {
                 </div>
               </div>
               <div className="space-y-2">
-                <label className="mr-1 block text-xs font-black uppercase tracking-[0.24em] text-slate-400 dark:text-slate-500">
+                <label htmlFor="password" className="mr-1 block text-xs font-black uppercase tracking-[0.24em] text-slate-400 dark:text-slate-500">
                   كلمة المرور
                 </label>
                 <div className="relative group">
                   <Lock className="absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400 dark:text-slate-500 transition-colors group-focus-within:text-primary dark:group-focus-within:text-blue-400" />
                   <Input
+                    id="password"
                     name="password"
                     type={showPassword ? "text" : "password"}
                     autoComplete="current-password"

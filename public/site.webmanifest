@@ -1,0 +1,16 @@
+{
+  "name": "وعد للرعاية الصحية",
+  "short_name": "وعد",
+  "description": "نظام إدارة المستفيدين الصحيين",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1f4e8c",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "any",
+      "type": "image/x-icon"
+    }
+  ]
+}

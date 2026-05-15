@@ -4,10 +4,10 @@ const isProduction = process.env.NODE_ENV === "production";
 
 const cspPolicy = [
   "default-src 'self'",
-  // تم إزالة 'unsafe-inline' لتعزيز الأمان بعد نقل السكربتات لملفات خارجية
-  `script-src 'self' blob: https://www.googletagmanager.com${isProduction ? "" : " 'unsafe-eval'"}`,
+  // تم إزالة 'unsafe-inline' لتعزيز الأمان بعد نقل السكربتات لملفات خارجية، لكنه ضروري لبيئة التطوير (Next.js HMR)
+  `script-src 'self' blob: https://www.googletagmanager.com${isProduction ? "" : " 'unsafe-eval' 'unsafe-inline'"}`,
   "script-src-attr 'none'",
-  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  `style-src 'self' https://fonts.googleapis.com${isProduction ? "" : " 'unsafe-inline'"}`,
   "font-src 'self' https://fonts.gstatic.com",
   "img-src 'self' data: blob: https://www.google-analytics.com",
   `connect-src 'self' https://www.google-analytics.com https://analytics.google.com https://stats.g.doubleclick.net${isProduction ? "" : " ws: wss:"}`,
@@ -39,7 +39,7 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
-  serverExternalPackages: ["bullmq", "ioredis"],
+  serverExternalPackages: [],
   compiler: {
     removeConsole: isProduction ? {
       exclude: ["error"], // نحتفظ بالأخطاء فقط لأغراض التتبع إذا حدثت مشكلة حرجة

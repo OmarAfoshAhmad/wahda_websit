@@ -493,8 +493,9 @@ export default async function TransactionsPage({
           {txTypeFilter !== "all" && <input type="hidden" name="tx_type" value={txTypeFilter} />}
           {sourceFilter !== "all" && <input type="hidden" name="source" value={sourceFilter} />}
           <div className="w-full">
-            <label className="block text-xs font-black text-slate-400 mb-1">بحث باسم المستفيد أو رقم البطاقة</label>
+            <label htmlFor="tx-search" className="block text-xs font-black text-slate-400 mb-1">بحث باسم المستفيد أو رقم البطاقة</label>
             <Input
+              id="tx-search"
               type="search"
               name="q"
               defaultValue={q ?? ""}
@@ -515,17 +516,18 @@ export default async function TransactionsPage({
 
             <div className={`grid grid-cols-1 gap-4 ${session.is_admin ? "md:grid-cols-7" : "md:grid-cols-5"}`}>
               <div className="space-y-1">
-                <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">من تاريخ</label>
-                <Input type="date" name="start_date" defaultValue={start_date} lang="en-GB" className="[direction:ltr] text-right" />
+                <label htmlFor="start_date" className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">من تاريخ</label>
+                <Input id="start_date" type="date" name="start_date" defaultValue={start_date} lang="en-GB" className="[direction:ltr] text-right" />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">إلى تاريخ</label>
-                <Input type="date" name="end_date" defaultValue={end_date} lang="en-GB" className="[direction:ltr] text-right" />
+                <label htmlFor="end_date" className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">إلى تاريخ</label>
+                <Input id="end_date" type="date" name="end_date" defaultValue={end_date} lang="en-GB" className="[direction:ltr] text-right" />
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">حالة الحركة</label>
+                <label htmlFor="status" className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">حالة الحركة</label>
                 <select
+                  id="status"
                   name="status"
                   defaultValue={statusFilter}
                   className="flex h-10 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
@@ -537,8 +539,9 @@ export default async function TransactionsPage({
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">نوع الحركة</label>
+                <label htmlFor="tx_type" className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">نوع الحركة</label>
                 <select
+                  id="tx_type"
                   name="tx_type"
                   defaultValue={txTypeFilter}
                   className="flex h-10 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
@@ -551,8 +554,9 @@ export default async function TransactionsPage({
 
               {session.is_admin && (
                 <div className="space-y-1">
-                  <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">المرفق</label>
+                  <label htmlFor="facility_id_input" className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">المرفق</label>
                   <Input
+                    id="facility_id_input"
                     name="facility_id"
                     defaultValue={facilityFilterInputValue}
                     placeholder="كل المرافق"
@@ -569,8 +573,9 @@ export default async function TransactionsPage({
 
               {session.is_admin && (
                 <div className="space-y-1">
-                  <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">المصدر</label>
+                  <label htmlFor="source" className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">المصدر</label>
                   <select
+                    id="source"
                     name="source"
                     defaultValue={sourceFilter}
                     className="flex h-10 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"

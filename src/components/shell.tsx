@@ -97,19 +97,19 @@ export function Shell({
   const roleLabel = isAdmin ? "المبرمج" : isManager ? "مدير" : isEmployee ? "موظف" : "مرفق";
 
   return (
-    <div className="page-shell min-h-screen pb-5 bg-slate-50 dark:bg-[#0b1120] text-slate-900 dark:text-slate-100 transition-colors">
-      <nav className="sticky top-0 z-50 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 transition-colors">
-        <div className="mx-auto max-w-7xl px-3 py-2.5 sm:px-5">
-          <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <Image src="/logo.png" alt="Waha Health Care" width={38} height={38} className="object-contain dark:brightness-110" style={{ width: 'auto', height: 'auto' }} />
-                <div>
+    <div className="page-shell min-h-screen pb-5 bg-slate-50 dark:bg-[#0b1120] text-slate-900 dark:text-slate-100 transition-colors" suppressHydrationWarning>
+      <nav className="sticky top-0 z-50 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 transition-colors" suppressHydrationWarning>
+        <div className="mx-auto max-w-7xl px-3 py-2.5 sm:px-5" suppressHydrationWarning>
+          <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between" suppressHydrationWarning>
+            <div className="flex items-center justify-between gap-4" suppressHydrationWarning>
+              <div className="flex items-center gap-3" suppressHydrationWarning>
+                <Image src="/logo.png" alt="Waha Health Care" width={38} height={38} priority unoptimized className="object-contain dark:brightness-110" />
+                <div suppressHydrationWarning>
                   <h1 className="text-sm font-black leading-tight text-slate-900 dark:text-white">شركة الواحة</h1>
                   <h2 className="text-sm font-black leading-tight text-slate-900 dark:text-slate-300">Waha Health Care</h2>
                 </div>
               </div>
-              <div className="flex items-center gap-2 lg:hidden">
+              <div className="flex items-center gap-2 lg:hidden" suppressHydrationWarning>
                 <ThemeSwitcher />
                 <Link
                   href="/settings"
@@ -128,9 +128,9 @@ export function Shell({
               </div>
             </div>
 
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-              <div className="flex items-center gap-1 pb-1 lg:pb-0">
-                <div className="flex">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center" suppressHydrationWarning>
+              <div className="flex items-center gap-1 pb-1 lg:pb-0" suppressHydrationWarning>
+                <div className="flex" suppressHydrationWarning>
                   {allNav.map((item) => (
                     <NavLink 
                       key={item.href} 
@@ -140,7 +140,7 @@ export function Shell({
                   ))}
 
                   {showMaintenance && (
-                    <div className="relative">
+                    <div className="relative" suppressHydrationWarning>
                       <button
                         onClick={() => setIsMaintenanceOpen(!isMaintenanceOpen)}
                         className={cn(
@@ -158,7 +158,7 @@ export function Shell({
                       {isMaintenanceOpen && (
                         <>
                           <div className="fixed inset-0 z-40" onClick={() => setIsMaintenanceOpen(false)} />
-                          <div className="absolute right-0 top-full z-50 mt-2 min-w-48 rounded-md border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900">
+                          <div className="absolute right-0 top-full z-50 mt-2 min-w-48 rounded-md border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900" suppressHydrationWarning>
                             {filteredMaintenanceNav.map((item) => (
                               <Link
                                 key={item.href}
@@ -183,12 +183,12 @@ export function Shell({
                 </div>
               </div>
 
-              <div className="flex items-center justify-between gap-3 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-2.5 py-1.5 lg:min-w-48.75">
-                <div className="text-right">
+              <div className="flex items-center justify-between gap-3 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-2.5 py-1.5 lg:min-w-48.75" suppressHydrationWarning>
+                <div className="text-right" suppressHydrationWarning>
                   <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">{roleLabel}</p>
                   <p className="text-[13px] font-bold text-slate-800 dark:text-slate-200">{facilityName}</p>
                 </div>
-                <div className="hidden items-center gap-1 lg:flex">
+                <div className="hidden items-center gap-1 lg:flex" suppressHydrationWarning>
                   <ThemeSwitcher />
                   <Link
                     href="/settings"
@@ -211,7 +211,7 @@ export function Shell({
         </div>
       </nav>
 
-      <main className="mx-auto max-w-7xl px-3 py-4 sm:px-5 lg:px-6">
+      <main className="mx-auto max-w-7xl px-3 py-4 sm:px-5 lg:px-6" suppressHydrationWarning>
         {children}
       </main>
     </div>

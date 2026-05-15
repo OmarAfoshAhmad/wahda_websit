@@ -24,10 +24,8 @@
     "@prisma/client": "^6.0.0",
     "@tailwindcss/postcss": "^4.2.1",
     "bcryptjs": "^3.0.3",
-    "bullmq": "^5.71.1",
     "clsx": "^2.1.1",
     "exceljs": "^4.4.0",
-    "ioredis": "^5.10.1",
     "jose": "^6.2.1",
     "lucide-react": "^0.577.0",
     "next": "latest",
@@ -36,7 +34,6 @@
     "prisma": "^6.0.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
-    "redis": "^5.11.0",
     "tailwind-merge": "^3.5.0",
     "xlsx": "^0.18.5",
     "zod": "^4.3.6"

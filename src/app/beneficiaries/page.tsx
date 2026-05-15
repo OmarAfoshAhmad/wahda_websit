@@ -13,7 +13,7 @@ import { BeneficiaryEditModal } from "@/components/beneficiary-edit-modal";
 import { BeneficiaryCreateModal } from "@/components/beneficiary-create-modal";
 import { BeneficiaryDeleteButton } from "@/components/beneficiary-delete-button";
 import { BeneficiaryRestoreActions } from "@/components/beneficiary-restore-actions";
-import { BeneficiaryResetPinButton } from "@/components/beneficiary-reset-pin-button";
+
 import { BeneficiaryTransactionsPanelButton } from "@/components/beneficiary-transactions-panel-button";
 import { PaginationButtons } from "@/components/pagination-buttons";
 import { BeneficiariesBulkActionButton, SelectAllCheckbox, EmptyRecycleBinButton } from "@/components/beneficiaries-bulk-action-button";
@@ -611,7 +611,7 @@ export default async function BeneficiariesPage({
                               beneficiaryName={beneficiary.name}
                               hasTransactions={beneficiary._count.transactions > 0}
                             />
-                            {canEdit && beneficiary.pin_hash && <BeneficiaryResetPinButton beneficiaryId={beneficiary.id} />}
+
                             {canEdit && (
                               <BeneficiaryEditModal
                                 iconOnly
@@ -777,7 +777,7 @@ export default async function BeneficiariesPage({
                                     beneficiaryName={beneficiary.name}
                                     hasTransactions={beneficiary._count.transactions > 0}
                                   />
-                                  {canEdit && beneficiary.pin_hash && <BeneficiaryResetPinButton beneficiaryId={beneficiary.id} />}
+
                                   {canEdit && (
                                     <BeneficiaryEditModal
                                       iconOnly

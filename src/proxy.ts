@@ -2,15 +2,35 @@ import { NextRequest, NextResponse } from "next/server";
 import { decrypt, encrypt } from "@/lib/auth";
 import { jwtVerify } from "jose";
 
-const publicRoutes = ["/login", "/api/login"];
+const publicRoutes = ["/login", "/api/login", "/manifest.json", "/manifest.webmanifest", "/site.webmanifest", "/favicon.ico"];
 const beneficiaryPublicRoutes = ["/beneficiary/login", "/beneficiary/setup-pin"];
-const publicPrefixes = ["/check"];
+const publicPrefixes = ["/check", "/icons"];
 
 /**
  * Proxy خفيف — يفحص JWT فقط ولا يستعلم من قاعدة البيانات.
  * فحص حالة الحذف الناعم يتم عبر session-guard.ts في العمليات الحساسة.
  */
 export async function proxy(req: NextRequest) {
+  // ── CSRF Protection (SEC-01: Anti-CSRF) ─────────────────
+  const method = req.method;
+  if (["POST", "PUT", "DELETE", "PATCH"].includes(method)) {
+    const origin = req.headers.get("origin");
+    const host = req.headers.get("host");
+    if (origin && host) {
+      try {
+        const originHost = new URL(origin).host;
+        if (originHost !== host) {
+          return new NextResponse(JSON.stringify({ error: "CSRF Attack Detected: Origin Mismatch" }), { 
+            status: 403,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+      } catch {
+        return new NextResponse(JSON.stringify({ error: "Invalid Origin Header" }), { status: 400 });
+      }
+    }
+  }
+
   const path = req.nextUrl.pathname;
   const isPublicRoute =
     publicRoutes.includes(path) || publicPrefixes.some((p) => path === p || path.startsWith(p + "/"));
@@ -103,6 +123,6 @@ export async function proxy(req: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!api|_next/static|_next/image|favicon\\.ico|.*\\.png$|.*\\.svg$|.*\\.jpg$|.*\\.jpeg$|.*\\.webp$|.*\\.ico$|.*\\.css$|.*\\.js$).*)",
+    "/((?!_next/static|_next/image|favicon\\.ico|manifest\\.json|manifest\\.webmanifest|site\\.webmanifest|.*\\.png$|.*\\.svg$|.*\\.jpg$|.*\\.jpeg$|.*\\.webp$|.*\\.ico$|.*\\.css$|.*\\.js$).*)",
   ],
 };
