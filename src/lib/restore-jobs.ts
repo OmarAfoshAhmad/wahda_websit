@@ -466,154 +466,223 @@ export async function processRestoreJob(jobId: string, username: string) {
 
     await updateProgress(currentJob.id, { currentPhase: "RESTORING_BENEFICIARIES" });
 
-    for (const chunk of providerChunks) {
+    // إسقاط الفهارس الفريدة مؤقتاً لتفادي أي تعارض مؤقت أثناء التحديث المتتابع
+    await prisma.$executeRawUnsafe(`DROP INDEX IF EXISTS "Beneficiary_person_active_unique_key"`);
+    await prisma.$executeRawUnsafe(`DROP INDEX IF EXISTS "Beneficiary_card_number_unique_key"`);
+
+    try {
+      // ─── مرحلة التنظيف المسبق: تعطيل المستفيدين الزائدين لتفادي تعارض فريد (Unique Constraint Bypass) ─────
       await throwIfCancelled(currentJob.id);
+      
+      // جلب كل المعرفات والبطاقات والأسماء من الباك اب لفلترة المطابقة
+      const backupIds = new Set(providers.map(p => p.id));
+      const backupCards = new Set(providers.map(p => normalizeCardNumber(p.card_number).toUpperCase()));
+      const backupPeople = new Set(providers.filter(p => p.birth_date).map(p => {
+        const normName = normalizePersonName(p.name).toLowerCase();
+        const bDateStr = new Date(p.birth_date!).toISOString();
+        return `${normName}|${bDateStr}`;
+      }));
 
-      // استعلام دفعي بدل N+1 — ثلاث استعلامات لكل الدفعة بدل 3 لكل سجل
-      const chunkIds = chunk.map((p) => p.id);
-      const chunkCardNumbers = chunk.map((p) => normalizeCardNumber(p.card_number));
-      const chunkBirthDates = chunk
-        .filter((p) => p.birth_date)
-        .map((p) => new Date(p.birth_date!));
+      // جلب جميع المستفيدين النشطين حالياً في قاعدة البيانات
+      const activeDbBens = await prisma.beneficiary.findMany({
+        where: { deleted_at: null },
+        select: { id: true, card_number: true, name: true, birth_date: true }
+      });
 
-      const [existingByIds, existingByCards, existingByPerson] = await Promise.all([
-        prisma.beneficiary.findMany({
-          where: { id: { in: chunkIds } },
-          select: { id: true, pin_hash: true },
-        }),
-        prisma.beneficiary.findMany({
-          where: { card_number: { in: chunkCardNumbers, mode: "insensitive" } },
-          select: { id: true, card_number: true, pin_hash: true },
-        }),
-        chunkBirthDates.length > 0
-          ? prisma.beneficiary.findMany({
-            where: {
-              deleted_at: null,
-              birth_date: { in: chunkBirthDates },
-            },
-            select: { id: true, name: true, birth_date: true, pin_hash: true },
-          })
-          : Promise.resolve([]),
-      ]);
-
-      const idMap = new Map(existingByIds.map((b) => [b.id, b]));
-      const cardMap = new Map(existingByCards.map((b) => [b.card_number.trim().toUpperCase(), b]));
-      const personIndex = new Map<string, { id: string; pin_hash: string | null }>();
-      for (const b of existingByPerson) {
+      // تحديد المستفيدين في قاعدة البيانات الذين لن يطابقوا أي مستفيد في الباك اب
+      const unmatchedDbIds = activeDbBens.filter(b => {
+        if (backupIds.has(b.id)) return false;
+        if (backupCards.has(b.card_number.trim().toUpperCase())) return false;
         if (b.birth_date) {
-          const key = `${b.name.trim().replace(/\s+/g, " ").toLowerCase()}|${b.birth_date.toISOString()}`;
-          personIndex.set(key, { id: b.id, pin_hash: b.pin_hash });
+          const key = `${normalizePersonName(b.name).toLowerCase()}|${b.birth_date.toISOString()}`;
+          if (backupPeople.has(key)) return false;
         }
+        return true;
+      }).map(b => b.id);
+
+      // نقوم بعمل حذف ناعم مسبق (Soft Delete) للمستفيدين غير المطابقين لمنع أي تعارض في ترويسة الاسم الفريد أثناء التحديث
+      if (unmatchedDbIds.length > 0) {
+        // حذف الحركات المرتبطة لتفادي مشاكل التكامل
+        await prisma.transaction.deleteMany({
+          where: { beneficiary_id: { in: unmatchedDbIds } }
+        });
+        // حذف الإشعارات
+        await prisma.notification.deleteMany({
+          where: { beneficiary_id: { in: unmatchedDbIds } }
+        });
+        // حذف ناعم مسبق
+        await prisma.beneficiary.updateMany({
+          where: { id: { in: unmatchedDbIds } },
+          data: { deleted_at: new Date() }
+        });
+        removedBeneficiaries += unmatchedDbIds.length;
       }
 
-      for (const provider of chunk) {
-        const normalizedCardNumber = normalizeCardNumber(provider.card_number);
-        const normalizedProviderName = normalizePersonName(provider.name);
-        const providerBirthDate = provider.birth_date ? new Date(provider.birth_date) : null;
-        const { totalBalance, remainingBalance } = sanitizeBeneficiaryBalances(
-          provider.total_balance,
-          provider.remaining_balance,
-        );
-        const normalizedStatus = normalizeBeneficiaryStatus(provider.status, remainingBalance);
+      for (const chunk of providerChunks) {
+        await throwIfCancelled(currentJob.id);
 
-        const matchedByCard = cardMap.get(normalizedCardNumber);
-        const matchedByPerson = providerBirthDate
-          ? personIndex.get(`${normalizedProviderName.toLowerCase()}|${providerBirthDate.toISOString()}`)
-          : null;
-        const matchedById = idMap.get(provider.id);
+        // استعلام دفعي بدل N+1 — ثلاث استعلامات لكل الدفعة بدل 3 لكل سجل
+        const chunkIds = chunk.map((p) => p.id);
+        const chunkCardNumbers = chunk.map((p) => normalizeCardNumber(p.card_number));
+        const chunkBirthDates = chunk
+          .filter((p) => p.birth_date)
+          .map((p) => new Date(p.birth_date!));
 
-        const existing = matchedByCard ?? matchedByPerson ?? matchedById ?? null;
+        const [existingByIds, existingByCards, existingByPerson] = await Promise.all([
+          prisma.beneficiary.findMany({
+            where: { id: { in: chunkIds } },
+            select: { id: true, pin_hash: true },
+          }),
+          prisma.beneficiary.findMany({
+            where: { card_number: { in: chunkCardNumbers, mode: "insensitive" } },
+            select: { id: true, card_number: true, pin_hash: true },
+          }),
+          chunkBirthDates.length > 0
+            ? prisma.beneficiary.findMany({
+              where: {
+                deleted_at: null,
+                birth_date: { in: chunkBirthDates },
+              },
+              select: { id: true, name: true, birth_date: true, pin_hash: true },
+            })
+            : Promise.resolve([]),
+        ]);
 
-        if (existing) {
-          providerIdMap.set(provider.id, existing.id);
-          await prisma.beneficiary.update({
-            where: { id: existing.id },
-            data: {
-              card_number: normalizedCardNumber,
-              name: normalizedProviderName,
-              birth_date: providerBirthDate,
-              status: normalizedStatus,
-              total_balance: totalBalance,
-              remaining_balance: remainingBalance,
-              ...(provider.pin_hash && !existing.pin_hash ? { pin_hash: provider.pin_hash } : {}),
-              deleted_at: provider.deleted_at ? new Date(provider.deleted_at) : null,
-            },
-          });
-          updatedBeneficiaries++;
-        } else {
-          providerIdMap.set(provider.id, provider.id);
-          await prisma.beneficiary.create({
-            data: {
-              id: provider.id,
-              card_number: normalizedCardNumber,
-              name: normalizedProviderName,
-              birth_date: providerBirthDate,
-              total_balance: totalBalance,
-              remaining_balance: remainingBalance,
-              status: normalizedStatus,
-              pin_hash: provider.pin_hash ?? null,
-              failed_attempts: provider.failed_attempts ?? 0,
-              locked_until: provider.locked_until ? new Date(provider.locked_until) : null,
-              deleted_at: provider.deleted_at ? new Date(provider.deleted_at) : null,
-              created_at: new Date(provider.created_at),
-            },
-          });
-          restoredBeneficiaries++;
+        const idMap = new Map(existingByIds.map((b) => [b.id, b]));
+        const cardMap = new Map(existingByCards.map((b) => [b.card_number.trim().toUpperCase(), b]));
+        const personIndex = new Map<string, { id: string; pin_hash: string | null }>();
+        for (const b of existingByPerson) {
+          if (b.birth_date) {
+            const key = `${b.name.trim().replace(/\s+/g, " ").toLowerCase()}|${b.birth_date.toISOString()}`;
+            personIndex.set(key, { id: b.id, pin_hash: b.pin_hash });
+          }
         }
+
+        for (const provider of chunk) {
+          const normalizedCardNumber = normalizeCardNumber(provider.card_number);
+          const normalizedProviderName = normalizePersonName(provider.name);
+          const providerBirthDate = provider.birth_date ? new Date(provider.birth_date) : null;
+          const { totalBalance, remainingBalance } = sanitizeBeneficiaryBalances(
+            provider.total_balance,
+            provider.remaining_balance,
+          );
+          const normalizedStatus = normalizeBeneficiaryStatus(provider.status, remainingBalance);
+
+          const matchedByCard = cardMap.get(normalizedCardNumber);
+          const matchedByPerson = providerBirthDate
+            ? personIndex.get(`${normalizedProviderName.toLowerCase()}|${providerBirthDate.toISOString()}`)
+            : null;
+          const matchedById = idMap.get(provider.id);
+
+          const existing = matchedByCard ?? matchedByPerson ?? matchedById ?? null;
+
+          if (existing) {
+            providerIdMap.set(provider.id, existing.id);
+            await prisma.beneficiary.update({
+              where: { id: existing.id },
+              data: {
+                card_number: normalizedCardNumber,
+                name: normalizedProviderName,
+                birth_date: providerBirthDate,
+                status: normalizedStatus,
+                total_balance: totalBalance,
+                remaining_balance: remainingBalance,
+                ...(provider.pin_hash && !existing.pin_hash ? { pin_hash: provider.pin_hash } : {}),
+                deleted_at: provider.deleted_at ? new Date(provider.deleted_at) : null,
+              },
+            });
+            updatedBeneficiaries++;
+          } else {
+            providerIdMap.set(provider.id, provider.id);
+            await prisma.beneficiary.create({
+              data: {
+                id: provider.id,
+                card_number: normalizedCardNumber,
+                name: normalizedProviderName,
+                birth_date: providerBirthDate,
+                total_balance: totalBalance,
+                remaining_balance: remainingBalance,
+                status: normalizedStatus,
+                pin_hash: provider.pin_hash ?? null,
+                failed_attempts: provider.failed_attempts ?? 0,
+                locked_until: provider.locked_until ? new Date(provider.locked_until) : null,
+                deleted_at: provider.deleted_at ? new Date(provider.deleted_at) : null,
+                created_at: new Date(provider.created_at),
+              },
+            });
+            restoredBeneficiaries++;
+          }
+        }
+
+        completedSteps++;
+        await updateProgress(currentJob.id, {
+          currentPhase: "RESTORING_BENEFICIARIES",
+          completedSteps,
+          addedBeneficiaries: restoredBeneficiaries,
+          updatedBeneficiaries,
+        });
+      }
+
+      // ─── مرحلة التنظيف: حذف المستفيدين غير الموجودين في النسخة ─────
+      await throwIfCancelled(currentJob.id);
+      await updateProgress(currentJob.id, { currentPhase: "CLEANING_EXTRA_BENEFICIARIES" });
+
+      // جمع IDs المستفيدين الذين تمت مطابقتهم أو إنشاؤهم من النسخة
+      const restoredBeneficiaryIds = new Set(providerIdMap.values());
+
+      // جلب جميع المستفيدين النشطين في قاعدة البيانات
+      const allDbBeneficiaries = await prisma.beneficiary.findMany({
+        where: { deleted_at: null },
+        select: { id: true },
+      });
+
+      // حذف ناعم للمستفيدين غير الموجودين في النسخة
+      const toRemoveIds = allDbBeneficiaries
+        .filter((b) => !restoredBeneficiaryIds.has(b.id))
+        .map((b) => b.id);
+
+      if (toRemoveIds.length > 0) {
+        // حذف الحركات المرتبطة بالمستفيدين المحذوفين
+        await prisma.transaction.deleteMany({
+          where: { beneficiary_id: { in: toRemoveIds } },
+        });
+
+        // حذف الإشعارات المرتبطة
+        await prisma.notification.deleteMany({
+          where: { beneficiary_id: { in: toRemoveIds } },
+        });
+
+        // حذف ناعم للمستفيدين
+        await prisma.beneficiary.updateMany({
+          where: { id: { in: toRemoveIds } },
+          data: { deleted_at: new Date() },
+        });
+
+        removedBeneficiaries += toRemoveIds.length;
       }
 
       completedSteps++;
       await updateProgress(currentJob.id, {
-        currentPhase: "RESTORING_BENEFICIARIES",
         completedSteps,
-        addedBeneficiaries: restoredBeneficiaries,
-        updatedBeneficiaries,
+        removedBeneficiaries,
+      });
+    } finally {
+      // إعادة إنشاء الفهارس الفريدة لضمان سلامة وتكامل البيانات بعد الاكتمال أو الفشل
+      await prisma.$executeRawUnsafe(`
+        CREATE UNIQUE INDEX IF NOT EXISTS "Beneficiary_card_number_unique_key"
+        ON "Beneficiary" (UPPER(BTRIM(card_number)));
+      `).catch(err => {
+        logger.error("Failed to re-create card number unique key", { error: String(err) });
+      });
+
+      await prisma.$executeRawUnsafe(`
+        CREATE UNIQUE INDEX IF NOT EXISTS "Beneficiary_person_active_unique_key"
+        ON "Beneficiary" (UPPER(REGEXP_REPLACE(BTRIM(name), '\\s+', ' ', 'g')), birth_date)
+        WHERE deleted_at IS NULL AND birth_date IS NOT NULL;
+      `).catch(err => {
+        logger.error("Failed to re-create person active unique key", { error: String(err) });
       });
     }
-
-    // ─── مرحلة التنظيف: حذف المستفيدين غير الموجودين في النسخة ─────
-    await throwIfCancelled(currentJob.id);
-    await updateProgress(currentJob.id, { currentPhase: "CLEANING_EXTRA_BENEFICIARIES" });
-
-    // جمع IDs المستفيدين الذين تمت مطابقتهم أو إنشاؤهم من النسخة
-    const restoredBeneficiaryIds = new Set(providerIdMap.values());
-
-    // جلب جميع المستفيدين النشطين في قاعدة البيانات
-    const allDbBeneficiaries = await prisma.beneficiary.findMany({
-      where: { deleted_at: null },
-      select: { id: true },
-    });
-
-    // حذف ناعم للمستفيدين غير الموجودين في النسخة
-    const toRemoveIds = allDbBeneficiaries
-      .filter((b) => !restoredBeneficiaryIds.has(b.id))
-      .map((b) => b.id);
-
-    if (toRemoveIds.length > 0) {
-      // حذف الحركات المرتبطة بالمستفيدين المحذوفين
-      await prisma.transaction.deleteMany({
-        where: { beneficiary_id: { in: toRemoveIds } },
-      });
-
-      // حذف الإشعارات المرتبطة
-      await prisma.notification.deleteMany({
-        where: { beneficiary_id: { in: toRemoveIds } },
-      });
-
-      // حذف ناعم للمستفيدين
-      await prisma.beneficiary.updateMany({
-        where: { id: { in: toRemoveIds } },
-        data: { deleted_at: new Date() },
-      });
-
-      removedBeneficiaries = toRemoveIds.length;
-    }
-
-    completedSteps++;
-    await updateProgress(currentJob.id, {
-      completedSteps,
-      removedBeneficiaries,
-    });
 
     await updateProgress(currentJob.id, { currentPhase: "RESTORING_TRANSACTIONS" });
 

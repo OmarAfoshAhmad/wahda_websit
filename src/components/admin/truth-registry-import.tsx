@@ -55,6 +55,9 @@ export function TruthRegistryImport() {
     skipped: number;
   } | null>(null);
 
+  const [detectedCardKey, setDetectedCardKey] = useState("");
+  const [detectedNameKey, setDetectedNameKey] = useState("");
+
   // كتل البحث والتصفية
   const [searchInput, setSearchInput] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
@@ -136,20 +139,147 @@ export function TruthRegistryImport() {
           return;
         }
 
+        // دالة تطبيع نصوص اللغة العربية للتخلص من فروق الهمزات والتاء المربوطة والياء
+        const normalizeArabic = (str: string) => {
+          return String(str || "")
+            .replace(/[أإآ]/g, "ا")
+            .replace(/ة/g, "ه")
+            .replace(/ى/g, "ي")
+            .toLowerCase()
+            .trim();
+        };
+
         // دالة للبحث عن المفتاح المناسب للمعمود بغض النظر عن تنسيقه
         const findKey = (keys: string[]) => {
           const firstRow = rawRows[0];
           return Object.keys(firstRow).find(k => 
-            keys.some(searchKey => k.toLowerCase().includes(searchKey.toLowerCase()))
+            keys.some(searchKey => normalizeArabic(k).includes(normalizeArabic(searchKey)))
           );
         };
 
-        const cardKey = findKey(["البطاقة", "Card", "Barcode", "الباركود", "رقم"]);
-        const nameKey = findKey(["الاسم", "الاسم الكامل", "المستفيد", "الموظف", "Name", "Full Name"]);
+        // ذكاء تحديد عمود رقم البطاقة بناءً على محتوى البيانات (البحث عن الخلايا التي تبدأ بـ WAB)
+        let cardKey = "";
+        const allKeys = Object.keys(rawRows[0] || {});
+        for (const key of allKeys) {
+          const hasWABVal = rawRows.slice(0, 30).some(row => {
+            const val = String(row[key] || "").trim().toUpperCase();
+            return val.startsWith("WAB2025") || val.startsWith("WAB");
+          });
+          if (hasWABVal) {
+            cardKey = key;
+            break;
+          }
+        }
+
+        // إذا لم نجد عموداً يبدأ بـ WAB عبر فحص المحتوى، نحاول البحث بالترويسة كخيار احتياطي
+        if (!cardKey) {
+          cardKey = findKey(["البطاقة", "Card", "Barcode", "الباركود", "رقم"]) || "";
+        }
+
+        // دالة ذكية جداً لتحديد عمود الاسم الحقيقي واستبعاد ترويسات صلة القرابة (موظف، زوجة، ابن...)
+        const findNameKey = () => {
+          const firstRow = rawRows[0];
+          if (!firstRow) return "";
+          
+          const relationshipTerms = ["موظف", "موظفة", "زوجة", "ابن", "ابنة", "ابنه", "ام", "اب", "أب", "أخت", "أخ", "زوج", "أم", "بنت", "ولد", "طفل"];
+          const candidateKeys = allKeys.filter(k => 
+            ["الاسم", "الاسم الكامل", "المستفيد", "الموظف", "Name", "Full Name"].some(searchKey => 
+              normalizeArabic(k).includes(normalizeArabic(searchKey))
+            )
+          );
+
+          // إذا لم يجد ترويسة مطابقة، نجعل كل الأعمدة مرشحة عدا عمود البطاقة
+          const finalCandidates = candidateKeys.length > 0 ? candidateKeys : allKeys;
+
+          let bestKey = "";
+          let bestScore = -1000;
+
+          for (const key of finalCandidates) {
+            if (key === cardKey) continue;
+            
+            let score = 0;
+            const lowerKey = key.toLowerCase();
+            const normalizedKey = normalizeArabic(key);
+            
+            // تمييز الترويسات التي تحتوي صراحة على "الاسم"
+            if (normalizedKey.includes("الاسم") || lowerKey === "name" || lowerKey.includes("full")) {
+              score += 500;
+            }
+
+            const sampleRows = rawRows.slice(0, 15);
+            let relationshipMatches = 0;
+            let singleWordCount = 0;
+            let longNameMatches = 0;
+            let totalValids = 0;
+
+            for (const row of sampleRows) {
+              const val = String(row[key] || "").trim();
+              if (!val) continue;
+              totalValids++;
+
+              // تنظيف "الـ" التعريف والمسافات الزائدة للمطابقة الدقيقة لصلة القرابة
+              let cleaned = val;
+              if (cleaned.startsWith("ال")) {
+                cleaned = cleaned.slice(2);
+              }
+
+              if (relationshipTerms.some(term => cleaned === term)) {
+                relationshipMatches++;
+              }
+              
+              // فحص إذا كان العمود يحتوي على كلمة واحدة فقط (لا مسافات)
+              if (!val.includes(" ") && !val.includes(" ")) {
+                singleWordCount++;
+              }
+
+              // فحص إذا كان الاسم ثنائي/ثلاثي أو أطول
+              if (val.split(/\s+/).length >= 2 && val.length > 8) {
+                longNameMatches++;
+              }
+            }
+
+            if (totalValids > 0) {
+              const relationRatio = relationshipMatches / totalValids;
+              const singleWordRatio = singleWordCount / totalValids;
+
+              // عقوبة ثقيلة جداً إذا كان العمود يحتوي على كلمات صلة قرابة أو كان عبارة عن كلمات مفردة (مثل صلة القرابة)
+              if (relationRatio > 0.2 || singleWordRatio > 0.6) {
+                score -= 3000; // استبعاد قطعي نهائي
+              }
+
+              score += (longNameMatches / totalValids) * 400;
+            }
+
+            if (score > bestScore) {
+              bestScore = score;
+              bestKey = key;
+            }
+          }
+
+          return bestKey || candidateKeys[0] || "";
+        };
+
+        const nameKey = findNameKey();
         const birthDateKey = findKey(["تاريخ", "تاريخ الميلاد", "Birth", "ميلاد", "DOB"]);
+
+        setDetectedCardKey(cardKey || "");
+        setDetectedNameKey(nameKey || "");
 
         if (!cardKey) {
           error("تعذر العثور على عمود يحتوي على (رقم البطاقة / الباركود) في ملف الإكسيل!");
+
+          setIsParsing(false);
+          return;
+        }
+
+        // التحقق من أن الملف يحتوي فعلياً على بطاقات تبدأ بـ WAB2025 في أسطره لمنع رفع ملفات خاطئة
+        const hasValidCardsInFile = rawRows.some(row => {
+          const val = String(row[cardKey] || "").trim().toUpperCase();
+          return val.startsWith("WAB2025") || val.startsWith("WAB20") || val.startsWith("WAB");
+        });
+
+        if (!hasValidCardsInFile) {
+          error("تم رفض الملف! هذا الملف لا يحتوي على أرقام بطاقات مطبوعة صحيحة تبدأ بـ WAB2025 في أي من صفوفه.");
           setIsParsing(false);
           return;
         }
@@ -172,26 +302,37 @@ export function TruthRegistryImport() {
           if (rawDate) {
             if (rawDate instanceof Date) {
               const y = rawDate.getFullYear();
-              const m = String(rawDate.getMonth() + 1).padStart(2, '0');
-              const d = String(rawDate.getDate()).padStart(2, '0');
-              bDate = `${y}-${m}-${d}`;
+              if (y >= 1850 && y <= 2100) {
+                const m = String(rawDate.getMonth() + 1).padStart(2, '0');
+                const d = String(rawDate.getDate()).padStart(2, '0');
+                bDate = `${y}-${m}-${d}`;
+              }
             } else if (typeof rawDate === "number") {
-              const date = new Date(Math.round((rawDate - 25569) * 86400 * 1000));
-              const y = date.getUTCFullYear();
-              const m = String(date.getUTCMonth() + 1).padStart(2, '0');
-              const d = String(date.getUTCDate()).padStart(2, '0');
-              bDate = `${y}-${m}-${d}`;
+              // فقط نقبل الأرقام المنطقية لتواريخ إكسيل (لتجنب تفسير الرقم الوظيفي أو الباركود كأعوام مفرطة)
+              if (rawDate > 1 && rawDate < 150000) {
+                const date = new Date(Math.round((rawDate - 25569) * 86400 * 1000));
+                const y = date.getUTCFullYear();
+                if (y >= 1850 && y <= 2100) {
+                  const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+                  const d = String(date.getUTCDate()).padStart(2, '0');
+                  bDate = `${y}-${m}-${d}`;
+                }
+              }
             } else {
               // إزالة الأحرف غير المرئية
               let strDate = String(rawDate || "").replace(/[^\d\/\-]/g, "").trim();
               if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}$/.test(strDate)) {
                  const parts = strDate.split(/[\/\-]/);
-                 bDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+                 const y = parseInt(parts[2]);
+                 if (y >= 1850 && y <= 2100) {
+                   bDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+                 }
               } else if (/^\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}$/.test(strDate)) {
                  const parts = strDate.split(/[\/\-]/);
-                 bDate = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
-              } else {
-                 bDate = strDate;
+                 const y = parseInt(parts[0]);
+                 if (y >= 1850 && y <= 2100) {
+                   bDate = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+                 }
               }
             }
           }
@@ -202,6 +343,9 @@ export function TruthRegistryImport() {
           if (!cardNumRaw || cardNumRaw.length < 5) {
             status = "ERROR";
             errorMsg = "رقم بطاقة تالف أو قصير جداً";
+          } else if (!cardUpper.startsWith("WAB")) {
+            status = "ERROR";
+            errorMsg = "رقم بطاقة غير صالح (يجب أن يبدأ بـ WAB2025)";
           } else if (seenInFile.has(cardUpper)) {
             status = "DUPLICATE_FILE";
             errorMsg = "سجل مكرر داخل نفس ملف الإكسيل";
@@ -222,6 +366,7 @@ export function TruthRegistryImport() {
 
         // 2. التحقق من التكرار في النظام عبر السيرفر دفعة واحدة (Bulk Validation)
         const readyItems = mappedItems.filter(item => item.status === "READY");
+
         if (readyItems.length > 0) {
           const validateRes = await validateTruthRegistryAction(
             readyItems.map(item => ({ card_number: item.card_number }))
@@ -427,6 +572,23 @@ export function TruthRegistryImport() {
         ) : (
           <div className="space-y-6 animate-in fade-in duration-300">
             
+            {/* مؤشر تشخيص الأعمدة المكتشفة */}
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950/40 border border-slate-150 dark:border-slate-800 flex flex-col md:flex-row gap-4 md:items-center justify-between text-xs font-bold text-slate-500">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                <span className="text-slate-400">العمود المكتشف للبطاقات:</span>
+                <span className="px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 font-black font-mono border border-blue-100/30">{detectedCardKey || "غير محدد"}</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                <span className="text-slate-400">العمود المكتشف للأسماء:</span>
+                <span className="px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 font-black font-mono border border-emerald-100/30">{detectedNameKey || "غير محدد"}</span>
+              </div>
+              <div className="text-[10px] text-slate-400 font-medium">
+                * يتعرف النظام ذكياً على الأعمدة ويستبعد ترويسات صلات القرابة والرموز المفردة.
+              </div>
+            </div>
+
             {/* ملخص الإحصائيات الفورية */}
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
               <button 

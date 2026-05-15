@@ -22,6 +22,8 @@ import { StatusAnomaliesCheckButton } from "./status-anomalies-check-button";
 import { OrphanedNotificationsCheckButton } from "./orphaned-notifications-check-button";
 import { FixInvalidSubunitAmountsButton } from "./fix-invalid-subunit-amounts-button";
 import { PharmacySuppliesFixSection, PharmacySupplyAnomalyRow } from "./pharmacy-supplies-fix-section";
+import { TruthRegistryAlignmentTool } from "./truth-registry-alignment-tool";
+
 
 type UnlinkedCorrectionRow = {
   id: string;
@@ -959,6 +961,13 @@ export async function DataHealthContent({
         <LegacyCardBatchTools />
       </Section>
       )}
+
+      {showLegacySections && (
+        <div className="my-4">
+          <TruthRegistryAlignmentTool />
+        </div>
+      )}
+
 
       {showLegacySections && (
       <Section title="موسوم قديم + لديه رقم دفعة" count={filteredLegacyWithBatchRows.length}>

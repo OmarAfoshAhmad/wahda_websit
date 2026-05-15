@@ -5,6 +5,7 @@ import { Shell } from "@/components/shell";
 import { Card, Button, Input } from "@/components/ui";
 import prisma from "@/lib/prisma";
 import { TruthRegistryImport } from "@/components/admin/truth-registry-import";
+import { TruthRegistryTable } from "@/components/admin/truth-registry-table";
 import { Import } from "lucide-react";
 
 type RegistryRow = {
@@ -27,7 +28,7 @@ type CountRow = { count: bigint | number | string };
 
 type CityRow = { city: string };
 
-type BatchRow = { batch_number: string | null };
+type BatchRow = { batch_number: string | null; count: bigint | number | string };
 
 const NO_BATCH_FILTER_VALUE = "__NO_BATCH__";
 
@@ -42,19 +43,21 @@ export default async function TruthRegistryPage({
     batch?: string;
     multi?: string;
     page?: string;
+    not_in_system?: string;
   }>;
 }) {
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
   if (!session.is_admin) redirect("/dashboard");
 
-  const { q, city, batch, multi, page } = await searchParams;
+  const { q, city, batch, multi, page, not_in_system } = await searchParams;
 
   const query = (q ?? "").trim().slice(0, 100);
   const cityFilter = (city ?? "").trim().slice(0, 80);
   const batchFilter = (batch ?? "").trim().slice(0, 80);
   const isNoBatchFilter = batchFilter === NO_BATCH_FILTER_VALUE;
   const onlyMultiBatch = multi === "1";
+  const onlyMissingInSystem = not_in_system === "1";
   const pageNumber = Math.max(1, Number.parseInt(page ?? "1", 10) || 1);
   const pageSize = 100;
 
@@ -84,6 +87,14 @@ export default async function TruthRegistryPage({
               card_number ILIKE ${`%${query}%`}
               OR COALESCE(beneficiary_name, '') ILIKE ${`%${query}%`}
               OR COALESCE(source_file, '') ILIKE ${`%${query}%`}
+            )
+            AND (
+              ${onlyMissingInSystem} = false
+              OR REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') NOT IN (
+                SELECT REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
+                FROM "Beneficiary"
+                WHERE deleted_at IS NULL
+              )
             )
         ),
         stats AS (
@@ -136,6 +147,14 @@ export default async function TruthRegistryPage({
               OR (${isNoBatchFilter} = true AND (batch_number IS NULL OR BTRIM(batch_number) = ''))
               OR (${isNoBatchFilter} = false AND batch_number = ${batchFilter})
             )
+            AND (
+              ${onlyMissingInSystem} = false
+              OR REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') NOT IN (
+                SELECT REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
+                FROM "Beneficiary"
+                WHERE deleted_at IS NULL
+              )
+            )
         ),
         stats AS (
           SELECT
@@ -183,6 +202,14 @@ export default async function TruthRegistryPage({
             OR COALESCE(source_file, '') ILIKE ${`%${query}%`}
           )
           AND (
+            ${onlyMissingInSystem} = false
+            OR REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') NOT IN (
+              SELECT REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
+              FROM "Beneficiary"
+              WHERE deleted_at IS NULL
+            )
+          )
+          AND (
             ${onlyMultiBatch} = false
             OR card_number_upper IN (
               SELECT card_number_upper
@@ -200,6 +227,14 @@ export default async function TruthRegistryPage({
             (${batchFilter} = '')
             OR (${isNoBatchFilter} = true AND (batch_number IS NULL OR BTRIM(batch_number) = ''))
             OR (${isNoBatchFilter} = false AND batch_number = ${batchFilter})
+          )
+          AND (
+            ${onlyMissingInSystem} = false
+            OR REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') NOT IN (
+              SELECT REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
+              FROM "Beneficiary"
+              WHERE deleted_at IS NULL
+            )
           )
           AND (
             ${onlyMultiBatch} = false
@@ -222,15 +257,35 @@ export default async function TruthRegistryPage({
       ORDER BY city ASC
     `,
     prisma.$queryRaw<BatchRow[]>`
-      SELECT DISTINCT batch_number
+      SELECT 
+        batch_number,
+        COUNT(*)::bigint AS count
       FROM "CardIssuanceRegistryAll"
       WHERE (${cityFilter} = '' OR city = ${cityFilter})
-      ORDER BY batch_number ASC NULLS FIRST
+      GROUP BY batch_number
     `,
   ]);
 
   const total = countRows.length > 0 ? Number(countRows[0].count ?? 0) : 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  // فرز الدفعات رقمياً بدلاً من أبجدياً وتصفية الدفعات الصالحة
+  const sortedBatchRows = [...batchRows]
+    .filter((row) => Boolean(row.batch_number))
+    .sort((a, b) => {
+      const numA = parseInt(a.batch_number!, 10);
+      const numB = parseInt(b.batch_number!, 10);
+      const isNumA = !isNaN(numA);
+      const isNumB = !isNaN(numB);
+      if (isNumA && isNumB) return numA - numB;
+      if (isNumA) return -1;
+      if (isNumB) return 1;
+      return a.batch_number!.localeCompare(b.batch_number!);
+    });
+
+  // حساب عدد الأشخاص بدون دفعة
+  const noBatchRow = batchRows.find((row) => !row.batch_number || row.batch_number.trim() === "");
+  const noBatchCount = noBatchRow ? Number(noBatchRow.count ?? 0) : 0;
 
   const buildHref = (nextPage: number) => {
     const params = new URLSearchParams();
@@ -238,6 +293,7 @@ export default async function TruthRegistryPage({
     if (cityFilter) params.set("city", cityFilter);
     if (batchFilter) params.set("batch", batchFilter);
     if (onlyMultiBatch) params.set("multi", "1");
+    if (onlyMissingInSystem) params.set("not_in_system", "1");
     params.set("page", String(nextPage));
     return `/admin/truth-registry?${params.toString()}`;
   };
@@ -296,20 +352,31 @@ export default async function TruthRegistryPage({
             <select
               name="batch"
               defaultValue={batchFilter}
-              className="h-10 rounded-md border border-slate-300 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+              className="h-10 rounded-md border border-slate-300 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-900 font-medium"
             >
               <option value="">كل الدفعات</option>
-              <option value={NO_BATCH_FILTER_VALUE}>بدون دفعة</option>
-              {batchRows
-                .filter((row) => Boolean(row.batch_number))
-                .map((row) => (
-                  <option key={row.batch_number ?? ""} value={row.batch_number ?? ""}>{row.batch_number}</option>
-                ))}
+              <option value={NO_BATCH_FILTER_VALUE}>
+                بدون دفعة {noBatchCount > 0 ? `(${noBatchCount.toLocaleString("ar-LY")})` : ""}
+              </option>
+              {sortedBatchRows.map((row) => {
+                const batchNum = row.batch_number ?? "";
+                const batchCount = Number(row.count ?? 0);
+                return (
+                  <option key={batchNum} value={batchNum}>
+                    الدفعة {batchNum} ({batchCount.toLocaleString("ar-LY")})
+                  </option>
+                );
+              })}
             </select>
 
-            <label className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-900">
+            <label className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-900 cursor-pointer">
               <input type="checkbox" name="multi" value="1" defaultChecked={onlyMultiBatch} />
               موجود بأكثر من دفعة
+            </label>
+
+            <label className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-900 cursor-pointer">
+              <input type="checkbox" name="not_in_system" value="1" defaultChecked={onlyMissingInSystem} />
+              البطاقات غير المدخلة بالمنظومة
             </label>
 
             <input type="hidden" name="page" value="1" />
@@ -321,52 +388,17 @@ export default async function TruthRegistryPage({
           <div className="border-b border-slate-200 dark:border-slate-800 px-4 py-3 sm:px-6">
             <h2 className="text-sm font-black text-slate-900 dark:text-white">السجلات ({total.toLocaleString("ar-LY")})</h2>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-280 text-sm">
-              <thead className="bg-slate-50 dark:bg-slate-900/40">
-                <tr className="text-right">
-                  <th className="px-3 py-2 font-bold">رقم البطاقة</th>
-                  <th className="px-3 py-2 font-bold">الاسم</th>
-                  <th className="px-3 py-2 font-bold">الميلاد</th>
-                  <th className="px-3 py-2 font-bold">المدينة</th>
-                  <th className="px-3 py-2 font-bold">الدفعة</th>
-                  <th className="px-3 py-2 font-bold">عدد الدفعات للبطاقة</th>
-                  <th className="px-3 py-2 font-bold">كل الدفعات</th>
-                  <th className="px-3 py-2 font-bold">الملف</th>
-                  <th className="px-3 py-2 font-bold">الشيت</th>
-                  <th className="px-3 py-2 font-bold">الصف</th>
-                  <th className="px-3 py-2 font-bold">آخر تحديث</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.length === 0 ? (
-                  <tr>
-                    <td colSpan={11} className="px-3 py-6 text-center text-slate-500 dark:text-slate-400">
-                      لا توجد نتائج مطابقة.
-                    </td>
-                  </tr>
-                ) : (
-                  rows.map((row) => (
-                    <tr key={row.id} className="border-t border-slate-100 dark:border-slate-800">
-                      <td className="px-3 py-2 font-bold">{row.card_number}</td>
-                      <td className="px-3 py-2">{row.beneficiary_name ?? "-"}</td>
-                      <td className="px-3 py-2">
-                        {row.birth_date ? row.birth_date.toLocaleDateString("en-CA") : "-"}
-                      </td>
-                      <td className="px-3 py-2">{row.city}</td>
-                      <td className="px-3 py-2">{row.batch_number ?? "-"}</td>
-                      <td className="px-3 py-2 font-bold">{row.batches_count}</td>
-                      <td className="px-3 py-2 text-xs">{row.batches_list ?? "-"}</td>
-                      <td className="px-3 py-2 text-xs">{row.source_file ?? "-"}</td>
-                      <td className="px-3 py-2">{row.source_sheet ?? "-"}</td>
-                      <td className="px-3 py-2">{row.source_row ?? "-"}</td>
-                      <td className="px-3 py-2 text-xs">{row.updated_at.toLocaleString("en-GB")}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+          <TruthRegistryTable 
+            rows={rows} 
+            totalCount={total}
+            filters={{
+              query,
+              city: cityFilter,
+              batch: batchFilter,
+              multi: onlyMultiBatch,
+              not_in_system: onlyMissingInSystem
+            }}
+          />
 
           {total > pageSize && (
             <div className="flex items-center justify-between border-t border-slate-100 px-3 py-3 dark:border-slate-800">
