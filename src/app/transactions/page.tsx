@@ -41,6 +41,7 @@ type TransactionRow = {
     name: string;
     card_number: string;
     remaining_balance: Prisma.Decimal;
+    total_balance: Prisma.Decimal;
     company_id?: string | null;
   };
   facility: {
@@ -52,6 +53,10 @@ type TransactionRow = {
   actual_company_share: Prisma.Decimal | null;
   actual_patient_share: Prisma.Decimal | null;
   remaining_ceiling_after: Prisma.Decimal | null;
+  consumed_before: Prisma.Decimal | null;
+  consumed_after: Prisma.Decimal | null;
+  policy_snapshot: any;
+  calc_metadata: any;
   company: { id: string; name: string; code: string } | null;
 };
 
