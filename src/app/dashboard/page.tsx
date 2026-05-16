@@ -35,7 +35,6 @@ const getCachedAdminStats = unstable_cache(
 );
 
 // ─── كاش حركات اليوم للحساب الحالي: تتحدث كل 30 ثانية ───
-// FIX: تضمين facilityId في مفتاح الكاش فعلياً لمنع تصادم البيانات بين المرافق
 function getCachedTodayStats(facilityId: string) {
   return unstable_cache(
     async () => {
@@ -72,7 +71,6 @@ export default async function Dashboard() {
                       hasPermission(session, "manage_card_numbering") ||
                       hasPermission(session, "view_audit_log");
 
-  // التوجيه التلقائي للموظف لصفحة الكاش فقط إذا لم يكن لديه صلاحيات إدارية أخرى
   if (session.is_employee && canUseCashClaim && !hasAdminNav) {
     redirect("/cash-claim");
   }
@@ -98,12 +96,27 @@ export default async function Dashboard() {
     <Shell facilityName={session.name} session={session}>
       <div className="space-y-5">
         {/* عنوان الصفحة */}
-        <div>
-          <h1 className="text-2xl font-black text-slate-900 dark:text-white">مرحباً، {session.name}</h1>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            {session.is_admin ? "لوحة تحكم المشرف (المبرمج)" : session.is_manager ? "لوحة تحكم المدير" : "نافذة الخصم والمتابعة"}
-          </p>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 dark:border-slate-800 pb-5">
+          <div>
+            <h1 className="text-2xl font-black text-slate-900 dark:text-white">مرحباً، {session.name}</h1>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+              {session.is_admin ? "لوحة تحكم المشرف (المبرمج)" : session.is_manager ? "لوحة تحكم المدير" : "نافذة الخصم والمتابعة"}
+            </p>
+          </div>
         </div>
+
+        {/* نموذج الخصم */}
+        {canUseDeduct ? (
+          <div className="rounded-xl bg-white/50 dark:bg-slate-900/50 p-1 border border-slate-200/50 dark:border-slate-800/50">
+            <DeductForm facilityType={session.facility_type} />
+          </div>
+        ) : (
+          <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-6 text-center dark:border-amber-900/30 dark:bg-amber-900/10">
+            <AlertTriangle className="mx-auto mb-3 h-10 w-10 text-amber-500" />
+            <h2 className="text-lg font-black text-amber-800 dark:text-amber-400">غير مصرح لك بالخصم</h2>
+            <p className="mt-1 text-sm text-amber-600 dark:text-amber-500">لا تملك صلاحية &quot;إمكانية خصم الرصيد&quot;. يرجى مراجعة مبرمج النظام.</p>
+          </div>
+        )}
 
         {/* بطاقات الإحصائيات */}
         <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${canViewStats ? "lg:grid-cols-4" : "lg:grid-cols-2"}`}>
@@ -161,20 +174,6 @@ export default async function Dashboard() {
             </Card>
           )}
         </div>
-
-        {/* نموذج الخصم */}
-        {canUseDeduct ? (
-          <div>
-            <h2 className="mb-3 text-lg font-black text-slate-900 dark:text-white">خصم الأرصدة</h2>
-            <DeductForm facilityType={session.facility_type} />
-          </div>
-        ) : (
-          <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-6 text-center dark:border-amber-900/30 dark:bg-amber-900/10">
-            <AlertTriangle className="mx-auto mb-3 h-10 w-10 text-amber-500" />
-            <h2 className="text-lg font-black text-amber-800 dark:text-amber-400">غير مصرح لك بالخصم</h2>
-            <p className="mt-1 text-sm text-amber-600 dark:text-amber-500">لا تملك صلاحية &quot;إمكانية خصم الرصيد&quot;. يرجى مراجعة مبرمج النظام.</p>
-          </div>
-        )}
       </div>
     </Shell>
   );

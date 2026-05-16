@@ -16,29 +16,42 @@ import { AlertCircle, CheckCircle2 } from "lucide-react";
 import { DeductProvider, useDeductContext } from "./deduct/DeductContext";
 import { SearchEngine } from "./deduct/SearchEngine";
 import { BeneficiaryCard } from "./deduct/BeneficiaryCard";
+import { DeductionAction } from "./deduct/DeductionAction";
 
 function DeductFormInner() {
-  const { error, success } = useDeductContext();
+  const { beneficiary, error, success } = useDeductContext();
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <SearchEngine />
 
       {/* ─── رسائل الخطأ / النجاح ─── */}
-      {error && (
-        <div className="flex items-center rounded-md border border-red-200 bg-red-50 p-3 text-red-700">
-          <AlertCircle className="ml-2 h-4 w-4 shrink-0" />
-          <p className="font-medium text-sm">{error}</p>
-        </div>
-      )}
-      {success && (
-        <div className="flex items-center rounded-md border border-emerald-200 bg-emerald-50 p-3 text-emerald-700">
-          <CheckCircle2 className="ml-2 h-4 w-4 shrink-0" />
-          <p className="font-medium text-sm">{success}</p>
-        </div>
-      )}
+      <div className="max-w-2xl mx-auto">
+        {error && (
+          <div className="mb-3 flex items-center rounded-md border border-red-200 bg-red-50 p-3 text-red-700 animate-in fade-in slide-in-from-top-1">
+            <AlertCircle className="ml-2 h-4 w-4 shrink-0" />
+            <p className="font-medium text-sm">{error}</p>
+          </div>
+        )}
+        {success && (
+          <div className="mb-3 flex items-center rounded-md border border-emerald-200 bg-emerald-50 p-3 text-emerald-700 animate-in fade-in slide-in-from-top-1">
+            <CheckCircle2 className="ml-2 h-4 w-4 shrink-0" />
+            <p className="font-medium text-sm">{success}</p>
+          </div>
+        )}
+      </div>
 
-      <BeneficiaryCard />
+      {/* ─── التوزيع الأفقي: البيانات والخصم ─── */}
+      {beneficiary && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 animate-in fade-in zoom-in-95 duration-500">
+          <div className="order-1 lg:order-1">
+            <BeneficiaryCard />
+          </div>
+          <div className="order-2 lg:order-2">
+            <DeductionAction />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

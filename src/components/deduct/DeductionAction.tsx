@@ -3,16 +3,15 @@
 /**
  * DeductionAction
  * ===============
- * مكوّن الخصم — يعرض حقل المبلغ، نوع الخصم، وشاشة التأكيد.
- * منفصل تماماً عن منطق البحث وبيانات المستفيد.
+ * مكوّن الخصم — النسخة المحسنة (وضوح عالي + استغلال مساحة).
  */
 
 import React from "react";
 import { CreditCard, DollarSign, Loader2 } from "lucide-react";
-import { Button, Input } from "@/components/ui";
+import { Button, Input, Badge, cn } from "@/components/ui";
+import { formatCurrency } from "@/lib/money";
 import { useDeductContext } from "./DeductContext";
 import {
-  AMOUNT_POLICY_ERROR,
   isAllowedDeductionAmount,
   MAX_DEDUCTION_AMOUNT,
   MAX_AMOUNT_POLICY_ERROR,
@@ -21,114 +20,173 @@ import {
 export function DeductionAction() {
   const {
     beneficiary, amount, setAmount,
-    type, setType, facilityType, showConfirm, setShowConfirm,
+    type, setType, availableServiceTypes, facilityType, showConfirm, setShowConfirm,
     deducting, handleDeduct,
+    simulation, simulating
   } = useDeductContext();
 
-  // لا نعرض شيئاً إذا لم يكن هناك مستفيد نشط برصيد
-  if (!beneficiary || beneficiary.status !== "ACTIVE" || beneficiary.remaining_balance <= 0) {
+  // لا نعرض شيئاً إذا لم يكن هناك مستفيد نشط
+  if (!beneficiary || beneficiary.status !== "ACTIVE") {
     return null;
   }
 
   const amountValue = Number(amount);
   const amountExceedsMax = Number.isFinite(amountValue) && amountValue > MAX_DEDUCTION_AMOUNT;
   const hasAmount = Number.isFinite(amountValue) && amountValue > 0;
-  const amountViolatesPolicy = hasAmount && !isAllowedDeductionAmount(amountValue);
 
-  const isPharmacyFacility = facilityType === "PHARMACY";
+  const serviceTypes: { value: string; label: string }[] = [];
+  const hasCompanyTypes = availableServiceTypes.length > 0;
+
+  // Filter by facility type, then by company policies if available
+  const addIf = (value: string, label: string, show: boolean) => {
+    if (show && (!hasCompanyTypes || availableServiceTypes.includes(value))) {
+      serviceTypes.push({ value, label });
+    }
+  };
+
+  addIf("GENERAL", "كشف عام", true);
+  addIf("MEDICINE", "أدوية صرف عام", true);
+  addIf("DENTAL", "خدمات أسنان", facilityType !== "PHARMACY");
+  addIf("OPTICS", "خدمات بصريات", facilityType !== "PHARMACY");
+  addIf("SUPPLIES", "مستلزمات طبية", facilityType !== "PHARMACY");
 
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-        {/* ─── حقل المبلغ ─── */}
-        <div className="space-y-2">
-          <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">
-            قيمة الخصم
-          </label>
-          <div className="relative">
-            <DollarSign className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
-            <Input
-              type="number"
-              step="0.01"
-              max={String(MAX_DEDUCTION_AMOUNT)}
-              placeholder="0.00"
-              className="h-10 pr-9 text-sm font-black"
-              value={amount}
-              onChange={(e) => {
-                const raw = e.target.value;
-                if (raw === "") {
-                  setAmount("");
-                  return;
-                }
-                setAmount(raw);
-              }}
-            />
-          </div>
-          {amountExceedsMax && (
-            <p className="text-xs font-bold text-red-600 dark:text-red-400">{MAX_AMOUNT_POLICY_ERROR}</p>
-          )}
-          {amountViolatesPolicy && (
-            <p className="text-xs font-bold text-red-600 dark:text-red-400">{AMOUNT_POLICY_ERROR}</p>
-          )}
-        </div>
-
-        {/* ─── نوع الخصم ─── */}
-        <div className="space-y-2">
-          <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">
-            النوع
+    <div className="space-y-4">
+      {/* ─── الحقول الأساسية: التصنيف والمبلغ بجانب بعض ─── */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {/* تصنيف الخدمة */}
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
+            تصنيف الخدمة
           </label>
           <select
-            className="flex h-10 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+            className="flex h-11 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-bold text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
             value={type}
-            onChange={(e) => setType(e.target.value as "MEDICINE" | "SUPPLIES")}
+            onChange={(e) => setType(e.target.value as any)}
           >
-            {isPharmacyFacility ? (
-              <option value="MEDICINE">ادوية صرف عام</option>
-            ) : (
-              <>
-                <option value="SUPPLIES">كشف عام</option>
-                <option value="MEDICINE">ادوية صرف عام</option>
-              </>
-            )}
+            {serviceTypes.map(st => (
+              <option key={st.value} value={st.value}>{st.label}</option>
+            ))}
           </select>
+        </div>
+
+        {/* قيمة الخدمة */}
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
+            قيمة الخدمة
+          </label>
+          <div className="relative">
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
+              <CreditCard className="h-4 w-4" />
+            </div>
+            <Input
+              type="number"
+              step="0.25"
+              placeholder="0.00"
+              className={cn(
+                "h-11 pr-10 text-base font-black",
+                amountExceedsMax ? "border-red-500 focus-visible:ring-red-500/20" : "focus-visible:ring-primary/20"
+              )}
+              value={amount || ""}
+              onChange={(e) => setAmount(e.target.value)}
+            />
+            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[11px] font-black text-slate-400">
+              د.ل
+            </div>
+          </div>
         </div>
       </div>
 
+      {/* ─── محاكي الخصم (Simulation Panel) ─── */}
+      {hasAmount && !amountExceedsMax && (
+        <div className={cn(
+          "relative overflow-hidden rounded-lg border p-4 transition-all duration-300",
+          simulating ? "opacity-60" : "opacity-100",
+          simulation?.isTpa ? "bg-blue-50/50 border-blue-100" : "bg-slate-50 border-slate-200"
+        )}>
+          {simulation?.isTpa ? (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <Badge variant="info" className="text-[10px] py-0 px-2 h-4">نظام السقف</Badge>
+                  {simulation.calcResult.isPartialCoverage && (
+                    <Badge variant="danger" className="text-[10px] py-0 px-2 h-4 animate-pulse">تغطية جزئية</Badge>
+                  )}
+                </div>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider">على الجهة الضامنة</p>
+                <p className="text-xl font-black text-blue-600">{formatCurrency(simulation.calcResult.actualCompanyShare)}</p>
+              </div>
+              <div className="space-y-1 border-r border-slate-200 pl-4 text-left">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mt-5 sm:mt-6">يدفعه المؤمن (كاش)</p>
+                <p className="text-xl font-black text-amber-600">{formatCurrency(simulation.calcResult.actualPatientShare)}</p>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider">سيتم خصمه من الرصيد</p>
+                <p className="text-2xl font-black text-slate-700">{formatCurrency(amountValue)} د.ل</p>
+              </div>
+              <Badge variant="default">رصيد مباشر</Badge>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ─── أخطاء السياسة ─── */}
+      {amountExceedsMax && (
+        <div className="rounded-md bg-red-50 p-3 text-xs font-bold text-red-600 border border-red-100">
+          خطأ: {MAX_AMOUNT_POLICY_ERROR}
+        </div>
+      )}
+
       {/* ─── زر المراجعة ─── */}
-      {!showConfirm ? (
+      {!showConfirm && (
         <Button
-          className="h-10 w-full text-sm"
-          onClick={() => amount && setShowConfirm(true)}
-          disabled={!amount || parseFloat(amount) <= 0 || amountExceedsMax || amountViolatesPolicy}
+          onClick={() => setShowConfirm(true)}
+          disabled={!hasAmount || amountExceedsMax || simulating}
+          className="w-full h-12 text-sm font-black uppercase tracking-[0.2em] shadow-lg shadow-primary/10"
         >
-          <CreditCard className="h-4 w-4" />
-          <span className="mr-2">مراجعة الخصم</span>
+          مراجعة البيانات وتأكيد الخصم
         </Button>
-      ) : (
-        /* ─── شاشة التأكيد ─── */
-        <div className="space-y-3 rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 p-3 text-slate-900 dark:text-slate-200">
+      )}
+
+      {/* ─── لوحة التأكيد النهائية ─── */}
+      {showConfirm && (
+        <div className="space-y-4 rounded-xl border-2 border-primary/20 bg-primary/5 p-5 shadow-inner animate-in fade-in slide-in-from-top-2">
           <div className="text-center">
-            <p className="text-xs text-slate-500 dark:text-slate-400">أنت على وشك خصم</p>
-            <p className="text-xl font-black text-slate-950 dark:text-white">{amount} د.ل</p>
-            <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-              {type === "MEDICINE" ? "ادوية صرف عام" : "كشف عام"} • {beneficiary.name}
+            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 mb-1">تأكيد العملية النهائية</p>
+            <p className="text-3xl font-black text-primary mb-2">
+              {formatCurrency(
+                simulation?.isTpa && (simulation as any).calcResult
+                  ? (simulation as any).calcResult.actualCompanyShare
+                  : amountValue
+              )} د.ل
             </p>
+            <div className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-[11px] font-bold text-slate-500 border border-slate-200">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              {type === "GENERAL" ? "كشف عام" : type === "MEDICINE" ? "أدوية" : type === "DENTAL" ? "أسنان" : type === "OPTICS" ? "بصريات" : "مستلزمات"}
+              {" • "}
+              {beneficiary.name}
+            </div>
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
+
+
+          <div className="flex flex-col gap-3 sm:flex-row">
             <Button
-              variant="outline"
-              className="h-10 flex-1"
-              onClick={() => setShowConfirm(false)}
-              disabled={deducting}
-            >
-              إلغاء
-            </Button>
-            <Button
-              className="h-10 flex-1"
               onClick={handleDeduct}
               disabled={deducting}
+              className="flex-1 h-12 text-base font-black shadow-lg shadow-primary/20"
             >
-              {deducting ? <Loader2 className="h-5 w-5 animate-spin" /> : "تأكيد التنفيذ"}
+              {deducting ? <Loader2 className="h-5 w-5 animate-spin" /> : "تأكيد وخصم الآن"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setShowConfirm(false)}
+              disabled={deducting}
+              className="flex-1 h-12 text-sm font-bold bg-white"
+            >
+              رجوع للتعديل
             </Button>
           </div>
         </div>

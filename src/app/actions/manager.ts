@@ -37,6 +37,7 @@ const DEFAULT_PERMISSIONS: ManagerPermissions = {
   manage_card_numbering: false,
   migrate_card_numbering: false,
   manage_users: false,
+  manage_companies: false,
 };
 
 const EMPLOYEE_PERMISSIONS: ManagerPermissions = {
@@ -62,6 +63,7 @@ const EMPLOYEE_PERMISSIONS: ManagerPermissions = {
   manage_card_numbering: false,
   migrate_card_numbering: false,
   manage_users: false,
+  manage_companies: false,
 };
 
 // ── إنشاء حساب مدير جديد (المبرمج فقط) ──────────────────────────────
@@ -161,6 +163,7 @@ export async function updateManagerPermissions(
     manage_card_numbering: permissions.manage_card_numbering === true,
     migrate_card_numbering: permissions.migrate_card_numbering === true,
     manage_users: permissions.manage_users === true,
+    manage_companies: permissions.manage_companies === true,
   };
 
   await prisma.facility.update({

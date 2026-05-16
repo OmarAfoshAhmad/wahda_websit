@@ -1,4 +1,5 @@
 import { roundCurrency } from "@/lib/money";
+import { logger } from "@/lib/logger";
 import prisma from "@/lib/prisma";
 
 type TxClient = Omit<typeof prisma, "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends">;
@@ -20,6 +21,50 @@ function expectedStatus(currentStatus: "ACTIVE" | "FINISHED" | "SUSPENDED", expe
   return expectedRemaining <= 0 ? "FINISHED" : "ACTIVE";
 }
 
+export async function calculateBeneficiaryBalance(
+  tx: TxClient,
+  beneficiaryId: string
+): Promise<{ remaining_balance: number; total_balance: number; status: "ACTIVE" | "FINISHED" | "SUSPENDED"; name: string; card_number: string }> {
+  const beneficiary = await tx.beneficiary.findUnique({
+    where: { id: beneficiaryId },
+    select: {
+      id: true,
+      name: true,
+      card_number: true,
+      total_balance: true,
+      status: true,
+    },
+  });
+
+  if (!beneficiary) {
+    throw new Error("BENEFICIARY_NOT_FOUND");
+  }
+
+  const txns = await tx.transaction.findMany({
+    where: {
+      beneficiary_id: beneficiaryId,
+      is_cancelled: false,
+      type: { notIn: ["CANCELLATION", "DENTAL"] }, // DENTAL doesn't affect balance
+    },
+    select: { amount: true, actual_company_share: true },
+  });
+
+  const total = Number(beneficiary.total_balance);
+  const ledgerSpent = roundCurrency(
+    txns.reduce((sum, t) => sum + Number(t.actual_company_share ?? t.amount ?? 0), 0)
+  );
+  const computedRemaining = roundCurrency(Math.max(0, total - ledgerSpent));
+  const shouldStatus = expectedStatus(beneficiary.status, computedRemaining);
+
+  return {
+    remaining_balance: computedRemaining,
+    total_balance: total,
+    status: shouldStatus,
+    name: beneficiary.name,
+    card_number: beneficiary.card_number,
+  };
+}
+
 export async function assertBeneficiaryBalanceInvariant(
   tx: TxClient,
   beneficiaryId: string,
@@ -29,8 +74,6 @@ export async function assertBeneficiaryBalanceInvariant(
     where: { id: beneficiaryId },
     select: {
       id: true,
-      name: true,
-      total_balance: true,
       remaining_balance: true,
       status: true,
     },
@@ -40,28 +83,24 @@ export async function assertBeneficiaryBalanceInvariant(
     throw new Error("BALANCE_GUARD_BENEFICIARY_NOT_FOUND");
   }
 
-  const spent = await tx.transaction.aggregate({
-    where: {
-      beneficiary_id: beneficiaryId,
-      is_cancelled: false,
-      type: { not: "CANCELLATION" },
-    },
-    _sum: { amount: true },
-  });
-
-  const total = Number(beneficiary.total_balance);
+  const { remaining_balance: computedRemaining, status: shouldStatus, total_balance: total } = await calculateBeneficiaryBalance(tx, beneficiaryId);
   const storedRemaining = Number(beneficiary.remaining_balance);
-  const ledgerSpent = Number(spent._sum.amount ?? 0);
-  const computedRemaining = roundCurrency(Math.max(0, total - ledgerSpent));
-  const shouldStatus = expectedStatus(beneficiary.status, computedRemaining);
 
   const sameRemaining = roundCurrency(storedRemaining) === computedRemaining;
   const sameStatus = beneficiary.status === shouldStatus;
 
   if (!sameRemaining || !sameStatus) {
-    throw new Error(
-      `BALANCE_GUARD_INVARIANT_FAILED|${context}|${beneficiary.id}|stored=${storedRemaining}|computed=${computedRemaining}|status=${beneficiary.status}|expectedStatus=${shouldStatus}`,
-    );
+    const errorMsg = `BALANCE_GUARD_INVARIANT_FAILED|STORED:${storedRemaining}|COMPUTED:${computedRemaining}`;
+    logger.warn("BALANCE_GUARD_INVARIANT_MISMATCH", {
+      context,
+      beneficiary_id: beneficiary.id,
+      stored_remaining: storedRemaining,
+      computed_remaining: computedRemaining,
+      status: beneficiary.status,
+      expected_status: shouldStatus,
+      total_balance: total,
+    });
+    throw new Error(errorMsg);
   }
 }
 

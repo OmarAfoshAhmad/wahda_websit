@@ -193,9 +193,9 @@ export async function getBeneficiaryFamilyImportInsights(beneficiaryId: string) 
         b.status::text,
         b.total_balance::float8,
         b.remaining_balance::float8,
-        COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' AND t.type <> 'IMPORT' THEN t.amount ELSE 0 END), 0)::float8 AS manual_deducted,
-        COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type = 'IMPORT' THEN t.amount ELSE 0 END), 0)::float8 AS import_deducted,
-        COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END), 0)::float8 AS consumed_total
+        COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type NOT IN ('CANCELLATION', 'IMPORT', 'DENTAL') THEN COALESCE(t.actual_company_share, t.amount) ELSE 0 END), 0)::float8 AS manual_deducted,
+        COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type = 'IMPORT' THEN COALESCE(t.actual_company_share, t.amount) ELSE 0 END), 0)::float8 AS import_deducted,
+        COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type NOT IN ('CANCELLATION', 'DENTAL') THEN COALESCE(t.actual_company_share, t.amount) ELSE 0 END), 0)::float8 AS consumed_total
       FROM "Beneficiary" b
       LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id
       WHERE b.deleted_at IS NULL

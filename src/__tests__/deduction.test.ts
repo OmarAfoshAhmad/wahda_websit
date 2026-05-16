@@ -25,6 +25,13 @@ vi.mock('../lib/prisma', () => ({
     auditLog: {
       create: vi.fn(),
     },
+    insuranceCompany: {
+      findUnique: vi.fn().mockResolvedValue(null),
+      findMany: vi.fn().mockResolvedValue([]),
+    },
+    servicePolicy: {
+      findUnique: vi.fn().mockResolvedValue(null),
+    },
   },
 }));
 
@@ -76,6 +83,8 @@ describe('deductBalance Action', () => {
     const mockBeneficiary = {
       id: 'ben1',
       name: 'Omar',
+      card_number: 'WAB2025123',
+      company_id: null,
       remaining_balance: 500.0,
       total_balance: 1000.0,
       status: 'ACTIVE',
@@ -121,12 +130,15 @@ describe('deductBalance Action', () => {
     const mockBeneficiary = {
       id: 'ben1',
       name: 'Omar',
+      card_number: 'WAB2025123',
+      company_id: null,
       remaining_balance: 50.0,
       total_balance: 100.0,
       status: 'ACTIVE',
     };
 
     (prisma.$queryRaw as any).mockResolvedValueOnce([mockBeneficiary]);
+    (prisma.transaction.aggregate as any).mockResolvedValue({ _sum: { amount: 0 } });
 
     const result = await deductBalance({
       card_number: 'WAB2025123',
@@ -135,13 +147,15 @@ describe('deductBalance Action', () => {
     });
 
     expect(result.success).toBeUndefined();
-    expect(result.error).toContain('المبلغ أكبر من الرصيد المتاح');
+    expect(result.error).toContain('حصة المستفيد');
   });
 
   it('should prevent deduction from SUSPENDED beneficiaries', async () => {
     const mockBeneficiary = {
       id: 'ben1',
       name: 'Omar',
+      card_number: 'WAB2025123',
+      company_id: null,
       remaining_balance: 100.0,
       total_balance: 100.0,
       status: 'SUSPENDED',
@@ -162,6 +176,8 @@ describe('deductBalance Action', () => {
     const mockBeneficiary = {
       id: 'ben1',
       name: 'Omar',
+      card_number: 'WAB2025123',
+      company_id: null,
       remaining_balance: 100.0,
       total_balance: 100.0,
       status: 'ACTIVE',

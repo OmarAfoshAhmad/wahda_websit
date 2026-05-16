@@ -4,27 +4,23 @@ import { beneficiaryLogin } from "@/lib/beneficiary-auth";
 import bcrypt from "bcryptjs";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { normalizeCardInput } from "@/lib/card-number";
+import { setupPinSchema } from "@/lib/validation";
 
 const GENERIC_AUTH_ERROR = "بيانات الدخول غير صحيحة";
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
-  const card_number = typeof body?.card_number === "string" ? normalizeCardInput(body.card_number) : "";
-  const pin = typeof body?.pin === "string" ? body.pin.trim() : "";
-  const confirm_pin = typeof body?.confirm_pin === "string" ? body.confirm_pin.trim() : "";
+  const parsed = setupPinSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
+  }
+  const { pin } = parsed.data;
+  const card_number = normalizeCardInput(parsed.data.card_number);
 
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
   const rateLimitError = await checkRateLimit(`beneficiary-setup-pin:${ip}`, "login");
   if (rateLimitError) {
     return NextResponse.json({ error: rateLimitError }, { status: 429 });
-  }
-
-  if (!card_number || pin.length !== 6 || !/^\d{6}$/.test(pin)) {
-    return NextResponse.json({ error: "بيانات غير صحيحة" }, { status: 400 });
-  }
-
-  if (pin !== confirm_pin) {
-    return NextResponse.json({ error: "رمز PIN غير متطابق" }, { status: 400 });
   }
 
   // استخدام transaction مع SELECT FOR UPDATE لمنع race condition

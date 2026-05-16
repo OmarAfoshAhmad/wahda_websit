@@ -4,7 +4,7 @@ import { ToastProvider } from '@/components/toast';
 import { DeductForm } from '@/components/deduct-form';
 import userEvent from '@testing-library/user-event';
 import { getBeneficiaryByCard } from '@/app/actions/beneficiary';
-import { deductBalance } from '@/app/actions/deduction';
+import { deductBalance, simulateDeduction, getPolicyInfo, getAvailableServiceTypes } from '@/app/actions/deduction';
 import { vi } from 'vitest';
 
 // إنشاء نسخ وهمية (Mocks) لدوال الخادم (Server Actions)
@@ -14,12 +14,18 @@ vi.mock('@/app/actions/beneficiary', () => ({
 }));
 
 vi.mock('@/app/actions/deduction', () => ({
-  deductBalance: vi.fn()
+  deductBalance: vi.fn(),
+  simulateDeduction: vi.fn(),
+  getPolicyInfo: vi.fn(),
+  getAvailableServiceTypes: vi.fn()
 }));
 
 describe('DeductForm Component', () => {
   const mockedGetBeneficiaryByCard = vi.mocked(getBeneficiaryByCard);
   const mockedDeductBalance = vi.mocked(deductBalance);
+  const mockedGetPolicyInfo = vi.mocked(getPolicyInfo);
+  const mockedSimulateDeduction = vi.mocked(simulateDeduction);
+  const mockedGetAvailableServiceTypes = vi.mocked(getAvailableServiceTypes);
   type MockBeneficiary = {
     id: string;
     name: string;
@@ -30,6 +36,9 @@ describe('DeductForm Component', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockedGetPolicyInfo.mockResolvedValue({ isTpa: false });
+    mockedSimulateDeduction.mockResolvedValue({ isLegacy: true } as any);
+    mockedGetAvailableServiceTypes.mockResolvedValue({ serviceTypes: [] });
   });
 
   it('يجب أن يعرض حقل البحث ويتفاعل مع اختصار لوحة المفاتيح', async () => {
@@ -88,8 +97,9 @@ describe('DeductForm Component', () => {
     // محاكاة استجابة عملية الخصم
     mockedDeductBalance.mockResolvedValueOnce({
       success: true,
-      newBalance: 400
-    });
+      newBalance: 400,
+      isTpa: false,
+    } as any);
 
     render(
       <ToastProvider>
@@ -109,20 +119,21 @@ describe('DeductForm Component', () => {
     await userEvent.type(amountInput, '100');
 
     // تأكيد الخصم
-    const deductBtn = screen.getByText('مراجعة الخصم');
+    const deductBtn = screen.getByText('مراجعة البيانات وتأكيد الخصم');
     await userEvent.click(deductBtn);
 
     // التحقق من ظهور نافذة التأكيد النهائية
-    const confirmFinalBtn = await screen.findByText('تأكيد التنفيذ');
+    const confirmFinalBtn = await screen.findByText('تأكيد وخصم الآن');
     await userEvent.click(confirmFinalBtn);
 
     // التحقق من إرسال البيانات بشكل صحيح لدالة الخادم
     await waitFor(() => {
-      expect(deductBalance).toHaveBeenCalledWith({
+      expect(deductBalance).toHaveBeenCalledWith(expect.objectContaining({
         card_number: '123456',
         amount: 100,
-        type: 'SUPPLIES'
-      });
+        type: 'GENERAL',
+        beneficiary_id: '123',
+      }));
     });
 
     // التحقق من ظهور رسالة النجاح

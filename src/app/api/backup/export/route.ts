@@ -4,6 +4,35 @@ import prisma from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { encryptBackup } from "@/lib/backup-crypto";
 
+const BATCH_SIZE = 5000;
+
+async function fetchBatches<T extends { id: string }>(
+  model: { findMany: (args: any) => Promise<T[]> },
+  orderBy: object,
+  select?: object,
+): Promise<T[]> {
+  const results: T[] = [];
+  let cursor: string | null = null;
+  let hasMore = true;
+
+  while (hasMore) {
+    const batch = await model.findMany({
+      ...(select ? { select } : {}),
+      orderBy,
+      take: BATCH_SIZE,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    });
+
+    results.push(...batch);
+    hasMore = batch.length === BATCH_SIZE;
+    if (hasMore) {
+      cursor = batch[batch.length - 1].id;
+    }
+  }
+
+  return results;
+}
+
 export async function GET(request: NextRequest) {
   const session = await requireActiveFacilitySession();
   if (!session || !session.is_admin) {
@@ -19,11 +48,11 @@ export async function GET(request: NextRequest) {
 
   try {
     const [facilities, beneficiaries, transactions, auditLogs, notifications] = await Promise.all([
-      prisma.facility.findMany({ orderBy: { created_at: "asc" } }),
-      prisma.beneficiary.findMany({ orderBy: { created_at: "asc" } }),
-      prisma.transaction.findMany({ orderBy: { created_at: "asc" } }),
-      prisma.auditLog.findMany({ orderBy: { created_at: "asc" } }),
-      prisma.notification.findMany({ orderBy: { created_at: "asc" } }),
+      fetchBatches(prisma.facility, { created_at: "asc" }),
+      fetchBatches(prisma.beneficiary, { created_at: "asc" }),
+      fetchBatches(prisma.transaction, { created_at: "asc" }),
+      fetchBatches(prisma.auditLog, { created_at: "asc" }),
+      fetchBatches(prisma.notification, { created_at: "asc" }),
     ]);
 
     const backup = {

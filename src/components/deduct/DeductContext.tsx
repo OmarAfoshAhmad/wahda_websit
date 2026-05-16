@@ -9,7 +9,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
 import { getBeneficiaryByCard, searchBeneficiaries } from "@/app/actions/beneficiary";
-import { deductBalance } from "@/app/actions/deduction";
+import { deductBalance, simulateDeduction, getPolicyInfo, getAvailableServiceTypes } from "@/app/actions/deduction";
 import { useToast } from "@/components/toast";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -25,6 +25,7 @@ export interface Beneficiary {
   has_replacement_card: boolean;
   replacement_card_number: string | null;
   replacement_beneficiary_id: string | null;
+  company?: { id: string, name: string, code: string, logo?: string | null } | null;
 }
 
 export interface BeneficiarySuggestion {
@@ -39,7 +40,16 @@ export interface BeneficiarySuggestion {
   replacement_beneficiary_id: string | null;
 }
 
-export type DeductType = "MEDICINE" | "SUPPLIES";
+export type DeductType = "MEDICINE" | "SUPPLIES" | "DENTAL" | "OPTICS" | "GENERAL";
+
+export interface SimulationResult {
+  isTpa: boolean;
+  calcResult?: any;
+  beneficiaryName?: string;
+  companyName?: string;
+  isLegacy?: boolean;
+  remainingBalance?: number;
+}
 
 // ─── Context Shape ────────────────────────────────────────────────────────────
 
@@ -72,11 +82,26 @@ interface DeductContextValue {
   setAmount: (v: string) => void;
   type: DeductType;
   setType: (v: DeductType) => void;
+  availableServiceTypes: string[];
   facilityType?: "HOSPITAL" | "PHARMACY";
   showConfirm: boolean;
   setShowConfirm: (v: boolean) => void;
   deducting: boolean;
   handleDeduct: () => Promise<void>;
+  
+  // Simulation
+  simulation: SimulationResult | null;
+  simulating: boolean;
+  policyLoading: boolean;
+  policyInfo: {
+    ceiling: number | null;
+    consumed: number;
+    isTpa: boolean;
+    companyName?: string;
+    copayPercentage?: number;
+    patientShare?: number;
+    companyShare?: number;
+  } | null;
 
   // Feedback
   error: string | null;
@@ -120,9 +145,22 @@ export function DeductProvider({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
-  const [type, setType] = useState<DeductType>(facilityType === "PHARMACY" ? "MEDICINE" : "SUPPLIES");
+  const [type, setType] = useState<DeductType>(facilityType === "PHARMACY" ? "MEDICINE" : "GENERAL");
   const [showConfirm, setShowConfirm] = useState(false);
   const [deducting, setDeducting] = useState(false);
+  const [simulation, setSimulation] = useState<SimulationResult | null>(null);
+  const [simulating, setSimulating] = useState(false);
+  const [availableServiceTypes, setAvailableServiceTypes] = useState<string[]>([]);
+  const [policyLoading, setPolicyLoading] = useState(false);
+  const [policyInfo, setPolicyInfo] = useState<{
+    ceiling: number | null;
+    consumed: number;
+    isTpa: boolean;
+    companyName?: string;
+    copayPercentage?: number;
+    patientShare?: number;
+    companyShare?: number;
+  } | null>(null);
   const [recentBeneficiaries, setRecentBeneficiaries] = useState<BeneficiarySuggestion[]>([]);
   const [recentHydrated, setRecentHydrated] = useState(false);
 
@@ -133,7 +171,7 @@ export function DeductProvider({
     if (facilityType === "PHARMACY" && type !== "MEDICINE") {
       setType("MEDICINE");
     }
-  }, [facilityType, type]);
+  }, [facilityType]);
 
   // Load recent beneficiaries after mount to keep SSR/client markup identical.
   useEffect(() => {
@@ -209,7 +247,7 @@ export function DeductProvider({
   const resetSearchState = useCallback(() => {
     setSearchInput(""); setCardNumber(""); setSuggestions([]);
     setShowSuggestions(false); setBeneficiary(null);
-    setAmount(""); setType(facilityType === "PHARMACY" ? "MEDICINE" : "SUPPLIES"); setShowConfirm(false);
+    setAmount(""); setType(facilityType === "PHARMACY" ? "MEDICINE" : "GENERAL"); setShowConfirm(false);
     setError(null); setSuccess(null);
   }, [facilityType]);
 
@@ -312,7 +350,7 @@ export function DeductProvider({
         beneficiary_id: beneficiary.id,
         card_number: beneficiary.card_number,
         amount: parseFloat(amount),
-        type,
+        type: type as any,
         requestId: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
       });
     } catch { setDeducting(false); setShowConfirm(false); setError("خطأ في الاتصال. حاول مرة أخرى."); return; }
@@ -321,13 +359,115 @@ export function DeductProvider({
       setError(result.error as string);
       toast.error(result.error as string);
     } else {
+      const tpaLabel = (result as any).isTpa ? " (معتمد من شركة تأمين)" : "";
       setSuccess("تمت عملية الخصم بنجاح");
-      toast.success(`تم خصم ${parseFloat(amount).toLocaleString("ar-LY")} د.ل بنجاح`);
-      setBeneficiary({ ...beneficiary, remaining_balance: result.newBalance, status: result.newBalance <= 0 ? "FINISHED" : "ACTIVE" });
+      toast.success(`تم خصم ${parseFloat(amount).toLocaleString("ar-LY")} د.ل بنجاح${tpaLabel}`);
+      const updatedBeneficiary = { ...beneficiary, remaining_balance: result.newBalance, status: result.newBalance <= 0 ? "FINISHED" : "ACTIVE" };
+      setBeneficiary(updatedBeneficiary);
       setAmount("");
+      
+      // جلب البيانات المالية الجديدة (تحديث الرصيد المستهلك) فوراً بعد الخصم
+      getPolicyInfo(beneficiary.id, type).then((info: any) => {
+        if (info.isTpa) {
+          setPolicyInfo(prev => prev ? {
+            ...prev,
+            ceiling: info.ceiling ?? null,
+            consumed: info.consumed ?? 0,
+          } : null);
+        } else {
+          setPolicyInfo({
+            isTpa: false,
+            ceiling: updatedBeneficiary.total_balance,
+            consumed: updatedBeneficiary.total_balance - updatedBeneficiary.remaining_balance,
+          });
+        }
+      });
+
       setTimeout(() => setSuccess(null), 5000);
     }
   }, [beneficiary, amount, type, toast]);
+
+  // Load available service types when beneficiary changes
+  useEffect(() => {
+    if (!beneficiary) {
+      setAvailableServiceTypes([]);
+      return;
+    }
+    let cancelled = false;
+    getAvailableServiceTypes(beneficiary.id).then((res) => {
+      if (cancelled) return;
+      const types = res.serviceTypes;
+      setAvailableServiceTypes(types);
+      // إذا كان النوع الحالي غير متاح لهذه الشركة، انتقل للأول المتاح تلقائياً
+      if (types.length > 0 && !types.includes(type as string)) {
+        setType(types[0] as DeductType);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [beneficiary?.id]);
+
+  // Immediate Policy Info Effect (no debounce — updates on beneficiary or type change)
+  useEffect(() => {
+    if (!beneficiary) {
+      setPolicyInfo(null);
+      setPolicyLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setPolicyLoading(true);
+    setPolicyInfo(null);
+
+    getPolicyInfo(beneficiary.id, type).then((info: { isTpa: boolean; ceiling?: number | null; consumed?: number; companyName?: string; copayPercentage?: number }) => {
+      if (cancelled) return;
+      if (info.isTpa) {
+        setPolicyInfo({
+          isTpa: true,
+          ceiling: info.ceiling ?? null,
+          consumed: info.consumed ?? 0,
+          companyName: info.companyName ?? "",
+          copayPercentage: info.copayPercentage,
+        });
+      } else {
+        setPolicyInfo({
+          isTpa: false,
+          ceiling: beneficiary.total_balance,
+          consumed: beneficiary.total_balance - beneficiary.remaining_balance,
+        });
+      }
+      setPolicyLoading(false);
+    });
+
+    return () => { cancelled = true; };
+  }, [beneficiary?.id, type]);
+
+  // Debounced Simulation Effect (depends on amount too)
+  useEffect(() => {
+    const amt = parseFloat(amount);
+
+    if (!beneficiary || isNaN(amt) || amt <= 0) {
+      setSimulation(null);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setSimulating(true);
+      try {
+        const res = await simulateDeduction({
+          beneficiary_id: beneficiary.id,
+          amount: amt,
+          service_type: type
+        });
+        setSimulation(res as any);
+      } catch {
+        setSimulation(null);
+      } finally {
+        setSimulating(false);
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [beneficiary?.id, amount, type]);
 
   return (
     <DeductContext.Provider value={{
@@ -336,8 +476,9 @@ export function DeductProvider({
       loading, searchBoxRef, handleSearch, handleSelectSuggestion,
       recentBeneficiaries, setRecentBeneficiaries, handlePickRecent,
       beneficiary, setBeneficiary,
-      amount, setAmount, type, setType, facilityType, showConfirm, setShowConfirm,
+      amount, setAmount, type, setType, availableServiceTypes, facilityType, showConfirm, setShowConfirm,
       deducting, handleDeduct,
+      simulation, simulating, policyLoading, policyInfo,
       error, setError, success,
       resetSearchState,
     }}>

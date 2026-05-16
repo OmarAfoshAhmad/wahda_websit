@@ -21,6 +21,7 @@ export type ManagerPermissions = {
   manage_card_numbering: boolean;
   migrate_card_numbering: boolean;
   manage_users: boolean;
+  manage_companies: boolean; // SEC-05 FIX: صلاحية إدارة شركات التأمين وسياساتها
 };
 
 export interface Session {

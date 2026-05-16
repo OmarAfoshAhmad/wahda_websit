@@ -30,10 +30,30 @@ export async function getBeneficiaryByCard(card_number: string) {
         card_number: { equals: normalizedCardNumber, mode: "insensitive" },
         deleted_at: null,
       },
+      include: {
+        company: true,
+      },
     });
 
     if (!beneficiary) {
       return { error: "المستفيد غير موجود" };
+    }
+
+    if (!beneficiary.company_id) {
+      const companies = await prisma.insuranceCompany.findMany({
+        where: { is_active: true, card_pattern: { not: null } },
+      });
+      for (const comp of companies) {
+        if (comp.card_pattern && new RegExp(comp.card_pattern).test(beneficiary.card_number)) {
+          await prisma.beneficiary.update({
+            where: { id: beneficiary.id },
+            data: { company_id: comp.id },
+          });
+          beneficiary.company_id = comp.id;
+          beneficiary.company = comp as any;
+          break;
+        }
+      }
     }
 
     const derivedRemaining = await getLedgerRemainingByBeneficiaryId(

@@ -37,35 +37,12 @@ export default function RootLayout({
     <html lang="ar" dir="rtl" data-scroll-behavior="smooth" suppressHydrationWarning>
       <head suppressHydrationWarning />
       <body className={`${tajawal.variable} ${tajawal.className}`} suppressHydrationWarning>
+        {/* إزالة attribute bis_skin_checked الذي تضيفه إضافات المتصفح ويسبب hydration mismatch — لا يحتوي على مدخلات مستخدم */}
         <Script 
           id="pre-hydration-strip"
           strategy="beforeInteractive"
           dangerouslySetInnerHTML={{
-            __html: `
-              (function() {
-                const ATTR = 'bis_skin_checked';
-                const removeAttr = (node) => {
-                  if (!node) return;
-                  if (node.hasAttribute && node.hasAttribute(ATTR)) node.removeAttribute(ATTR);
-                  if (node.querySelectorAll) {
-                    const nodes = node.querySelectorAll('[' + ATTR + ']');
-                    for (let i = 0; i < nodes.length; i++) nodes[i].removeAttribute(ATTR);
-                  }
-                };
-                removeAttr(document.documentElement);
-                const observer = new MutationObserver((mutations) => {
-                  for (let i = 0; i < mutations.length; i++) {
-                    const m = mutations[i];
-                    if (m.type === 'attributes') removeAttr(m.target);
-                    if (m.addedNodes) {
-                      for (let j = 0; j < m.addedNodes.length; j++) removeAttr(m.addedNodes[j]);
-                    }
-                  }
-                });
-                observer.observe(document.documentElement, { attributes: true, subtree: true, childList: true, attributeFilter: [ATTR] });
-                window.addEventListener('DOMContentLoaded', () => removeAttr(document));
-              })();
-            `
+            __html: `(function(){const a='bis_skin_checked',r=n=>{n&&(n.hasAttribute&&n.hasAttribute(a)&&n.removeAttribute(a),n.querySelectorAll&&n.querySelectorAll('['+a+']').forEach(e=>e.removeAttribute(a)))};r(document.documentElement);const o=new MutationObserver(m=>{m.forEach(m=>{m.type==='attributes'&&r(m.target),m.addedNodes&&m.addedNodes.forEach(r)})});o.observe(document.documentElement,{attributes:!0,subtree:!0,childList:!0,attributeFilter:[a]}),window.addEventListener('DOMContentLoaded',()=>r(document))})();`
           }}
         />
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>

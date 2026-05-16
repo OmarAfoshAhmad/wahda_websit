@@ -4,18 +4,22 @@ import prisma from "@/lib/prisma";
 import { deductionSchema } from "@/lib/validation";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { revalidatePath } from "next/cache";
+import { TransactionType } from "@prisma/client";
 import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 import { logger } from "@/lib/logger";
 import { emitNotification } from "@/lib/sse-notifications";
 import { formatCurrency, roundCurrency } from "@/lib/money";
 import { normalizeCardInput } from "@/lib/card-number";
 import { assertBeneficiaryBalanceInvariant, buildIdempotencyKey } from "@/lib/tx-balance-guard";
+import { InsuranceEngine } from "@/lib/insurance/engine";
+import { findCompanyByCardNumber, getServiceTypeMapping } from "@/lib/insurance/company-matcher";
+import type { TpaValidation } from "@/lib/insurance/shadow-mode";
 
 export async function deductBalance(formData: {
   beneficiary_id?: string;
   card_number: string;
   amount: number;
-  type: "MEDICINE" | "SUPPLIES";
+  type: "MEDICINE" | "SUPPLIES" | "GENERAL" | "DENTAL" | "OPTICS";
   transactionDate?: Date;
   facilityId?: string;
   requestId?: string;
@@ -64,8 +68,8 @@ export async function deductBalance(formData: {
 
   const { card_number, amount, type } = validated.data;
 
-  if (!session.is_admin && !session.is_manager && session.facility_type === "PHARMACY" && type === "SUPPLIES") {
-    return { error: "حسابات الصيدليات لا يمكنها تنفيذ نوع كشف عام" };
+  if (!session.is_admin && !session.is_manager && session.facility_type === "PHARMACY" && (type === "DENTAL" || type === "OPTICS" || type === "SUPPLIES")) {
+    return { error: "حسابات الصيدليات لا يمكنها تنفيذ هذا النوع من الخدمات" };
   }
 
   const manualTransactionDate =
@@ -102,15 +106,15 @@ export async function deductBalance(formData: {
       // 1. Get beneficiary with row-level lock (using raw sql as Prisma interactive tx isn't always enough for specific locking locks)
       // On PostgreSQL, we can use SELECT ... FOR UPDATE
       const beneficiaries = beneficiaryIdInput
-        ? await tx.$queryRaw<Array<{ id: string; name: string; remaining_balance: number; total_balance: number; status: string }>>`
-          SELECT id, name, remaining_balance, total_balance::float8, status FROM "Beneficiary"
+        ? await tx.$queryRaw<Array<{ id: string; name: string; card_number: string; company_id: string | null; remaining_balance: number; total_balance: number; status: string }>>`
+          SELECT id, name, card_number, company_id, remaining_balance, total_balance::float8, status FROM "Beneficiary"
           WHERE id = ${beneficiaryIdInput}
             AND "deleted_at" IS NULL
           LIMIT 1
           FOR UPDATE
         `
-        : await tx.$queryRaw<Array<{ id: string; name: string; remaining_balance: number; total_balance: number; status: string }>>`
-          SELECT id, name, remaining_balance, total_balance::float8, status FROM "Beneficiary"
+        : await tx.$queryRaw<Array<{ id: string; name: string; card_number: string; company_id: string | null; remaining_balance: number; total_balance: number; status: string }>>`
+          SELECT id, name, card_number, company_id, remaining_balance, total_balance::float8, status FROM "Beneficiary"
           WHERE TRANSLATE(
             REGEXP_REPLACE(UPPER(card_number), '[^A-Z0-9٠-٩۰-۹]+', '', 'g'),
             '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹',
@@ -136,31 +140,150 @@ export async function deductBalance(formData: {
 
       const beneficiary = beneficiaries[0];
 
+      // [TPA] Identify Company via card pattern matching
+      let companyId = beneficiary.company_id;
+      if (!companyId) {
+        const companyMatch = await findCompanyByCardNumber(beneficiary.card_number);
+        companyId = companyMatch?.id || null;
+      }
+
+      // [TPA] Calculate Annual Consumption for this Category
+      const fiscalYear = InsuranceEngine.getFiscalYear(manualTransactionDate || new Date());
+      const startDate = new Date(fiscalYear, 0, 1);
+      const endDate = new Date(fiscalYear, 11, 31, 23, 59, 59);
+
+      // Resolve service type mapping (e.g. MEDICINE → GENERAL for shared ceiling)
+      const policyServiceType = companyId
+        ? await getServiceTypeMapping(companyId, type)
+        : type;
+
+      const consumption = await tx.transaction.aggregate({
+        where: {
+          beneficiary_id: beneficiary.id,
+          is_cancelled: false,
+          created_at: { gte: startDate, lte: endDate },
+          OR: [
+            { service_category: policyServiceType },
+            { service_category: null, type: policyServiceType as any }
+          ]
+        },
+        _sum: { ceiling_consumed: true }
+      });
+      const consumedThisYear = Number(consumption._sum.ceiling_consumed || 0);
+
+      // [TPA] Fetch Policy — TPA-03 FIX: التحقق من is_active لمنع الخصم بسياسة موقوفة
+      const policyRecord = companyId ? await tx.servicePolicy.findUnique({
+        where: { company_id_service_type: { company_id: companyId, service_type: policyServiceType } }
+      }) : null;
+
+      // رفض الخصم إذا كانت السياسة موجودة لكن غير فعالة
+      if (policyRecord && !policyRecord.is_active) {
+        throw new Error(`سياسة الخدمة (${policyServiceType}) غير مفعلة حالياً`);
+      }
+
+      let tpaData: Record<string, unknown> = {};
+      if (policyRecord) {
+        // Validate policy effective dates
+        const serviceDate = manualTransactionDate || new Date();
+        if (policyRecord.effective_from && serviceDate < policyRecord.effective_from) {
+          throw new Error("سياسة الخدمة لم تبدأ بعد (تاريخ السريان لم يحين)");
+        }
+        if (policyRecord.effective_to && serviceDate > policyRecord.effective_to) {
+          throw new Error("سياسة الخدمة منتهية الصلاحية");
+        }
+
+        const effectiveCeiling = (policyRecord.annual_ceiling === null || Number(policyRecord.annual_ceiling) === 0)
+          ? null : Number(policyRecord.annual_ceiling);
+
+        const calcResult = InsuranceEngine.calculate({
+          amount,
+          consumedThisYear,
+          policy: {
+            serviceType: policyRecord.service_type,
+            annualCeiling: effectiveCeiling,
+            copayPercentage: Number(policyRecord.copay_percentage),
+            allowPartialCoverage: policyRecord.allow_partial_coverage
+          }
+        });
+
+        // Validate: patient share must not exceed remaining balance
+        const patientShare = Number(calcResult.actualPatientShare);
+        const remainingBalance = Number(beneficiary.remaining_balance);
+        const tpaValidation: TpaValidation = {
+          patientShareAffordable: patientShare <= remainingBalance,
+          patientShare,
+          remainingBalance,
+          amount,
+        };
+
+        tpaData = {
+          company_id: companyId,
+          service_category: policyServiceType,
+          original_company_share: calcResult.originalCompanyShare,
+          original_patient_share: calcResult.originalPatientShare,
+          actual_company_share: calcResult.actualCompanyShare,
+          actual_patient_share: calcResult.actualPatientShare,
+          remaining_ceiling_before: calcResult.remainingCeilingBefore,
+          ceiling_consumed: calcResult.ceilingConsumed,
+          remaining_ceiling_after: calcResult.remainingCeilingAfter,
+          policy_snapshot: JSON.parse(JSON.stringify(policyRecord)),
+          calc_metadata: { ...calcResult.metadata, tpaValidation },
+        };
+      } else if (companyId) {
+        // Silent fallback tracked: company found but no policy — store basic info
+        tpaData = {
+          company_id: companyId,
+          service_category: policyServiceType,
+          calc_metadata: { tpaApplied: false, reason: "no_policy" },
+        };
+      }
+
       // FIX: منع الخصم من المستفيدين الموقوفين (SUSPENDED) أيضاً
       if (beneficiary.status === "SUSPENDED") {
         throw new Error("حساب المستفيد موقوف ولا يمكن إجراء خصم عليه");
       }
-      if (beneficiary.status === "FINISHED" || beneficiary.remaining_balance <= 0) {
-        throw new Error("رصيد المستفيد صفر أو مكتمل");
+      if (beneficiary.status === "FINISHED" && type !== "DENTAL") {
+        throw new Error("حساب المستفيد مكتمل ولا يمكن الخصم من الرصيد الأساسي");
       }
 
-      if (amount > beneficiary.remaining_balance) {
-        throw new Error(`المبلغ أكبر من الرصيد المتاح (${formatCurrency(Number(beneficiary.remaining_balance))} د.ل)`);
-      }
+      // المبلغ الفعلي الذي تتكفل به الشركة (Company Share)
+      const companyShare = tpaData.actual_company_share != null
+        ? Number(tpaData.actual_company_share)
+        : amount;
 
       const balanceBefore = Number(beneficiary.remaining_balance);
-      const newBalance = roundCurrency(balanceBefore - amount);
-      const newStatus = newBalance <= 0 ? "FINISHED" : "ACTIVE";
+      let newBalance = balanceBefore;
+      let newStatus: "ACTIVE" | "FINISHED" | "SUSPENDED" = beneficiary.status as any;
 
-      // 2. Update beneficiary
-      await tx.beneficiary.update({
-        where: { id: beneficiary.id },
-        data: {
-          remaining_balance: newBalance,
-          status: newStatus,
-          ...(newStatus === "FINISHED" ? { completed_via: "MANUAL" } : {}),
-        },
-      });
+      // خصم الأسنان معزول تماماً عن الرصيد الأساسي للمستفيد (remaining_balance)
+      // الرصيد الأساسي يخص المخصص العام للكشوفات والأدوية (مثل مصرف الوحدة)
+      if (type !== "DENTAL") {
+        if (companyShare > balanceBefore) {
+          throw new Error(`القيمة المطلوبة من الشركة (${formatCurrency(companyShare)}) أكبر من الرصيد المتاح للمخصص (${formatCurrency(balanceBefore)} د.ل)`);
+        }
+        newBalance = roundCurrency(balanceBefore - companyShare);
+        newStatus = newBalance <= 0 ? "FINISHED" : "ACTIVE";
+
+        // 2. Update beneficiary balance (Only for non-dental)
+        await tx.beneficiary.update({
+          where: { id: beneficiary.id },
+          data: {
+            remaining_balance: newBalance,
+            status: newStatus,
+            ...(newStatus === "FINISHED" ? { completed_via: "MANUAL" } : {}),
+            // Auto-link company if found during migration
+            ...(companyId && !beneficiary.company_id ? { company_id: companyId } : {})
+          },
+        });
+      } else {
+        // للأسنان: نحدّث فقط ارتباط الشركة إن لزم الأمر دون المساس بالرصيد
+        if (companyId && !beneficiary.company_id) {
+          await tx.beneficiary.update({
+            where: { id: beneficiary.id },
+            data: { company_id: companyId },
+          });
+        }
+      }
 
       // 3. Create transaction record
       const transaction = await tx.transaction.create({
@@ -171,6 +294,7 @@ export async function deductBalance(formData: {
           type,
           ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
           ...(manualTransactionDate ? { created_at: manualTransactionDate } : {}),
+          ...tpaData // Inject TPA financial details
         },
       });
 
@@ -206,30 +330,6 @@ export async function deductBalance(formData: {
         },
       });
 
-      // إصلاح انزياح total_balance تلقائياً قبل فحص الثابت
-      // يحدث هذا الانزياح أحياناً بسبب بيانات قديمة أو عمليات استيراد سابقة أخطأت في ضبط total_balance
-      const spentAfterDeduction = await tx.transaction.aggregate({
-        where: { beneficiary_id: beneficiary.id, is_cancelled: false, type: { not: "CANCELLATION" } },
-        _sum: { amount: true },
-      });
-      const actualSpent = roundCurrency(Number(spentAfterDeduction._sum.amount ?? 0));
-      const expectedTotal = roundCurrency(actualSpent + newBalance);
-      const storedTotal = roundCurrency(Number(beneficiary.total_balance));
-      if (storedTotal !== expectedTotal) {
-        await tx.beneficiary.update({
-          where: { id: beneficiary.id },
-          data: { total_balance: expectedTotal },
-        });
-        logger.warn("total_balance drift detected and repaired during deduction", {
-          beneficiary_id: beneficiary.id,
-          stored_total: storedTotal,
-          expected_total: expectedTotal,
-          spent: actualSpent,
-          remaining: newBalance,
-          context: "deductBalance",
-        });
-      }
-
       await assertBeneficiaryBalanceInvariant(tx, beneficiary.id, "deductBalance");
 
       return {
@@ -238,6 +338,7 @@ export async function deductBalance(formData: {
         newBalance,
         beneficiaryId: beneficiary.id,
         notificationId: notification.id,
+        companyId: transaction.company_id,
         transaction: {
           id: transaction.id,
           amount: Number(transaction.amount),
@@ -262,7 +363,11 @@ export async function deductBalance(formData: {
 
     revalidatePath("/dashboard");
     revalidatePath("/transactions");
-    return { success: true, newBalance: result.newBalance };
+    return {
+      success: true,
+      newBalance: result.newBalance,
+      isTpa: result.companyId != null,
+    };
   } catch (error: unknown) {
     logger.error("Deduction error", { error: String(error) });
 
@@ -289,7 +394,7 @@ export async function deductBalance(formData: {
         return "تم اكتشاف طلب مكرر أو تعارض تزامن. أعد المحاولة بنفس requestId أو حدّث الصفحة.";
       }
 
-      if (rawMessage.includes("رقم البطاقة") || rawMessage.includes("المبلغ") || rawMessage.includes("المرفق")) {
+      if (rawMessage.includes("رقم البطاقة") || rawMessage.includes("المبلغ") || rawMessage.includes("المرفق") || rawMessage.startsWith("حصة المستفيد")) {
         return rawMessage;
       }
 
@@ -308,7 +413,7 @@ export async function deductBalance(formData: {
           action: "DEDUCT_BALANCE_ERROR",
           metadata: {
             error: error instanceof Error ? error.message : String(error),
-            stack: error instanceof Error && error.stack ? error.stack : undefined,
+            // SEC-B FIX: Removed stack trace logging to prevent leaking internal file paths
             card_number: formData.card_number,
             beneficiary_id: beneficiaryIdInput || undefined,
             amount: formData.amount,
@@ -340,5 +445,228 @@ export async function deductBalance(formData: {
       : detailedReason;
 
     return { error: publicMessage };
+  }
+}
+
+/**
+ * جلب أنواع الخدمات المفعلة لشركة المستفيد
+ */
+export async function getAvailableServiceTypes(beneficiaryId: string) {
+  const session = await requireActiveFacilitySession();
+  if (!session) return { serviceTypes: [] };
+
+  try {
+    const beneficiary = await prisma.beneficiary.findUnique({
+      where: { id: beneficiaryId },
+      select: { company_id: true, card_number: true }
+    });
+    if (!beneficiary) return { serviceTypes: [] };
+
+    let companyId = beneficiary.company_id;
+    if (!companyId) {
+      const companyMatch = await findCompanyByCardNumber(beneficiary.card_number);
+      companyId = companyMatch?.id || null;
+    }
+    if (!companyId) return { serviceTypes: [] };
+
+    const company = await prisma.insuranceCompany.findUnique({
+      where: { id: companyId },
+      select: { service_type_mappings: true }
+    });
+    if (!company) return { serviceTypes: [] };
+
+    const now = new Date();
+    const policies = await prisma.servicePolicy.findMany({
+      where: {
+        company_id: companyId,
+        OR: [
+          { effective_from: null, effective_to: null },
+          { effective_from: null, effective_to: { gte: now } },
+          { effective_from: { lte: now }, effective_to: null },
+          { effective_from: { lte: now }, effective_to: { gte: now } },
+        ]
+      },
+      select: { service_type: true }
+    });
+
+    const policyTypes = new Set(policies.map(p => p.service_type));
+    const mappings = company.service_type_mappings as Record<string, string> | null;
+    const allTypes = ["GENERAL", "MEDICINE", "DENTAL", "OPTICS", "SUPPLIES"];
+
+    const available = allTypes.filter(st => {
+      const mapped = mappings?.[st] ?? st;
+      return policyTypes.has(mapped);
+    });
+
+    return { serviceTypes: available };
+  } catch {
+    return { serviceTypes: [] };
+  }
+}
+
+/**
+ * الحصول على معلومات سياسة TPA للمستفيد (خفيف، بدون حساب)
+ */
+export async function getPolicyInfo(beneficiaryId: string, serviceType: string) {
+  const session = await requireActiveFacilitySession();
+  if (!session) return { isTpa: false };
+
+  try {
+    const beneficiary = await prisma.beneficiary.findUnique({
+      where: { id: beneficiaryId },
+      include: { company: true }
+    });
+    if (!beneficiary) return { isTpa: false };
+
+    let companyId = beneficiary.company_id;
+    if (!companyId) {
+      const companyMatch = await findCompanyByCardNumber(beneficiary.card_number);
+      companyId = companyMatch?.id || null;
+    }
+    if (!companyId) return { isTpa: false };
+
+    const policyServiceType = await getServiceTypeMapping(companyId, serviceType);
+    const policy = await prisma.servicePolicy.findUnique({
+      where: { company_id_service_type: { company_id: companyId, service_type: policyServiceType } }
+    });
+    if (!policy) return { isTpa: false };
+
+    const now = new Date();
+    if (policy.effective_from && now < policy.effective_from) {
+      return { isTpa: false, reason: "لم تبدأ بعد" };
+    }
+    if (policy.effective_to && now > policy.effective_to) {
+      return { isTpa: false, reason: "منتهية" };
+    }
+
+    const fiscalYear = InsuranceEngine.getFiscalYear(now);
+    const startDate = new Date(fiscalYear, 0, 1);
+    const endDate = new Date(fiscalYear, 11, 31, 23, 59, 59);
+
+    const ceiling = (policy.annual_ceiling === null || Number(policy.annual_ceiling) === 0) ? null : Number(policy.annual_ceiling);
+    const isOpenCeiling = ceiling === null;
+
+    const sum = await prisma.transaction.aggregate({
+      where: {
+        beneficiary_id: beneficiaryId,
+        is_cancelled: false,
+        created_at: { gte: startDate, lte: endDate },
+        OR: [
+          { service_category: policyServiceType },
+          { service_category: null, type: policyServiceType as any },
+        ]
+      },
+      _sum: { ceiling_consumed: true }
+    });
+    let consumed = Number(sum._sum.ceiling_consumed || 0);
+
+    const company = (beneficiary.company_id && beneficiary.company) ? beneficiary.company : await prisma.insuranceCompany.findUnique({ where: { id: companyId } });
+
+    return {
+      isTpa: true,
+      ceiling,
+      consumed,
+      companyName: company?.name || "",
+      copayPercentage: ceiling === null ? 0 : Number(policy.copay_percentage),
+    };
+  } catch {
+    return { isTpa: false };
+  }
+}
+
+/**
+ * محاكاة عملية الخصم (Preview)
+ * ===========================
+ * تستخدم لعرض النتائج المتوقعة للموظف قبل التنفيذ الفعلي.
+ */
+export async function simulateDeduction(data: {
+  beneficiary_id: string;
+  amount: number;
+  service_type: string;
+  transactionDate?: Date;
+}) {
+  const session = await requireActiveFacilitySession();
+  if (!session) return { error: "انتهت الجلسة" };
+
+  try {
+    const beneficiary = await prisma.beneficiary.findUnique({
+      where: { id: data.beneficiary_id },
+      include: { company: true }
+    });
+
+    if (!beneficiary) return { error: "المستفيد غير موجود" };
+
+    let companyId = beneficiary.company_id;
+    if (!companyId) {
+      const companyMatch = await findCompanyByCardNumber(beneficiary.card_number);
+      companyId = companyMatch?.id || null;
+    }
+
+    if (!companyId) return { isLegacy: true, remainingBalance: Number(beneficiary.remaining_balance) };
+
+    const policyServiceType = companyId
+      ? await getServiceTypeMapping(companyId, data.service_type)
+      : data.service_type;
+
+    const policy = await prisma.servicePolicy.findUnique({
+      where: { company_id_service_type: { company_id: companyId, service_type: policyServiceType } }
+    });
+
+    if (!policy) {
+      return { isLegacy: true, remainingBalance: Number(beneficiary.remaining_balance) };
+    }
+
+    // Validate policy effective dates
+    const serviceDate = data.transactionDate || new Date();
+    if (policy.effective_from && serviceDate < policy.effective_from) {
+      return { error: "سياسة الخدمة لم تبدأ بعد (تاريخ السريان لم يحين)" };
+    }
+    if (policy.effective_to && serviceDate > policy.effective_to) {
+      return { error: "سياسة الخدمة منتهية الصلاحية" };
+    }
+
+    const fiscalYear = InsuranceEngine.getFiscalYear(serviceDate);
+    const startDate = new Date(fiscalYear, 0, 1);
+    const endDate = new Date(fiscalYear, 11, 31, 23, 59, 59);
+
+    const consumption = await prisma.transaction.aggregate({
+      where: {
+        beneficiary_id: beneficiary.id,
+        is_cancelled: false,
+        created_at: { gte: startDate, lte: endDate },
+        OR: [
+          { service_category: policyServiceType },
+          { service_category: null, type: policyServiceType as any }
+        ]
+      },
+      _sum: { ceiling_consumed: true }
+    });
+
+    const consumedThisYear = Number(consumption._sum.ceiling_consumed || 0);
+
+    const effectiveCeiling = (policy.annual_ceiling === null || Number(policy.annual_ceiling) === 0)
+      ? null : Number(policy.annual_ceiling);
+
+    const calcResult = InsuranceEngine.calculate({
+      amount: data.amount,
+      consumedThisYear,
+      policy: {
+        serviceType: policy.service_type,
+        annualCeiling: effectiveCeiling,
+        copayPercentage: Number(policy.copay_percentage),
+        allowPartialCoverage: policy.allow_partial_coverage
+      }
+    });
+
+    return {
+      success: true,
+      isTpa: true,
+      calcResult,
+      beneficiaryName: beneficiary.name,
+      companyName: beneficiary.company?.name || ""
+    };
+
+  } catch (error) {
+    return { error: "خطأ في المحاكاة" };
   }
 }

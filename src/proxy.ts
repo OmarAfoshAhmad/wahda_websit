@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { decrypt, encrypt } from "@/lib/auth";
 import { jwtVerify } from "jose";
+import type { Session } from "@/lib/permissions";
 
 const publicRoutes = ["/login", "/api/login", "/manifest.json", "/manifest.webmanifest", "/site.webmanifest", "/favicon.ico"];
 const beneficiaryPublicRoutes = ["/beneficiary/login", "/beneficiary/setup-pin"];
@@ -28,6 +29,15 @@ export async function proxy(req: NextRequest) {
       } catch {
         return new NextResponse(JSON.stringify({ error: "Invalid Origin Header" }), { status: 400 });
       }
+    } else if (!origin && !req.headers.get("sec-fetch-site")) {
+      // Fallback: إذا كان Origin مفقوداً ولا يوجد Sec-Fetch-Site، نفحص SameSite cookie كحماية إضافية
+      const csrfCookie = req.cookies.get("session")?.value;
+      if (!csrfCookie) {
+        return new NextResponse(JSON.stringify({ error: "CSRF protection: missing origin and session" }), {
+          status: 403,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
     }
   }
 
@@ -36,11 +46,11 @@ export async function proxy(req: NextRequest) {
     publicRoutes.includes(path) || publicPrefixes.some((p) => path === p || path.startsWith(p + "/"));
 
   const cookie = req.cookies.get("session")?.value;
-  let session: any = null;
+  let session: Session | null = null;
 
   if (cookie) {
     try {
-      session = await decrypt(cookie);
+      session = await decrypt(cookie) as unknown as Session;
     } catch {
       // Invalid session cookie
     }

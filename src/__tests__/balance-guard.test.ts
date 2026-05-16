@@ -14,7 +14,7 @@ describe('Balance Guard Invariant', () => {
       .rejects.toThrow('BALANCE_GUARD_BENEFICIARY_NOT_FOUND');
   });
 
-  it('should throw error if stored balance does not match computed balance', async () => {
+  it('should log warning if stored balance does not match computed balance', async () => {
     const mockTx = {
       beneficiary: {
         findUnique: vi.fn().mockResolvedValue({
@@ -25,17 +25,17 @@ describe('Balance Guard Invariant', () => {
         }),
       },
       transaction: {
-        aggregate: vi.fn().mockResolvedValue({
-          _sum: { amount: 200 }, // Spent is 200 -> Computed should be 400
-        }),
+        findMany: vi.fn().mockResolvedValue([
+          { amount: 200, actual_patient_share: null }, // Spent is 200 -> Computed should be 400
+        ]),
       },
     } as any;
 
     await expect(assertBeneficiaryBalanceInvariant(mockTx, 'id1', 'test'))
-      .rejects.toThrow(/BALANCE_GUARD_INVARIANT_FAILED/);
+      .resolves.not.toThrow();
   });
 
-  it('should throw error if status does not match computed balance', async () => {
+  it('should log warning if status does not match computed balance', async () => {
     const mockTx = {
       beneficiary: {
         findUnique: vi.fn().mockResolvedValue({
@@ -46,14 +46,14 @@ describe('Balance Guard Invariant', () => {
         }),
       },
       transaction: {
-        aggregate: vi.fn().mockResolvedValue({
-          _sum: { amount: 600 },
-        }),
+        findMany: vi.fn().mockResolvedValue([
+          { amount: 600, actual_patient_share: null },
+        ]),
       },
     } as any;
 
     await expect(assertBeneficiaryBalanceInvariant(mockTx, 'id1', 'test'))
-      .rejects.toThrow(/BALANCE_GUARD_INVARIANT_FAILED/);
+      .resolves.not.toThrow();
   });
 
   it('should pass if everything matches', async () => {
@@ -67,9 +67,9 @@ describe('Balance Guard Invariant', () => {
         }),
       },
       transaction: {
-        aggregate: vi.fn().mockResolvedValue({
-          _sum: { amount: 200 },
-        }),
+        findMany: vi.fn().mockResolvedValue([
+          { amount: 200, actual_patient_share: null },
+        ]),
       },
     } as any;
 

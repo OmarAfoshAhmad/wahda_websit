@@ -4,7 +4,7 @@ import prisma from "@/lib/prisma";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
 import { roundCurrency } from "@/lib/money";
-import { assertBeneficiaryBalanceInvariant } from "@/lib/tx-balance-guard";
+import { calculateBeneficiaryBalance, assertBeneficiaryBalanceInvariant } from "@/lib/tx-balance-guard";
 
 import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 
@@ -80,29 +80,7 @@ export async function deleteCancellationTransaction(cancellationId: string) {
         data: { is_cancelled: true },
       });
 
-      // 4. إعادة احتساب الرصيد من دفتر الحركات الفعلي لضمان الدقة
-      const beneficiaryAfterOps = await tx.beneficiary.findUnique({
-        where: { id: cancellationTransaction.beneficiary_id },
-        select: { total_balance: true, completed_via: true },
-      });
-
-      if (!beneficiaryAfterOps) {
-        throw new Error("BENEFICIARY_NOT_FOUND");
-      }
-
-      const agg = await tx.transaction.aggregate({
-        where: {
-          beneficiary_id: cancellationTransaction.beneficiary_id,
-          is_cancelled: false,
-          type: { not: "CANCELLATION" },
-        },
-        _sum: { amount: true },
-      });
-
-      const totalBalance = Number(beneficiaryAfterOps.total_balance);
-      const totalSpent = Number(agg._sum.amount ?? 0);
-      const newBalance = roundCurrency(Math.max(0, totalBalance - totalSpent));
-      const newStatus = lockedStatus === "SUSPENDED" ? "SUSPENDED" : (newBalance <= 0 ? "FINISHED" : "ACTIVE");
+      const { remaining_balance: newBalance, status: newStatus } = await calculateBeneficiaryBalance(tx, cancellationTransaction.beneficiary_id);
 
       const beneficiaryUpdateData: {
         remaining_balance: number;
@@ -114,7 +92,7 @@ export async function deleteCancellationTransaction(cancellationId: string) {
       };
 
       if (newStatus === "FINISHED") {
-        beneficiaryUpdateData.completed_via = (beneficiaryAfterOps.completed_via as "MANUAL" | "IMPORT" | null) ?? "MANUAL";
+        beneficiaryUpdateData.completed_via = "MANUAL";
       } else if (newStatus !== "SUSPENDED") {
         beneficiaryUpdateData.completed_via = null;
       }
@@ -230,27 +208,12 @@ export async function deleteCancellationPair(cancellationId: string) {
         },
       });
 
-      // إعادة احتساب الرصيد من دفتر الحركات الفعلي بعد حذف الزوج
+      const { remaining_balance: newBalance, status: newStatus } = await calculateBeneficiaryBalance(tx, cancellation.beneficiary_id);
       const beneficiaryAfterOps = await tx.beneficiary.findUnique({
         where: { id: cancellation.beneficiary_id },
         select: { total_balance: true, completed_via: true },
       });
       if (!beneficiaryAfterOps) throw new Error("BENEFICIARY_NOT_FOUND");
-
-      const agg = await tx.transaction.aggregate({
-        where: {
-          beneficiary_id: cancellation.beneficiary_id,
-          is_cancelled: false,
-          type: { not: "CANCELLATION" },
-        },
-        _sum: { amount: true },
-      });
-
-      const totalBalance = Number(beneficiaryAfterOps.total_balance);
-      const totalSpent = Number(agg._sum.amount ?? 0);
-      const newBalance = roundCurrency(Math.max(0, totalBalance - totalSpent));
-      const lockedStatus = locked[0].status;
-      const newStatus = lockedStatus === "SUSPENDED" ? "SUSPENDED" : (newBalance <= 0 ? "FINISHED" : "ACTIVE");
 
       const beneficiaryUpdateData: {
         remaining_balance: number;

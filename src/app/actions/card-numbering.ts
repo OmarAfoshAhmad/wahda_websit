@@ -2,6 +2,7 @@
 
 import prisma from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import type { CardNumberingStatus } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { hasPermission } from "@/lib/session-guard";
 
@@ -180,13 +181,13 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
         errorMsg = "⚠️ تاريخ الميلاد مفقود";
       }
 
-      let status: any = "READY";
+      let status: CardNumberingStatus = "READY";
 
       if (exclusionReason) {
         status = "ERROR";
         errorMsg = exclusionReason;
         report.excluded++;
-        report.excludedItems.push({ ...item, error_message: exclusionReason } as any);
+        report.excludedItems.push({ ...item, error_message: exclusionReason } as CardNumberingItem);
       } else if (!empNum || !name) {
         status = "ERROR";
         errorMsg = "الاسم والرقم الوظيفي مطلوبان";
@@ -335,7 +336,7 @@ export async function migrateCardNumberingAction(ids: string[]) {
     added: 0,
     updated: 0,
     failed: 0,
-    details: [] as any[]
+    details: [] as Array<{ name: string; card_number: string; status: string; reason: string }>
   };
 
   const migrationId = `MIG-${Date.now()}`;
@@ -434,7 +435,7 @@ export async function migrateCardNumberingAction(ids: string[]) {
             },
           });
           report.added++;
-          report.details.push({ name: item.name, status: "ADDED", reason: "مستفيد جديد" });
+          report.details.push({ name: item.name, card_number: item.card_number, status: "ADDED", reason: "مستفيد جديد" });
           changes.push({
             type: "CREATE",
             beneficiaryId: newBen.id,
@@ -461,7 +462,7 @@ export async function migrateCardNumberingAction(ids: string[]) {
 
       } catch (err) {
         report.failed++;
-        report.details.push({ name: item.name, status: "FAIL", reason: "خطأ تقني أثناء الترحيل" });
+        report.details.push({ name: item.name, card_number: item.card_number, status: "FAIL", reason: "خطأ تقني أثناء الترحيل" });
       }
     }
 
@@ -494,7 +495,7 @@ export async function rollbackMigrationAction(logId: string) {
     const log = await prisma.auditLog.findUnique({ where: { id: logId } });
     if (!log || log.action !== "CARD_NUMBERING_MIGRATION") return { error: "سجل غير صالح" };
 
-    const { changes } = log.metadata as any;
+    const { changes } = log.metadata as { changes: Array<{ type: string; beneficiaryId: string; name: string; card_number?: string; oldCard?: string; newCard?: string }> };
 
     for (const change of changes) {
       if (change.type === "CREATE") {

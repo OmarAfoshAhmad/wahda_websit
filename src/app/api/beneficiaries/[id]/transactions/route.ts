@@ -125,6 +125,15 @@ export async function GET(
       facility: { select: { name: true } },
       original_transaction_id: true,
       idempotency_key: true,
+      company_id: true,
+      service_category: true,
+      actual_company_share: true,
+      actual_patient_share: true,
+      ceiling_consumed: true,
+      remaining_ceiling_before: true,
+      remaining_ceiling_after: true,
+      policy_snapshot: true,
+      company: { select: { name: true, code: true } },
     },
   });
 
@@ -240,6 +249,11 @@ export async function GET(
         facility_name: t.facility?.name ?? "-",
         original_transaction_id: t.original_transaction_id,
         idempotency_key: t.idempotency_key,
+        company_id: t.company_id,
+        service_category: t.service_category,
+        actual_company_share: t.actual_company_share ? Number(t.actual_company_share) : null,
+        actual_patient_share: t.actual_patient_share ? Number(t.actual_patient_share) : null,
+        company: t.company ? { name: t.company.name, code: t.company.code } : null,
         import_source_file_name: t.type === "IMPORT"
           ? (familyArchive?.source_file_name ?? findClosestImportFileName(t.created_at) ?? null)
           : null,

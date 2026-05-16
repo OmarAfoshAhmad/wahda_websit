@@ -11,6 +11,8 @@ import { normalizeCardInput } from "@/lib/card-number";
 import { extractBaseCard } from "@/lib/normalize";
 import { assertBeneficiariesBalanceInvariant, buildIdempotencyKey } from "@/lib/tx-balance-guard";
 import { Prisma } from "@prisma/client";
+import { InsuranceEngine } from "@/lib/insurance/engine";
+import { getServiceTypeMapping } from "@/lib/insurance/company-matcher";
 
 // ─── نوع بيانات عضو العائلة ─────────────────────────────────────────
 export type FamilyMember = {
@@ -72,32 +74,29 @@ export async function lookupFamily(query: string): Promise<{
   // استخراج رقم العائلة الأساسي
   const baseCard = extractBaseCard(beneficiary.card_number.toUpperCase());
 
-  // جلب كل أفراد العائلة (غير المحذوفين)
-  const allMembers = await prisma.beneficiary.findMany({
-    where: {
-      deleted_at: null,
-    },
-    select: {
-      id: true,
-      card_number: true,
-      name: true,
-      remaining_balance: true,
-      status: true,
-    },
-  });
-
-  // فلترة الأفراد حسب قاعدة رقم البطاقة
-  const familyMembers = allMembers
-    .filter((m) => extractBaseCard(m.card_number.toUpperCase()) === baseCard)
-    .map((m) => ({
-      id: m.id,
-      card_number: m.card_number,
-      name: m.name,
-      remaining_balance: Number(m.remaining_balance),
-      status: m.status,
-      eligible: m.status === "ACTIVE" && Number(m.remaining_balance) > 0,
-    }))
-    .sort((a, b) => b.remaining_balance - a.remaining_balance);
+  // PERF-01 FIX: استعلام مباشر بدل جلب كل المستفيدين وتصفيتهم في الذاكرة
+  // يستخدم LIKE على أول N حرف لتصفية أفراد العائلة مباشرة في قاعدة البيانات
+  const familyMembers = (await prisma.$queryRaw<Array<{
+    id: string;
+    card_number: string;
+    name: string;
+    remaining_balance: number;
+    status: string;
+  }>>`
+    SELECT id, card_number, name, remaining_balance::float8, status
+    FROM "Beneficiary"
+    WHERE deleted_at IS NULL
+      AND UPPER(card_number) LIKE ${baseCard + "%"}
+    ORDER BY remaining_balance DESC
+    LIMIT 50
+  `).map((m) => ({
+    id: m.id,
+    card_number: m.card_number,
+    name: m.name,
+    remaining_balance: Number(m.remaining_balance),
+    status: m.status,
+    eligible: m.status === "ACTIVE" && Number(m.remaining_balance) > 0,
+  }));
 
   if (familyMembers.length === 0) {
     return { error: "لم يتم العثور على أفراد العائلة" };
@@ -215,9 +214,9 @@ export async function executeCashClaim(input: {
 
       // قفل صفوف المستفيدين (FOR UPDATE)
       const locked = await tx.$queryRaw<
-        Array<{ id: string; name: string; card_number: string; remaining_balance: number; status: string }>
+        Array<{ id: string; name: string; card_number: string; remaining_balance: number; status: string; company_id: string | null }>
       >`
-        SELECT id, name, card_number, remaining_balance, status 
+        SELECT id, name, card_number, remaining_balance, status, company_id 
         FROM "Beneficiary" 
         WHERE id = ANY(${beneficiaryIds}::text[])
         AND "deleted_at" IS NULL
@@ -255,7 +254,84 @@ export async function executeCashClaim(input: {
       for (const alloc of normalizedAllocations) {
         const ben = lockedMap.get(alloc.beneficiary_id)!;
         const balanceBefore = Number(ben.remaining_balance);
-        const newBalance = roundCurrency(balanceBefore - alloc.amount);
+
+        let actualPatientShare = alloc.amount;
+        let tpaData: any = {};
+
+        if (ben.company_id) {
+          const type = "MEDICINE";
+          const fiscalYear = InsuranceEngine.getFiscalYear(new Date());
+          const startDate = new Date(fiscalYear, 0, 1);
+          const endDate = new Date(fiscalYear, 11, 31, 23, 59, 59);
+
+          const policyServiceType = await getServiceTypeMapping(ben.company_id, type);
+
+          const consumption = await tx.transaction.aggregate({
+            where: {
+              beneficiary_id: ben.id,
+              is_cancelled: false,
+              created_at: { gte: startDate, lte: endDate },
+              OR: [
+                { service_category: policyServiceType },
+                { service_category: null, type: policyServiceType as any }
+              ]
+            },
+            _sum: { ceiling_consumed: true }
+          });
+          const consumedThisYear = Number(consumption._sum.ceiling_consumed || 0);
+
+          const policyRecord = await tx.servicePolicy.findUnique({
+            where: { company_id_service_type: { company_id: ben.company_id, service_type: policyServiceType } }
+          });
+
+          if (policyRecord && !policyRecord.is_active) {
+            throw new Error(`سياسة الخدمة (${policyServiceType}) غير مفعلة حالياً للعضو ${ben.name}`);
+          }
+
+          if (policyRecord) {
+            const effectiveCeiling = (policyRecord.annual_ceiling === null || Number(policyRecord.annual_ceiling) === 0)
+              ? null : Number(policyRecord.annual_ceiling);
+
+            const calcResult = InsuranceEngine.calculate({
+              amount: alloc.amount,
+              consumedThisYear,
+              policy: {
+                serviceType: policyRecord.service_type,
+                annualCeiling: effectiveCeiling,
+                copayPercentage: Number(policyRecord.copay_percentage),
+                allowPartialCoverage: policyRecord.allow_partial_coverage
+              }
+            });
+
+            actualPatientShare = Number(calcResult.actualPatientShare);
+
+            tpaData = {
+              company_id: ben.company_id,
+              service_category: policyServiceType,
+              original_company_share: calcResult.originalCompanyShare,
+              original_patient_share: calcResult.originalPatientShare,
+              actual_company_share: calcResult.actualCompanyShare,
+              actual_patient_share: calcResult.actualPatientShare,
+              remaining_ceiling_before: calcResult.remainingCeilingBefore,
+              ceiling_consumed: calcResult.ceilingConsumed,
+              remaining_ceiling_after: calcResult.remainingCeilingAfter,
+              policy_snapshot: JSON.parse(JSON.stringify(policyRecord)),
+              calc_metadata: { ...calcResult.metadata },
+            };
+          } else {
+            tpaData = {
+              company_id: ben.company_id,
+              service_category: policyServiceType,
+              calc_metadata: { tpaApplied: false, reason: "no_policy" },
+            };
+          }
+        }
+
+        if (actualPatientShare > balanceBefore) {
+          throw new Error(`حصة المستفيد (${formatCurrency(actualPatientShare)}) أكبر من رصيد ${ben.name} (${formatCurrency(balanceBefore)})`);
+        }
+
+        const newBalance = roundCurrency(balanceBefore - actualPatientShare);
         const newStatus = newBalance <= 0 ? "FINISHED" : "ACTIVE";
 
         await tx.beneficiary.update({
@@ -273,6 +349,7 @@ export async function executeCashClaim(input: {
             facility_id: effectiveFacilityId,
             amount: alloc.amount,
             type: "MEDICINE",
+            ...tpaData,
             ...(cashClaimKey
               ? { idempotency_key: `${cashClaimKey}:${alloc.beneficiary_id}:${alloc.amount}` }
               : {}),

@@ -35,6 +35,7 @@ const PERMISSION_LABELS: Record<keyof ManagerPermissions, string> = {
   manage_card_numbering: "ترقيم البطاقات",
   migrate_card_numbering: "ترحيل البطاقات",
   manage_users: "إدارة الحسابات",
+  manage_companies: "إدارة شركات التأمين",
 };
 
 export default async function ManagersPage({
@@ -136,6 +137,7 @@ export default async function ManagersPage({
                     manage_card_numbering: perms.manage_card_numbering ?? false,
                     migrate_card_numbering: perms.migrate_card_numbering ?? false,
                     manage_users: perms.manage_users ?? false,
+                    manage_companies: perms.manage_companies ?? false,
                   };
 
                   return (

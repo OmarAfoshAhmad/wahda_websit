@@ -35,6 +35,7 @@ import {
   suspendFamily,
   setFamilyBalance
 } from "./migration";
+import { findCompanyByCardNumber } from "@/lib/insurance/company-matcher";
 
 export async function estimateTransactionImportPurgePreview(
   fileBuffer: Buffer,
@@ -378,12 +379,16 @@ export async function processTransactionImport(
         }
       }
 
+      // Detect company from base card for TPA tracking
+      const companyMatch = await findCompanyByCardNumber(baseCard);
+
       const familyResult = await importFamilyTransactions(
         baseCard,
         row.usedBalance,
         importFacilityId,
         row.familyCount,
         replaceOldImports,
+        companyMatch?.id,
       );
       appliedRows.push(...familyResult.appliedRows);
 

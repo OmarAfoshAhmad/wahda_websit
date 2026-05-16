@@ -10,7 +10,8 @@ import {
   Banknote, 
   Home,
   Activity,
-  CreditCard
+  CreditCard,
+  ShieldCheck
 } from "lucide-react";
 import type { ManagerPermissions } from "./permissions";
 
@@ -34,6 +35,8 @@ export const MAINTENANCE_NAV = [
   { name: "النسخ الاحتياطي", href: "/admin/backup", icon: DatabaseBackup, perms: [] },
   { name: "إدارة المشاكل", href: "/admin/duplicates", icon: TriangleAlert, perms: [] },
   { name: "جدول الحقيقة", href: "/admin/truth-registry", icon: ClipboardList, perms: [] },
+  { name: "شركات التأمين", href: "/admin/companies", icon: Building2, perms: [] },
+  { name: "سياسات الخدمات", href: "/admin/policies", icon: ShieldCheck, perms: [] },
 ];
 
 export const CASH_CLAIM_NAV = { name: "كاش", href: "/cash-claim", icon: Banknote };

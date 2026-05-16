@@ -5,7 +5,7 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
 import { deleteCancellationTransaction } from "@/app/actions/restore-transaction";
 import { roundCurrency } from "@/lib/money";
-import { assertBeneficiaryBalanceInvariant } from "@/lib/tx-balance-guard";
+import { calculateBeneficiaryBalance, assertBeneficiaryBalanceInvariant } from "@/lib/tx-balance-guard";
 
 import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 
@@ -53,9 +53,16 @@ export async function cancelTransaction(transactionId: string) {
 
       const amount = Number(transaction.amount);
 
+      let refundAmount = 0;
+      if (transaction.type !== "DENTAL") {
+        refundAmount = transaction.actual_company_share != null 
+          ? Number(transaction.actual_company_share) 
+          : Number(transaction.amount);
+      }
+
       // 1. قفل صف المستفيد لمنع race condition
-      const locked = await tx.$queryRaw<Array<{ id: string; remaining_balance: number; status: string }>>`
-        SELECT id, remaining_balance, status FROM "Beneficiary"
+      const locked = await tx.$queryRaw<Array<{ id: string; remaining_balance: number; total_balance: number; status: string }>>`
+        SELECT id, remaining_balance, total_balance, status FROM "Beneficiary"
         WHERE id = ${transaction.beneficiary_id}
         FOR UPDATE
       `;
@@ -65,8 +72,9 @@ export async function cancelTransaction(transactionId: string) {
       }
 
       const currentBalance = Number(locked[0].remaining_balance);
+      const totalBalance = Number(locked[0].total_balance);
       const lockedStatus = locked[0].status;
-      const newBalance = roundCurrency(currentBalance + amount);
+      const newBalance = roundCurrency(Math.min(totalBalance, currentBalance + refundAmount));
       // FIX: احترام حالة الإيقاف — لا نغير SUSPENDED إلى ACTIVE
       const newStatus = lockedStatus === "SUSPENDED" ? "SUSPENDED" : "ACTIVE";
 
@@ -85,18 +93,47 @@ export async function cancelTransaction(transactionId: string) {
         },
       });
 
-      // 4. Create cancellation transaction
+      // 4. Create cancellation transaction (reverse TPA ceiling as well)
+      const cancellationData: Record<string, unknown> = {
+        beneficiary_id: transaction.beneficiary_id,
+        facility_id: session.id,
+        amount: -amount,
+        type: "CANCELLATION",
+        is_cancelled: false,
+        original_transaction_id: transactionId,
+      };
+      // If original had TPA data, copy it to reverse ceiling consumption
+      if (transaction.company_id) {
+        cancellationData.company_id = transaction.company_id;
+        cancellationData.service_category = transaction.service_category;
+        cancellationData.ceiling_consumed = transaction.ceiling_consumed
+          ? -Number(transaction.ceiling_consumed)
+          : 0;
+        cancellationData.remaining_ceiling_before = null; // will be recalculated on next deduction
+        cancellationData.remaining_ceiling_after = null;
+      }
       const cancellationTx = await tx.transaction.create({
-        data: {
-          beneficiary_id: transaction.beneficiary_id,
-          facility_id: session.id,
-          amount: -amount,
-          type: "CANCELLATION",
-          is_cancelled: false,
-          original_transaction_id: transactionId,
-        },
+        data: cancellationData as any,
       });
       createdCancellationId = cancellationTx.id;
+
+      // FIN-02 FIX: عكس WalletConsumption عند إلغاء حركة TPA
+      // يضمن أن السقف السنوي يُستعاد للمستفيد ولا يُفقد نهائياً
+      if (transaction.company_id && transaction.ceiling_consumed && Number(transaction.ceiling_consumed) > 0) {
+        const walletType = transaction.service_category ?? transaction.type;
+        const fiscalYear = transaction.created_at.getFullYear();
+        const reverseAmount = Number(transaction.ceiling_consumed);
+
+        await tx.$executeRaw`
+          UPDATE "WalletConsumption"
+          SET consumed_amount = GREATEST(0, consumed_amount - ${reverseAmount}),
+              version = version + 1
+          WHERE beneficiary_id = ${transaction.beneficiary_id}
+            AND company_id = ${transaction.company_id}
+            AND wallet_type = ${walletType}
+            AND fiscal_year = ${fiscalYear}
+        `;
+      }
 
       // 5. Audit Log — مع تسجيل الرصيد قبل وبعد
       await tx.auditLog.create({
@@ -144,9 +181,9 @@ export async function cancelTransaction(transactionId: string) {
 }
 
 
-export async function bulkTransactionSelectionAction(formData: FormData): Promise<void> {
+export async function bulkTransactionSelectionAction(formData: FormData): Promise<{ error?: string; success?: boolean } | void> {
   const session = await requireActiveFacilitySession();
-  if (!session) return;
+  if (!session) return { error: "انتهت الجلسة" };
 
   const op = String(formData.get("op") ?? "cancel_or_rededuct");
 
@@ -158,7 +195,7 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
   )];
 
   if (ids.length === 0) {
-    return;
+    return { error: "لم يتم تحديد أي حركات" };
   }
 
   try {
@@ -179,56 +216,57 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
       },
     });
 
-    if (selected.length === 0) return;
+    if (selected.length === 0) return { error: "لم يتم العثور على الحركات المحددة" };
 
     // التمييز بين عمليات الحذف (Soft/Permanent) وبين عمليات الإلغاء القياسية
     const isDeleteOp = ["soft_delete", "restore_delete", "permanent_delete"].includes(op);
     const requiredPermission = isDeleteOp ? "delete_transaction" : "cancel_transactions";
 
     if (!hasPermission(session, requiredPermission)) {
-      return;
+      return { error: "غير مصرح لك بإجراء هذه العملية" };
     }
 
     if (op === "soft_delete") {
       const deletable = selected.filter((tx) => {
         if (tx.is_cancelled) return false;
-        // يمنع حذف أي حركة مصححة نهائياً.
         return tx.type !== "CANCELLATION";
       });
-      if (deletable.length === 0) return;
+      if (deletable.length === 0) return { error: "لا توجد حركات قابلة للحذف الناعم" };
 
       const deletableIds = deletable.map((tx) => tx.id);
 
       await prisma.$transaction(async (tx) => {
-        for (const transactionId of deletableIds) {
-          const transactionRecord = await tx.transaction.findUnique({
-            where: { id: transactionId },
-          });
-          if (!transactionRecord) continue;
+        // استعلام واحد لكل الحركات المطلوب حذفها
+        const transactionRecords = await tx.transaction.findMany({
+          where: { id: { in: deletableIds }, type: { not: "CANCELLATION" } },
+        });
+        if (transactionRecords.length === 0) return;
 
-          if (transactionRecord.type === "CANCELLATION") continue;
+        // تحديث جميع الحراقات كحذف ناعم دفعة واحدة
+        await tx.transaction.updateMany({
+          where: { id: { in: transactionRecords.map((r) => r.id) } },
+          data: { is_cancelled: true },
+        });
 
-          // تحديث الحركة كأنه محذوف ناعم
-          await tx.transaction.update({
-            where: { id: transactionId },
-            data: { is_cancelled: true },
-          });
+        // تجميع حسب المستفيد لمعالجة كل مستفيد بقفل واحد
+        const byBeneficiary = new Map<string, typeof transactionRecords>();
+        for (const rec of transactionRecords) {
+          const group = byBeneficiary.get(rec.beneficiary_id) || [];
+          group.push(rec);
+          byBeneficiary.set(rec.beneficiary_id, group);
+        }
 
-          // جلب المستفيد مع قفل لمنع التعديل المتزامن
+        for (const [beneficiaryId, records] of byBeneficiary) {
           const lockedBen = await tx.$queryRaw<Array<{ id: string; name: string; card_number: string; remaining_balance: number; status: string; completed_via: string | null }>>`
             SELECT id, name, card_number, remaining_balance, status, completed_via FROM "Beneficiary"
-            WHERE id = ${transactionRecord.beneficiary_id}
+            WHERE id = ${beneficiaryId}
             FOR UPDATE
           `;
           if (lockedBen.length === 0) continue;
 
           const beneficiary = lockedBen[0];
           const remainingBefore = Number(beneficiary.remaining_balance);
-          const refundedAmount = Number(transactionRecord.amount);
-          const remainingAfter = roundCurrency(remainingBefore + refundedAmount);
-
-          // تحديث الرصيد الجديد للمستفيد بناءً على الرصيد القديم
-          const nextStatus = beneficiary.status === "SUSPENDED" ? "SUSPENDED" : remainingAfter <= 0 ? "FINISHED" : "ACTIVE";
+          const { remaining_balance: remainingAfter, status: nextStatus } = await calculateBeneficiaryBalance(tx, beneficiaryId);
           await tx.beneficiary.update({
             where: { id: beneficiary.id },
             data: {
@@ -238,26 +276,25 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
             },
           });
 
-          // تسجيل في سجل المراقبة لتوضيح رد المبلغ بالضبط
+          // سجل تدقيق واحد لكل مستفيد (مع تفاصيل جميع الحركات)
           await tx.auditLog.create({
             data: {
               facility_id: session.id,
               user: session.username,
               action: "SOFT_DELETE_TRANSACTION",
               metadata: {
-                transaction_id: transactionId,
+                transaction_ids: records.map((r) => r.id),
                 beneficiary_name: beneficiary.name,
                 card_number: beneficiary.card_number,
-                refunded_amount: refundedAmount,
-                balance_impact: refundedAmount,
+                total_refunded: roundCurrency(remainingAfter - remainingBefore),
                 balance_before: remainingBefore,
                 balance_after: remainingAfter,
-                message: `تم إلغاء الخصم/حذف الحركة وإرجاع المبلغ (${refundedAmount}) للرصيد المتبقي.`,
+                count: records.length,
               },
             },
           });
 
-          await assertBeneficiaryBalanceInvariant(tx, beneficiary.id, "bulkTransactionSelectionAction:soft_delete");
+          await assertBeneficiaryBalanceInvariant(tx, beneficiaryId, "bulkTransactionSelectionAction:soft_delete");
         }
       });
 
@@ -268,40 +305,45 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
     }
 
     if (op === "restore_delete") {
-      // لا نستعيد حركات CANCELLATION هنا؛ هذه لها مسار مستقل (إعادة الخصم من الإلغاء)
       const restorable = selected.filter((tx) => tx.is_cancelled && tx.corrections.length === 0 && tx.type !== "CANCELLATION");
-      if (restorable.length === 0) return;
+      if (restorable.length === 0) return { error: "لا توجد حركات قابلة للاستعادة" };
 
       const restorableIds = restorable.map((tx) => tx.id);
 
       await prisma.$transaction(async (tx) => {
-        for (const transactionId of restorableIds) {
-          const transactionRecord = await tx.transaction.findUnique({
-            where: { id: transactionId },
-          });
-          if (!transactionRecord) continue;
+        const transactionRecords = await tx.transaction.findMany({
+          where: { id: { in: restorableIds } },
+        });
+        if (transactionRecords.length === 0) return;
 
-          // جلب المستفيد مع قفل لمنع التعديل المتزامن
+        // استرجاع جميع الحركات دفعة واحدة
+        await tx.transaction.updateMany({
+          where: { id: { in: transactionRecords.map((r) => r.id) } },
+          data: { is_cancelled: false },
+        });
+
+        const byBeneficiary = new Map<string, typeof transactionRecords>();
+        for (const rec of transactionRecords) {
+          const group = byBeneficiary.get(rec.beneficiary_id) || [];
+          group.push(rec);
+          byBeneficiary.set(rec.beneficiary_id, group);
+        }
+
+        for (const [beneficiaryId, records] of byBeneficiary) {
           const lockedBen = await tx.$queryRaw<Array<{ id: string; name: string; card_number: string; remaining_balance: number; status: string; completed_via: string | null }>>`
             SELECT id, name, card_number, remaining_balance, status, completed_via FROM "Beneficiary"
-            WHERE id = ${transactionRecord.beneficiary_id}
+            WHERE id = ${beneficiaryId}
             FOR UPDATE
           `;
           if (lockedBen.length === 0) continue;
 
           const beneficiary = lockedBen[0];
           const remainingBefore = Number(beneficiary.remaining_balance);
-          // إعادة الخصم الفعلية يجب أن تكون بقيمة موجبة دائماً
-          const deductedAmount = Math.abs(Number(transactionRecord.amount));
-          const remainingAfter = roundCurrency(remainingBefore - deductedAmount);
 
-          // استرجاع الحركة المحذوفة وإعادتها منشطة
-          await tx.transaction.update({
-            where: { id: transactionId },
-            data: { is_cancelled: false },
-          });
+          // FIN-01 FIX: استخدام calculateBeneficiaryBalance لضمان دقة الحساب مع TPA
+          // بدل الحساب اليدوي بـ amount الذي يتجاهل actual_company_share
+          const { remaining_balance: remainingAfter, status: nextStatus } = await calculateBeneficiaryBalance(tx, beneficiaryId);
 
-          const nextStatus = beneficiary.status === "SUSPENDED" ? "SUSPENDED" : remainingAfter <= 0 ? "FINISHED" : "ACTIVE";
           await tx.beneficiary.update({
             where: { id: beneficiary.id },
             data: {
@@ -311,26 +353,24 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
             },
           });
 
-          // تسجيل التفاصيل للعمية العكسية (الاسترجاع وخصم الرصيد مرة أخرى)
           await tx.auditLog.create({
             data: {
               facility_id: session.id,
               user: session.username,
               action: "RESTORE_SOFT_DELETED_TRANSACTION",
               metadata: {
-                transaction_id: transactionId,
+                transaction_ids: records.map((r) => r.id),
                 beneficiary_name: beneficiary.name,
                 card_number: beneficiary.card_number,
-                deducted_amount: deductedAmount,
+                total_deducted: roundCurrency(remainingBefore - remainingAfter),
                 balance_before: remainingBefore,
                 balance_after: remainingAfter,
-                re_deduct_applied: true,
-                message: `تم استرجاع الحركة المحذوفة وخصم المبلغ (${deductedAmount}) من الرصيد المتبقي مرة أخرى.`,
+                count: records.length,
               },
             },
           });
 
-          await assertBeneficiaryBalanceInvariant(tx, beneficiary.id, "bulkTransactionSelectionAction:restore_delete");
+          await assertBeneficiaryBalanceInvariant(tx, beneficiaryId, "bulkTransactionSelectionAction:restore_delete");
         }
       });
 
@@ -353,7 +393,9 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
         .map((tx) => tx.id);
 
       const candidateIds = [...new Set([...selectedCancellationIds, ...pairedOriginalIds, ...selectedCancelledOriginalIds])];
-      if (candidateIds.length === 0) return;
+      if (candidateIds.length === 0) {
+        return { error: "لا يمكن الحذف النهائي لحركات نشطة. الرجاء إلغاء الحركة أولاً قبل الحذف النهائي." };
+      }
 
       await prisma.$transaction(async (tx) => {
         // SEC-FIX: إعادة الفحص داخل الـ transaction مع قفل FOR UPDATE لمنع TOCTOU
@@ -407,34 +449,24 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
         const affectedBeneficiaryIds = [...new Set([...validOriginals, ...validCancellations].map((t) => t.beneficiary_id))];
         const balanceChanges: Array<{ beneficiary_id: string; beneficiary_name: string; card_number: string; balance_before: number; balance_after: number; status_after: string }> = [];
 
+        // قفل جميع المستفيدين المتأثرين دفعة واحدة
+        const lockedAllBens = affectedBeneficiaryIds.length > 0 ? await tx.$queryRaw<Array<{ id: string; name: string; card_number: string; remaining_balance: number; status: string }>>`
+          SELECT id, name, card_number, remaining_balance, status FROM "Beneficiary"
+          WHERE id = ANY(${affectedBeneficiaryIds}::text[])
+          FOR UPDATE
+        ` : [];
+        const lockedBenMap = new Map(lockedAllBens.map((b) => [b.id, b]));
         for (const beneficiaryId of affectedBeneficiaryIds) {
-          const lockedBen = await tx.$queryRaw<Array<{ id: string; name: string; card_number: string; remaining_balance: number; status: string }>>`
-            SELECT id, name, card_number, remaining_balance, status FROM "Beneficiary"
-            WHERE id = ${beneficiaryId}
-            FOR UPDATE
-          `;
-          if (lockedBen.length === 0) continue;
+          const lockedBen = lockedBenMap.get(beneficiaryId);
+          if (!lockedBen) continue;
 
+          const { remaining_balance: newBalance, status: newStatus } = await calculateBeneficiaryBalance(tx, beneficiaryId);
           const beneficiaryMeta = await tx.beneficiary.findUnique({
             where: { id: beneficiaryId },
             select: { total_balance: true, completed_via: true },
           });
+
           if (!beneficiaryMeta) continue;
-
-          const agg = await tx.transaction.aggregate({
-            where: {
-              beneficiary_id: beneficiaryId,
-              is_cancelled: false,
-              type: { not: "CANCELLATION" },
-            },
-            _sum: { amount: true },
-          });
-
-          const totalBalance = Number(beneficiaryMeta.total_balance);
-          const totalSpent = Number(agg._sum.amount ?? 0);
-          const newBalance = roundCurrency(Math.max(0, totalBalance - totalSpent));
-          const lockedStatus = lockedBen[0].status;
-          const newStatus = lockedStatus === "SUSPENDED" ? "SUSPENDED" : (newBalance <= 0 ? "FINISHED" : "ACTIVE");
 
           const beneficiaryUpdateData: {
             remaining_balance: number;
@@ -460,9 +492,9 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
 
           balanceChanges.push({
             beneficiary_id: beneficiaryId,
-            beneficiary_name: lockedBen[0].name,
-            card_number: lockedBen[0].card_number,
-            balance_before: Number(lockedBen[0].remaining_balance),
+            beneficiary_name: lockedBen.name,
+            card_number: lockedBen.card_number,
+            balance_before: Number(lockedBen.remaining_balance),
             balance_after: newBalance,
             status_after: newStatus,
           });
@@ -494,14 +526,13 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
     }
 
     const actionable = selected.filter((tx) => !tx.is_cancelled);
-    if (actionable.length === 0) return;
+    if (actionable.length === 0) return { error: "لا توجد حركات غير ملغاة للمعالجة" };
 
     const hasCancellation = actionable.some((tx) => tx.type === "CANCELLATION");
     const hasNormal = actionable.some((tx) => tx.type !== "CANCELLATION");
 
-    // لا ننفذ على خليط من النوعين ضمن نفس الطلب لتفادي عمليات متعاكسة.
     if (hasCancellation && hasNormal) {
-      return;
+      return { error: "لا يمكن معالجة حركات إلغاء وحركات عادية معاً — يرجى فصل التحديد" };
     }
 
     let successCount = 0;
@@ -565,7 +596,13 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
     revalidatePath("/transactions");
     revalidatePath("/beneficiaries");
     revalidateTag("beneficiary-counts", "max");
+
+    if (skippedCount > 0) {
+      return { error: `تم معالجة ${successCount} حركة، وفشل معالجة ${skippedCount} حركة. قد يكون هناك حركات لا يمكن إلغاؤها.` };
+    }
+    return {};
   } catch (error) {
     logger.error("Bulk mixed transaction action error", { error: String(error) });
+    return { error: "حدث خطأ أثناء تنفيذ العملية" };
   }
 }

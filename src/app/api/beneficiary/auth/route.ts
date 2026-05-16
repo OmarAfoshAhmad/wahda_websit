@@ -4,6 +4,7 @@ import { beneficiaryLogin } from "@/lib/beneficiary-auth";
 import bcrypt from "bcryptjs";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { normalizeCardInput } from "@/lib/card-number";
+import { beneficiaryAuthSchema } from "@/lib/validation";
 
 const MAX_ATTEMPTS = 5;
 const LOCK_MINUTES = 10;
@@ -11,17 +12,17 @@ const GENERIC_AUTH_ERROR = "بيانات الدخول غير صحيحة";
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
-  const card_number = typeof body?.card_number === "string" ? normalizeCardInput(body.card_number) : "";
-  const pin = typeof body?.pin === "string" ? body.pin.trim() : "";
+  const parsed = beneficiaryAuthSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
+  }
+  const card_number = normalizeCardInput(parsed.data.card_number);
+  const pin = parsed.data.pin ?? "";
 
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
   const rateLimitError = await checkRateLimit(`beneficiary-login:${ip}`, "login");
   if (rateLimitError) {
     return NextResponse.json({ error: rateLimitError }, { status: 429 });
-  }
-
-  if (!card_number) {
-    return NextResponse.json({ error: "رقم البطاقة مطلوب" }, { status: 400 });
   }
 
   // استخدام transaction مع SELECT FOR UPDATE لمنع race condition

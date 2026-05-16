@@ -41,18 +41,26 @@ type TransactionRow = {
     name: string;
     card_number: string;
     remaining_balance: Prisma.Decimal;
+    company_id?: string | null;
   };
   facility: {
     id: string;
     name: string;
   };
+  company_id: string | null;
+  service_category: string | null;
+  actual_company_share: Prisma.Decimal | null;
+  actual_patient_share: Prisma.Decimal | null;
+  remaining_ceiling_after: Prisma.Decimal | null;
+  company: { id: string; name: string; code: string } | null;
 };
 
 function getMovementTypeLabel(txType: string): string {
   if (txType === "CANCELLATION") return "—";
   if (txType === "SETTLEMENT") return "تسوية";
-  // الاستيراد المجمع يُعامل كأدوية صرف عام من ناحية نوع الحركة.
   if (txType === "MEDICINE" || txType === "IMPORT") return "ادوية صرف عام";
+  if (txType === "DENTAL") return "أسنان";
+  if (txType === "OPTICS") return "بصريات";
   return "كشف عام";
 }
 
@@ -73,12 +81,12 @@ function getTransactionStatusLabel(tx: TransactionRow): string {
 export default async function TransactionsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ start_date?: string; end_date?: string; facility_id?: string; page?: string; pageSize?: string; q?: string; sort?: string; order?: string; status?: string; source?: string; focus_tx?: string; tx_type?: string }>;
+  searchParams: Promise<{ start_date?: string; end_date?: string; facility_id?: string; page?: string; pageSize?: string; q?: string; sort?: string; order?: string; status?: string; source?: string; focus_tx?: string; tx_type?: string; company_id?: string }>;
 }) {
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
 
-  const { start_date, end_date, facility_id, page: pageParam, pageSize: pageSizeParam, q, sort, order, status: _status, tx_type, source, focus_tx } = await searchParams;
+  const { start_date, end_date, facility_id, page: pageParam, pageSize: pageSizeParam, q, sort, order, status: _status, tx_type, source, focus_tx, company_id: companyIdParam } = await searchParams;
   const allowedPageSizes = [10, 25, 50, 100, 200, 500, 1000];
   const requestedPageSize = parseInt(pageSizeParam ?? "10", 10);
   const PAGE_SIZE = allowedPageSizes.includes(requestedPageSize) ? requestedPageSize : 10;
@@ -87,6 +95,32 @@ export default async function TransactionsPage({
   const facilities: Array<{ id: string; name: string }> = session.is_admin
     ? await prisma.facility.findMany({ where: { deleted_at: null }, select: { id: true, name: true }, orderBy: { name: "asc" } })
     : [{ id: session.id, name: session.name }];
+
+  // جلب الشركات للفلتر والـ badge
+  const allCompanies = await prisma.insuranceCompany.findMany({
+    where: { deleted_at: null },
+    select: { id: true, name: true, code: true },
+    orderBy: { name: "asc" },
+  });
+
+  const companyFilterId = (companyIdParam ?? "").trim();
+  const selectedCompany = allCompanies.find(c => c.id === companyFilterId);
+
+  // ألوان ثابتة لكل شركة بناءً على ترتيبها
+  const COMPANY_COLORS = [
+    { bg: "#EFF6FF", text: "#1D4ED8", border: "#BFDBFE" }, // أزرق
+    { bg: "#F0FDF4", text: "#15803D", border: "#BBF7D0" }, // أخضر
+    { bg: "#FFF7ED", text: "#C2410C", border: "#FED7AA" }, // برتقالي
+    { bg: "#FDF4FF", text: "#7E22CE", border: "#E9D5FF" }, // بنفسجي
+    { bg: "#FFF1F2", text: "#BE123C", border: "#FECDD3" }, // أحمر
+    { bg: "#F0FDFA", text: "#0F766E", border: "#99F6E4" }, // تيل
+    { bg: "#FEFCE8", text: "#A16207", border: "#FEF08A" }, // أصفر
+    { bg: "#F8FAFC", text: "#475569", border: "#CBD5E1" }, // رمادي
+  ];
+  const companyColorMap = new Map<string, typeof COMPANY_COLORS[number]>();
+  allCompanies.forEach((c, i) => {
+    companyColorMap.set(c.id, COMPANY_COLORS[i % COMPANY_COLORS.length]);
+  });
 
   const rawFacilityFilter = (facility_id ?? "").trim();
   const selectedFacility = facilities.find((f) => f.id === rawFacilityFilter || f.name === rawFacilityFilter);
@@ -99,7 +133,7 @@ export default async function TransactionsPage({
   type TxStatus = typeof ALLOWED_STATUSES[number];
   const statusFilter: TxStatus = (ALLOWED_STATUSES as ReadonlyArray<string>).includes(_status ?? "") ? _status as TxStatus : "active";
 
-  const allowedTxTypes = ["all", "supplies", "medicine"] as const;
+  const allowedTxTypes = ["all", "supplies", "medicine", "dental"] as const;
   const txTypeFilter = allowedTxTypes.includes(tx_type as any) ? (tx_type as string) : "all";
 
   const ALLOWED_SOURCE = ["all", "manual", "import"] as const;
@@ -129,6 +163,7 @@ export default async function TransactionsPage({
     p.set("status", statusFilter);
     if (txTypeFilter !== "all") p.set("tx_type", txTypeFilter);
     if (sourceFilter !== "all") p.set("source", sourceFilter);
+    if (companyFilterId) p.set("company_id", companyFilterId);
     p.set("pageSize", String(PAGE_SIZE));
     p.set("order", sortDir);
     Object.entries(overrides).forEach(([k, v]) => {
@@ -198,6 +233,15 @@ export default async function TransactionsPage({
   } else if (txTypeFilter === "medicine") {
     const existingAnd = Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : [];
     where.AND = [...existingAnd, { type: { in: ["MEDICINE", "IMPORT"] } }];
+  } else if (txTypeFilter === "dental") {
+    const existingAnd = Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : [];
+    where.AND = [...existingAnd, { type: "DENTAL" }];
+  }
+
+  // فلترة حسب شركة التأمين
+  if (companyFilterId) {
+    const existingAnd = Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : [];
+    where.AND = [...existingAnd, { company_id: companyFilterId }];
   }
 
   // فلترة بالبحث (اسم أو رقم بطاقة)
@@ -255,8 +299,14 @@ export default async function TransactionsPage({
         original_transaction: {
           select: { id: true, amount: true, is_cancelled: true },
         },
-        beneficiary: { select: { id: true, name: true, card_number: true, remaining_balance: true } },
+        beneficiary: { select: { id: true, name: true, card_number: true, remaining_balance: true, company_id: true } },
         facility: { select: { id: true, name: true } },
+        company_id: true,
+        service_category: true,
+        actual_company_share: true,
+        actual_patient_share: true,
+        remaining_ceiling_after: true,
+        company: { select: { id: true, name: true, code: true } },
       },
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
@@ -291,8 +341,14 @@ export default async function TransactionsPage({
           original_transaction: {
             select: { id: true, amount: true, is_cancelled: true },
           },
-          beneficiary: { select: { id: true, name: true, card_number: true, remaining_balance: true } },
+          beneficiary: { select: { id: true, name: true, card_number: true, remaining_balance: true, company_id: true } },
           facility: { select: { id: true, name: true } },
+          company_id: true,
+          service_category: true,
+          actual_company_share: true,
+          actual_patient_share: true,
+          remaining_ceiling_after: true,
+          company: { select: { id: true, name: true, code: true } },
         },
       })
       : Promise.resolve(null),
@@ -349,7 +405,7 @@ export default async function TransactionsPage({
   const canExport = !session.is_manager || hasPermission(session, "export_data");
   const canImport = !isReadOnlyEmployee && (session.is_admin || ((session.manager_permissions as Partial<Record<string, boolean>> | null)?.import_transactions === true));
   const tableColSpan =
-    7 +
+    7 + // 5 original + 2 new TPA columns (removed #, status, and patient share)
     ((session.is_admin || canCancel || canDelete) ? 1 : 0) +
     (session.is_admin ? 1 : 0) +
     (session.is_admin ? 1 : 0) +
@@ -513,8 +569,9 @@ export default async function TransactionsPage({
             <input type="hidden" name="page" value="1" />
             <input type="hidden" name="pageSize" value={String(PAGE_SIZE)} />
             <input type="hidden" name="q" value={q ?? ""} />
+            {companyFilterId && <input type="hidden" name="company_id" value={companyFilterId} />}
 
-            <div className={`grid grid-cols-1 gap-4 ${session.is_admin ? "md:grid-cols-7" : "md:grid-cols-5"}`}>
+            <div className={`grid grid-cols-1 gap-4 ${session.is_admin ? "md:grid-cols-8" : "md:grid-cols-6"}`}>
               <div className="space-y-1">
                 <label htmlFor="start_date" className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">من تاريخ</label>
                 <Input id="start_date" type="date" name="start_date" defaultValue={start_date} lang="en-GB" className="[direction:ltr] text-right" />
@@ -549,6 +606,7 @@ export default async function TransactionsPage({
                   <option value="all">الكل</option>
                   <option value="supplies">كشف عام</option>
                   <option value="medicine">أدوية صرف عام</option>
+                  <option value="dental">أسنان</option>
                 </select>
               </div>
 
@@ -587,6 +645,26 @@ export default async function TransactionsPage({
                 </div>
               )}
 
+              <div className="space-y-1">
+                <label htmlFor="company_id_filter" className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">شركة التأمين</label>
+                <select
+                  id="company_id_filter"
+                  name="company_id"
+                  defaultValue={companyFilterId}
+                  className="flex h-10 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                >
+                  <option value="">الكل</option>
+                  {allCompanies.map(c => {
+                    const color = companyColorMap.get(c.id);
+                    return (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
               <div className="flex items-end">
                 <button type="submit" className="w-full rounded-md bg-primary px-4 py-2.5 text-sm font-black text-white transition-colors hover:bg-primary-dark">
                   عرض التقرير
@@ -597,7 +675,8 @@ export default async function TransactionsPage({
         </Card>
 
         {/* ══ عرض الكارد — جوال فقط ══ */}
-        <form action={bulkTransactionSelectionAction} className="flex flex-col gap-3 sm:hidden">
+        {/* eslint-disable-next-line @typescript-eslint/no-misused-promises */}
+        <form action={bulkTransactionSelectionAction as unknown as (formData: FormData) => void} className="flex flex-col gap-3 sm:hidden">
           {(session.is_admin || canCancel || canDelete) && transactionRows.length > 0 && (
             <Card className="p-3">
               <div className="flex items-center justify-between gap-2">
@@ -706,7 +785,8 @@ export default async function TransactionsPage({
         </form>
 
         {/* ══ عرض الجدول — شاشة كبيرة فقط ══ */}
-        <form action={bulkTransactionSelectionAction} className="hidden sm:block">
+        {/* eslint-disable-next-line @typescript-eslint/no-misused-promises */}
+        <form action={bulkTransactionSelectionAction as unknown as (formData: FormData) => void} className="hidden sm:block">
           <Card className="overflow-hidden pb-0">
             {(session.is_admin || canCancel || canDelete) && (
               <div className="print:hidden flex items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/40 px-4 py-3 sm:px-6">
@@ -728,7 +808,7 @@ export default async function TransactionsPage({
                         <SelectAllTransactionsCheckbox />
                       </th>
                     )}
-                    <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500">#</th>
+
                     <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500">
                       <Link href={txSortHref("beneficiary_name")} className="print:hidden inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
                         المستفيد {sortCol === "beneficiary_name" ? (sortDir === "asc" ? "↑" : "↓") : ""}
@@ -744,12 +824,14 @@ export default async function TransactionsPage({
                       </th>
                     )}
                     <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500">نوع الحركة</th>
+                    <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500">شركة التأمين</th>
                     <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 text-right">
                       <Link href={txSortHref("amount")} className="print:hidden inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
-                        القيمة المخصومة {sortCol === "amount" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                        قيمة الفاتورة {sortCol === "amount" ? (sortDir === "asc" ? "↑" : "↓") : ""}
                       </Link>
-                      <span className="hidden print:inline">القيمة المخصومة</span>
+                      <span className="hidden print:inline">قيمة الفاتورة</span>
                     </th>
+                    <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 text-right">القيمة المخصومة</th>
                     <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 text-right">
                       <Link href={txSortHref("remaining_balance")} className="print:hidden inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
                         الرصيد المتبقي {sortCol === "remaining_balance" ? (sortDir === "asc" ? "↑" : "↓") : ""}
@@ -762,7 +844,7 @@ export default async function TransactionsPage({
                       </Link>
                       <span className="hidden print:inline">التاريخ</span>
                     </th>
-                    <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 text-center">الحالة</th>
+
                     {session.is_admin && <th className="print:hidden px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 text-center">المصدر</th>}
                     {(session.is_admin || canCorrect || canCancel) && <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 no-print">إجراءات</th>}
                   </tr>
@@ -805,7 +887,7 @@ export default async function TransactionsPage({
                             />
                           </td>
                         )}
-                        <td className="px-6 py-4 font-mono text-xs text-slate-500 dark:text-slate-400 font-bold">{(page - 1) * PAGE_SIZE + idx + 1}</td>
+
                         <td className="px-6 py-4">
                           <p className="font-bold text-slate-900 dark:text-white">{tx.beneficiary.name}</p>
                           <p className="text-xs text-slate-500 dark:text-slate-400">{tx.beneficiary.card_number}</p>
@@ -819,23 +901,57 @@ export default async function TransactionsPage({
                           {tx.type === "CANCELLATION" ? (
                             <Badge variant="success">—</Badge>
                           ) : (
-                            <Badge variant={tx.type === "SUPPLIES" ? "warning" : "default"}>
+                            <Badge variant={tx.type === "MEDICINE" || tx.type === "IMPORT" ? "default" : "warning"}>
                               {getMovementTypeLabel(tx.type)}
                             </Badge>
                           )}
                         </td>
+                        <td className="px-4 py-4">
+                          {(() => {
+                            const effectiveCompanyId = tx.company_id || tx.beneficiary.company_id;
+                            const comp = effectiveCompanyId ? allCompanies.find((c) => c.id === effectiveCompanyId) : null;
+                            if (!comp) return <span className="text-slate-400 text-xs">—</span>;
+
+                            const clr = companyColorMap.get(comp.id);
+                            return clr ? (
+                              <span style={{ backgroundColor: clr.bg, color: clr.text, border: `1px solid ${clr.border}` }}
+                                className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-black whitespace-nowrap">
+                                {comp.name}
+                              </span>
+                            ) : <span className="text-sm font-medium text-slate-600">{comp.name}</span>;
+                          })()}
+                        </td>
                         <td className="px-6 py-4 text-right">
-                          {tx.type === "CANCELLATION" ? (
-                            <span className="font-black text-green-700 dark:text-green-400">
-                              +{Math.abs(Number(tx.amount)).toLocaleString("ar-LY")}
-                            </span>
-                          ) : (
-                            <span className="font-black text-slate-900 dark:text-white">{Number(tx.amount).toLocaleString("ar-LY")}</span>
-                          )}
+                          <span className="font-medium text-slate-500 dark:text-slate-400">{Math.abs(Number(tx.amount)).toLocaleString("ar-LY")}</span>
                           <span className="mr-3 text-[10px] text-slate-400 dark:text-slate-500">د.ل</span>
                         </td>
                         <td className="px-6 py-4 text-right">
                           {(() => {
+                            const deducted = tx.actual_company_share ? Number(tx.actual_company_share) : Number(tx.amount);
+                            if (tx.type === "CANCELLATION") {
+                              return (
+                                <span className="font-black text-green-700 dark:text-green-400">
+                                  +{Math.abs(deducted).toLocaleString("ar-LY")}
+                                </span>
+                              );
+                            }
+                            return (
+                              <span className="font-black text-slate-900 dark:text-white">
+                                {deducted.toLocaleString("ar-LY")}
+                              </span>
+                            );
+                          })()}
+                          <span className="mr-2 text-[10px] text-slate-400 dark:text-slate-500">د.ل</span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          {(() => {
+                            if (tx.company_id || tx.beneficiary.company_id) {
+                              if (tx.remaining_ceiling_after != null) {
+                                return <span className="font-medium text-slate-700 dark:text-slate-300">{Number(tx.remaining_ceiling_after).toLocaleString("ar-LY")}</span>;
+                              }
+                              return <span className="font-bold text-slate-400">—</span>;
+                            }
+
                             const shownBalance = remainingAfterByTxId.get(tx.id) ?? Number(tx.beneficiary.remaining_balance);
 
                             if (tx.type === "CANCELLATION") {
@@ -861,9 +977,7 @@ export default async function TransactionsPage({
                         <td className="px-6 py-4 text-right">
                           <p className="text-sm text-slate-900 dark:text-slate-300">{formatDateTripoli(tx.created_at, "en-GB")}</p>
                         </td>
-                        <td className="px-6 py-4 text-center">
-                          <span className="font-bold text-slate-500 dark:text-slate-400 text-xs text-nowrap">{getTransactionStatusLabel(tx)}</span>
-                        </td>
+
                         {session.is_admin && (
                           <td className="print:hidden px-6 py-4 text-center">
                             {tx.type === "CANCELLATION" ? (

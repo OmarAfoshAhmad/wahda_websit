@@ -57,11 +57,11 @@ export type DeletedImportTransactionSnapshot = {
 
 export type FamilyImportArchiveSnapshot = {
   familyBaseCard: string;
-  familyCountFromFile: number;
+  familyCountFromFile: number | null;
   totalBalanceFromFile: number;
   usedBalanceFromFile: number;
   sourceRowNumber: number | null;
-  importedBy: string | null;
+  importedBy: string;
   lastImportedAt: string;
   createdAt: string;
   updatedAt: string;

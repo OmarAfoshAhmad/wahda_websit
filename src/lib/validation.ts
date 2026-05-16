@@ -2,7 +2,7 @@ import { z } from "zod";
 import { roundCurrency } from "@/lib/money";
 
 const AMOUNT_EPSILON = 1e-9;
-export const MAX_DEDUCTION_AMOUNT = 600;
+export const MAX_DEDUCTION_AMOUNT = 5000;
 
 // مُوحَّدة مع roundCurrency — المصدر الوحيد للحقيقة في التقريب المالي
 export function normalizeMoneyAmount(value: number): number {
@@ -41,7 +41,7 @@ export const deductionSchema = z.object({
     .positive("يجب أن يكون المبلغ أكبر من الصفر")
     .max(MAX_DEDUCTION_AMOUNT, MAX_AMOUNT_POLICY_ERROR)
     .refine(isAllowedDeductionAmount, AMOUNT_POLICY_ERROR),
-  type: z.enum(["MEDICINE", "SUPPLIES"], {
+  type: z.enum(["MEDICINE", "SUPPLIES", "GENERAL", "DENTAL", "OPTICS"], {
     message: "يرجى اختيار نوع العملية",
   }),
 });
@@ -133,6 +133,30 @@ export const updateInitialBalanceSchema = z.object({
     .int("يجب إدخال رقم صحيح")
     .min(1, "الحد الأدنى 1")
     .max(1_000_000, "الحد الأقصى 1,000,000"),
+});
+
+export const beneficiaryAuthSchema = z.object({
+  card_number: z.string().min(1, "رقم البطاقة مطلوب").max(50, "رقم البطاقة طويل جداً"),
+  pin: z.string().max(6, "PIN يجب أن يكون 6 أرقام").optional(),
+});
+
+export const setupPinSchema = z.object({
+  card_number: z.string().min(1, "رقم البطاقة مطلوب").max(50, "رقم البطاقة طويل جداً"),
+  pin: z.string().length(6, "PIN يجب أن يكون 6 أرقام").regex(/^\d{6}$/, "PIN يجب أن يكون أرقاماً فقط"),
+  confirm_pin: z.string().length(6, "تأكيد PIN يجب أن يكون 6 أرقام").regex(/^\d{6}$/, "تأكيد PIN يجب أن يكون أرقاماً فقط"),
+}).refine((data) => data.pin === data.confirm_pin, { message: "رمز PIN غير متطابق", path: ["confirm_pin"] });
+
+export const requestOtpSchema = z.object({
+  phone_number: z.string().min(7, "رقم الهاتف قصير جداً").max(20, "رقم الهاتف طويل جداً"),
+});
+
+export const verifyOtpSchema = z.object({
+  phone_number: z.string().min(7, "رقم الهاتف قصير جداً").max(20, "رقم الهاتف طويل جداً"),
+  code: z.string().length(6, "رمز التحقق يجب أن يكون 6 أرقام"),
+});
+
+export const beneficiaryLinkSchema = z.object({
+  card_number: z.string().min(1, "رقم البطاقة مطلوب").max(50, "رقم البطاقة طويل جداً"),
 });
 
 export type CreateFacilityInput = z.infer<typeof createFacilitySchema>;

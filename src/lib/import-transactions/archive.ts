@@ -1,6 +1,7 @@
 import prisma from "@/lib/prisma";
 import { roundCurrency } from "@/lib/money";
-import { FamilyImportArchiveSnapshot } from "./types";
+  import type { FamilyImportArchiveSnapshot } from "./types";
+import type { FamilyImportArchive } from "@prisma/client";
 
 export async function loadFamilyArchiveSnapshot(baseCards: string[]): Promise<FamilyImportArchiveSnapshot[]> {
   if (baseCards.length === 0) return [];
@@ -14,7 +15,7 @@ export async function loadFamilyArchiveSnapshot(baseCards: string[]): Promise<Fa
     }
   });
 
-  return rows.map((row) => ({
+  return rows.map((row: FamilyImportArchive) => ({
     familyBaseCard: row.family_base_card,
     familyCountFromFile: row.family_count_from_file,
     totalBalanceFromFile: Number(row.total_balance_from_file) || 0,

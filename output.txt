@@ -1,1 +1,20 @@
-Script executed successfully.
+Found transaction: cmp7wi356001au9d8vr8fys4n 150
+ERROR CAUGHT: PrismaClientUnknownRequestError: 
+Invalid `prismaTx.beneficiary.update()` invocation in
+C:\Users\Omar\waad_temp_website\test_cancel.js:46:34
+
+  43   data: { is_cancelled: true },
+  44 });
+  45 
+→ 46 await prismaTx.beneficiary.update(
+Error occurred during query execution:
+ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "23514", message: "new row for relation \"Beneficiary\" violates check constraint \"ck_beneficiary_remaining_le_total\"", severity: "ERROR", detail: Some("Failing row contains (cmn9d6qmh00l8nz1njqtvmf1z, WAB2025009658D1, غزال وليد ابوبكر, 600.00, 700.00, ACTIVE, 2026-03-27 20:39:08.873, null, null, 0, null, null, null, f, null, null, null, cmp7ha2km0000u9v8jse4ib5x)."), column: None, hint: None }), transient: false })
+    at Mn.handleRequestError (C:\Users\Omar\waad_temp_website\node_modules\@prisma\client\runtime\library.js:121:7528)
+    at Mn.handleAndLogRequestError (C:\Users\Omar\waad_temp_website\node_modules\@prisma\client\runtime\library.js:121:6663)
+    at Mn.request (C:\Users\Omar\waad_temp_website\node_modules\@prisma\client\runtime\library.js:121:6370)
+    at async l (C:\Users\Omar\waad_temp_website\node_modules\@prisma\client\runtime\library.js:130:9633)
+    at async C:\Users\Omar\waad_temp_website\test_cancel.js:46:7
+    at async Proxy._transactionWithCallback (C:\Users\Omar\waad_temp_website\node_modules\@prisma\client\runtime\library.js:130:8000)
+    at async test (C:\Users\Omar\waad_temp_website\test_cancel.js:20:5) {
+  clientVersion: '6.0.0'
+}

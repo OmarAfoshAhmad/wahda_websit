@@ -8,14 +8,14 @@
  */
 
 import React from "react";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Shield, Loader2 } from "lucide-react";
 import { Card, Badge, cn } from "@/components/ui";
 import { formatCurrency } from "@/lib/money";
 import { useDeductContext } from "./DeductContext";
 import { DeductionAction } from "./DeductionAction";
 
 export function BeneficiaryCard() {
-  const { beneficiary, resetSearchState } = useDeductContext();
+  const { beneficiary, resetSearchState, policyInfo, policyLoading } = useDeductContext();
 
   if (!beneficiary) return null;
 
@@ -44,70 +44,98 @@ export function BeneficiaryCard() {
       : "تم إيقاف الخصم لأن حالة السجل مكتملة.";
 
   const isOperationalOldCard = beneficiary.in_import_file || beneficiary.has_replacement_card;
+  
+  // نحدد ما إذا كان الحساب "مفتوحاً" بناءً على السياسة المكتشفة للخدمة الحالية
+  // لمصرف الوحدة: الأسنان مفتوح، لكن الكشف العام محدود بـ 600
+  const showUnlimited = policyInfo?.isTpa && (policyInfo.ceiling === null || policyInfo.ceiling === 0);
 
   return (
-    <Card className="p-4 sm:p-4.5">
+    <Card className="p-4">
       {/* ─── رأس البطاقة: الاسم والحالة ─── */}
       <div className="mb-4 flex items-start justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
         <div>
-          <h2 className="text-lg font-black text-slate-900 dark:text-white sm:text-xl">{beneficiary.name}</h2>
-          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">البطاقة: {beneficiary.card_number}</p>
-          <div className="mt-1 flex flex-wrap items-center gap-1">
-            {beneficiary.in_import_file && (
-              <span className="inline-flex items-center rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[10px] font-black text-sky-700 dark:border-sky-800 dark:bg-sky-900/30 dark:text-sky-300">
-                ضمن ملف الاستيراد
-              </span>
+          <h2 className="text-xl font-black text-slate-900 dark:text-white">{beneficiary.name}</h2>
+          <div className="flex flex-wrap items-center gap-2 mt-1">
+            <p className="text-xs font-medium text-slate-500 dark:text-slate-400">البطاقة: {beneficiary.card_number}</p>
+            {beneficiary.company && (
+              <Badge variant="info" className="text-[10px] py-0 px-2 h-5 flex items-center gap-1 border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                {beneficiary.company.logo ? (
+                  <img src={beneficiary.company.logo} alt="Company Logo" className="h-3 w-3 object-contain" />
+                ) : (
+                  <Shield className="h-3 w-3 text-primary dark:text-blue-400" />
+                )}
+                {beneficiary.company.name}
+              </Badge>
             )}
-            {isOperationalOldCard ? (
-              <span className="inline-flex items-center rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-black text-amber-700 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
-                بطاقة قديمة
-              </span>
-            ) : (
-              <span className="inline-flex items-center rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-black text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300">
-                بطاقة مستقرة
-              </span>
+            {isOperationalOldCard && (
+              <Badge variant="warning" className="text-[10px] py-0 px-2 h-5">بطاقة قديمة</Badge>
             )}
+            <Badge variant={statusVariant} className="text-[10px] py-0 px-2 h-5">
+              {statusLabel}
+            </Badge>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={resetSearchState}
-            className="rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-xs font-bold text-slate-600 dark:text-slate-300 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700"
-          >
-            اختيار مستفيد آخر
-          </button>
-          <Badge variant={statusVariant}>
-            {statusLabel}
-          </Badge>
-        </div>
+        <button
+          type="button"
+          onClick={resetSearchState}
+          className="rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-bold text-slate-600 dark:text-slate-300 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700"
+        >
+          تغيير المستفيد
+        </button>
       </div>
 
-      {/* ─── الأرصدة ─── */}
-      <div className="mb-4 grid grid-cols-1 gap-2 md:grid-cols-2">
+      {/* ─── السقف - المتبقي ─── */}
+      <div className="mb-4 grid grid-cols-2 gap-3">
         <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
-          <p className="mb-1 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">إجمالي الرصيد</p>
-          <p className="text-base font-black text-slate-700 dark:text-slate-200">{formatCurrency(beneficiary.total_balance)} د.ل</p>
-        </div>
-        <div className={cn(
-          "rounded-md p-3",
-          beneficiary.remaining_balance < 50
-            ? "border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/30"
-            : "border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50"
-        )}>
-          <p className="mb-1 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">المتبقي</p>
-          <p className={cn(
-            "text-xl font-black",
-            beneficiary.remaining_balance < 50 ? "text-amber-600 dark:text-amber-400" : "text-primary dark:text-blue-400"
-          )}>
-            {formatCurrency(beneficiary.remaining_balance)} د.ل
+          <p className="mb-1 text-xs font-black uppercase tracking-wider text-slate-400">
+            {!policyLoading && showUnlimited ? "سقف مفتوح" : "السقف"}
           </p>
-          {beneficiary.remaining_balance < 50 && beneficiary.remaining_balance > 0 && (
-            <p className="mt-1 text-[10px] font-black uppercase tracking-[0.18em] text-amber-700 dark:text-amber-500">
-              الرصيد أوشك على النفاد
-            </p>
-          )}
+          <p className="text-lg font-black text-slate-700 dark:text-slate-200">
+            {policyLoading ? (
+              <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+            ) : showUnlimited ? "∞"
+              : policyInfo?.isTpa
+                ? `${formatCurrency(policyInfo.ceiling || 0)} د.ل`
+                : `${formatCurrency(beneficiary.total_balance)} د.ل`
+            }
+          </p>
         </div>
+        {(() => {
+          // حساب المتبقي الحقيقي:
+          // - سقف مفتوح TPA: يعرض المستهلك
+          // - سقف محدود TPA: يعرض السقف - المستهلك
+          // - مستفيد عادي: remaining_balance من السجل
+          const tpaRemaining = policyInfo?.isTpa && !showUnlimited
+            ? Math.max(0, (policyInfo.ceiling || 0) - (policyInfo.consumed || 0))
+            : null;
+          const displayRemaining = policyInfo?.isTpa
+            ? (showUnlimited ? null : tpaRemaining!)
+            : beneficiary.remaining_balance;
+          const isLow = !policyLoading && !showUnlimited && (displayRemaining ?? 0) < 50;
+          return (
+            <div className={cn(
+              "rounded-md p-3",
+              isLow
+                ? "border border-amber-200 bg-amber-50"
+                : "border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50"
+            )}>
+              <p className="mb-1 text-xs font-black uppercase tracking-wider text-slate-400">
+                {!policyLoading && showUnlimited ? "الرصيد المستهلك" : "المتبقي"}
+              </p>
+              <p className={cn(
+                "text-xl font-black",
+                isLow ? "text-amber-600" : "text-primary dark:text-blue-400"
+              )}>
+                {policyLoading ? (
+                  <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+                ) : showUnlimited
+                  ? `${formatCurrency(policyInfo?.consumed || 0)} د.ل`
+                  : `${formatCurrency(displayRemaining ?? 0)} د.ل`
+                }
+              </p>
+            </div>
+          );
+        })()}
       </div>
 
       {beneficiary.has_replacement_card && beneficiary.replacement_card_number && (
@@ -122,10 +150,8 @@ export function BeneficiaryCard() {
         </div>
       )}
 
-      {/* ─── نموذج الخصم أو رسالة المكتمل ─── */}
-      {beneficiary.status === "ACTIVE" && beneficiary.remaining_balance > 0 ? (
-        <DeductionAction />
-      ) : (
+      {/* تم نقل DeductionAction إلى المكون الأب لدعم التوزيع الأفقي */}
+      {beneficiary.status !== "ACTIVE" || beneficiary.remaining_balance <= 0 ? (
         <div className={cn(
           "rounded-md border p-4 text-center",
           beneficiary.status === "SUSPENDED"
@@ -151,7 +177,7 @@ export function BeneficiaryCard() {
               : "text-slate-500 dark:text-slate-400"
           )}>{blockedReason}</p>
         </div>
-      )}
+      ) : null}
     </Card>
   );
 }

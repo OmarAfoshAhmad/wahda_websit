@@ -4,6 +4,7 @@ import { roundCurrency } from "@/lib/money";
 import { INTERACTIVE_TX_OPTIONS } from "./constants";
 import { BeneficiaryBalanceSnapshot, ImportAppliedRow } from "./types";
 import { familySuffixRegex, buildFamilyBaseRegex } from "./utils";
+import { findCompanyByCardNumber } from "@/lib/insurance/company-matcher";
 
 export async function loadFamilyMembersSnapshot(baseCards: string[]): Promise<BeneficiaryBalanceSnapshot[]> {
   if (baseCards.length === 0) return [];
@@ -54,6 +55,7 @@ export async function importFamilyTransactions(
   facilityId: string,
   expectedFamilyCount?: number,
   replaceOldImports = true,
+  companyId?: string | null,
 ): Promise<{ count: number; mode: "created" | "updated"; appliedRows: ImportAppliedRow[] }> {
   let transactionCount = 0;
   const appliedRows: ImportAppliedRow[] = [];
@@ -174,6 +176,7 @@ export async function importFamilyTransactions(
             facility_id: facilityId,
             amount: deductAmount,
             type: TransactionType.IMPORT,
+            ...(companyId ? { company_id: companyId } : {}),
           },
         });
       } else {
@@ -183,7 +186,10 @@ export async function importFamilyTransactions(
 
         await tx.transaction.update({
           where: { id: existingForMember[0].id },
-          data: { amount: newAmount },
+          data: {
+            amount: newAmount,
+            ...(companyId ? { company_id: companyId } : {}),
+          },
         });
 
         if (existingForMember.length > 1) {
