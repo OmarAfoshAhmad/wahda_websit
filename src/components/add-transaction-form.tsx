@@ -24,6 +24,7 @@ type BeneficiarySuggestion = {
   name: string;
   card_number: string;
   remaining_balance: number;
+  total_balance: number;
   status: string;
   has_manual_deduction: boolean;
   has_import_deduction: boolean;
@@ -269,7 +270,7 @@ function BeneficiarySearchInput({
                 </div>
               </div>
               <span className="shrink-0 text-xs font-bold text-slate-500 dark:text-slate-400">
-                {formatCurrency(item.remaining_balance)} د.ل
+                صرف {formatCurrency(item.total_balance - item.remaining_balance)} من {formatCurrency(item.total_balance)}
               </span>
             </button>
           ))}
@@ -415,7 +416,7 @@ export function AddTransactionForm({
                 )}
               </div>
               <p className="mt-1 text-xs font-bold text-slate-700 dark:text-slate-300">
-                الرصيد الحالي: {formatCurrency(Number(selectedBeneficiary.remaining_balance))} د.ل
+                إجمالي الاستهلاك: {formatCurrency(Number(selectedBeneficiary.total_balance - selectedBeneficiary.remaining_balance))} د.ل من أصل {formatCurrency(Number(selectedBeneficiary.total_balance))} د.ل
               </p>
               {selectedBeneficiary.has_replacement_card && selectedBeneficiary.replacement_card_number && (
                 <div className="mt-2 rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-xs font-bold text-amber-800 dark:text-amber-300">
@@ -549,7 +550,7 @@ export function AddTransactionForm({
         onClose={() => setConfirmOpen(false)}
         onConfirm={handleConfirmSubmit}
         title="تأكيد إضافة الحركة"
-        description={`قبل الخصم: ${formatCurrency(remainingBefore ?? 0)} د.ل | المخصوم: ${formatCurrency(hasValidAmount ? amountValue : 0)} د.ل | بعد الخصم: ${formatCurrency(remainingAfter ?? 0)} د.ل`}
+        description={`الاستهلاك الحالي: ${formatCurrency(selectedBeneficiary ? (selectedBeneficiary.total_balance - selectedBeneficiary.remaining_balance) : 0)} د.ل | المبلغ الجديد: ${formatCurrency(hasValidAmount ? amountValue : 0)} د.ل | الإجمالي بعد الخصم: ${formatCurrency(selectedBeneficiary ? (selectedBeneficiary.total_balance - (selectedBeneficiary.remaining_balance - amountValue)) : 0)} د.ل من أصل ${formatCurrency(selectedBeneficiary?.total_balance ?? 0)} د.ل`}
         confirmLabel="نعم، تأكيد الإضافة"
         cancelLabel="إلغاء"
         variant="warning"

@@ -28,6 +28,8 @@ export interface CalculationResult {
   remainingCeilingBefore: number;
   ceilingConsumed: number;
   remainingCeilingAfter: number;
+  consumedBefore: number;
+  consumedAfter: number;
   isPartialCoverage: boolean;
   metadata: {
     engineVersion: string;
@@ -89,6 +91,8 @@ export class InsuranceEngine {
       remainingCeilingBefore: remainingBefore.toNumber(),
       ceilingConsumed: ceilingConsumed.toNumber(),
       remainingCeilingAfter: remainingAfter.toNumber(),
+      consumedBefore: consumed.toNumber(),
+      consumedAfter: consumed.add(ceilingConsumed).toNumber(),
       isPartialCoverage,
       metadata: {
         engineVersion: this.VERSION,

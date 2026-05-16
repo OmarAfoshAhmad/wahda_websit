@@ -123,6 +123,10 @@ model Transaction {
   ceiling_consumed         Decimal?       @db.Decimal(12, 2)
   remaining_ceiling_after  Decimal?       @db.Decimal(12, 2)
   
+  // Cumulative Consumption tracking
+  consumed_before          Decimal?       @db.Decimal(12, 2)
+  consumed_after           Decimal?       @db.Decimal(12, 2)
+  
   // Policy Snapshot & Metadata
   policy_snapshot         Json?           // Stores the policy rules at time of service
   calc_metadata           Json?           // Stores engine version, internal calculations

@@ -240,18 +240,18 @@ export function BeneficiaryDashboardClient({ initialData }: { initialData: Dashb
       <div className="rounded-2xl bg-linear-to-br from-[#1f4e8c] to-[#173b6a] p-5 text-white shadow-md">
         <div className="mb-3 flex items-center gap-2">
           <Wallet className="h-4 w-4" />
-          <p className="text-xs font-bold uppercase tracking-wider text-blue-100">الرصيد الحالي</p>
+          <p className="text-xs font-bold uppercase tracking-wider text-blue-100">إجمالي الاستهلاك التراكمي</p>
         </div>
-        <p className="text-4xl font-black leading-none">{formatCurrency(data.remaining_balance)}</p>
+        <p className="text-4xl font-black leading-none">{formatCurrency(usedBalance)}</p>
         <p className="mt-1 text-sm text-blue-100">دينار ليبي</p>
 
         <div className="mt-5 grid grid-cols-2 gap-2 rounded-xl bg-white/10 p-2 text-center">
           <div className="rounded-lg bg-white/10 py-2">
-            <p className="text-[11px] font-bold text-blue-100">المستخدم</p>
-            <p className="text-base font-black">{formatCurrency(usedBalance)}</p>
+            <p className="text-[11px] font-bold text-blue-100">المتبقي</p>
+            <p className="text-base font-black">{formatCurrency(data.remaining_balance)}</p>
           </div>
           <div className="rounded-lg bg-white/10 py-2">
-            <p className="text-[11px] font-bold text-blue-100">الكلي</p>
+            <p className="text-[11px] font-bold text-blue-100">السقف الكلي</p>
             <p className="text-base font-black">{formatCurrency(data.total_balance)}</p>
           </div>
         </div>

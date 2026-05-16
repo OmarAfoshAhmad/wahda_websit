@@ -315,6 +315,8 @@ export async function executeCashClaim(input: {
               remaining_ceiling_before: calcResult.remainingCeilingBefore,
               ceiling_consumed: calcResult.ceilingConsumed,
               remaining_ceiling_after: calcResult.remainingCeilingAfter,
+              consumed_before: calcResult.consumedBefore,
+              consumed_after: calcResult.consumedAfter,
               policy_snapshot: JSON.parse(JSON.stringify(policyRecord)),
               calc_metadata: { ...calcResult.metadata },
             };

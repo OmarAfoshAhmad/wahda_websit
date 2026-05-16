@@ -299,14 +299,20 @@ export default async function TransactionsPage({
         original_transaction: {
           select: { id: true, amount: true, is_cancelled: true },
         },
-        beneficiary: { select: { id: true, name: true, card_number: true, remaining_balance: true, company_id: true } },
-        facility: { select: { id: true, name: true } },
-        company_id: true,
-        service_category: true,
         actual_company_share: true,
         actual_patient_share: true,
         remaining_ceiling_after: true,
+        consumed_before: true,
+        consumed_after: true,
+        policy_snapshot: true,
+        calc_metadata: true,
+        service_category: true,
+        company_id: true,
         company: { select: { id: true, name: true, code: true } },
+        beneficiary: {
+          select: { id: true, name: true, card_number: true, remaining_balance: true, total_balance: true, company_id: true },
+        },
+        facility: { select: { id: true, name: true } },
       },
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
@@ -736,7 +742,44 @@ export default async function TransactionsPage({
                   </div>
                   <div className="shrink-0 text-right">
                     <p className="text-2xl font-black tabular-nums text-slate-900 dark:text-white">{Number(tx.amount).toLocaleString("ar-LY")}</p>
-                    <p className="text-xs font-medium text-slate-400 dark:text-slate-500">دينار ليبي</p>
+                    <p className="text-xs font-medium text-slate-400 dark:text-slate-500 mb-1">دينار ليبي</p>
+                    
+                    <div className="mt-2 text-[10px] bg-slate-100 dark:bg-slate-800/80 px-2 py-1 rounded-md">
+                      {(() => {
+                        const txAny = tx as any;
+                        if (tx.company_id || tx.beneficiary.company_id) {
+                          const policy = tx.policy_snapshot as any;
+                          const consumed = txAny.consumed_after != null ? Number(txAny.consumed_after) : null;
+                          const ceiling = policy?.annual_ceiling ? Number(policy.annual_ceiling) : (tx.remaining_ceiling_after != null && Number(tx.remaining_ceiling_after) >= 999999999 ? 999999999 : null);
+
+                          if (ceiling && ceiling >= 999999999) {
+                            return (
+                              <>
+                                <p className="text-slate-400 font-bold mb-0.5">إجمالي الاستهلاك</p>
+                                <p className="font-black text-emerald-600 dark:text-emerald-400">{consumed !== null ? consumed.toLocaleString("ar-LY") : "—"} (سقف مفتوح)</p>
+                              </>
+                            );
+                          }
+                          
+                          const remaining = (ceiling && consumed !== null) ? (ceiling - consumed) : null;
+                          return (
+                            <>
+                              <p className="text-slate-400 font-bold mb-0.5">المتبقي</p>
+                              <p className="font-black text-emerald-600 dark:text-emerald-400">{remaining !== null ? remaining.toLocaleString("ar-LY") : "—"} <span className="text-slate-400 font-normal">من {ceiling ? ceiling.toLocaleString("ar-LY") : "—"}</span></p>
+                            </>
+                          );
+                        }
+
+                        const total = Number(tx.beneficiary.total_balance);
+                        const remainingLegacy = remainingAfterByTxId.get(tx.id) ?? Number(tx.beneficiary.remaining_balance);
+                        return (
+                          <>
+                            <p className="text-slate-400 font-bold mb-0.5">المتبقي</p>
+                            <p className="font-black text-emerald-600 dark:text-emerald-400">{remainingLegacy.toLocaleString("ar-LY")} <span className="text-slate-400 font-normal">من {total.toLocaleString("ar-LY")}</span></p>
+                          </>
+                        );
+                      })()}
+                    </div>
                   </div>
                 </div>
 
@@ -825,20 +868,20 @@ export default async function TransactionsPage({
                     )}
                     <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500">نوع الحركة</th>
                     <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500">شركة التأمين</th>
-                    <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 text-right">
+                    <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 text-center">
                       <Link href={txSortHref("amount")} className="print:hidden inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
                         قيمة الفاتورة {sortCol === "amount" ? (sortDir === "asc" ? "↑" : "↓") : ""}
                       </Link>
                       <span className="hidden print:inline">قيمة الفاتورة</span>
                     </th>
-                    <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 text-right">القيمة المخصومة</th>
-                    <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 text-right">
+                    <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 text-center">القيمة المخصومة</th>
+                    <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 text-center">
                       <Link href={txSortHref("remaining_balance")} className="print:hidden inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
-                        الرصيد المتبقي {sortCol === "remaining_balance" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                        إجمالي الاستهلاك {sortCol === "remaining_balance" ? (sortDir === "asc" ? "↑" : "↓") : ""}
                       </Link>
-                      <span className="hidden print:inline">الرصيد المتبقي</span>
+                      <span className="hidden print:inline">إجمالي الاستهلاك</span>
                     </th>
-                    <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 text-right">
+                    <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 text-center">
                       <Link href={txSortHref("created_at")} className="print:hidden inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
                         التاريخ {sortCol === "created_at" ? (sortDir === "asc" ? "↑" : "↓") : ""}
                       </Link>
@@ -921,11 +964,11 @@ export default async function TransactionsPage({
                             ) : <span className="text-sm font-medium text-slate-600">{comp.name}</span>;
                           })()}
                         </td>
-                        <td className="px-6 py-4 text-right">
+                        <td className="px-6 py-4 text-center">
                           <span className="font-medium text-slate-500 dark:text-slate-400">{Math.abs(Number(tx.amount)).toLocaleString("ar-LY")}</span>
                           <span className="mr-3 text-[10px] text-slate-400 dark:text-slate-500">د.ل</span>
                         </td>
-                        <td className="px-6 py-4 text-right">
+                        <td className="px-6 py-4 text-center">
                           {(() => {
                             const deducted = tx.actual_company_share ? Number(tx.actual_company_share) : Number(tx.amount);
                             if (tx.type === "CANCELLATION") {
@@ -943,38 +986,50 @@ export default async function TransactionsPage({
                           })()}
                           <span className="mr-2 text-[10px] text-slate-400 dark:text-slate-500">د.ل</span>
                         </td>
-                        <td className="px-6 py-4 text-right">
+                        <td className="px-6 py-4 text-center">
                           {(() => {
                             if (tx.company_id || tx.beneficiary.company_id) {
-                              if (tx.remaining_ceiling_after != null) {
-                                return <span className="font-medium text-slate-700 dark:text-slate-300">{Number(tx.remaining_ceiling_after).toLocaleString("ar-LY")}</span>;
+                              const policy = tx.policy_snapshot as any;
+                              const consumed = tx.consumed_after != null ? Number(tx.consumed_after) : null;
+                              const ceiling = policy?.annual_ceiling ? Number(policy.annual_ceiling) : (tx.remaining_ceiling_after != null && Number(tx.remaining_ceiling_after) >= 999999999 ? 999999999 : null);
+
+                              // إذا كان السقف مفتوحاً -> نعرض إجمالي الاستهلاك
+                              if (ceiling && ceiling >= 999999999) {
+                                return (
+                                  <div className="flex flex-col items-center">
+                                    <span className="font-medium text-slate-700 dark:text-slate-300">{consumed !== null ? consumed.toLocaleString("ar-LY") : "—"}</span>
+                                    <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">سقف مفتوح</span>
+                                  </div>
+                                );
                               }
-                              return <span className="font-bold text-slate-400">—</span>;
+
+                              // إذا كان السقف محدوداً (مخصص) -> نعرض المتبقي
+                              if (ceiling && consumed !== null) {
+                                const remaining = ceiling - consumed;
+                                return (
+                                  <div className="flex flex-col items-center">
+                                    <span className="font-medium text-emerald-600 dark:text-emerald-400">{remaining.toLocaleString("ar-LY")}</span>
+                                    <span className="text-[10px] text-slate-400">من أصل {ceiling.toLocaleString("ar-LY")}</span>
+                                  </div>
+                                );
+                              }
+
+                              return <span className="font-medium text-slate-700 dark:text-slate-300">{consumed !== null ? consumed.toLocaleString("ar-LY") : "—"}</span>;
                             }
 
-                            const shownBalance = remainingAfterByTxId.get(tx.id) ?? Number(tx.beneficiary.remaining_balance);
+                            // النظام القديم (Legacy)
+                            const total = Number(tx.beneficiary.total_balance);
+                            const remainingLegacy = remainingAfterByTxId.get(tx.id) ?? Number(tx.beneficiary.remaining_balance);
 
-                            if (tx.type === "CANCELLATION") {
-                              return (
-                                <div className="inline-flex flex-col items-end">
-                                  <span className="font-medium text-emerald-700 dark:text-emerald-400">{shownBalance.toLocaleString("ar-LY")}</span>
-                                </div>
-                              );
-                            }
-
-                            if (tx.is_cancelled && (tx.corrections.length > 0)) {
-                              return (
-                                <div className="inline-flex flex-col items-end">
-                                  <span className="font-medium text-slate-700 dark:text-slate-300 line-through opacity-70">{shownBalance.toLocaleString("ar-LY")}</span>
-                                </div>
-                              );
-                            }
-
-                            return <span className="font-medium text-slate-700 dark:text-slate-300">{shownBalance.toLocaleString("ar-LY")}</span>;
+                            return (
+                              <div className="flex flex-col items-center">
+                                <span className="font-medium text-emerald-600 dark:text-emerald-400">{remainingLegacy.toLocaleString("ar-LY")}</span>
+                                <span className="text-[10px] text-slate-400">من أصل {total.toLocaleString("ar-LY")}</span>
+                              </div>
+                            );
                           })()}
-                          <span className="mr-3 text-[10px] text-slate-400 dark:text-slate-500">د.ل</span>
                         </td>
-                        <td className="px-6 py-4 text-right">
+                        <td className="px-6 py-4 text-center">
                           <p className="text-sm text-slate-900 dark:text-slate-300">{formatDateTripoli(tx.created_at, "en-GB")}</p>
                         </td>
 

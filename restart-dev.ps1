@@ -54,6 +54,10 @@ if (Test-Path $lockPath) {
     Write-Host "Removed lock file: $lockPath" -ForegroundColor Green
 }
 
+# 4) Update Prisma Client
+Write-Host 'Updating database client...' -ForegroundColor Yellow
+npx prisma generate
+
 Write-Host ''
 Write-Host 'Starting dev server...' -ForegroundColor Cyan
 npm run dev

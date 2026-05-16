@@ -15,6 +15,7 @@ export async function searchBeneficiaries(query: string) {
     name: string;
     card_number: string;
     remaining_balance: number;
+    total_balance: number;
     status: string;
     has_manual_deduction: boolean;
     has_import_deduction: boolean;
@@ -47,6 +48,7 @@ export async function searchBeneficiaries(query: string) {
       name: string;
       card_number: string;
       is_legacy_card: boolean;
+      total_balance: number;
       remaining_balance: number;
       status: string;
       has_manual_deduction: boolean;
@@ -57,6 +59,7 @@ export async function searchBeneficiaries(query: string) {
         name,
         card_number,
         "is_legacy_card",
+        total_balance::float8,
         remaining_balance::float8,
         status,
         EXISTS (
@@ -133,6 +136,7 @@ export async function searchBeneficiaries(query: string) {
       return {
         ...row,
         remaining_balance: remainingById.get(row.id) ?? 0,
+        total_balance: row.total_balance,
         in_import_file: Boolean(row.is_legacy_card),
         has_replacement_card: hasReplacement,
         replacement_card_number: hasReplacement && bestCandidate ? bestCandidate.card_number : null,
