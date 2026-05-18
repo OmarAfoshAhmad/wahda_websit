@@ -556,7 +556,6 @@ export default async function TransactionsPage({
           <input type="hidden" name="start_date" value={start_date ?? ""} />
           <input type="hidden" name="end_date" value={end_date ?? ""} />
           <input type="hidden" name="facility_id" value={facility_id ?? ""} />
-          <input type="hidden" name="status" value={statusFilter} />
           {txTypeFilter !== "all" && <input type="hidden" name="tx_type" value={txTypeFilter} />}
           {sourceFilter !== "all" && <input type="hidden" name="source" value={sourceFilter} />}
           <div className="w-full">
@@ -582,7 +581,7 @@ export default async function TransactionsPage({
             <input type="hidden" name="q" value={q ?? ""} />
             {companyFilterId && <input type="hidden" name="company_id" value={companyFilterId} />}
 
-            <div className={`grid grid-cols-1 gap-4 ${session.is_admin ? "md:grid-cols-8" : "md:grid-cols-6"}`}>
+            <div className={`grid grid-cols-1 gap-4 ${session.is_admin ? "md:grid-cols-7" : "md:grid-cols-5"}`}>
               <div className="space-y-1">
                 <label htmlFor="start_date" className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">من تاريخ</label>
                 <Input id="start_date" type="date" name="start_date" defaultValue={start_date} lang="en-GB" className="[direction:ltr] text-right" />
@@ -592,19 +591,7 @@ export default async function TransactionsPage({
                 <Input id="end_date" type="date" name="end_date" defaultValue={end_date} lang="en-GB" className="[direction:ltr] text-right" />
               </div>
 
-              <div className="space-y-1">
-                <label htmlFor="status" className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">حالة الحركة</label>
-                <select
-                  id="status"
-                  name="status"
-                  defaultValue={statusFilter}
-                  className="flex h-10 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
-                >
-                  <option value="all">الكل</option>
-                  <option value="active">النشطة فقط</option>
-                  <option value="deleted">المحذوفة فقط</option>
-                </select>
-              </div>
+
 
               <div className="space-y-1">
                 <label htmlFor="tx_type" className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">نوع الحركة</label>
