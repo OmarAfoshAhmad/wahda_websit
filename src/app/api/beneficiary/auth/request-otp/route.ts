@@ -60,9 +60,38 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `الحساب محجوب مؤقتاً. حاول بعد ${minutesLeft} دقيقة` }, { status: 429 });
   }
 
-  // ── 2. التحقق من رقم الهاتف ──────────────────────────
-  if (beneficiary.phone_number && beneficiary.phone_number !== phone_number) {
-    return NextResponse.json({ error: "رقم الهاتف غير مطابق للرقم المسجل لدينا لهذه البطاقة" }, { status: 401 });
+  // ── 2. منطق الهاتف: تسجيل أول مرة أو تحقق من التطابق ──
+  if (beneficiary.phone_number) {
+    // ─ البطاقة مسجّلة مسبقاً برقم هاتف — يجب أن يتطابق
+    if (beneficiary.phone_number !== phone_number) {
+      return NextResponse.json(
+        { error: "رقم الهاتف غير مطابق للرقم المسجل لهذه البطاقة" },
+        { status: 401 }
+      );
+    }
+  } else {
+    // ─ أول تسجيل: تحقق أن الهاتف غير مستخدم مع بطاقة أخرى
+    const phoneConflict = await prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM "Beneficiary"
+      WHERE phone_number = ${phone_number}
+        AND id != ${beneficiary.id}
+        AND deleted_at IS NULL
+      LIMIT 1
+    `;
+
+    if (phoneConflict.length > 0) {
+      return NextResponse.json(
+        { error: "رقم الهاتف مستخدم مع بطاقة أخرى. يرجى التواصل مع الدعم" },
+        { status: 409 }
+      );
+    }
+
+    // ─ ربط رقم الهاتف بالبطاقة (تسجيل أول مرة)
+    await prisma.$executeRaw`
+      UPDATE "Beneficiary"
+      SET phone_number = ${phone_number}
+      WHERE id = ${beneficiary.id}
+    `;
   }
 
   // ── 3. توليد رمز OTP آمن تشفيرياً ─────────────────────
