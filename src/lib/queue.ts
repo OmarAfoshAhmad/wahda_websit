@@ -31,12 +31,10 @@ export async function getTransactionImportQueue() {
  * يعيد دائماً false لإخبار النظام باستخدام المعالجة المباشرة (Fallback)
  */
 export async function enqueueImportJob(jobId: string, username: string): Promise<boolean> {
-  console.log(`[QUEUE] Direct processing enabled for job: ${jobId}`);
   return false; 
 }
 
 export async function enqueueTransactionImportJob(jobId: string, username: string): Promise<boolean> {
-  console.log(`[QUEUE] Direct processing enabled for transaction job: ${jobId}`);
   return false;
 }
 

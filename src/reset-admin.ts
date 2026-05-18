@@ -15,7 +15,7 @@ async function main() {
         }
     });
 
-    console.log("Admin password reset to Admin123");
+    // Done — no credential logging for security
 }
 
 main().catch(console.error).finally(() => prisma.$disconnect());

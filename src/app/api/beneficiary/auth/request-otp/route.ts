@@ -4,6 +4,7 @@ import prisma from "@/lib/prisma";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getOtpSettings } from "@/lib/system-settings";
 import { normalizeCardInput } from "@/lib/card-number";
+import { logger } from "@/lib/logger";
 
 export async function POST(req: NextRequest) {
   // ── CSRF Protection (Direct Origin Check) ──────────────
@@ -109,7 +110,7 @@ export async function POST(req: NextRequest) {
 
       // المحاولة الثانية: Pins API (إذا فشل الإرسال المباشر)
       if (!res.ok && (res.status === 403 || res.status === 401)) {
-        console.log("[RESALA] Direct send failed, switching to PINS API fallback...");
+        logger.warn("RESALA direct send failed, switching to PINS API fallback");
 
         const pinsUrl = apiUrl.includes("/pins") ? apiUrl : apiUrl.replace("/messages/send", "/pins");
 
@@ -139,28 +140,25 @@ export async function POST(req: NextRequest) {
           const generatedPin = result.pin || result.code || result.data?.pin;
           if (generatedPin) {
             code = generatedPin.toString();
-            console.log("[RESALA] Provider-generated PIN synced to local DB");
+            logger.info("RESALA provider-generated PIN synced to local DB");
           }
         }
       }
 
       if (!res.ok) {
-        console.error("[RESALA] Send failed with status:", res.status);
+        logger.error("RESALA send failed", { status: res.status });
         return NextResponse.json({
           error: result.message || "فشل الإرسال: تأكد من الصلاحيات أو الرصيد",
         }, { status: res.status });
       }
 
-      console.log("[RESALA] OTP sent successfully");
+      logger.info("OTP sent successfully");
     } catch (error) {
-      console.error("[RESALA CONNECTION ERROR]", error instanceof Error ? error.message : "Unknown");
+      logger.error("RESALA connection error", { error: error instanceof Error ? error.message : "Unknown" });
       return NextResponse.json({ error: "خطأ في الاتصال بمزود الرسائل" }, { status: 500 });
     }
   } else {
     // وضع المحاكاة (MOCK) — للتطوير فقط
-    if (process.env.NODE_ENV === "development") {
-      console.log(`[OTP-DEV] Code for ${phone_number}: ${code}`);
-    }
   }
 
   // ── 6. حفظ الرمز في قاعدة البيانات (بعد نجاح الإرسال) ──

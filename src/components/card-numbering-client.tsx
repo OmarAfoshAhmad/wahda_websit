@@ -111,7 +111,6 @@ export function CardNumberingClient({
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
-        console.log("File loaded, starting parse...");
         const arrayBuffer = evt.target?.result as ArrayBuffer;
         const data = new Uint8Array(arrayBuffer);
         // إيقاف cellDates لمنع مكتبة الإكسيل من إنشاء كائنات Date تتأثر بالمنطقة الزمنية للمستخدم
