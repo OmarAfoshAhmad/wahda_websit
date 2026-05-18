@@ -44,13 +44,16 @@ export default async function TruthRegistryPage({
     multi?: string;
     page?: string;
     not_in_system?: string;
+    in_system_not_in_registry?: string;
+    legacy_has_batch?: string;
+    legacy_no_batch?: string;
   }>;
 }) {
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
   if (!session.is_admin) redirect("/dashboard");
 
-  const { q, city, batch, multi, page, not_in_system } = await searchParams;
+  const { q, city, batch, multi, page, not_in_system, in_system_not_in_registry, legacy_has_batch, legacy_no_batch } = await searchParams;
 
   const query = (q ?? "").trim().slice(0, 100);
   const cityFilter = (city ?? "").trim().slice(0, 80);
@@ -58,194 +61,382 @@ export default async function TruthRegistryPage({
   const isNoBatchFilter = batchFilter === NO_BATCH_FILTER_VALUE;
   const onlyMultiBatch = multi === "1";
   const onlyMissingInSystem = not_in_system === "1";
+  const onlyInSystemNotInRegistry = in_system_not_in_registry === "1";
+  const onlyLegacyHasBatch = legacy_has_batch === "1";
+  const onlyLegacyNoBatch = legacy_no_batch === "1";
   const pageNumber = Math.max(1, Number.parseInt(page ?? "1", 10) || 1);
   const pageSize = 100;
 
-  const rowsSql = query
+  const rowsSql = (onlyInSystemNotInRegistry || onlyLegacyNoBatch)
     ? prisma.$queryRaw<RegistryRow[]>`
         WITH filtered AS (
           SELECT
             id,
             card_number,
-            card_number_upper,
-            beneficiary_name,
+            UPPER(BTRIM(card_number)) AS card_number_upper,
+            name AS beneficiary_name,
             birth_date,
-            city,
+            COALESCE(city, '—') AS city,
             batch_number,
-            source_file,
-            source_sheet,
-            source_row,
-            updated_at
-          FROM "CardIssuanceRegistryAll"
-          WHERE (${cityFilter} = '' OR city = ${cityFilter})
+            'المنظومة' AS source_file,
+            CAST(NULL AS varchar) AS source_sheet,
+            CAST(NULL AS integer) AS source_row,
+            created_at AS updated_at
+          FROM "Beneficiary"
+          WHERE deleted_at IS NULL
             AND (
-              (${batchFilter} = '')
-              OR (${isNoBatchFilter} = true AND (batch_number IS NULL OR BTRIM(batch_number) = ''))
-              OR (${isNoBatchFilter} = false AND batch_number = ${batchFilter})
+              ${query} = ''
+              OR card_number ILIKE ${`%${query}%`}
+              OR name ILIKE ${`%${query}%`}
             )
             AND (
-              card_number ILIKE ${`%${query}%`}
-              OR COALESCE(beneficiary_name, '') ILIKE ${`%${query}%`}
-              OR COALESCE(source_file, '') ILIKE ${`%${query}%`}
-            )
-            AND (
-              ${onlyMissingInSystem} = false
-              OR REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') NOT IN (
-                SELECT REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
-                FROM "Beneficiary"
-                WHERE deleted_at IS NULL
+              ${onlyInSystemNotInRegistry} = false
+              OR REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') NOT IN (
+                SELECT REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
+                FROM "CardIssuanceRegistryAll"
+                WHERE card_number_upper IS NOT NULL
               )
             )
-        ),
-        stats AS (
-          SELECT
-            card_number_upper,
-            COUNT(DISTINCT COALESCE(NULLIF(BTRIM(batch_number), ''), '__NO_BATCH__'))::int AS batches_count,
-            ARRAY_TO_STRING(ARRAY_AGG(DISTINCT COALESCE(NULLIF(BTRIM(batch_number), ''), 'بدون دفعة') ORDER BY COALESCE(NULLIF(BTRIM(batch_number), ''), 'بدون دفعة')), '، ') AS batches_list
-          FROM "CardIssuanceRegistryAll"
-          GROUP BY card_number_upper
+            AND (
+              ${onlyLegacyNoBatch} = false
+              OR (
+                is_legacy_card = true
+                AND (batch_number IS NULL OR BTRIM(batch_number) = '')
+              )
+            )
+            AND (
+              ${onlyLegacyHasBatch} = false
+              OR (
+                is_legacy_card = true
+                AND batch_number IS NOT NULL AND BTRIM(batch_number) <> ''
+              )
+            )
         )
         SELECT
-          f.id,
-          f.card_number,
-          f.card_number_upper,
-          f.beneficiary_name,
-          f.birth_date,
-          f.city,
-          f.batch_number,
-          f.source_file,
-          f.source_sheet,
-          f.source_row,
-          f.updated_at,
-          s.batches_count,
-          s.batches_list
-        FROM filtered f
-        JOIN stats s ON s.card_number_upper = f.card_number_upper
-        WHERE (${onlyMultiBatch} = false OR s.batches_count > 1)
-        ORDER BY f.city ASC, f.batch_number ASC NULLS LAST, f.card_number_upper ASC, f.source_file ASC NULLS LAST, f.source_row ASC NULLS LAST
+          id,
+          card_number,
+          card_number_upper,
+          beneficiary_name,
+          birth_date,
+          city,
+          batch_number,
+          source_file,
+          source_sheet,
+          source_row,
+          updated_at,
+          0::int AS batches_count,
+          CAST(NULL AS varchar) AS batches_list
+        FROM filtered
+        ORDER BY city ASC, batch_number ASC NULLS LAST, card_number_upper ASC
         LIMIT ${pageSize}
         OFFSET ${(pageNumber - 1) * pageSize}
       `
-    : prisma.$queryRaw<RegistryRow[]>`
-        WITH filtered AS (
-          SELECT
-            id,
-            card_number,
-            card_number_upper,
-            beneficiary_name,
-            birth_date,
-            city,
-            batch_number,
-            source_file,
-            source_sheet,
-            source_row,
-            updated_at
-          FROM "CardIssuanceRegistryAll"
-          WHERE (${cityFilter} = '' OR city = ${cityFilter})
-            AND (
-              (${batchFilter} = '')
-              OR (${isNoBatchFilter} = true AND (batch_number IS NULL OR BTRIM(batch_number) = ''))
-              OR (${isNoBatchFilter} = false AND batch_number = ${batchFilter})
+    : (query
+        ? prisma.$queryRaw<RegistryRow[]>`
+            WITH filtered AS (
+              SELECT
+                id,
+                card_number,
+                card_number_upper,
+                beneficiary_name,
+                birth_date,
+                city,
+                batch_number,
+                source_file,
+                source_sheet,
+                source_row,
+                updated_at
+              FROM "CardIssuanceRegistryAll"
+              WHERE (${cityFilter} = '' OR city = ${cityFilter})
+                AND (
+                  (${batchFilter} = '')
+                  OR (${isNoBatchFilter} = true AND (batch_number IS NULL OR BTRIM(batch_number) = ''))
+                  OR (${isNoBatchFilter} = false AND batch_number = ${batchFilter})
+                )
+                AND (
+                  card_number ILIKE ${`%${query}%`}
+                  OR COALESCE(beneficiary_name, '') ILIKE ${`%${query}%`}
+                  OR COALESCE(source_file, '') ILIKE ${`%${query}%`}
+                )
+                AND (
+                  ${onlyMissingInSystem} = false
+                  OR REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') NOT IN (
+                    SELECT REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
+                    FROM "Beneficiary"
+                    WHERE deleted_at IS NULL
+                  )
+                )
+                AND (
+                  ${onlyLegacyHasBatch} = false
+                  OR (
+                    (batch_number IS NOT NULL AND BTRIM(batch_number) <> '')
+                    AND REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') IN (
+                      SELECT REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
+                      FROM "Beneficiary"
+                      WHERE deleted_at IS NULL AND is_legacy_card = true
+                    )
+                  )
+                )
+                AND (
+                  ${onlyLegacyNoBatch} = false
+                  OR (
+                    (batch_number IS NULL OR BTRIM(batch_number) = '')
+                    AND REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') IN (
+                      SELECT REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
+                      FROM "Beneficiary"
+                      WHERE deleted_at IS NULL AND is_legacy_card = true
+                    )
+                  )
+                )
+            ),
+            stats AS (
+              SELECT
+                card_number_upper,
+                COUNT(DISTINCT COALESCE(NULLIF(BTRIM(batch_number), ''), '__NO_BATCH__'))::int AS batches_count,
+                ARRAY_TO_STRING(ARRAY_AGG(DISTINCT COALESCE(NULLIF(BTRIM(batch_number), ''), 'بدون دفعة') ORDER BY COALESCE(NULLIF(BTRIM(batch_number), ''), 'بدون دفعة')), '، ') AS batches_list
+              FROM "CardIssuanceRegistryAll"
+              GROUP BY card_number_upper
             )
-            AND (
-              ${onlyMissingInSystem} = false
-              OR REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') NOT IN (
-                SELECT REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
-                FROM "Beneficiary"
-                WHERE deleted_at IS NULL
-              )
+            SELECT
+              f.id,
+              f.card_number,
+              f.card_number_upper,
+              f.beneficiary_name,
+              f.birth_date,
+              f.city,
+              f.batch_number,
+              f.source_file,
+              f.source_sheet,
+              f.source_row,
+              f.updated_at,
+              s.batches_count,
+              s.batches_list
+            FROM filtered f
+            JOIN stats s ON s.card_number_upper = f.card_number_upper
+            WHERE (${onlyMultiBatch} = false OR s.batches_count > 1)
+            ORDER BY f.city ASC, f.batch_number ASC NULLS LAST, f.card_number_upper ASC, f.source_file ASC NULLS LAST, f.source_row ASC NULLS LAST
+            LIMIT ${pageSize}
+            OFFSET ${(pageNumber - 1) * pageSize}
+          `
+        : prisma.$queryRaw<RegistryRow[]>`
+            WITH filtered AS (
+              SELECT
+                id,
+                card_number,
+                card_number_upper,
+                beneficiary_name,
+                birth_date,
+                city,
+                batch_number,
+                source_file,
+                source_sheet,
+                source_row,
+                updated_at
+              FROM "CardIssuanceRegistryAll"
+              WHERE (${cityFilter} = '' OR city = ${cityFilter})
+                AND (
+                  (${batchFilter} = '')
+                  OR (${isNoBatchFilter} = true AND (batch_number IS NULL OR BTRIM(batch_number) = ''))
+                  OR (${isNoBatchFilter} = false AND batch_number = ${batchFilter})
+                )
+                AND (
+                  ${onlyMissingInSystem} = false
+                  OR REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') NOT IN (
+                    SELECT REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
+                    FROM "Beneficiary"
+                    WHERE deleted_at IS NULL
+                  )
+                )
+                AND (
+                  ${onlyLegacyHasBatch} = false
+                  OR (
+                    (batch_number IS NOT NULL AND BTRIM(batch_number) <> '')
+                    AND REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') IN (
+                      SELECT REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
+                      FROM "Beneficiary"
+                      WHERE deleted_at IS NULL AND is_legacy_card = true
+                    )
+                  )
+                )
+                AND (
+                  ${onlyLegacyNoBatch} = false
+                  OR (
+                    (batch_number IS NULL OR BTRIM(batch_number) = '')
+                    AND REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') IN (
+                      SELECT REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
+                      FROM "Beneficiary"
+                      WHERE deleted_at IS NULL AND is_legacy_card = true
+                    )
+                  )
+                )
+            ),
+            stats AS (
+              SELECT
+                card_number_upper,
+                COUNT(DISTINCT COALESCE(NULLIF(BTRIM(batch_number), ''), '__NO_BATCH__'))::int AS batches_count,
+                ARRAY_TO_STRING(ARRAY_AGG(DISTINCT COALESCE(NULLIF(BTRIM(batch_number), ''), 'بدون دفعة') ORDER BY COALESCE(NULLIF(BTRIM(batch_number), ''), 'بدون دفعة')), '، ') AS batches_list
+              FROM "CardIssuanceRegistryAll"
+              GROUP BY card_number_upper
             )
-        ),
-        stats AS (
-          SELECT
-            card_number_upper,
-            COUNT(DISTINCT COALESCE(NULLIF(BTRIM(batch_number), ''), '__NO_BATCH__'))::int AS batches_count,
-            ARRAY_TO_STRING(ARRAY_AGG(DISTINCT COALESCE(NULLIF(BTRIM(batch_number), ''), 'بدون دفعة') ORDER BY COALESCE(NULLIF(BTRIM(batch_number), ''), 'بدون دفعة')), '، ') AS batches_list
-          FROM "CardIssuanceRegistryAll"
-          GROUP BY card_number_upper
-        )
-        SELECT
-          f.id,
-          f.card_number,
-          f.card_number_upper,
-          f.beneficiary_name,
-          f.birth_date,
-          f.city,
-          f.batch_number,
-          f.source_file,
-          f.source_sheet,
-          f.source_row,
-          f.updated_at,
-          s.batches_count,
-          s.batches_list
-        FROM filtered f
-        JOIN stats s ON s.card_number_upper = f.card_number_upper
-        WHERE (${onlyMultiBatch} = false OR s.batches_count > 1)
-        ORDER BY f.city ASC, f.batch_number ASC NULLS LAST, f.card_number_upper ASC, f.source_file ASC NULLS LAST, f.source_row ASC NULLS LAST
-        LIMIT ${pageSize}
-        OFFSET ${(pageNumber - 1) * pageSize}
-      `;
+            SELECT
+              f.id,
+              f.card_number,
+              f.card_number_upper,
+              f.beneficiary_name,
+              f.birth_date,
+              f.city,
+              f.batch_number,
+              f.source_file,
+              f.source_sheet,
+              f.source_row,
+              f.updated_at,
+              s.batches_count,
+              s.batches_list
+            FROM filtered f
+            JOIN stats s ON s.card_number_upper = f.card_number_upper
+            WHERE (${onlyMultiBatch} = false OR s.batches_count > 1)
+            ORDER BY f.city ASC, f.batch_number ASC NULLS LAST, f.card_number_upper ASC, f.source_file ASC NULLS LAST, f.source_row ASC NULLS LAST
+            LIMIT ${pageSize}
+            OFFSET ${(pageNumber - 1) * pageSize}
+          `);
 
-  const countSql = query
+  const countSql = (onlyInSystemNotInRegistry || onlyLegacyNoBatch)
     ? prisma.$queryRaw<CountRow[]>`
         SELECT COUNT(*)::bigint AS count
-        FROM "CardIssuanceRegistryAll"
-        WHERE (${cityFilter} = '' OR city = ${cityFilter})
+        FROM "Beneficiary"
+        WHERE deleted_at IS NULL
           AND (
-            (${batchFilter} = '')
-            OR (${isNoBatchFilter} = true AND (batch_number IS NULL OR BTRIM(batch_number) = ''))
-            OR (${isNoBatchFilter} = false AND batch_number = ${batchFilter})
+            ${query} = ''
+            OR card_number ILIKE ${`%${query}%`}
+            OR name ILIKE ${`%${query}%`}
           )
           AND (
-            card_number ILIKE ${`%${query}%`}
-            OR COALESCE(beneficiary_name, '') ILIKE ${`%${query}%`}
-            OR COALESCE(source_file, '') ILIKE ${`%${query}%`}
-          )
-          AND (
-            ${onlyMissingInSystem} = false
-            OR REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') NOT IN (
-              SELECT REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
-              FROM "Beneficiary"
-              WHERE deleted_at IS NULL
+            ${onlyInSystemNotInRegistry} = false
+            OR REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') NOT IN (
+              SELECT REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
+              FROM "CardIssuanceRegistryAll"
+              WHERE card_number_upper IS NOT NULL
             )
           )
           AND (
-            ${onlyMultiBatch} = false
-            OR card_number_upper IN (
-              SELECT card_number_upper
-              FROM "CardIssuanceRegistryAll"
-              GROUP BY card_number_upper
-              HAVING COUNT(DISTINCT COALESCE(NULLIF(BTRIM(batch_number), ''), '__NO_BATCH__')) > 1
+            ${onlyLegacyNoBatch} = false
+            OR (
+              is_legacy_card = true
+              AND (batch_number IS NULL OR BTRIM(batch_number) = '')
+            )
+          )
+          AND (
+            ${onlyLegacyHasBatch} = false
+            OR (
+              is_legacy_card = true
+              AND batch_number IS NOT NULL AND BTRIM(batch_number) <> ''
             )
           )
       `
-    : prisma.$queryRaw<CountRow[]>`
-        SELECT COUNT(*)::bigint AS count
-        FROM "CardIssuanceRegistryAll"
-        WHERE (${cityFilter} = '' OR city = ${cityFilter})
-          AND (
-            (${batchFilter} = '')
-            OR (${isNoBatchFilter} = true AND (batch_number IS NULL OR BTRIM(batch_number) = ''))
-            OR (${isNoBatchFilter} = false AND batch_number = ${batchFilter})
-          )
-          AND (
-            ${onlyMissingInSystem} = false
-            OR REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') NOT IN (
-              SELECT REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
-              FROM "Beneficiary"
-              WHERE deleted_at IS NULL
-            )
-          )
-          AND (
-            ${onlyMultiBatch} = false
-            OR card_number_upper IN (
-              SELECT card_number_upper
-              FROM "CardIssuanceRegistryAll"
-              GROUP BY card_number_upper
-              HAVING COUNT(DISTINCT COALESCE(NULLIF(BTRIM(batch_number), ''), '__NO_BATCH__')) > 1
-            )
-          )
-      `;
+    : (query
+        ? prisma.$queryRaw<CountRow[]>`
+            SELECT COUNT(*)::bigint AS count
+            FROM "CardIssuanceRegistryAll"
+            WHERE (${cityFilter} = '' OR city = ${cityFilter})
+              AND (
+                (${batchFilter} = '')
+                OR (${isNoBatchFilter} = true AND (batch_number IS NULL OR BTRIM(batch_number) = ''))
+                OR (${isNoBatchFilter} = false AND batch_number = ${batchFilter})
+              )
+              AND (
+                card_number ILIKE ${`%${query}%`}
+                OR COALESCE(beneficiary_name, '') ILIKE ${`%${query}%`}
+                OR COALESCE(source_file, '') ILIKE ${`%${query}%`}
+              )
+              AND (
+                ${onlyMissingInSystem} = false
+                OR REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') NOT IN (
+                  SELECT REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
+                  FROM "Beneficiary"
+                  WHERE deleted_at IS NULL
+                )
+              )
+              AND (
+                ${onlyLegacyHasBatch} = false
+                OR (
+                  (batch_number IS NOT NULL AND BTRIM(batch_number) <> '')
+                  AND REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') IN (
+                    SELECT REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
+                    FROM "Beneficiary"
+                    WHERE deleted_at IS NULL AND is_legacy_card = true
+                  )
+                )
+              )
+              AND (
+                ${onlyLegacyNoBatch} = false
+                OR (
+                  (batch_number IS NULL OR BTRIM(batch_number) = '')
+                  AND REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') IN (
+                    SELECT REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
+                    FROM "Beneficiary"
+                    WHERE deleted_at IS NULL AND is_legacy_card = true
+                  )
+                )
+              )
+              AND (
+                ${onlyMultiBatch} = false
+                OR card_number_upper IN (
+                  SELECT card_number_upper
+                  FROM "CardIssuanceRegistryAll"
+                  GROUP BY card_number_upper
+                  HAVING COUNT(DISTINCT COALESCE(NULLIF(BTRIM(batch_number), ''), '__NO_BATCH__')) > 1
+                )
+              )
+          `
+        : prisma.$queryRaw<CountRow[]>`
+            SELECT COUNT(*)::bigint AS count
+            FROM "CardIssuanceRegistryAll"
+            WHERE (${cityFilter} = '' OR city = ${cityFilter})
+              AND (
+                (${batchFilter} = '')
+                OR (${isNoBatchFilter} = true AND (batch_number IS NULL OR BTRIM(batch_number) = ''))
+                OR (${isNoBatchFilter} = false AND batch_number = ${batchFilter})
+              )
+              AND (
+                ${onlyMissingInSystem} = false
+                OR REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') NOT IN (
+                  SELECT REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
+                  FROM "Beneficiary"
+                  WHERE deleted_at IS NULL
+                )
+              )
+              AND (
+                ${onlyLegacyHasBatch} = false
+                OR (
+                  (batch_number IS NOT NULL AND BTRIM(batch_number) <> '')
+                  AND REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') IN (
+                    SELECT REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
+                    FROM "Beneficiary"
+                    WHERE deleted_at IS NULL AND is_legacy_card = true
+                  )
+                )
+              )
+              AND (
+                ${onlyLegacyNoBatch} = false
+                OR (
+                  (batch_number IS NULL OR BTRIM(batch_number) = '')
+                  AND REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') IN (
+                    SELECT REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
+                    FROM "Beneficiary"
+                    WHERE deleted_at IS NULL AND is_legacy_card = true
+                  )
+                )
+              )
+              AND (
+                ${onlyMultiBatch} = false
+                OR card_number_upper IN (
+                  SELECT card_number_upper
+                  FROM "CardIssuanceRegistryAll"
+                  GROUP BY card_number_upper
+                  HAVING COUNT(DISTINCT COALESCE(NULLIF(BTRIM(batch_number), ''), '__NO_BATCH__')) > 1
+                )
+              )
+          `);
 
   const [rows, countRows, cityRows, batchRows] = await Promise.all([
     rowsSql,
@@ -294,6 +485,9 @@ export default async function TruthRegistryPage({
     if (batchFilter) params.set("batch", batchFilter);
     if (onlyMultiBatch) params.set("multi", "1");
     if (onlyMissingInSystem) params.set("not_in_system", "1");
+    if (onlyInSystemNotInRegistry) params.set("in_system_not_in_registry", "1");
+    if (onlyLegacyHasBatch) params.set("legacy_has_batch", "1");
+    if (onlyLegacyNoBatch) params.set("legacy_no_batch", "1");
     params.set("page", String(nextPage));
     return `/admin/truth-registry?${params.toString()}`;
   };
@@ -379,6 +573,21 @@ export default async function TruthRegistryPage({
               البطاقات غير المدخلة بالمنظومة
             </label>
 
+            <label className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-900 cursor-pointer">
+              <input type="checkbox" name="in_system_not_in_registry" value="1" defaultChecked={onlyInSystemNotInRegistry} />
+              موجودين بالمنظومة وغير موجودين بجدول الحقيقة
+            </label>
+
+            <label className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-900 cursor-pointer">
+              <input type="checkbox" name="legacy_has_batch" value="1" defaultChecked={onlyLegacyHasBatch} />
+              البطاقات القديمة التي لها دفعة
+            </label>
+
+            <label className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-900 cursor-pointer">
+              <input type="checkbox" name="legacy_no_batch" value="1" defaultChecked={onlyLegacyNoBatch} />
+              البطاقات القديمة ليس لها دفعة
+            </label>
+
             <input type="hidden" name="page" value="1" />
             <Button type="submit" variant="outline" className="h-10">تطبيق</Button>
           </form>
@@ -396,7 +605,10 @@ export default async function TruthRegistryPage({
               city: cityFilter,
               batch: batchFilter,
               multi: onlyMultiBatch,
-              not_in_system: onlyMissingInSystem
+              not_in_system: onlyMissingInSystem,
+              in_system_not_in_registry: onlyInSystemNotInRegistry,
+              legacy_has_batch: onlyLegacyHasBatch,
+              legacy_no_batch: onlyLegacyNoBatch
             }}
           />
 

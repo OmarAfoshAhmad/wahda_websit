@@ -3,6 +3,7 @@
 import prisma from "@/lib/prisma";
 import { getSessionWithFreshPermissions } from "@/lib/session-guard";
 import { revalidatePath } from "next/cache";
+import { canonicalizeCardNumber } from "@/lib/normalize";
 
 export type DiscrepancyRow = {
   beneficiary_id: string;
@@ -23,25 +24,61 @@ export async function getCardDiscrepanciesAction() {
   }
 
   try {
-    const discrepancies = await prisma.$queryRaw<DiscrepancyRow[]>`
-      SELECT
-        b.id as beneficiary_id,
-        b.name as beneficiary_name,
-        b.card_number as current_card_number,
-        r.card_number as registry_card_number,
-        r.city,
-        r.batch_number
-      FROM "Beneficiary" b
-      JOIN "CardIssuanceRegistry" r ON
-        REGEXP_REPLACE(UPPER(BTRIM(b.card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') =
-        REGEXP_REPLACE(r.card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
-      WHERE b.deleted_at IS NULL
-        AND UPPER(BTRIM(b.card_number)) <> r.card_number_upper
-      ORDER BY b.name ASC
-      LIMIT 200
-    `;
+    // 1. جلب كل المستفيدين النشطين الذين تبدأ بطاقاتهم بـ WAB2025
+    const beneficiaries = await prisma.beneficiary.findMany({
+      where: {
+        deleted_at: null,
+        card_number: { startsWith: "WAB2025", mode: "insensitive" }
+      },
+      select: {
+        id: true,
+        name: true,
+        card_number: true
+      }
+    });
 
-    return { success: true, discrepancies };
+    // 2. جلب كل سجلات جدول الحقيقة
+    const registry = await prisma.cardIssuanceRegistry.findMany({
+      select: {
+        card_number: true,
+        card_number_upper: true,
+        canonical_card: true,
+        city: true,
+        batch_number: true
+      }
+    });
+
+    // 3. مطابقة السجلات في الذاكرة لتفادي الـ Join البطيء جداً في دالة RegExp بقاعدة البيانات
+    const beneficiaryMap = new Map<string, typeof beneficiaries[0]>();
+    for (const b of beneficiaries) {
+      const canonical = canonicalizeCardNumber(b.card_number);
+      beneficiaryMap.set(canonical, b);
+    }
+
+    const discrepancies: DiscrepancyRow[] = [];
+    for (const r of registry) {
+      const b = beneficiaryMap.get(r.canonical_card);
+      if (b) {
+        const bCardUpper = b.card_number.trim().toUpperCase();
+        const rCardUpper = r.card_number_upper;
+        if (bCardUpper !== rCardUpper) {
+          discrepancies.push({
+            beneficiary_id: b.id,
+            beneficiary_name: b.name,
+            current_card_number: b.card_number,
+            registry_card_number: r.card_number,
+            city: r.city,
+            batch_number: r.batch_number
+          });
+        }
+      }
+    }
+
+    // ترتيب النتيجة حسب الاسم
+    discrepancies.sort((a, b) => a.beneficiary_name.localeCompare(b.beneficiary_name, "ar"));
+    const limitedDiscrepancies = discrepancies.slice(0, 200);
+
+    return { success: true, discrepancies: limitedDiscrepancies };
   } catch (error) {
     console.error("Failed to fetch discrepancies:", error);
     return { error: "حدث خطأ أثناء فحص تضاربات البيانات" };
@@ -99,19 +136,49 @@ export async function alignAllCardNumbersAction() {
   }
 
   try {
-    // جلب كافة المتضاربين
-    const discrepancies = await prisma.$queryRaw<DiscrepancyRow[]>`
-      SELECT
-        b.id as beneficiary_id,
-        b.card_number as current_card_number,
-        r.card_number as registry_card_number
-      FROM "Beneficiary" b
-      JOIN "CardIssuanceRegistry" r ON
-        REGEXP_REPLACE(UPPER(BTRIM(b.card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') =
-        REGEXP_REPLACE(r.card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
-      WHERE b.deleted_at IS NULL
-        AND UPPER(BTRIM(b.card_number)) <> r.card_number_upper
-    `;
+    // 1. جلب كل المستفيدين النشطين
+    const beneficiaries = await prisma.beneficiary.findMany({
+      where: {
+        deleted_at: null,
+        card_number: { startsWith: "WAB2025", mode: "insensitive" }
+      },
+      select: {
+        id: true,
+        card_number: true
+      }
+    });
+
+    // 2. جلب كل سجلات جدول الحقيقة
+    const registry = await prisma.cardIssuanceRegistry.findMany({
+      select: {
+        card_number: true,
+        card_number_upper: true,
+        canonical_card: true
+      }
+    });
+
+    // 3. مطابقة السجلات في الذاكرة لتفادي الـ Join البطيء جداً
+    const beneficiaryMap = new Map<string, typeof beneficiaries[0]>();
+    for (const b of beneficiaries) {
+      const canonical = canonicalizeCardNumber(b.card_number);
+      beneficiaryMap.set(canonical, b);
+    }
+
+    const discrepancies: { beneficiary_id: string; current_card_number: string; registry_card_number: string }[] = [];
+    for (const r of registry) {
+      const b = beneficiaryMap.get(r.canonical_card);
+      if (b) {
+        const bCardUpper = b.card_number.trim().toUpperCase();
+        const rCardUpper = r.card_number_upper;
+        if (bCardUpper !== rCardUpper) {
+          discrepancies.push({
+            beneficiary_id: b.id,
+            current_card_number: b.card_number,
+            registry_card_number: r.card_number
+          });
+        }
+      }
+    }
 
     let successCount = 0;
     let skipCount = 0;

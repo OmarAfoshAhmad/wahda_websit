@@ -5,6 +5,7 @@ import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard
 import { getCurrentInitialBalance } from "@/lib/initial-balance";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
+import { canonicalizeCardNumber } from "@/lib/normalize";
 import * as utils from "./utils";
 
 export async function bulkUpdateLegacyCardMarker(data: {
@@ -658,3 +659,124 @@ export async function undoBulkRenewal(auditLogId: string) {
     return { error: "تعذر التراجع عن التجديد الجماعي" };
   }
 }
+
+export async function bulkUpdateBeneficiaryBatch(data: {
+  ids: string[];
+  batchNumber: string;
+}) {
+  const session = await requireActiveFacilitySession();
+  if (!session || !hasPermission(session, "edit_beneficiary")) {
+    return { error: "غير مصرح بهذه العملية" };
+  }
+
+  const ids = Array.isArray(data.ids) ? data.ids.filter(Boolean) : [];
+  if (ids.length === 0) {
+    return { error: "لم يتم تحديد أي مستفيد" };
+  }
+
+  const batchNumber = String(data.batchNumber ?? "").trim();
+  if (!batchNumber) {
+    return { error: "يرجى إدخال رقم دفعة صالح" };
+  }
+
+  try {
+    const beneficiaries = await prisma.beneficiary.findMany({
+      where: { id: { in: ids }, deleted_at: null },
+      select: {
+        id: true,
+        name: true,
+        card_number: true,
+        birth_date: true,
+        city: true,
+      },
+    });
+
+    if (beneficiaries.length === 0) {
+      return { error: "لم يتم العثور على أي من المستفيدين المحددين" };
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      // 1. Update Beneficiary table
+      const updateRes = await tx.beneficiary.updateMany({
+        where: { id: { in: ids }, deleted_at: null },
+        data: { batch_number: batchNumber },
+      });
+
+      // 2. Insert/Update into CardIssuanceRegistry and CardIssuanceRegistryAll
+      for (const b of beneficiaries) {
+        const cardUpper = b.card_number.trim().toUpperCase();
+        const canonical = canonicalizeCardNumber(cardUpper);
+        const finalCity = b.city || "المنظومة";
+
+        // Upsert into CardIssuanceRegistryAll
+        await tx.cardIssuanceRegistryAll.upsert({
+          where: { id: `${cardUpper}-${batchNumber}` },
+          update: {
+            card_number: b.card_number,
+            card_number_upper: cardUpper,
+            beneficiary_name: b.name,
+            birth_date: b.birth_date,
+            city: finalCity,
+            batch_number: batchNumber,
+            updated_at: new Date(),
+          },
+          create: {
+            id: `${cardUpper}-${batchNumber}`,
+            card_number: b.card_number,
+            card_number_upper: cardUpper,
+            canonical_card: canonical,
+            beneficiary_name: b.name,
+            birth_date: b.birth_date,
+            city: finalCity,
+            batch_number: batchNumber,
+          },
+        });
+
+        // Upsert into CardIssuanceRegistry
+        await tx.cardIssuanceRegistry.upsert({
+          where: { card_number_upper: cardUpper },
+          update: {
+            beneficiary_name: b.name,
+            birth_date: b.birth_date,
+            city: finalCity,
+            batch_number: batchNumber,
+            updated_at: new Date(),
+          },
+          create: {
+            card_number: b.card_number,
+            card_number_upper: cardUpper,
+            canonical_card: canonical,
+            beneficiary_name: b.name,
+            birth_date: b.birth_date,
+            city: finalCity,
+            batch_number: batchNumber,
+          },
+        });
+      }
+
+      await tx.auditLog.create({
+        data: {
+          facility_id: session.id,
+          user: session.username,
+          action: "BULK_SET_BENEFICIARY_BATCH",
+          metadata: {
+            ids,
+            batch_number: batchNumber,
+            updated_count: updateRes.count,
+          },
+        },
+      });
+
+      return { count: updateRes.count };
+    });
+
+    revalidatePath("/beneficiaries");
+    revalidatePath("/admin/health");
+    revalidateTag("beneficiary-counts", "max");
+    return { success: true, updatedCount: result.count };
+  } catch (error: unknown) {
+    logger.error("Bulk update beneficiary batch error", { error: String(error), ids, batchNumber });
+    return { error: "تعذر تحديث دفعة المستفيدين" };
+  }
+}
+

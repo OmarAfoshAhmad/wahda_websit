@@ -41,12 +41,7 @@ async function main() {
     if (parts.length < 3) continue;
     
     const cardNo = parts[0].replace(/^\uFEFF/, '').trim(); // إزالة BOM إن وجد
-    const status = parts[2].trim();
-    
-    // إذا كانت الحالة "غير_موجود_في_جدول_الحقيقة" نقوم بضمها للوسم
-    if (status.includes('غير_موجود_في_جدول_الحقيقة')) {
-      targetCards.push(normalizeCard(cardNo));
-    }
+    targetCards.push(normalizeCard(cardNo));
   }
 
   console.log(`🎯 عدد البطاقات المستهدفة للوسم من الملف: ${targetCards.length}`);

@@ -24,3 +24,5 @@ export * from "./transaction-rollback-button";
 export * from "./bulk-transaction-action-button";
 export * from "./audit-log-clear-button";
 export * from "./purge-rollback-button";
+export * from "./legacy-cards-unified-manager";
+

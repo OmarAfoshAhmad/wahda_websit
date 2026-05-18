@@ -340,3 +340,165 @@ export async function deleteFilteredTruthRegistryAction(filters: {
   }
 }
 
+export async function bulkUpdateTruthRegistryBatchAction(data: {
+  ids: string[];
+  batchNumber: string;
+}) {
+  const session = await getSessionWithFreshPermissions();
+  if (!session || !session.is_admin) return { error: "غير مصرح" };
+
+  const ids = Array.isArray(data.ids) ? data.ids.filter(Boolean) : [];
+  if (ids.length === 0) {
+    return { error: "لم يتم تحديد أي سجل" };
+  }
+
+  const batchNumber = String(data.batchNumber ?? "").trim();
+  if (!batchNumber) {
+    return { error: "يرجى إدخال رقم دفعة صالح" };
+  }
+
+  try {
+    // 1. جلب السجلات لمعرفة أرقام البطاقات المقابلة من جدول الحقيقة
+    const records = await prisma.cardIssuanceRegistryAll.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        card_number: true,
+        card_number_upper: true,
+      }
+    });
+
+    // 2. إذا لم يتم العثور على كافة المعرفات، فقد تكون قادمة من جدول المستفيدين (Beneficiary)
+    const foundIds = new Set(records.map(r => r.id));
+    const missingIds = ids.filter(id => !foundIds.has(id));
+
+    if (missingIds.length > 0) {
+      const beneficiaries = await prisma.beneficiary.findMany({
+        where: { id: { in: missingIds }, deleted_at: null },
+        select: {
+          id: true,
+          card_number: true,
+          name: true,
+          birth_date: true,
+          city: true
+        }
+      });
+
+      for (const b of beneficiaries) {
+        const cardUpper = b.card_number.trim().toUpperCase();
+        records.push({
+          id: b.id, // نستخدم معرف المستفيد
+          card_number: b.card_number,
+          card_number_upper: cardUpper
+        });
+      }
+    }
+
+    if (records.length === 0) {
+      return { error: "لم يتم العثور على السجلات المحددة" };
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      let updatedCount = 0;
+
+      for (const record of records) {
+        const cardUpper = record.card_number_upper;
+        const newId = `${cardUpper}-${batchNumber}`;
+        const isFromBeneficiary = !record.id.includes("-");
+
+        if (isFromBeneficiary) {
+          // جلب بيانات المستفيد
+          const b = await tx.beneficiary.findUnique({
+            where: { id: record.id },
+            select: { name: true, birth_date: true, city: true }
+          });
+
+          // أ. إنشاء أو تحديث السجل في CardIssuanceRegistryAll
+          await tx.cardIssuanceRegistryAll.upsert({
+            where: { id: newId },
+            update: {
+              card_number: record.card_number,
+              card_number_upper: cardUpper,
+              beneficiary_name: b?.name,
+              birth_date: b?.birth_date,
+              city: b?.city || "المنظومة",
+              batch_number: batchNumber,
+              updated_at: new Date()
+            },
+            create: {
+              id: newId,
+              card_number: record.card_number,
+              card_number_upper: cardUpper,
+              canonical_card: cardUpper,
+              beneficiary_name: b?.name,
+              birth_date: b?.birth_date,
+              city: b?.city || "المنظومة",
+              batch_number: batchNumber
+            }
+          });
+        } else {
+          // أ. التحقق مما إذا كان المعرف الجديد موجوداً مسبقاً لمنع تكرار المفتاح الأساسي
+          const exists = await tx.cardIssuanceRegistryAll.findUnique({
+            where: { id: newId }
+          });
+
+          if (exists) {
+            // إذا كان موجوداً مسبقاً، نقوم بحذف السجل القديم لتفادي التكرار
+            await tx.cardIssuanceRegistryAll.delete({
+              where: { id: record.id }
+            });
+          } else {
+            // ب. تحديث السجل التفصيلي
+            await tx.cardIssuanceRegistryAll.update({
+              where: { id: record.id },
+              data: {
+                id: newId,
+                batch_number: batchNumber,
+                updated_at: new Date()
+              }
+            });
+          }
+        }
+
+        // ج. تحديث السجل الموحد
+        await tx.cardIssuanceRegistry.upsert({
+          where: { card_number_upper: cardUpper },
+          update: {
+            batch_number: batchNumber,
+            updated_at: new Date()
+          },
+          create: {
+            card_number: record.card_number,
+            card_number_upper: cardUpper,
+            canonical_card: cardUpper,
+            batch_number: batchNumber,
+            city: "المنظومة"
+          }
+        });
+
+        // د. تحديث جدول المستفيدين بالمنظومة إن وجد
+        await tx.beneficiary.updateMany({
+          where: {
+            card_number: { equals: record.card_number, mode: 'insensitive' },
+            deleted_at: null
+          },
+          data: {
+            batch_number: batchNumber
+          }
+        });
+
+        updatedCount++;
+      }
+
+      return { count: updatedCount };
+    });
+
+    revalidatePath("/admin/truth-registry");
+    revalidatePath("/beneficiaries");
+    return { success: true, updatedCount: result.count };
+  } catch (error) {
+    console.error("Bulk update truth registry batch error:", error);
+    return { error: "حدث خطأ أثناء تحديث دفعة السجلات في جدول الحقيقة" };
+  }
+}
+

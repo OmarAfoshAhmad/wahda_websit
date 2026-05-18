@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui";
+import { Button, Input } from "@/components/ui";
 import { useToast } from "@/components/toast";
-import { Trash2, Loader2, CheckSquare, Square, CheckCircle } from "lucide-react";
-import { deleteTruthRegistryRowsAction, deleteFilteredTruthRegistryAction } from "@/app/actions/truth-registry";
+import { Trash2, Loader2, CheckSquare, Square, CheckCircle, Edit3, X, CreditCard } from "lucide-react";
+import { deleteTruthRegistryRowsAction, deleteFilteredTruthRegistryAction, bulkUpdateTruthRegistryBatchAction } from "@/app/actions/truth-registry";
 
 type RegistryRow = {
   id: string;
@@ -32,6 +32,9 @@ interface TruthRegistryTableProps {
     batch: string;
     multi: boolean;
     not_in_system: boolean;
+    in_system_not_in_registry?: boolean;
+    legacy_has_batch?: boolean;
+    legacy_no_batch?: boolean;
   };
 }
 
@@ -43,6 +46,66 @@ export function TruthRegistryTable({ rows, totalCount, filters }: TruthRegistryT
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isAllDatabaseSelected, setIsAllDatabaseSelected] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // حالات تحديث الدفعات
+  const [batchInput, setBatchInput] = useState("");
+  const [isBulkUpdating, setIsBulkUpdating] = useState(false);
+
+  const [editingRow, setEditingRow] = useState<RegistryRow | null>(null);
+  const [editBatchInput, setEditBatchInput] = useState("");
+  const [isInlineUpdating, setIsInlineUpdating] = useState(false);
+
+  const handleBulkBatchUpdate = async () => {
+    if (selectedIds.size === 0 || !batchInput.trim()) return;
+
+    setIsBulkUpdating(true);
+    try {
+      const res = await bulkUpdateTruthRegistryBatchAction({
+        ids: Array.from(selectedIds),
+        batchNumber: batchInput.trim()
+      });
+
+      if (res.error) {
+        error(res.error);
+      } else {
+        success(`تم بنجاح تعيين رقم الدفعة ${batchInput.trim()} لـ ${res.updatedCount} سجل.`);
+        setSelectedIds(new Set());
+        setBatchInput("");
+        router.refresh();
+      }
+    } catch (err) {
+      console.error(err);
+      error("حدث خطأ أثناء التحديث الجماعي");
+    } finally {
+      setIsBulkUpdating(false);
+    }
+  };
+
+  const handleInlineBatchUpdate = async () => {
+    if (!editingRow || !editBatchInput.trim()) return;
+
+    setIsInlineUpdating(true);
+    try {
+      const res = await bulkUpdateTruthRegistryBatchAction({
+        ids: [editingRow.id],
+        batchNumber: editBatchInput.trim()
+      });
+
+      if (res.error) {
+        error(res.error);
+      } else {
+        success(`تم تحديث الدفعة بنجاح.`);
+        setEditingRow(null);
+        setEditBatchInput("");
+        router.refresh();
+      }
+    } catch (err) {
+      console.error(err);
+      error("حدث خطأ أثناء تحديث الدفعة");
+    } finally {
+      setIsInlineUpdating(false);
+    }
+  };
 
   const toggleSelectAll = () => {
     setIsAllDatabaseSelected(false);
@@ -116,7 +179,7 @@ export function TruthRegistryTable({ rows, totalCount, filters }: TruthRegistryT
       
       {/* شريط الإجراءات الطافي المميز عند التحديد */}
       <div 
-        className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 dark:bg-slate-950/95 border border-slate-800 text-white px-5 py-3.5 rounded-2xl shadow-2xl flex items-center gap-6 backdrop-blur-md transition-all duration-300 ease-out ${
+        className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 dark:bg-slate-950/95 border border-slate-800 text-white px-5 py-3.5 rounded-2xl shadow-2xl flex flex-wrap items-center gap-6 backdrop-blur-md transition-all duration-300 ease-out ${
           selectedIds.size > 0 || isAllDatabaseSelected
             ? "translate-y-0 opacity-100 scale-100" 
             : "translate-y-12 opacity-0 scale-90 pointer-events-none"
@@ -129,9 +192,9 @@ export function TruthRegistryTable({ rows, totalCount, filters }: TruthRegistryT
           <span className="text-xs font-bold text-slate-300">سجل تم تحديده</span>
         </div>
 
-        <div className="h-4 w-px bg-slate-800" />
+        <div className="h-4 w-px bg-slate-800 hidden sm:block" />
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={() => {
@@ -146,8 +209,8 @@ export function TruthRegistryTable({ rows, totalCount, filters }: TruthRegistryT
           <Button
             type="button"
             onClick={handleDeleteSelected}
-            disabled={isDeleting}
-            className="h-9 px-4 rounded-xl text-xs font-black bg-rose-600 hover:bg-rose-700 text-white flex items-center gap-2 shadow-lg shadow-rose-950/20"
+            disabled={isDeleting || filters.in_system_not_in_registry || filters.legacy_no_batch}
+            className="h-9 px-4 rounded-xl text-xs font-black bg-rose-600 hover:bg-rose-700 text-white flex items-center gap-2 shadow-lg shadow-rose-950/20 animate-in fade-in"
           >
             {isDeleting ? (
               <>
@@ -161,6 +224,31 @@ export function TruthRegistryTable({ rows, totalCount, filters }: TruthRegistryT
               </>
             )}
           </Button>
+
+          {/* تعيين رقم الدفعة للمحددين */}
+          {!isAllDatabaseSelected && (
+            <>
+              <div className="h-4 w-px bg-slate-800 hidden sm:block" />
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={batchInput}
+                  onChange={(e) => setBatchInput(e.target.value)}
+                  placeholder="رقم الدفعة الجديد..."
+                  className="h-9 w-32 text-xs bg-slate-800 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent rounded-xl px-3"
+                  disabled={isBulkUpdating}
+                />
+                <Button
+                  type="button"
+                  disabled={isBulkUpdating || !batchInput.trim()}
+                  onClick={handleBulkBatchUpdate}
+                  className="h-9 px-3 rounded-xl text-xs font-black bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1 shadow-lg shadow-blue-950/20"
+                >
+                  {isBulkUpdating ? "جاري الحفظ..." : "تطبيق الدفعة"}
+                </Button>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -189,6 +277,21 @@ export function TruthRegistryTable({ rows, totalCount, filters }: TruthRegistryT
         </div>
       )}
 
+      {filters.in_system_not_in_registry && (
+        <div className="bg-amber-500/10 dark:bg-amber-500/5 border-b border-amber-500/20 px-4 py-3 text-right flex items-start gap-2.5">
+          <span className="text-amber-500 text-base shrink-0 mt-0.5">⚠️</span>
+          <div>
+            <p className="text-xs font-bold text-amber-800 dark:text-amber-400">
+              ملاحظة بخصوص مستفيدي المنظومة غير المدرجين بجدول الحقيقة:
+            </p>
+            <p className="text-[11px] text-amber-700 dark:text-amber-500 mt-1">
+              هذه السجلات تمثل مستفيدين مسجلين حالياً في المنظومة ولكن لا يوجد لهم أي تطابق في جدول الحقيقة (البطاقات الرسمية).
+              لا يمكن حذف هذه السجلات من شاشة جدول الحقيقة لعدم وجود سجل لها بالجدول؛ ولكن يمكنك إدارتهم أو تصفيتهم وحذفهم نهائياً عبر شاشة "البطاقات القديمة" في "إدارة المشاكل".
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="overflow-x-auto">
         <table className="w-full min-w-280 text-sm">
           <thead className="bg-slate-50 dark:bg-slate-900/40">
@@ -198,6 +301,7 @@ export function TruthRegistryTable({ rows, totalCount, filters }: TruthRegistryT
                 <button
                   type="button"
                   onClick={toggleSelectAll}
+                  disabled={false}
                   className="inline-flex items-center justify-center h-5 w-5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-slate-500"
                 >
                   {allSelected || isAllDatabaseSelected ? (
@@ -219,12 +323,13 @@ export function TruthRegistryTable({ rows, totalCount, filters }: TruthRegistryT
               <th className="px-3 py-3 font-bold text-slate-500 dark:text-slate-400">الملف</th>
               <th className="px-3 py-3 font-bold text-slate-500 dark:text-slate-400">الصف</th>
               <th className="px-3 py-3 font-bold text-slate-500 dark:text-slate-400">آخر تحديث</th>
+              <th className="px-3 py-3 font-bold text-slate-500 dark:text-slate-400 text-left">الإجراءات</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={11} className="px-3 py-12 text-center text-slate-400 dark:text-slate-500 font-bold">
+                <td colSpan={12} className="px-3 py-12 text-center text-slate-400 dark:text-slate-500 font-bold">
                   لا توجد نتائج مطابقة.
                 </td>
               </tr>
@@ -243,6 +348,7 @@ export function TruthRegistryTable({ rows, totalCount, filters }: TruthRegistryT
                       <button
                         type="button"
                         onClick={() => toggleSelectRow(row.id)}
+                        disabled={false}
                         className={`inline-flex items-center justify-center h-5 w-5 rounded-md transition-colors ${
                           isSelected ? "text-primary" : "text-slate-400 hover:text-slate-600"
                         }`}
@@ -284,6 +390,21 @@ export function TruthRegistryTable({ rows, totalCount, filters }: TruthRegistryT
                     <td className="px-3 py-2 text-xs text-slate-400 font-mono">
                       {row.updated_at ? new Date(row.updated_at).toLocaleString("en-GB") : "-"}
                     </td>
+                    <td className="px-3 py-2 text-left">
+                      {true && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingRow(row);
+                            setEditBatchInput(row.batch_number || "");
+                          }}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-colors shadow-sm"
+                          title="تعديل رقم الدفعة"
+                        >
+                          <Edit3 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 );
               })
@@ -291,6 +412,65 @@ export function TruthRegistryTable({ rows, totalCount, filters }: TruthRegistryT
           </tbody>
         </table>
       </div>
+
+      {/* ── مودال تعديل الدفعة الفردي ────────────────────── */}
+      {editingRow && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-4 animate-in zoom-in-95 duration-200" dir="rtl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
+                <CreditCard className="h-4 w-4 text-primary" />
+                تعديل رقم دفعة السجل بجدول الحقيقة
+              </h3>
+              <button
+                onClick={() => setEditingRow(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-2 text-xs">
+              <p className="text-slate-500">
+                المستفيد: <strong className="text-slate-800 dark:text-slate-200">{editingRow.beneficiary_name || "—"}</strong>
+              </p>
+              <p className="text-slate-500">
+                رقم البطاقة: <strong className="font-mono text-slate-800 dark:text-slate-200">{editingRow.card_number}</strong>
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-600 dark:text-slate-400">رقم الدفعة الجديد:</label>
+              <Input
+                value={editBatchInput}
+                onChange={(e) => setEditBatchInput(e.target.value)}
+                placeholder="أدخل رقم الدفعة..."
+                className="h-10 text-xs rounded-xl bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setEditingRow(null)}
+                className="h-9 px-4 text-xs font-bold rounded-xl"
+              >
+                إلغاء
+              </Button>
+              <Button
+                type="button"
+                disabled={isInlineUpdating || !editBatchInput.trim()}
+                onClick={handleInlineBatchUpdate}
+                className="h-9 px-4 text-xs font-bold rounded-xl bg-primary text-white hover:bg-primary/90"
+              >
+                {isInlineUpdating ? "جاري الحفظ..." : "حفظ التغييرات"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

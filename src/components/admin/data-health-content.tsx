@@ -2,6 +2,8 @@ import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { formatDateTripoli } from "@/lib/datetime";
 import { AlertTriangle } from "lucide-react";
+import fs from "fs";
+import path from "path";
 import { DataHygieneSweepButton } from "./data-hygiene-sweep-button";
 import { UnlinkedCorrectionsFixButton } from "./unlinked-corrections-fix-button";
 import { DuplicateMovementsFixButton } from "./duplicate-movements-fix-button";
@@ -23,6 +25,8 @@ import { OrphanedNotificationsCheckButton } from "./orphaned-notifications-check
 import { FixInvalidSubunitAmountsButton } from "./fix-invalid-subunit-amounts-button";
 import { PharmacySuppliesFixSection, PharmacySupplyAnomalyRow } from "./pharmacy-supplies-fix-section";
 import { TruthRegistryAlignmentTool } from "./truth-registry-alignment-tool";
+import { LegacyCardsUnifiedManager } from "./legacy-cards-unified-manager";
+
 
 
 type UnlinkedCorrectionRow = {
@@ -233,515 +237,585 @@ export async function DataHealthContent({
   searchQuery?: string;
   legacyMode?: boolean;
 }) {
-  const [
-    unlinkedCorrections,
-    duplicateImports,
-    duplicateMovements,
-    invalidPasswordFacilities,
-    deletedFacilities,
-    mustChangePasswordCount,
-    authStateRows,
-    balanceDriftRows,
-    statusAnomalyRows,
-    orphanedNotificationRows,
-    oldReadNotificationSummary,
-    oldLoginAuditSummary,
-    oldImportJobsSummary,
-    oldRestoreJobsSummary,
-    parentCardPatternRows,
-    totalBalanceDriftRows,
-    legacyFractionalImportRows,
-    legacyFractionalImportMemberRows,
-    weirdCardRows,
-    legacyOnlyRows,
-    stableOnlyRows,
-    legacyWithBatchRows,
-    legacyNoPaymentRows,
-    pharmacySupplyRows,
-  ] = await Promise.all([
-    prisma.$queryRaw<UnlinkedCorrectionRow[]>`
-      SELECT
-        t.id,
-        t.beneficiary_id,
-        t.facility_id,
-        t.amount::float8 AS amount,
-        t.created_at,
-        t.is_cancelled,
-        b.name AS beneficiary_name,
-        b.card_number,
-        f.name AS facility_name
-      FROM "Transaction" t
-      JOIN "Beneficiary" b ON b.id = t.beneficiary_id
-      JOIN "Facility" f ON f.id = t.facility_id
-      WHERE t.type = 'CANCELLATION'
-        AND t.original_transaction_id IS NULL
-        AND t.is_cancelled = false
-      ORDER BY t.created_at DESC
-      LIMIT 300
-    `,
+  let unlinkedCorrections: UnlinkedCorrectionRow[] = [];
+  let duplicateImports: DuplicateImportRow[] = [];
+  let duplicateMovements: DuplicateMovementRow[] = [];
+  let invalidPasswordFacilities: ExperimentalNoPasswordFacilityRow[] = [];
+  let deletedFacilities: DeletedFacilityRow[] = [];
+  let mustChangePasswordCount = 0;
+  let authStateRows: AuthStateRow[] = [];
+  let balanceDriftRows: BalanceDriftRow[] = [];
+  let statusAnomalyRows: StatusAnomalyRow[] = [];
+  let orphanedNotificationRows: OrphanedNotificationRow[] = [];
+  let oldReadNotificationSummary: OldReadNotificationSummary[] = [];
+  let oldLoginAuditSummary: OldLoginAuditSummary[] = [];
+  let oldImportJobsSummary: OldImportJobsSummary[] = [];
+  let oldRestoreJobsSummary: OldRestoreJobsSummary[] = [];
+  let parentCardPatternRows: ParentCardPatternRow[] = [];
+  let totalBalanceDriftRows: TotalBalanceDriftRow[] = [];
+  let legacyFractionalImportRows: LegacyFractionalImportRow[] = [];
+  let legacyFractionalImportMemberRows: LegacyFractionalImportMemberRow[] = [];
+  let weirdCardRows: WeirdCardRow[] = [];
+  let legacyWithBatchRows: LegacyWithBatchRow[] = [];
+  let legacyNoPaymentRows: LegacyCardStatusRow[] = [];
+  let pharmacySupplyRows: PharmacySupplyAnomalyRow[] = [];
+  let missingCardsRows: any[] = [];
 
-    prisma.$queryRaw<DuplicateImportRow[]>`
-      SELECT
-        t.beneficiary_id,
-        b.name AS beneficiary_name,
-        b.card_number,
-        COUNT(*)::int AS duplicate_count,
-        SUM(t.amount)::float8 AS total_import_amount,
-        MIN(t.created_at) AS first_created_at,
-        MAX(t.created_at) AS last_created_at
-      FROM "Transaction" t
-      JOIN "Beneficiary" b ON b.id = t.beneficiary_id
-      WHERE t.type = 'IMPORT'
-        AND t.is_cancelled = false
-      GROUP BY t.beneficiary_id, b.name, b.card_number
-      HAVING COUNT(*) > 1
-      ORDER BY duplicate_count DESC, last_created_at DESC
-      LIMIT 300
-    `,
+  if (legacyMode) {
+    // Read the CSV and query missing
+    const csvPath = path.join(process.cwd(), 'card_analysis_result.csv');
+    if (fs.existsSync(csvPath)) {
+      try {
+        const csvContent = fs.readFileSync(csvPath, 'utf8');
+        const cleanContent = csvContent.replace(/^\uFEFF/, '');
+        const lines = cleanContent.split('\n').map(l => l.trim()).filter(l => l !== '');
+        const csvRows = [];
+        for (let i = 1; i < lines.length; i++) {
+          const parts = lines[i].split(',');
+          if (parts.length >= 3) {
+            const card_number = parts[0].replace(/"/g, '').trim();
+            const name = parts[1].replace(/"/g, '').trim();
+            csvRows.push({ card_number, name });
+          }
+        }
+        const csvCards = csvRows.map(r => r.card_number.toUpperCase());
+        
+        // Find existing ones in active Beneficiary
+        const existingBens = await prisma.beneficiary.findMany({
+          where: {
+            deleted_at: null,
+            card_number: {
+              in: csvCards
+            }
+          },
+          select: { card_number: true }
+        });
+        const existingCardNumbers = new Set(existingBens.map(b => b.card_number.toUpperCase()));
+        
+        const missingRows = csvRows.filter(r => !existingCardNumbers.has(r.card_number.toUpperCase()));
+        const missingCardNumbers = missingRows.map(r => r.card_number.toUpperCase());
+        
+        // Find their batch number and city from CardIssuanceRegistryAll
+        const registryRows = await prisma.cardIssuanceRegistryAll.findMany({
+          where: {
+            card_number_upper: {
+              in: missingCardNumbers
+            }
+          },
+          select: { card_number_upper: true, batch_number: true, city: true }
+        });
+        
+        const registryMap = new Map();
+        for (const reg of registryRows) {
+          registryMap.set(reg.card_number_upper, reg);
+        }
+        
+        missingCardsRows = missingRows.map(r => {
+          const reg = registryMap.get(r.card_number.toUpperCase());
+          return {
+            id: `missing-${r.card_number}`,
+            name: r.name,
+            card_number: r.card_number,
+            status: "غير موجود بالمنظومة",
+            manual_transactions_count: 0,
+            import_transactions_count: 0,
+            total_transactions_count: 0,
+            batch_number: reg ? reg.batch_number : null,
+            city: reg ? reg.city : null,
+          };
+        });
+      } catch (err) {
+        console.error("Error loading missing cards from CSV:", err);
+      }
+    }
 
-    prisma.$queryRaw<DuplicateMovementRow[]>`
-      SELECT
-        t.beneficiary_id,
-        b.name AS beneficiary_name,
-        b.card_number,
-        t.type,
-        t.amount::float8 AS amount,
-        (t.created_at AT TIME ZONE 'Africa/Tripoli')::date AS movement_day,
-        COUNT(*)::int AS duplicate_count,
-        MIN(t.created_at) AS first_created_at,
-        MAX(t.created_at) AS last_created_at
-      FROM "Transaction" t
-      JOIN "Beneficiary" b ON b.id = t.beneficiary_id
-      WHERE t.is_cancelled = false
-        AND t.type <> 'CANCELLATION'
-      GROUP BY
-        t.beneficiary_id,
-        b.name,
-        b.card_number,
-        t.type,
-        t.amount,
-        (t.created_at AT TIME ZONE 'Africa/Tripoli')::date
-      HAVING COUNT(*) > 1
-      ORDER BY duplicate_count DESC, last_created_at DESC
-      LIMIT 300
-    `,
+    const [
+      weirdCardRowsRes,
+      legacyWithBatchRowsRes,
+      legacyNoPaymentRowsRes,
+    ] = await Promise.all([
+      prisma.$queryRaw<WeirdCardRow[]>`
+        SELECT
+          b.id,
+          b.name,
+          b.card_number,
+          b.status::text AS status,
+          b.is_legacy_card,
+          b.total_balance::float8 AS total_balance,
+          b.remaining_balance::float8 AS remaining_balance,
+          COALESCE(COUNT(CASE WHEN t.type <> 'IMPORT' AND t.type <> 'CANCELLATION' THEN 1 END), 0)::int AS manual_transactions_count,
+          COALESCE(COUNT(CASE WHEN t.type = 'IMPORT' THEN 1 END), 0)::int AS import_transactions_count,
+          COALESCE(COUNT(t.id), 0)::int AS total_transactions_count,
+          CASE
+            WHEN b.card_number ~ '\\s' THEN 'يحتوي مسافات'
+            WHEN b.card_number !~ '^WAB2025[0-9]+([WHSDMFV][0-9]*)?$' THEN 'نمط غير قياسي'
+            ELSE 'أخرى'
+          END AS anomaly_type
+        FROM "Beneficiary" b
+        LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id AND t.is_cancelled = false
+        WHERE b.deleted_at IS NULL
+          AND (
+            b.card_number ~ '\\s'
+            OR b.card_number !~ '^WAB2025[0-9]+([WHSDMFV][0-9]*)?$'
+          )
+        GROUP BY b.id, b.name, b.card_number, b.status, b.is_legacy_card, b.total_balance, b.remaining_balance
+        ORDER BY b.card_number ASC
+        LIMIT 500
+      `,
 
-    prisma.$queryRaw<ExperimentalNoPasswordFacilityRow[]>`
-      SELECT
-        f.id,
-        f.name,
-        f.username,
-        f.must_change_password,
-        f.created_at,
-        COALESCE(LENGTH(BTRIM(f.password_hash)), 0)::int AS password_len
-      FROM "Facility" f
-      WHERE f.deleted_at IS NULL
-        AND (
-          f.password_hash IS NULL
+      prisma.$queryRaw<LegacyWithBatchRow[]>`
+        SELECT
+          b.id,
+          b.name,
+          b.card_number,
+          b.status::text AS status,
+          r.batch_number,
+          r.city,
+          COALESCE(COUNT(CASE WHEN t.type <> 'IMPORT' AND t.type <> 'CANCELLATION' THEN 1 END), 0)::int AS manual_transactions_count,
+          COALESCE(COUNT(CASE WHEN t.type = 'IMPORT' THEN 1 END), 0)::int AS import_transactions_count,
+          COALESCE(COUNT(t.id), 0)::int AS total_transactions_count
+        FROM "Beneficiary" b
+        INNER JOIN "CardIssuanceRegistry" r
+          ON UPPER(BTRIM(b.card_number)) = r.card_number_upper
+        LEFT JOIN "Transaction" t
+          ON t.beneficiary_id = b.id
+         AND t.is_cancelled = false
+        WHERE b.deleted_at IS NULL
+          AND b.is_legacy_card = true
+          AND r.batch_number IS NOT NULL
+          AND BTRIM(r.batch_number) <> ''
+        GROUP BY b.id, b.name, b.card_number, b.status, r.batch_number, r.city
+        ORDER BY r.batch_number ASC, b.card_number ASC
+        LIMIT 1000
+      `,
+
+      prisma.$queryRaw<LegacyCardStatusRow[]>`
+        SELECT
+          b.id,
+          b.name,
+          b.card_number,
+          b.status::text AS status,
+          b.is_legacy_card,
+          b.total_balance::float8 AS total_balance,
+          b.remaining_balance::float8 AS remaining_balance,
+          COALESCE(COUNT(CASE WHEN t.type <> 'IMPORT' AND t.type <> 'CANCELLATION' THEN 1 END), 0)::int AS manual_transactions_count,
+          COALESCE(COUNT(CASE WHEN t.type = 'IMPORT' THEN 1 END), 0)::int AS import_transactions_count,
+          COALESCE(COUNT(t.id), 0)::int AS total_transactions_count
+        FROM "Beneficiary" b
+        LEFT JOIN "CardIssuanceRegistry" r ON UPPER(BTRIM(b.card_number)) = r.card_number_upper
+        LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id AND t.is_cancelled = false
+        WHERE b.deleted_at IS NULL
+          AND b.is_legacy_card = true
+          AND (r.id IS NULL OR r.batch_number IS NULL OR BTRIM(r.batch_number) = '')
+        GROUP BY b.id, b.name, b.card_number, b.status, b.is_legacy_card, b.total_balance, b.remaining_balance
+        ORDER BY b.card_number ASC
+        LIMIT 1000
+      `,
+    ]);
+    weirdCardRows = weirdCardRowsRes;
+    legacyWithBatchRows = legacyWithBatchRowsRes;
+    legacyNoPaymentRows = legacyNoPaymentRowsRes;
+  } else {
+    // Group 1: basic corrections and duplicates (3 queries)
+    const [unlinkedCorrectionsRes, duplicateImportsRes, duplicateMovementsRes] = await Promise.all([
+      prisma.$queryRaw<UnlinkedCorrectionRow[]>`
+        SELECT
+          t.id,
+          t.beneficiary_id,
+          t.facility_id,
+          t.amount::float8 AS amount,
+          t.created_at,
+          t.is_cancelled,
+          b.name AS beneficiary_name,
+          b.card_number,
+          f.name AS facility_name
+        FROM "Transaction" t
+        JOIN "Beneficiary" b ON b.id = t.beneficiary_id
+        JOIN "Facility" f ON f.id = t.facility_id
+        WHERE t.type = 'CANCELLATION'
+          AND t.original_transaction_id IS NULL
+          AND t.is_cancelled = false
+        ORDER BY t.created_at DESC
+        LIMIT 300
+      `,
+
+      prisma.$queryRaw<DuplicateImportRow[]>`
+        SELECT
+          t.beneficiary_id,
+          b.name AS beneficiary_name,
+          b.card_number,
+          COUNT(*)::int AS duplicate_count,
+          SUM(t.amount)::float8 AS total_import_amount,
+          MIN(t.created_at) AS first_created_at,
+          MAX(t.created_at) AS last_created_at
+        FROM "Transaction" t
+        JOIN "Beneficiary" b ON b.id = t.beneficiary_id
+        WHERE t.type = 'IMPORT'
+          AND t.is_cancelled = false
+        GROUP BY t.beneficiary_id, b.name, b.card_number
+        HAVING COUNT(*) > 1
+        ORDER BY duplicate_count DESC, last_created_at DESC
+        LIMIT 300
+      `,
+
+      prisma.$queryRaw<DuplicateMovementRow[]>`
+        SELECT
+          t.beneficiary_id,
+          b.name AS beneficiary_name,
+          b.card_number,
+          t.type,
+          t.amount::float8 AS amount,
+          (t.created_at AT TIME ZONE 'Africa/Tripoli')::date AS movement_day,
+          COUNT(*)::int AS duplicate_count,
+          MIN(t.created_at) AS first_created_at,
+          MAX(t.created_at) AS last_created_at
+        FROM "Transaction" t
+        JOIN "Beneficiary" b ON b.id = t.beneficiary_id
+        WHERE t.is_cancelled = false
+          AND t.type <> 'CANCELLATION'
+        GROUP BY
+          t.beneficiary_id,
+          b.name,
+          b.card_number,
+          t.type,
+          t.amount,
+          (t.created_at AT TIME ZONE 'Africa/Tripoli')::date
+        HAVING COUNT(*) > 1
+        ORDER BY duplicate_count DESC, last_created_at DESC
+        LIMIT 300
+      `,
+    ]);
+    unlinkedCorrections = unlinkedCorrectionsRes;
+    duplicateImports = duplicateImportsRes;
+    duplicateMovements = duplicateMovementsRes;
+
+    // Group 2: facility info and auth state (3 queries)
+    const [invalidPasswordFacilitiesRes, deletedFacilitiesRes, authStateRowsRes] = await Promise.all([
+      prisma.$queryRaw<ExperimentalNoPasswordFacilityRow[]>`
+        SELECT
+          f.id,
+          f.name,
+          f.username,
+          f.must_change_password,
+          f.created_at,
+          COALESCE(LENGTH(BTRIM(f.password_hash)), 0)::int AS password_len
+        FROM "Facility" f
+        WHERE f.deleted_at IS NULL
+          AND (
+            f.password_hash IS NULL
+            OR BTRIM(f.password_hash) = ''
+            OR f.password_hash !~ '^\\$2[aby]\\$.{56}$'
+          )
+        ORDER BY f.created_at DESC
+        LIMIT 200
+      `,
+
+      prisma.$queryRaw<DeletedFacilityRow[]>`
+        SELECT id, name, username, deleted_at
+        FROM "Facility"
+        WHERE deleted_at IS NOT NULL
+        ORDER BY deleted_at DESC
+        LIMIT 200
+      `,
+
+      prisma.$queryRaw<AuthStateRow[]>`
+        SELECT
+          f.id,
+          f.name,
+          f.username,
+          (f.deleted_at IS NOT NULL) AS deleted,
+          f.must_change_password,
+          (f.password_hash ~ '^\\$2[aby]\\$.{56}$') AS hash_valid_bcrypt,
+          last_login.last_login_at,
+          last_reset.last_reset_at,
+          (
+            last_reset.last_reset_at IS NOT NULL
+            AND (last_login.last_login_at IS NULL OR last_login.last_login_at < last_reset.last_reset_at)
+          ) AS reset_no_login
+        FROM "Facility" f
+        LEFT JOIN LATERAL (
+          SELECT MAX(created_at) AS last_login_at
+          FROM "AuditLog"
+          WHERE action = 'LOGIN'
+            AND (facility_id = f.id OR "user" = f.username)
+        ) last_login ON true
+        LEFT JOIN LATERAL (
+          SELECT MAX(created_at) AS last_reset_at
+          FROM "AuditLog"
+          WHERE action = 'UPDATE_FACILITY'
+            AND (metadata->>'facility_id') = f.id
+            AND (metadata->>'reset_password')::boolean = true
+        ) last_reset ON true
+        WHERE
+          f.deleted_at IS NOT NULL
+          OR f.password_hash IS NULL
           OR BTRIM(f.password_hash) = ''
           OR f.password_hash !~ '^\\$2[aby]\\$.{56}$'
-        )
-      ORDER BY f.created_at DESC
-      LIMIT 200
-    `,
+          OR f.must_change_password = true
+          OR last_login.last_login_at IS NULL
+          OR (
+            last_reset.last_reset_at IS NOT NULL
+            AND (last_login.last_login_at IS NULL OR last_login.last_login_at < last_reset.last_reset_at)
+          )
+        ORDER BY f.created_at DESC
+      `,
+    ]);
+    invalidPasswordFacilities = invalidPasswordFacilitiesRes;
+    deletedFacilities = deletedFacilitiesRes;
+    authStateRows = authStateRowsRes;
 
-    prisma.$queryRaw<DeletedFacilityRow[]>`
-      SELECT id, name, username, deleted_at
-      FROM "Facility"
-      WHERE deleted_at IS NOT NULL
-      ORDER BY deleted_at DESC
-      LIMIT 200
-    `,
+    // Group 3: balance drift and status anomaly (3 queries)
+    const [balanceDriftRowsRes, statusAnomalyRowsRes, totalBalanceDriftRowsRes] = await Promise.all([
+      prisma.$queryRaw<BalanceDriftRow[]>`
+        SELECT
+          b.id,
+          b.name,
+          b.card_number,
+          b.status::text,
+          b.total_balance::float8 AS total_balance,
+          b.remaining_balance::float8 AS stored_remaining,
+          GREATEST(0,
+            b.total_balance - COALESCE(
+              SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END),
+              0
+            )
+          )::float8 AS computed_remaining,
+          (b.remaining_balance - GREATEST(0,
+            b.total_balance - COALESCE(
+              SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END),
+              0
+            )
+          ))::float8 AS drift
+        FROM "Beneficiary" b
+        LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id
+        WHERE b.deleted_at IS NULL
+        GROUP BY b.id, b.name, b.card_number, b.status, b.total_balance, b.remaining_balance
+        HAVING ABS(
+          b.remaining_balance - GREATEST(0,
+            b.total_balance - COALESCE(
+              SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END),
+              0
+            )
+          )
+        ) > 0.01
+        ORDER BY ABS(
+          b.remaining_balance - GREATEST(0,
+            b.total_balance - COALESCE(
+              SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END),
+              0
+            )
+          )
+        ) DESC
+        LIMIT 300
+      `,
 
-    prisma.facility.count({
-      where: {
-        deleted_at: null,
-        must_change_password: true,
-      },
-    }),
+      prisma.$queryRaw<StatusAnomalyRow[]>`
+        SELECT
+          id,
+          name,
+          card_number,
+          status::text,
+          remaining_balance::float8,
+          total_balance::float8,
+          CASE
+            WHEN status = 'ACTIVE'   AND remaining_balance <= 0.01 THEN 'نشط برصيد صفري (يجب أن يكون مكتمل)'
+            WHEN status = 'FINISHED' AND remaining_balance > 0.01  THEN 'مكتمل برصيد موجب (يجب مراجعة)'
+            ELSE 'غير معروف'
+          END AS anomaly_type
+        FROM "Beneficiary"
+        WHERE deleted_at IS NULL
+          AND (
+            (status = 'ACTIVE'   AND remaining_balance <= 0.01)
+            OR (status = 'FINISHED' AND remaining_balance > 0.01)
+          )
+        ORDER BY card_number
+        LIMIT 300
+      `,
 
-    // بدلاً من جلب كل المرافق + 100K سجل AuditLog في الذاكرة،
-    // نستخدم SQL واحد يحسب حالة كل مرفق مباشرة من قاعدة البيانات
-    prisma.$queryRaw<AuthStateRow[]>`
-      SELECT
-        f.id,
-        f.name,
-        f.username,
-        (f.deleted_at IS NOT NULL) AS deleted,
-        f.must_change_password,
-        (f.password_hash ~ '^\\$2[aby]\\$.{56}$') AS hash_valid_bcrypt,
-        last_login.last_login_at,
-        last_reset.last_reset_at,
-        (
-          last_reset.last_reset_at IS NOT NULL
-          AND (last_login.last_login_at IS NULL OR last_login.last_login_at < last_reset.last_reset_at)
-        ) AS reset_no_login
-      FROM "Facility" f
-      LEFT JOIN LATERAL (
-        SELECT MAX(created_at) AS last_login_at
+      prisma.$queryRaw<TotalBalanceDriftRow[]>`
+        SELECT
+          b.id,
+          b.name,
+          b.card_number,
+          b.status::text,
+          b.total_balance::float8 AS stored_total,
+          b.remaining_balance::float8 AS remaining,
+          COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END), 0)::float8 AS sum_spent,
+          (b.remaining_balance + COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END), 0))::float8 AS correct_total,
+          ((b.remaining_balance + COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END), 0)) - b.total_balance)::float8 AS diff
+        FROM "Beneficiary" b
+        LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id
+        WHERE b.deleted_at IS NULL
+          AND b.remaining_balance > 0.01
+        GROUP BY b.id, b.name, b.card_number, b.status, b.total_balance, b.remaining_balance
+        HAVING (b.remaining_balance + COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END), 0)) - b.total_balance > 0.01
+        ORDER BY diff DESC
+        LIMIT 300
+      `,
+    ]);
+    balanceDriftRows = balanceDriftRowsRes;
+    statusAnomalyRows = statusAnomalyRowsRes;
+    totalBalanceDriftRows = totalBalanceDriftRowsRes;
+
+    // Group 4: orphaned notifications and hygiene counters (4 queries)
+    const [
+      orphanedNotificationRowsRes,
+      oldReadNotificationSummaryRes,
+      oldLoginAuditSummaryRes,
+      oldImportJobsSummaryRes,
+    ] = await Promise.all([
+      prisma.$queryRaw<OrphanedNotificationRow[]>`
+        SELECT
+          n.id,
+          n.beneficiary_id,
+          b.name AS beneficiary_name,
+          b.card_number,
+          n.title,
+          n.created_at
+        FROM "Notification" n
+        JOIN "Beneficiary" b ON b.id = n.beneficiary_id
+        WHERE b.deleted_at IS NOT NULL
+        ORDER BY n.created_at DESC
+        LIMIT 200
+      `,
+
+      prisma.$queryRaw<OldReadNotificationSummary[]>`
+        SELECT COUNT(*)::int AS old_read_count
+        FROM "Notification" n
+        JOIN "Beneficiary" b ON b.id = n.beneficiary_id
+        WHERE n.is_read = true
+          AND n.created_at < NOW() - INTERVAL '90 days'
+          AND b.deleted_at IS NULL
+      `,
+
+      prisma.$queryRaw<OldLoginAuditSummary[]>`
+        SELECT COUNT(*)::int AS old_login_count
         FROM "AuditLog"
-        WHERE action = 'LOGIN'
-          AND (facility_id = f.id OR "user" = f.username)
-      ) last_login ON true
-      LEFT JOIN LATERAL (
-        SELECT MAX(created_at) AS last_reset_at
-        FROM "AuditLog"
-        WHERE action = 'UPDATE_FACILITY'
-          AND (metadata->>'facility_id') = f.id
-          AND (metadata->>'reset_password')::boolean = true
-      ) last_reset ON true
-      WHERE
-        f.deleted_at IS NOT NULL
-        OR f.password_hash IS NULL
-        OR BTRIM(f.password_hash) = ''
-        OR f.password_hash !~ '^\\$2[aby]\\$.{56}$'
-        OR f.must_change_password = true
-        OR last_login.last_login_at IS NULL
-        OR (
-          last_reset.last_reset_at IS NOT NULL
-          AND (last_login.last_login_at IS NULL OR last_login.last_login_at < last_reset.last_reset_at)
-        )
-      ORDER BY f.created_at DESC
-    `,
+        WHERE action IN ('LOGIN', 'LOGOUT')
+          AND created_at < NOW() - INTERVAL '180 days'
+      `,
 
-    prisma.$queryRaw<BalanceDriftRow[]>`
-      SELECT
-        b.id,
-        b.name,
-        b.card_number,
-        b.status::text,
-        b.total_balance::float8 AS total_balance,
-        b.remaining_balance::float8 AS stored_remaining,
-        GREATEST(0,
-          b.total_balance - COALESCE(
-            SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END),
-            0
+      prisma.$queryRaw<OldImportJobsSummary[]>`
+        SELECT COUNT(*)::int AS old_import_jobs_count
+        FROM "ImportJob"
+        WHERE status IN ('COMPLETED', 'FAILED', 'ROLLED_BACK')
+          AND created_at < NOW() - INTERVAL '30 days'
+      `,
+    ]);
+    orphanedNotificationRows = orphanedNotificationRowsRes;
+    oldReadNotificationSummary = oldReadNotificationSummaryRes;
+    oldLoginAuditSummary = oldLoginAuditSummaryRes;
+    oldImportJobsSummary = oldImportJobsSummaryRes;
+
+    // Group 5: legacy fractional imports and parent card pattern (4 queries)
+    const [
+      oldRestoreJobsSummaryRes,
+      parentCardPatternRowsRes,
+      legacyFractionalImportRowsRes,
+      legacyFractionalImportMemberRowsRes,
+    ] = await Promise.all([
+      prisma.$queryRaw<OldRestoreJobsSummary[]>`
+        SELECT COUNT(*)::int AS old_restore_jobs_count
+        FROM "RestoreJob"
+        WHERE status IN ('COMPLETED', 'FAILED')
+          AND created_at < NOW() - INTERVAL '30 days'
+      `,
+
+      prisma.$queryRaw<ParentCardPatternRow[]>`
+        SELECT
+          b.id,
+          b.name,
+          b.card_number,
+          CASE
+            WHEN b.card_number ~ '^WAB2025[0-9]+W$' THEN 'زوجة بدون ترقيم (W)'
+            WHEN b.card_number ~ '^WAB2025[0-9]+H2$' THEN 'زوج ثاني غير صالح (H2)'
+            WHEN b.card_number ~ '^WAB2025[0-9]+M$' THEN 'أم بدون ترقيم (M)'
+            WHEN b.card_number ~ '^WAB2025[0-9]+F$' THEN 'أب بدون ترقيم (F)'
+            ELSE 'أخرى'
+          END AS pattern_type
+        FROM "Beneficiary" b
+        WHERE b.deleted_at IS NULL
+          AND (
+            b.card_number ~ '^WAB2025[0-9]+W$'
+            OR b.card_number ~ '^WAB2025[0-9]+H2$'
+            OR b.card_number ~ '^WAB2025[0-9]+M$'
+            OR b.card_number ~ '^WAB2025[0-9]+F$'
           )
-        )::float8 AS computed_remaining,
-        (b.remaining_balance - GREATEST(0,
-          b.total_balance - COALESCE(
-            SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END),
-            0
-          )
-        ))::float8 AS drift
-      FROM "Beneficiary" b
-      LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id
-      WHERE b.deleted_at IS NULL
-      GROUP BY b.id, b.name, b.card_number, b.status, b.total_balance, b.remaining_balance
-      HAVING ABS(
-        b.remaining_balance - GREATEST(0,
-          b.total_balance - COALESCE(
-            SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END),
-            0
-          )
-        )
-      ) > 0.01
-      ORDER BY ABS(
-        b.remaining_balance - GREATEST(0,
-          b.total_balance - COALESCE(
-            SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END),
-            0
-          )
-        )
-      ) DESC
-      LIMIT 300
-    `,
+        ORDER BY b.card_number
+        LIMIT 400
+      `,
 
-    prisma.$queryRaw<StatusAnomalyRow[]>`
-      SELECT
-        id,
-        name,
-        card_number,
-        status::text,
-        remaining_balance::float8,
-        total_balance::float8,
-        CASE
-          WHEN status = 'ACTIVE'   AND remaining_balance <= 0.01 THEN 'نشط برصيد صفري (يجب أن يكون مكتمل)'
-          WHEN status = 'FINISHED' AND remaining_balance > 0.01  THEN 'مكتمل برصيد موجب (يجب مراجعة)'
-          ELSE 'غير معروف'
-        END AS anomaly_type
-      FROM "Beneficiary"
-      WHERE deleted_at IS NULL
-        AND (
-          (status = 'ACTIVE'   AND remaining_balance <= 0.01)
-          OR (status = 'FINISHED' AND remaining_balance > 0.01)
-        )
-      ORDER BY card_number
-      LIMIT 300
-    `,
+      prisma.$queryRaw<LegacyFractionalImportRow[]>`
+        SELECT
+          COALESCE(SUBSTRING(b.card_number FROM '^(WAB2025[0-9]+)'), b.card_number) AS family_base_card,
+          COUNT(DISTINCT b.id)::int AS members_count,
+          COUNT(t.id)::int AS import_transactions_count,
+          ROUND(SUM(t.amount)::numeric, 2)::float8 AS family_total_import_amount
+        FROM "Transaction" t
+        JOIN "Beneficiary" b ON b.id = t.beneficiary_id
+        WHERE t.type = 'IMPORT'
+          AND t.is_cancelled = false
+          AND b.deleted_at IS NULL
+          AND ABS(t.amount - ROUND(t.amount)) > 0.000001
+        GROUP BY COALESCE(SUBSTRING(b.card_number FROM '^(WAB2025[0-9]+)'), b.card_number)
+        ORDER BY family_total_import_amount DESC
+        LIMIT 300
+      `,
 
-    prisma.$queryRaw<OrphanedNotificationRow[]>`
-      SELECT
-        n.id,
-        n.beneficiary_id,
-        b.name AS beneficiary_name,
-        b.card_number,
-        n.title,
-        n.created_at
-      FROM "Notification" n
-      JOIN "Beneficiary" b ON b.id = n.beneficiary_id
-      WHERE b.deleted_at IS NOT NULL
-      ORDER BY n.created_at DESC
-      LIMIT 200
-    `,
+      prisma.$queryRaw<LegacyFractionalImportMemberRow[]>`
+        SELECT
+          COALESCE(SUBSTRING(b.card_number FROM '^(WAB2025[0-9]+)'), b.card_number) AS family_base_card,
+          b.id AS beneficiary_id,
+          b.name AS beneficiary_name,
+          b.card_number,
+          COUNT(t.id)::int AS member_import_transactions_count,
+          ROUND(SUM(t.amount)::numeric, 2)::float8 AS member_total_import_amount,
+          b.total_balance::float8 AS member_total_balance,
+          b.remaining_balance::float8 AS member_remaining_balance
+        FROM "Transaction" t
+        JOIN "Beneficiary" b ON b.id = t.beneficiary_id
+        WHERE t.type = 'IMPORT'
+          AND t.is_cancelled = false
+          AND b.deleted_at IS NULL
+          AND ABS(t.amount - ROUND(t.amount)) > 0.000001
+        GROUP BY
+          COALESCE(SUBSTRING(b.card_number FROM '^(WAB2025[0-9]+)'), b.card_number),
+          b.id,
+          b.name,
+          b.card_number,
+          b.total_balance,
+          b.remaining_balance
+        ORDER BY family_base_card, b.card_number
+        LIMIT 2000
+      `,
+    ]);
+    oldRestoreJobsSummary = oldRestoreJobsSummaryRes;
+    parentCardPatternRows = parentCardPatternRowsRes;
+    legacyFractionalImportRows = legacyFractionalImportRowsRes;
+    legacyFractionalImportMemberRows = legacyFractionalImportMemberRowsRes;
 
-    prisma.$queryRaw<OldReadNotificationSummary[]>`
-      SELECT COUNT(*)::int AS old_read_count
-      FROM "Notification" n
-      JOIN "Beneficiary" b ON b.id = n.beneficiary_id
-      WHERE n.is_read = true
-        AND n.created_at < NOW() - INTERVAL '90 days'
-        AND b.deleted_at IS NULL
-    `,
-
-    prisma.$queryRaw<OldLoginAuditSummary[]>`
-      SELECT COUNT(*)::int AS old_login_count
-      FROM "AuditLog"
-      WHERE action IN ('LOGIN', 'LOGOUT')
-        AND created_at < NOW() - INTERVAL '180 days'
-    `,
-
-    prisma.$queryRaw<OldImportJobsSummary[]>`
-      SELECT COUNT(*)::int AS old_import_jobs_count
-      FROM "ImportJob"
-      WHERE status IN ('COMPLETED', 'FAILED', 'ROLLED_BACK')
-        AND created_at < NOW() - INTERVAL '30 days'
-    `,
-
-    prisma.$queryRaw<OldRestoreJobsSummary[]>`
-      SELECT COUNT(*)::int AS old_restore_jobs_count
-      FROM "RestoreJob"
-      WHERE status IN ('COMPLETED', 'FAILED')
-        AND created_at < NOW() - INTERVAL '30 days'
-    `,
-
-    prisma.$queryRaw<ParentCardPatternRow[]>`
-      SELECT
-        b.id,
-        b.name,
-        b.card_number,
-        CASE
-          WHEN b.card_number ~ '^WAB2025[0-9]+W$' THEN 'زوجة بدون ترقيم (W)'
-          WHEN b.card_number ~ '^WAB2025[0-9]+H2$' THEN 'زوج ثاني غير صالح (H2)'
-          WHEN b.card_number ~ '^WAB2025[0-9]+M$' THEN 'أم بدون ترقيم (M)'
-          WHEN b.card_number ~ '^WAB2025[0-9]+F$' THEN 'أب بدون ترقيم (F)'
-          ELSE 'أخرى'
-        END AS pattern_type
-      FROM "Beneficiary" b
-      WHERE b.deleted_at IS NULL
-        AND (
-          b.card_number ~ '^WAB2025[0-9]+W$'
-          OR b.card_number ~ '^WAB2025[0-9]+H2$'
-          OR b.card_number ~ '^WAB2025[0-9]+M$'
-          OR b.card_number ~ '^WAB2025[0-9]+F$'
-        )
-      ORDER BY b.card_number
-      LIMIT 400
-    `,
-
-    prisma.$queryRaw<TotalBalanceDriftRow[]>`
-      SELECT
-        b.id,
-        b.name,
-        b.card_number,
-        b.status::text,
-        b.total_balance::float8 AS stored_total,
-        b.remaining_balance::float8 AS remaining,
-        COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END), 0)::float8 AS sum_spent,
-        (b.remaining_balance + COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END), 0))::float8 AS correct_total,
-        ((b.remaining_balance + COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END), 0)) - b.total_balance)::float8 AS diff
-      FROM "Beneficiary" b
-      LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id
-      WHERE b.deleted_at IS NULL
-        AND b.remaining_balance > 0.01
-      GROUP BY b.id, b.name, b.card_number, b.status, b.total_balance, b.remaining_balance
-      HAVING (b.remaining_balance + COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END), 0)) - b.total_balance > 0.01
-      ORDER BY diff DESC
-      LIMIT 300
-    `,
-
-    prisma.$queryRaw<LegacyFractionalImportRow[]>`
-      SELECT
-        COALESCE(SUBSTRING(b.card_number FROM '^(WAB2025[0-9]+)'), b.card_number) AS family_base_card,
-        COUNT(DISTINCT b.id)::int AS members_count,
-        COUNT(t.id)::int AS import_transactions_count,
-        ROUND(SUM(t.amount)::numeric, 2)::float8 AS family_total_import_amount
-      FROM "Transaction" t
-      JOIN "Beneficiary" b ON b.id = t.beneficiary_id
-      WHERE t.type = 'IMPORT'
-        AND t.is_cancelled = false
-        AND b.deleted_at IS NULL
-        AND ABS(t.amount - ROUND(t.amount)) > 0.000001
-      GROUP BY COALESCE(SUBSTRING(b.card_number FROM '^(WAB2025[0-9]+)'), b.card_number)
-      ORDER BY family_total_import_amount DESC
-      LIMIT 300
-    `,
-
-    prisma.$queryRaw<LegacyFractionalImportMemberRow[]>`
-      SELECT
-        COALESCE(SUBSTRING(b.card_number FROM '^(WAB2025[0-9]+)'), b.card_number) AS family_base_card,
-        b.id AS beneficiary_id,
-        b.name AS beneficiary_name,
-        b.card_number,
-        COUNT(t.id)::int AS member_import_transactions_count,
-        ROUND(SUM(t.amount)::numeric, 2)::float8 AS member_total_import_amount,
-        b.total_balance::float8 AS member_total_balance,
-        b.remaining_balance::float8 AS member_remaining_balance
-      FROM "Transaction" t
-      JOIN "Beneficiary" b ON b.id = t.beneficiary_id
-      WHERE t.type = 'IMPORT'
-        AND t.is_cancelled = false
-        AND b.deleted_at IS NULL
-        AND ABS(t.amount - ROUND(t.amount)) > 0.000001
-      GROUP BY
-        COALESCE(SUBSTRING(b.card_number FROM '^(WAB2025[0-9]+)'), b.card_number),
-        b.id,
-        b.name,
-        b.card_number,
-        b.total_balance,
-        b.remaining_balance
-      ORDER BY family_base_card, b.card_number
-      LIMIT 2000
-    `,
-
-    prisma.$queryRaw<WeirdCardRow[]>`
-      SELECT
-        b.id,
-        b.name,
-        b.card_number,
-        b.status::text AS status,
-        b.is_legacy_card,
-        b.total_balance::float8 AS total_balance,
-        b.remaining_balance::float8 AS remaining_balance,
-        COALESCE(COUNT(CASE WHEN t.type <> 'IMPORT' AND t.type <> 'CANCELLATION' THEN 1 END), 0)::int AS manual_transactions_count,
-        COALESCE(COUNT(CASE WHEN t.type = 'IMPORT' THEN 1 END), 0)::int AS import_transactions_count,
-        COALESCE(COUNT(t.id), 0)::int AS total_transactions_count,
-        CASE
-          WHEN b.card_number ~ '\\s' THEN 'يحتوي مسافات'
-          WHEN b.card_number !~ '^WAB2025[0-9]+([WHSDMFV][0-9]*)?$' THEN 'نمط غير قياسي'
-          ELSE 'أخرى'
-        END AS anomaly_type
-      FROM "Beneficiary" b
-      LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id AND t.is_cancelled = false
-      WHERE b.deleted_at IS NULL
-        AND (
-          b.card_number ~ '\\s'
-          OR b.card_number !~ '^WAB2025[0-9]+([WHSDMFV][0-9]*)?$'
-        )
-      GROUP BY b.id, b.name, b.card_number, b.status, b.is_legacy_card, b.total_balance, b.remaining_balance
-      ORDER BY b.card_number ASC
-      LIMIT 500
-    `,
-
-    prisma.$queryRaw<LegacyCardStatusRow[]>`
-      SELECT
-        b.id,
-        b.name,
-        b.card_number,
-        b.status::text AS status,
-        b.is_legacy_card,
-        b.total_balance::float8 AS total_balance,
-        b.remaining_balance::float8 AS remaining_balance,
-        COALESCE(COUNT(CASE WHEN t.type <> 'IMPORT' AND t.type <> 'CANCELLATION' THEN 1 END), 0)::int AS manual_transactions_count,
-        COALESCE(COUNT(CASE WHEN t.type = 'IMPORT' THEN 1 END), 0)::int AS import_transactions_count,
-        COALESCE(COUNT(t.id), 0)::int AS total_transactions_count
-      FROM "Beneficiary" b
-      LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id AND t.is_cancelled = false
-      WHERE b.deleted_at IS NULL
-        AND b.is_legacy_card = true
-      GROUP BY b.id, b.name, b.card_number, b.status, b.is_legacy_card, b.total_balance, b.remaining_balance
-      ORDER BY b.card_number ASC
-      LIMIT 500
-    `,
-
-    prisma.$queryRaw<LegacyCardStatusRow[]>`
-      SELECT
-        b.id,
-        b.name,
-        b.card_number,
-        b.status::text AS status,
-        b.is_legacy_card,
-        b.total_balance::float8 AS total_balance,
-        b.remaining_balance::float8 AS remaining_balance,
-        COALESCE(COUNT(CASE WHEN t.type <> 'IMPORT' AND t.type <> 'CANCELLATION' THEN 1 END), 0)::int AS manual_transactions_count,
-        COALESCE(COUNT(CASE WHEN t.type = 'IMPORT' THEN 1 END), 0)::int AS import_transactions_count,
-        COALESCE(COUNT(t.id), 0)::int AS total_transactions_count
-      FROM "Beneficiary" b
-      LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id AND t.is_cancelled = false
-      WHERE b.deleted_at IS NULL
-        AND b.is_legacy_card = false
-      GROUP BY b.id, b.name, b.card_number, b.status, b.is_legacy_card, b.total_balance, b.remaining_balance
-      ORDER BY b.card_number ASC
-      LIMIT 500
-    `,
-
-    prisma.$queryRaw<LegacyWithBatchRow[]>`
-      SELECT
-        b.id,
-        b.name,
-        b.card_number,
-        b.status::text AS status,
-        r.batch_number,
-        r.city,
-        COALESCE(COUNT(CASE WHEN t.type <> 'IMPORT' AND t.type <> 'CANCELLATION' THEN 1 END), 0)::int AS manual_transactions_count,
-        COALESCE(COUNT(CASE WHEN t.type = 'IMPORT' THEN 1 END), 0)::int AS import_transactions_count,
-        COALESCE(COUNT(t.id), 0)::int AS total_transactions_count
-      FROM "Beneficiary" b
-      INNER JOIN "CardIssuanceRegistry" r
-        ON UPPER(BTRIM(b.card_number)) = r.card_number_upper
-      LEFT JOIN "Transaction" t
-        ON t.beneficiary_id = b.id
-       AND t.is_cancelled = false
-      WHERE b.deleted_at IS NULL
-        AND b.is_legacy_card = true
-        AND r.batch_number IS NOT NULL
-        AND BTRIM(r.batch_number) <> ''
-      GROUP BY b.id, b.name, b.card_number, b.status, r.batch_number, r.city
-      ORDER BY r.batch_number ASC, b.card_number ASC
-      LIMIT 1000
-    `,
-
-    prisma.$queryRaw<LegacyCardStatusRow[]>`
-      SELECT
-        b.id,
-        b.name,
-        b.card_number,
-        b.status::text AS status,
-        b.is_legacy_card,
-        b.total_balance::float8 AS total_balance,
-        b.remaining_balance::float8 AS remaining_balance,
-        COALESCE(COUNT(CASE WHEN t.type <> 'IMPORT' AND t.type <> 'CANCELLATION' THEN 1 END), 0)::int AS manual_transactions_count,
-        COALESCE(COUNT(CASE WHEN t.type = 'IMPORT' THEN 1 END), 0)::int AS import_transactions_count,
-        COALESCE(COUNT(t.id), 0)::int AS total_transactions_count
-      FROM "Beneficiary" b
-      LEFT JOIN "CardIssuanceRegistry" r ON UPPER(BTRIM(b.card_number)) = r.card_number_upper
-      LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id AND t.is_cancelled = false
-      WHERE b.deleted_at IS NULL
-        AND b.is_legacy_card = true
-        AND (r.id IS NULL OR r.batch_number IS NULL OR BTRIM(r.batch_number) = '')
-      GROUP BY b.id, b.name, b.card_number, b.status, b.is_legacy_card, b.total_balance, b.remaining_balance
-      ORDER BY b.card_number ASC
-      LIMIT 1000
-    `,
-
-    prisma.$queryRaw<PharmacySupplyAnomalyRow[]>`
-      SELECT
-        t.id,
-        b.name AS beneficiary_name,
-        b.card_number,
-        f.name AS facility_name,
-        t.amount::float8 AS amount,
-        t.created_at
-      FROM "Transaction" t
-      JOIN "Beneficiary" b ON b.id = t.beneficiary_id
-      JOIN "Facility" f ON f.id = t.facility_id
-      WHERE t.type = 'SUPPLIES'
-        AND t.is_cancelled = false
-        AND f.name LIKE '%صيدل%'
-      ORDER BY t.created_at DESC
-      LIMIT 5000
-    `,
-  ]);
+    // Group 6: pharmacy supply anomaly (1 query)
+    const [pharmacySupplyRowsRes] = await Promise.all([
+      prisma.$queryRaw<PharmacySupplyAnomalyRow[]>`
+        SELECT
+          t.id,
+          b.name AS beneficiary_name,
+          b.card_number,
+          f.name AS facility_name,
+          t.amount::float8 AS amount,
+          t.created_at
+        FROM "Transaction" t
+        JOIN "Beneficiary" b ON b.id = t.beneficiary_id
+        JOIN "Facility" f ON f.id = t.facility_id
+        WHERE t.type = 'SUPPLIES'
+          AND t.is_cancelled = false
+          AND f.name LIKE '%صيدل%'
+        ORDER BY t.created_at DESC
+        LIMIT 5000
+      `,
+    ]);
+    pharmacySupplyRows = pharmacySupplyRowsRes;
+  }
 
   const legacyMembersByFamily = legacyFractionalImportMemberRows.reduce<Record<string, LegacyFractionalImportMemberRow[]>>((acc, row) => {
     if (!acc[row.family_base_card]) {
@@ -858,20 +932,6 @@ export async function DataHealthContent({
         row.anomaly_type.toLowerCase().includes(normalizedSearchQuery)
     )
     : weirdCardRows;
-  const filteredLegacyOnlyRows = hasSearchQuery
-    ? legacyOnlyRows.filter(
-      (row) =>
-        row.name.toLowerCase().includes(normalizedSearchQuery) ||
-        row.card_number.toLowerCase().includes(normalizedSearchQuery)
-    )
-    : legacyOnlyRows;
-  const filteredStableOnlyRows = hasSearchQuery
-    ? stableOnlyRows.filter(
-      (row) =>
-        row.name.toLowerCase().includes(normalizedSearchQuery) ||
-        row.card_number.toLowerCase().includes(normalizedSearchQuery)
-    )
-    : stableOnlyRows;
   const filteredLegacyWithBatchRows = hasSearchQuery
     ? legacyWithBatchRows.filter(
       (row) =>
@@ -970,84 +1030,11 @@ export async function DataHealthContent({
 
 
       {showLegacySections && (
-      <Section title="موسوم قديم + لديه رقم دفعة" count={filteredLegacyWithBatchRows.length}>
-        <p className="text-xs text-slate-600 dark:text-slate-300">
-          هذا القسم يعرض المستفيدين الموسومين كقديمة رغم وجود رقم دفعة لهم. يمكنك معالجتهم دفعة واحدة وتحويلهم إلى مستقرة.
-        </p>
-        <LegacyWithBatchStabilizeButton candidateCount={legacyWithBatchRows.length} />
-        {filteredLegacyWithBatchRows.length === 0 ? (
-          <p className="text-sm font-medium text-emerald-600">✓ لا توجد حالات مطابقة حالياً.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
-              <thead>
-                <tr className="border-b bg-slate-50 text-right dark:border-slate-700 dark:bg-slate-800/60">
-                  <th className="p-2">الاسم</th>
-                  <th className="p-2">رقم البطاقة</th>
-                  <th className="p-2">المدينة</th>
-                  <th className="p-2">رقم الدفعة</th>
-                  <th className="p-2">الحالة</th>
-                  <th className="p-2">الحركات اليدوية</th>
-                  <th className="p-2">حركات الاستيراد</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredLegacyWithBatchRows.map((row) => (
-                  <tr key={row.id} className="border-b dark:border-slate-800">
-                    <td className="p-2">{row.name}</td>
-                    <td className="p-2 font-mono text-xs">{row.card_number}</td>
-                    <td className="p-2 text-xs">{row.city}</td>
-                    <td className="p-2 text-xs">{row.batch_number}</td>
-                    <td className="p-2 text-xs">{row.status}</td>
-                    <td className="p-2 text-xs">{row.manual_transactions_count.toLocaleString("ar-LY")}</td>
-                    <td className="p-2 text-xs">{row.import_transactions_count.toLocaleString("ar-LY")}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Section>
-      )}
-
-      {showLegacySections && (
-      <Section title="موسوم قديم + ليس له دفعة (تصفية)" count={filteredLegacyNoPaymentRows.length}>
-        <p className="text-xs text-slate-600 dark:text-slate-300">
-          هذا القسم يعرض البطاقات الموسومة كقديمة والتي ليس لها سجل في منظومة الدفع (أو بدون رقم دفعة). 
-          يمكن حذفهم نهائياً وترحيل حركاتهم لأفراد عائلاتهم.
-        </p>
-        <LegacyNoPaymentPurgeButton candidateCount={legacyNoPaymentRows.length} />
-        {filteredLegacyNoPaymentRows.length === 0 ? (
-          <p className="text-sm font-medium text-emerald-600">✓ لا توجد حالات مطابقة حالياً.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
-              <thead>
-                <tr className="border-b bg-slate-50 text-right dark:border-slate-700 dark:bg-slate-800/60">
-                  <th className="p-2">الاسم</th>
-                  <th className="p-2">رقم البطاقة</th>
-                  <th className="p-2">الحالة</th>
-                  <th className="p-2">الحركات اليدوية</th>
-                  <th className="p-2">حركات الاستيراد</th>
-                  <th className="p-2">إجمالي الحركات</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredLegacyNoPaymentRows.map((row) => (
-                  <tr key={row.id} className="border-b dark:border-slate-800">
-                    <td className="p-2">{row.name}</td>
-                    <td className="p-2 font-mono text-xs">{row.card_number}</td>
-                    <td className="p-2 text-xs">{row.status}</td>
-                    <td className="p-2 text-xs">{row.manual_transactions_count.toLocaleString("ar-LY")}</td>
-                    <td className="p-2 text-xs">{row.import_transactions_count.toLocaleString("ar-LY")}</td>
-                    <td className="p-2 text-xs font-bold">{row.total_transactions_count.toLocaleString("ar-LY")}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Section>
+        <LegacyCardsUnifiedManager 
+          legacyWithBatchRows={legacyWithBatchRows} 
+          legacyNoPaymentRows={legacyNoPaymentRows} 
+          missingCardsRows={missingCardsRows}
+        />
       )}
 
       {showLegacySections && (
@@ -1122,42 +1109,7 @@ export async function DataHealthContent({
       </Section>
       )}
 
-      {showLegacySections && (
-      <Section title="البطاقات القديمة" count={filteredLegacyOnlyRows.length}>
-        {filteredLegacyOnlyRows.length === 0 ? (
-          <p className="text-sm font-medium text-emerald-600">✓ لا توجد بطاقات قديمة ضمن نتائج البحث الحالية.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
-              <thead>
-                <tr className="border-b bg-slate-50 text-right dark:border-slate-700 dark:bg-slate-800/60">
-                  <th className="p-2">الاسم</th>
-                  <th className="p-2">رقم البطاقة</th>
-                  <th className="p-2">الحالة</th>
-                  <th className="p-2">الحركات اليدوية</th>
-                  <th className="p-2">حركات الاستيراد</th>
-                  <th className="p-2">إجراء</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredLegacyOnlyRows.map((row) => (
-                  <tr key={row.id} className="border-b dark:border-slate-800">
-                    <td className="p-2">{row.name}</td>
-                    <td className="p-2 font-mono text-xs">{row.card_number}</td>
-                    <td className="p-2 text-xs">{row.status}</td>
-                    <td className="p-2 text-xs">{row.manual_transactions_count.toLocaleString("ar-LY")}</td>
-                    <td className="p-2 text-xs">{row.import_transactions_count.toLocaleString("ar-LY")}</td>
-                    <td className="p-2">
-                      <LegacyCardInlineToggleButton beneficiaryId={row.id} isLegacyCard={true} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Section>
-      )}
+
 
 
 
