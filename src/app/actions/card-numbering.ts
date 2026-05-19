@@ -28,7 +28,7 @@ const RELATIONSHIP_CODE_MAP: Record<string, string> = {
   "W": "W", "S": "S", "D": "D", "M": "M", "F": "F", "H": "H"
 };
 
-const MAIN_ACCOUNT_TERMS = ["موظف", "موظفة", "رب الأسرة", "صاحب البطاقة", "رئيسي", "MAIN", "EMPLOYEE", "متوفي", "متوفى", "وفاة", "ملحق", "ملحقة"];
+const MAIN_ACCOUNT_TERMS = ["موظف", "موظفة", "رب الأسرة", "رب العائلة", "رب أسرة", "رب عائلة", "صاحب البطاقة", "رئيسي", "MAIN", "EMPLOYEE", "متوفي", "متوفى", "وفاة", "ملحق", "ملحقة"];
 
 const getRelRank = (rel: string) => {
   const r = String(rel || "").trim().toLowerCase();

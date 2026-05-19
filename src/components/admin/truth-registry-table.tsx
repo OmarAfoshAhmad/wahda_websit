@@ -209,7 +209,7 @@ export function TruthRegistryTable({ rows, totalCount, filters }: TruthRegistryT
           <Button
             type="button"
             onClick={handleDeleteSelected}
-            disabled={isDeleting || filters.in_system_not_in_registry || filters.legacy_no_batch}
+            disabled={isDeleting}
             className="h-9 px-4 rounded-xl text-xs font-black bg-rose-600 hover:bg-rose-700 text-white flex items-center gap-2 shadow-lg shadow-rose-950/20 animate-in fade-in"
           >
             {isDeleting ? (
@@ -286,7 +286,7 @@ export function TruthRegistryTable({ rows, totalCount, filters }: TruthRegistryT
             </p>
             <p className="text-[11px] text-amber-700 dark:text-amber-500 mt-1">
               هذه السجلات تمثل مستفيدين مسجلين حالياً في المنظومة ولكن لا يوجد لهم أي تطابق في جدول الحقيقة (البطاقات الرسمية).
-              لا يمكن حذف هذه السجلات من شاشة جدول الحقيقة لعدم وجود سجل لها بالجدول؛ ولكن يمكنك إدارتهم أو تصفيتهم وحذفهم نهائياً عبر شاشة "البطاقات القديمة" في "إدارة المشاكل".
+              يمكنك الآن حذفهم (حذف مبدئي) مباشرة من هذه الشاشة، أو عبر شاشة "البطاقات القديمة" في "إدارة المشاكل".
             </p>
           </div>
         </div>

@@ -187,44 +187,58 @@ export async function deleteTruthRegistryRowsAction(ids: string[]) {
   if (!ids || ids.length === 0) return { error: "لم يتم تحديد سجلات للحذف" };
 
   try {
-    // 1. جلب السجلات المراد حذفها لمعرفة أرقام بطاقاتها
-    const recordsToDelete = await prisma.cardIssuanceRegistryAll.findMany({
-      where: { id: { in: ids } },
-      select: { card_number_upper: true }
+    // 1. التمييز بين سجلات Beneficiary وسجلات CardIssuanceRegistryAll
+    const beneficiaries = await prisma.beneficiary.findMany({
+      where: { id: { in: ids }, deleted_at: null },
+      select: { id: true }
     });
+    
+    const beneficiaryIds = beneficiaries.map(b => b.id);
+    const registryIds = ids.filter(id => !beneficiaryIds.includes(id));
 
-    const cardNumbers = Array.from(new Set(recordsToDelete.map(r => r.card_number_upper)));
+    // 2. حذف سجلات المستفيدين (Soft Delete) إن وجدت
+    if (beneficiaryIds.length > 0) {
+      await prisma.beneficiary.updateMany({
+        where: { id: { in: beneficiaryIds } },
+        data: { deleted_at: new Date() }
+      });
+    }
 
-    // 2. حذف السجلات من CardIssuanceRegistryAll
-    await prisma.cardIssuanceRegistryAll.deleteMany({
-      where: { id: { in: ids } }
-    });
-
-    // 3. لكل بطاقة تم مس منها سجل، نقوم بتحديث أو حذف السجل الموحد CardIssuanceRegistry
-    for (const cardUpper of cardNumbers) {
-      // البحث عن أي سجلات متبقية لهذه البطاقة في CardIssuanceRegistryAll
-      const remaining = await prisma.cardIssuanceRegistryAll.findFirst({
-        where: { card_number_upper: cardUpper },
-        orderBy: { updated_at: "desc" }
+    // 3. معالجة وحذف سجلات جدول الحقيقة إن وجدت
+    if (registryIds.length > 0) {
+      const recordsToDelete = await prisma.cardIssuanceRegistryAll.findMany({
+        where: { id: { in: registryIds } },
+        select: { card_number_upper: true }
       });
 
-      if (remaining) {
-        // إذا كان هناك سجل متبقٍ، نقوم بتحديث السجل الموحد ببياناته
-        await prisma.cardIssuanceRegistry.update({
+      const cardNumbers = Array.from(new Set(recordsToDelete.map(r => r.card_number_upper)));
+
+      await prisma.cardIssuanceRegistryAll.deleteMany({
+        where: { id: { in: registryIds } }
+      });
+
+      for (const cardUpper of cardNumbers) {
+        const remaining = await prisma.cardIssuanceRegistryAll.findFirst({
           where: { card_number_upper: cardUpper },
-          data: {
-            beneficiary_name: remaining.beneficiary_name,
-            birth_date: remaining.birth_date,
-            city: remaining.city,
-            batch_number: remaining.batch_number,
-            updated_at: new Date()
-          }
+          orderBy: { updated_at: "desc" }
         });
-      } else {
-        // إذا لم يتبقَ أي سجل لهذه البطاقة، نقوم بحذفها تماماً من السجل الموحد
-        await prisma.cardIssuanceRegistry.delete({
-          where: { card_number_upper: cardUpper }
-        }).catch(() => {}); // نتفادى أي خطأ في حال كانت غير موجودة مسبقاً
+
+        if (remaining) {
+          await prisma.cardIssuanceRegistry.update({
+            where: { card_number_upper: cardUpper },
+            data: {
+              beneficiary_name: remaining.beneficiary_name,
+              birth_date: remaining.birth_date,
+              city: remaining.city,
+              batch_number: remaining.batch_number,
+              updated_at: new Date()
+            }
+          });
+        } else {
+          await prisma.cardIssuanceRegistry.delete({
+            where: { card_number_upper: cardUpper }
+          }).catch(() => {});
+        }
       }
     }
 
@@ -242,6 +256,9 @@ export async function deleteFilteredTruthRegistryAction(filters: {
   batch?: string;
   multi?: boolean;
   not_in_system?: boolean;
+  in_system_not_in_registry?: boolean;
+  legacy_no_batch?: boolean;
+  legacy_has_batch?: boolean;
 }) {
   const session = await getSessionWithFreshPermissions();
   if (!session || !session.is_admin) return { error: "غير مصرح" };
@@ -253,8 +270,49 @@ export async function deleteFilteredTruthRegistryAction(filters: {
     const isNoBatchFilter = batchFilter === "__NO_BATCH__";
     const onlyMultiBatch = filters.multi === true;
     const onlyMissingInSystem = filters.not_in_system === true;
+    const onlyInSystemNotInRegistry = filters.in_system_not_in_registry === true;
+    const onlyLegacyNoBatch = filters.legacy_no_batch === true;
+    const onlyLegacyHasBatch = filters.legacy_has_batch === true;
 
-    // 1. جلب السجلات المطابقة للتصفية لمعرفة معرفاتها وأرقام بطاقاتها
+    // إذا كان العرض يعتمد على جدول Beneficiary (للبطاقات غير المدرجة بجدول الحقيقة أو البطاقات القديمة)
+    if (onlyInSystemNotInRegistry || onlyLegacyNoBatch) {
+      const result = await prisma.$executeRaw`
+        UPDATE "Beneficiary"
+        SET deleted_at = NOW()
+        WHERE deleted_at IS NULL
+          AND (
+            ${query} = ''
+            OR card_number ILIKE ${`%${query}%`}
+            OR name ILIKE ${`%${query}%`}
+          )
+          AND (
+            ${onlyInSystemNotInRegistry} = false
+            OR REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') NOT IN (
+              SELECT REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
+              FROM "CardIssuanceRegistryAll"
+              WHERE card_number_upper IS NOT NULL
+            )
+          )
+          AND (
+            ${onlyLegacyNoBatch} = false
+            OR (
+              is_legacy_card = true
+              AND (batch_number IS NULL OR BTRIM(batch_number) = '')
+            )
+          )
+          AND (
+            ${onlyLegacyHasBatch} = false
+            OR (
+              is_legacy_card = true
+              AND batch_number IS NOT NULL AND BTRIM(batch_number) <> ''
+            )
+          )
+      `;
+      revalidatePath("/admin/truth-registry");
+      return { success: true, deletedCount: result };
+    }
+
+    // 1. جلب السجلات المطابقة للتصفية لمعرفة معرفاتها وأرقام بطاقاتها (CardIssuanceRegistryAll)
     const rows = await prisma.$queryRaw<{ id: string, card_number_upper: string }[]>`
       WITH filtered AS (
         SELECT id, card_number_upper
