@@ -76,6 +76,16 @@ export async function deductBalance(formData: {
     formData.transactionDate instanceof Date && !Number.isNaN(formData.transactionDate.getTime())
       ? formData.transactionDate
       : null;
+
+  if (manualTransactionDate && !session.is_admin) {
+    const threeDaysAgo = new Date();
+    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+    threeDaysAgo.setHours(0, 0, 0, 0);
+    if (manualTransactionDate.getTime() < threeDaysAgo.getTime()) {
+      return { error: "لا يمكن تسجيل حركات بتاريخ قديم يتجاوز 3 أيام لغير المشرفين" };
+    }
+  }
+
   const idempotencyKey = buildIdempotencyKey("deduct", session.id, formData.requestId);
 
   try {
@@ -147,6 +157,11 @@ export async function deductBalance(formData: {
         companyId = companyMatch?.id || null;
       }
 
+      // قيد عزل صارم: الخدمات الطبية العامة (دواء وكشف عام) مقصورة على موظفي مصرف الوحدة فقط
+      if (type !== "DENTAL" && companyId && companyId !== "cmp7ha2km0000u9v8jse4ib5x") {
+        throw new Error("هذا المستفيد يتبع شركة تأمين خاصة بالأسنان فقط. الخدمات العامة مقصورة على مصرف الوحدة.");
+      }
+
       // [TPA] Calculate Annual Consumption for this Category
       const fiscalYear = InsuranceEngine.getFiscalYear(manualTransactionDate || new Date());
       const startDate = new Date(fiscalYear, 0, 1);
@@ -179,6 +194,10 @@ export async function deductBalance(formData: {
       // رفض الخصم إذا كانت السياسة موجودة لكن غير فعالة
       if (policyRecord && !policyRecord.is_active) {
         throw new Error(`سياسة الخدمة (${policyServiceType}) غير مفعلة حالياً`);
+      }
+
+      if (type === "DENTAL" && !policyRecord) {
+        throw new Error("لا توجد سياسة أسنان (DENTAL) نشطة ومُعرّفة لهذه الشركة. لا يمكن إتمام الخصم.");
       }
 
       let tpaData: Record<string, unknown> = {};

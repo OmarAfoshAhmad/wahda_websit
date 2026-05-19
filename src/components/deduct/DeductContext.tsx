@@ -145,7 +145,7 @@ export function DeductProvider({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
-  const [type, setType] = useState<DeductType>(facilityType === "PHARMACY" ? "MEDICINE" : "GENERAL");
+  const [type, setType] = useState<DeductType>(facilityType === "PHARMACY" ? "MEDICINE" : "SUPPLIES");
   const [showConfirm, setShowConfirm] = useState(false);
   const [deducting, setDeducting] = useState(false);
   const [simulation, setSimulation] = useState<SimulationResult | null>(null);
@@ -247,7 +247,7 @@ export function DeductProvider({
   const resetSearchState = useCallback(() => {
     setSearchInput(""); setCardNumber(""); setSuggestions([]);
     setShowSuggestions(false); setBeneficiary(null);
-    setAmount(""); setType(facilityType === "PHARMACY" ? "MEDICINE" : "GENERAL"); setShowConfirm(false);
+    setAmount(""); setType(facilityType === "PHARMACY" ? "MEDICINE" : "SUPPLIES"); setShowConfirm(false);
     setError(null); setSuccess(null);
   }, [facilityType]);
 

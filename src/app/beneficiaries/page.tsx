@@ -31,6 +31,7 @@ const getCachedStatusCounts = unstable_cache(
         status,
         COUNT(*)::bigint AS _count
       FROM "Beneficiary"
+      WHERE ("company_id" = 'cmp7ha2km0000u9v8jse4ib5x' OR "company_id" IS NULL)
       GROUP BY is_deleted, status
     `;
     // تحويل BigInt إلى number لأن unstable_cache يستخدم JSON.stringify
@@ -138,48 +139,69 @@ export default async function BeneficiariesPage({
 
   if (!isDeletedView && (issuanceCityFilter || issuanceBatchFilter)) {
     type IssuanceCardRow = { card_number_upper: string };
-    let matchedCards: IssuanceCardRow[] = [];
 
-    if (issuanceCityFilter && issuanceBatchFilter) {
-      matchedCards = await prisma.$queryRaw<IssuanceCardRow[]>`
+    if (isNoBatchFilter && !issuanceCityFilter) {
+      // بدون دفعة وبدون تحديد مدينة: نريد كل المستفيدين الذين ليس لديهم دفعة في السجل (سواء ليس لديهم سجل إطلاقا أو سجلهم بدون دفعة)
+      const matchedCardsWithBatch = await prisma.$queryRaw<IssuanceCardRow[]>`
         SELECT DISTINCT card_number_upper
         FROM "CardIssuanceRegistry"
-        WHERE city = ${issuanceCityFilter}
-          AND (
-            (${isNoBatchFilter} = true AND (batch_number IS NULL OR BTRIM(batch_number) = ''))
-            OR (${isNoBatchFilter} = false AND batch_number = ${issuanceBatchFilter})
-          )
+        WHERE batch_number IS NOT NULL AND BTRIM(batch_number) <> ''
       `;
-    } else if (issuanceCityFilter) {
-      matchedCards = await prisma.$queryRaw<IssuanceCardRow[]>`
-        SELECT DISTINCT card_number_upper
-        FROM "CardIssuanceRegistry"
-        WHERE city = ${issuanceCityFilter}
-      `;
-    } else if (issuanceBatchFilter) {
-      matchedCards = await prisma.$queryRaw<IssuanceCardRow[]>`
-        SELECT DISTINCT card_number_upper
-        FROM "CardIssuanceRegistry"
-        WHERE (
-          (${isNoBatchFilter} = true AND (batch_number IS NULL OR BTRIM(batch_number) = ''))
-          OR (${isNoBatchFilter} = false AND batch_number = ${issuanceBatchFilter})
-        )
-      `;
+      const cardsWithBatch = matchedCardsWithBatch.map((r) => r.card_number_upper).filter((v) => Boolean(v));
+      baseFilter.card_number = { notIn: cardsWithBatch.length > 0 ? cardsWithBatch : ["__DUMMY__"] };
+    } else {
+      let matchedCards: IssuanceCardRow[] = [];
+
+      if (issuanceCityFilter && issuanceBatchFilter) {
+        matchedCards = await prisma.$queryRaw<IssuanceCardRow[]>`
+          SELECT DISTINCT card_number_upper
+          FROM "CardIssuanceRegistry"
+          WHERE city = ${issuanceCityFilter}
+            AND (
+              (${isNoBatchFilter} = true AND (batch_number IS NULL OR BTRIM(batch_number) = ''))
+              OR (${isNoBatchFilter} = false AND batch_number = ${issuanceBatchFilter})
+            )
+        `;
+      } else if (issuanceCityFilter) {
+        matchedCards = await prisma.$queryRaw<IssuanceCardRow[]>`
+          SELECT DISTINCT card_number_upper
+          FROM "CardIssuanceRegistry"
+          WHERE city = ${issuanceCityFilter}
+        `;
+      } else if (issuanceBatchFilter) {
+        // هنا isNoBatchFilter كاذبة بالتأكيد لأننا عالجنا الحالة الصادقة في الشرط الأول
+        matchedCards = await prisma.$queryRaw<IssuanceCardRow[]>`
+          SELECT DISTINCT card_number_upper
+          FROM "CardIssuanceRegistry"
+          WHERE batch_number = ${issuanceBatchFilter}
+        `;
+      }
+
+      const cards = matchedCards.map((r) => r.card_number_upper).filter((v) => Boolean(v));
+      baseFilter.card_number = { in: cards.length > 0 ? cards : ["__NO_MATCH__"] };
     }
-
-    const cards = matchedCards.map((r) => r.card_number_upper).filter((v) => Boolean(v));
-    baseFilter.card_number = { in: cards.length > 0 ? cards : ["__NO_MATCH__"] };
   }
 
-  const where = (query && !isStrictOldCardView)
-    ? {
-      ...baseFilter,
+  const where: any = {
+    AND: [
+      baseFilter,
+      {
+        OR: [
+          { company_id: "cmp7ha2km0000u9v8jse4ib5x" },
+          { company_id: null }
+        ]
+      }
+    ]
+  };
+
+  if (query && !isStrictOldCardView) {
+    where.AND.push({
       OR: getArabicSearchTerms(query).flatMap(t => [
         { name: { contains: t, mode: "insensitive" as const } },
         { card_number: { contains: t, mode: "insensitive" as const } },
-      ]),
-    }
-    : baseFilter;
+      ])
+    });
+  }
 
   const [rawBeneficiaries, filteredCount, statusCounts, focusedBeneficiary, issuanceCityRows, issuanceBatchRows] = await Promise.all([
     prisma.beneficiary.findMany({

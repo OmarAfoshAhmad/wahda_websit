@@ -45,24 +45,34 @@ export async function lookupFamily(query: string): Promise<{
 
   const normalized = normalizeCardInput(trimmed);
 
-  // البحث عن المستفيد بالاسم أو رقم البطاقة
+  // البحث عن المستفيد بالاسم أو رقم البطاقة مقيداً بمصرف الوحدة أو بدون شركة
   const beneficiary = await prisma.beneficiary.findFirst({
     where: {
       deleted_at: null,
-      OR: [
+      AND: [
         {
-          card_number: {
-            equals: normalized,
-            mode: "insensitive",
-          },
+          OR: [
+            {
+              card_number: {
+                equals: normalized,
+                mode: "insensitive",
+              },
+            },
+            {
+              name: {
+                contains: trimmed,
+                mode: "insensitive",
+              },
+            },
+          ],
         },
         {
-          name: {
-            contains: trimmed,
-            mode: "insensitive",
-          },
-        },
-      ],
+          OR: [
+            { company_id: "cmp7ha2km0000u9v8jse4ib5x" },
+            { company_id: null }
+          ]
+        }
+      ]
     },
     select: { id: true, card_number: true, name: true },
   });
@@ -86,6 +96,7 @@ export async function lookupFamily(query: string): Promise<{
     SELECT id, card_number, name, remaining_balance::float8, status
     FROM "Beneficiary"
     WHERE deleted_at IS NULL
+      AND ("company_id" = 'cmp7ha2km0000u9v8jse4ib5x' OR "company_id" IS NULL)
       AND UPPER(card_number) LIKE ${baseCard + "%"}
     ORDER BY remaining_balance DESC
     LIMIT 50

@@ -11,7 +11,8 @@ import {
   Home,
   Activity,
   CreditCard,
-  ShieldCheck
+  ShieldCheck,
+  Stethoscope
 } from "lucide-react";
 import type { ManagerPermissions } from "./permissions";
 
@@ -37,7 +38,11 @@ export const MAINTENANCE_NAV = [
   { name: "جدول الحقيقة", href: "/admin/truth-registry", icon: ClipboardList, perms: [] },
   { name: "شركات التأمين", href: "/admin/companies", icon: Building2, perms: [] },
   { name: "سياسات الخدمات", href: "/admin/policies", icon: ShieldCheck, perms: [] },
+  { name: "حركات الأسنان", href: "/admin/dental-transactions", icon: Activity, perms: [] },
 ];
+
+/** تبويب "خدمات الأسنان" — يظهر في الشريط الرئيسي للمشرف والمدير */
+export const DENTAL_NAV = { name: "خدمات الأسنان", href: "/admin/dental-services", icon: Stethoscope };
 
 export const CASH_CLAIM_NAV = { name: "كاش", href: "/cash-claim", icon: Banknote };
 export const EMPLOYEE_HOME_NAV = { name: "الرئيسية", href: "/cash-claim", icon: Home };

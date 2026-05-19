@@ -28,6 +28,7 @@ export type ImportJobSnapshot = {
 export type ImportOptions = {
   updateBalance: boolean;
   reactivate: boolean;
+  company_id?: string; // شركة التأمين المستهدفة (للاستيراد من بوابة الأسنان)
 };
 
 type NormalizedImportRow = {
@@ -398,6 +399,7 @@ export async function processImportJob(jobId: string, username: string) {
     const rawOpts = currentJob.options as Record<string, unknown>;
     if (rawOpts.updateBalance === true) opts.updateBalance = true;
     if (rawOpts.reactivate === true) opts.reactivate = true;
+    if (typeof rawOpts.company_id === "string" && rawOpts.company_id) opts.company_id = rawOpts.company_id;
   }
 
   // بيانات التراجع
@@ -652,6 +654,8 @@ export async function processImportJob(jobId: string, username: string) {
             total_balance: initialBalance,
             remaining_balance: initialBalance,
             status: "ACTIVE" as const,
+            // ربط بشركة التأمين إن وُجدت (استيراد من بوابة الأسنان)
+            ...(opts.company_id ? { company_id: opts.company_id } : {}),
           })),
           skipDuplicates: true,
         });

@@ -20,7 +20,8 @@ import {
   SUPER_ADMIN_NAV, 
   MAINTENANCE_NAV, 
   CASH_CLAIM_NAV, 
-  EMPLOYEE_HOME_NAV 
+  EMPLOYEE_HOME_NAV,
+  DENTAL_NAV
 } from "@/lib/navigation";
 import type { Session } from "@/lib/permissions";
 
@@ -70,7 +71,7 @@ export function Shell({
     const filteredSuperAdminNav = SUPER_ADMIN_NAV.filter(item => hasPermission(session, item.perm));
 
     if (isAdmin) {
-      return [...BASE_NAV, ...MANAGER_NAV, ...(canUseCashClaim ? [CASH_CLAIM_NAV] : []), ...SUPER_ADMIN_NAV];
+      return [...BASE_NAV, ...MANAGER_NAV, ...(canUseCashClaim ? [CASH_CLAIM_NAV] : []), ...SUPER_ADMIN_NAV, DENTAL_NAV];
     }
     
     if (isManager || isEmployee) {
@@ -79,6 +80,7 @@ export function Shell({
         ...filteredManagerNav,
         ...(isManager && canUseCashClaim ? [CASH_CLAIM_NAV] : []),
         ...filteredSuperAdminNav,
+        ...(isManager ? [DENTAL_NAV] : []),
       ];
     }
 
@@ -111,6 +113,46 @@ export function Shell({
               </div>
               <div className="flex items-center gap-2 lg:hidden" suppressHydrationWarning>
                 <ThemeSwitcher />
+                {/* قائمة الصيانة (موبايل) */}
+                {showMaintenance && (
+                  <div className="relative" suppressHydrationWarning>
+                    <button
+                      onClick={() => setIsMaintenanceOpen(!isMaintenanceOpen)}
+                      className={cn(
+                        "inline-flex h-10 w-10 items-center justify-center rounded-md border transition-colors",
+                        isMaintenanceOpen || pathname.includes("/admin/")
+                          ? "border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-slate-200"
+                          : "border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700"
+                      )}
+                      title="الصيانة"
+                    >
+                      <Wrench className="h-4 w-4" />
+                    </button>
+                    {isMaintenanceOpen && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setIsMaintenanceOpen(false)} />
+                        <div className="absolute left-0 top-full z-50 mt-2 min-w-48 rounded-md border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900" suppressHydrationWarning>
+                          {filteredMaintenanceNav.map((item) => (
+                            <Link
+                              key={item.href}
+                              href={item.href}
+                              onClick={() => setIsMaintenanceOpen(false)}
+                              className={cn(
+                                "flex items-center gap-2 rounded-sm px-3 py-2 text-xs font-bold transition-colors",
+                                pathname === item.href
+                                  ? "bg-primary/10 text-primary dark:bg-primary/20 dark:text-blue-400"
+                                  : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200"
+                              )}
+                            >
+                              <item.icon className="h-3.5 w-3.5" />
+                              {item.name}
+                            </Link>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
                 <Link
                   href="/settings"
                   className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-primary dark:hover:text-blue-400"
@@ -129,36 +171,48 @@ export function Shell({
             </div>
 
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center" suppressHydrationWarning>
+              {/* ── روابط التنقل الرئيسية ── */}
               <div className="flex items-center gap-1 pb-1 lg:pb-0" suppressHydrationWarning>
                 <div className="flex" suppressHydrationWarning>
                   {allNav.map((item) => (
                     <NavLink 
                       key={item.href} 
                       item={item} 
-                      isActive={pathname === item.href} 
+                      isActive={pathname === item.href || pathname.startsWith(item.href + "/")} 
                     />
                   ))}
+                </div>
+              </div>
 
+              {/* ── حاوية المعلومات + أزرار التحكم + قائمة الصيانة ── */}
+              <div className="flex items-center justify-between gap-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-2.5 py-1.5 lg:min-w-fit" suppressHydrationWarning>
+                <div className="text-right" suppressHydrationWarning>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">{roleLabel}</p>
+                  <p className="text-[13px] font-bold text-slate-800 dark:text-slate-200">{facilityName}</p>
+                </div>
+                <div className="hidden items-center gap-1 lg:flex" suppressHydrationWarning>
+                  <ThemeSwitcher />
+
+                  {/* قائمة الصيانة المنسدلة — بجانب المفتاح والخروج */}
                   {showMaintenance && (
                     <div className="relative" suppressHydrationWarning>
                       <button
                         onClick={() => setIsMaintenanceOpen(!isMaintenanceOpen)}
                         className={cn(
-                          "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-bold transition-colors",
+                          "flex h-9 w-9 items-center justify-center rounded-md border transition-colors",
                           isMaintenanceOpen || pathname.includes("/admin/")
-                            ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-200"
-                            : "text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
+                            ? "border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200"
+                            : "border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-700 dark:hover:text-slate-200"
                         )}
+                        title="الصيانة"
                       >
-                        <Wrench className="h-3.5 w-3.5" />
-                        <span>صيانة</span>
-                        <ChevronDown className={cn("h-3 w-3 transition-transform", isMaintenanceOpen && "rotate-180")} />
+                        <Wrench className="h-4 w-4" />
                       </button>
 
                       {isMaintenanceOpen && (
                         <>
                           <div className="fixed inset-0 z-40" onClick={() => setIsMaintenanceOpen(false)} />
-                          <div className="absolute right-0 top-full z-50 mt-2 min-w-48 rounded-md border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900" suppressHydrationWarning>
+                          <div className="absolute left-0 top-full z-50 mt-2 min-w-52 rounded-md border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900" suppressHydrationWarning>
                             {filteredMaintenanceNav.map((item) => (
                               <Link
                                 key={item.href}
@@ -180,16 +234,7 @@ export function Shell({
                       )}
                     </div>
                   )}
-                </div>
-              </div>
 
-              <div className="flex items-center justify-between gap-3 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-2.5 py-1.5 lg:min-w-48.75" suppressHydrationWarning>
-                <div className="text-right" suppressHydrationWarning>
-                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">{roleLabel}</p>
-                  <p className="text-[13px] font-bold text-slate-800 dark:text-slate-200">{facilityName}</p>
-                </div>
-                <div className="hidden items-center gap-1 lg:flex" suppressHydrationWarning>
-                  <ThemeSwitcher />
                   <Link
                     href="/settings"
                     className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-primary dark:hover:text-primary-light"

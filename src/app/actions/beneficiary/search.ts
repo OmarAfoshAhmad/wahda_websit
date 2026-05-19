@@ -79,6 +79,7 @@ export async function searchBeneficiaries(query: string) {
         ) AS has_import_deduction
       FROM "Beneficiary"
       WHERE deleted_at IS NULL
+        AND ("company_id" = 'cmp7ha2km0000u9v8jse4ib5x' OR "company_id" IS NULL)
         AND (
           name ILIKE ${likePattern}
           OR name ILIKE ${normalizedPattern}
@@ -169,7 +170,14 @@ export async function getBeneficiaryFamilyImportInsights(beneficiaryId: string) 
     // ensureFamilyImportArchiveTable: no-op — الجدول الآن في Prisma Schema
 
     const beneficiary = await prisma.beneficiary.findFirst({
-      where: { id: cleanId, deleted_at: null },
+      where: {
+        id: cleanId,
+        deleted_at: null,
+        OR: [
+          { company_id: "cmp7ha2km0000u9v8jse4ib5x" },
+          { company_id: null }
+        ]
+      },
       select: { id: true, card_number: true },
     });
 
@@ -203,6 +211,7 @@ export async function getBeneficiaryFamilyImportInsights(beneficiaryId: string) 
       FROM "Beneficiary" b
       LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id
       WHERE b.deleted_at IS NULL
+        AND (b.company_id = 'cmp7ha2km0000u9v8jse4ib5x' OR b.company_id IS NULL)
         AND b.card_number LIKE ${familyBaseCard + "%"}
       GROUP BY b.id, b.name, b.card_number, b.status, b.total_balance, b.remaining_balance
       ORDER BY b.card_number ASC

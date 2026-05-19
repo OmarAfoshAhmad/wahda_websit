@@ -64,6 +64,18 @@ export async function GET(request: NextRequest) {
     where.type = { in: ["MEDICINE", "SUPPLIES"] };
   }
 
+  const existingAndBase = Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : [];
+  where.AND = [
+    ...existingAndBase,
+    { type: { not: "DENTAL" as any } },
+    {
+      OR: [
+        { company_id: "cmp7ha2km0000u9v8jse4ib5x" },
+        { company_id: null }
+      ]
+    }
+  ];
+
   if (batch_number) {
     where.beneficiary = { ...where.beneficiary as object, batch_number };
   }

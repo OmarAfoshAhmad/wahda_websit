@@ -59,23 +59,37 @@ export async function GET(request: NextRequest) {
 
   const hasExplicitSelection = selectedIds.length > 0;
 
-  const where = hasExplicitSelection
+  const where: any = hasExplicitSelection
     ? {
         id: { in: selectedIds },
+        OR: [
+          { company_id: "cmp7ha2km0000u9v8jse4ib5x" },
+          { company_id: null }
+        ]
       }
     : {
-        ...(isDeletedView ? { deleted_at: { not: null } } : { deleted_at: null }),
-        ...(!isDeletedView && statusFilter ? { status: statusFilter } : {}),
-        ...(!isDeletedView && completedViaFilter ? { completed_via: completedViaFilter } : {}),
-        ...(!isDeletedView && cardAgeFilter === "old" ? { is_legacy_card: true } : {}),
-        ...(q
-          ? {
-              OR: getArabicSearchTerms(q).flatMap(t => [
-                { name: { contains: t, mode: "insensitive" as const } },
-                { card_number: { contains: t, mode: "insensitive" as const } },
-              ]),
-            }
-          : {}),
+        AND: [
+          {
+            OR: [
+              { company_id: "cmp7ha2km0000u9v8jse4ib5x" },
+              { company_id: null }
+            ]
+          },
+          {
+            ...(isDeletedView ? { deleted_at: { not: null } } : { deleted_at: null }),
+            ...(!isDeletedView && statusFilter ? { status: statusFilter } : {}),
+            ...(!isDeletedView && completedViaFilter ? { completed_via: completedViaFilter } : {}),
+            ...(!isDeletedView && cardAgeFilter === "old" ? { is_legacy_card: true } : {}),
+            ...(q
+              ? {
+                  OR: getArabicSearchTerms(q).flatMap(t => [
+                    { name: { contains: t, mode: "insensitive" as const } },
+                    { card_number: { contains: t, mode: "insensitive" as const } },
+                  ]),
+                }
+              : {}),
+          }
+        ]
       };
 
   try {

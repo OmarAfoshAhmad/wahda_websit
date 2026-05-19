@@ -35,20 +35,12 @@ export function DeductionAction() {
   const hasAmount = Number.isFinite(amountValue) && amountValue > 0;
 
   const serviceTypes: { value: string; label: string }[] = [];
-  const hasCompanyTypes = availableServiceTypes.length > 0;
-
-  // Filter by facility type, then by company policies if available
-  const addIf = (value: string, label: string, show: boolean) => {
-    if (show && (!hasCompanyTypes || availableServiceTypes.includes(value))) {
-      serviceTypes.push({ value, label });
-    }
-  };
-
-  addIf("GENERAL", "كشف عام", true);
-  addIf("MEDICINE", "أدوية صرف عام", true);
-  addIf("DENTAL", "خدمات أسنان", facilityType !== "PHARMACY");
-  addIf("OPTICS", "خدمات بصريات", facilityType !== "PHARMACY");
-  addIf("SUPPLIES", "مستلزمات طبية", facilityType !== "PHARMACY");
+  if (facilityType === "PHARMACY") {
+    serviceTypes.push({ value: "MEDICINE", label: "أدوية صرف عام" });
+  } else {
+    serviceTypes.push({ value: "SUPPLIES", label: "كشف عام" });
+    serviceTypes.push({ value: "MEDICINE", label: "أدوية صرف عام" });
+  }
 
   return (
     <div className="space-y-4">
@@ -165,7 +157,7 @@ export function DeductionAction() {
             </p>
             <div className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-[11px] font-bold text-slate-500 border border-slate-200">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-              {type === "GENERAL" ? "كشف عام" : type === "MEDICINE" ? "أدوية" : type === "DENTAL" ? "أسنان" : type === "OPTICS" ? "بصريات" : "مستلزمات"}
+              {type === "SUPPLIES" ? "كشف عام" : type === "MEDICINE" ? "أدوية صرف عام" : type === "GENERAL" ? "كشف عام" : type === "DENTAL" ? "أسنان" : type === "OPTICS" ? "بصريات" : "مستلزمات"}
               {" • "}
               {beneficiary.name}
             </div>

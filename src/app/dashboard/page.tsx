@@ -21,6 +21,7 @@ const getCachedAdminStats = unstable_cache(
           COUNT(*) FILTER (WHERE "deleted_at" IS NULL) AS total_beneficiaries,
           COUNT(*) FILTER (WHERE "deleted_at" IS NULL AND status = 'ACTIVE') AS active_beneficiaries
         FROM "Beneficiary"
+        WHERE ("company_id" = 'cmp7ha2km0000u9v8jse4ib5x' OR "company_id" IS NULL)
       `,
       prisma.facility.count({ where: { deleted_at: null } })
     ]);
@@ -30,7 +31,7 @@ const getCachedAdminStats = unstable_cache(
       facilityCount,
     };
   },
-  ["admin-dashboard-stats-v1"],
+  ["admin-dashboard-stats-v2"], // Incremented version to bust cache
   { revalidate: 60 }
 );
 
@@ -44,6 +45,11 @@ function getCachedTodayStats(facilityId: string) {
           ...(facilityId !== "admin" ? { facility_id: facilityId } : {}),
           created_at: { gte: startOfDay },
           is_cancelled: false,
+          type: { not: "DENTAL" },
+          OR: [
+            { company_id: "cmp7ha2km0000u9v8jse4ib5x" },
+            { company_id: null }
+          ],
         },
         _sum: { amount: true },
         _count: true,
@@ -53,7 +59,7 @@ function getCachedTodayStats(facilityId: string) {
         count: result._count,
       };
     },
-    [`today-transactions-stats-v3-${facilityId}`],
+    [`today-transactions-stats-v4-${facilityId}`], // Incremented version to bust cache
     { revalidate: 30 }
   )();
 }

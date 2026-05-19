@@ -76,9 +76,11 @@ export async function POST(request: Request) {
     });
 
     // قراءة خيارات الاستيراد من FormData
+    const companyIdParam = formData.get("company_id");
     const options: ImportOptions = {
       updateBalance: formData.get("updateBalance") === "true",
       reactivate: formData.get("reactivate") === "true",
+      ...(typeof companyIdParam === "string" && companyIdParam.trim() ? { company_id: companyIdParam.trim() } : {}),
     };
 
     const result = await createImportJob(rows, session.username, options);
