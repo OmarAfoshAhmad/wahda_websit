@@ -185,14 +185,14 @@ export function DentalImportUploader({ companies }: Props) {
         <input type="file" id="dental-file-upload" className="hidden" accept=".xlsx,.xls" onChange={handleFileChange} />
 
         <div className="mx-auto mt-5 flex w-full max-w-sm flex-col items-center space-y-3">
-          <Button
-            variant="outline"
-            className="h-12 w-full"
-            disabled={isBusy}
-            onClick={() => document.getElementById("dental-file-upload")?.click()}
+          <label
+            htmlFor="dental-file-upload"
+            className={`flex h-12 w-full items-center justify-center rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-sm font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer transition-colors ${
+              isBusy ? "opacity-50 pointer-events-none" : ""
+            }`}
           >
             {file ? file.name : "اختيار الملف (Excel)"}
-          </Button>
+          </label>
 
           <div className="w-full space-y-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3 text-right">
             <p className="text-xs font-bold text-slate-600 dark:text-slate-400 mb-2">خيارات للمستفيدين الموجودين مسبقاً:</p>

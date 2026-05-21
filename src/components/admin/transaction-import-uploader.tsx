@@ -266,14 +266,14 @@ export function TransactionImportUploader({
             سيتم تنفيذ الاستيراد باسم: <span className="mr-1 font-black">{currentActorName}</span>
           </div>
 
-          <Button
-            variant="outline"
-            className="h-12 w-full"
-            disabled={isBusy}
-            onClick={() => document.getElementById("tx-file-upload")?.click()}
+          <label
+            htmlFor="tx-file-upload"
+            className={`flex h-12 w-full items-center justify-center rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-sm font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer transition-colors ${
+              isBusy ? "opacity-50 pointer-events-none" : ""
+            }`}
           >
             {file ? file.name : "اختيار الملف"}
-          </Button>
+          </label>
 
           <label className="flex w-full items-start gap-2 rounded-md border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-900/20 p-3 text-right">
             <input
