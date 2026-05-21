@@ -93,14 +93,32 @@ export async function softDeleteCompany(id: string) {
   }
 
   try {
+    // 1. التحقق من وجود حركات خصم مسجلة على الشركة
+    const transactionCount = await prisma.transaction.count({
+      where: { company_id: id }
+    });
+
+    if (transactionCount > 0) {
+      return { error: "لا يمكن حذف الشركة لوجود حركات خصم مسجلة عليها" };
+    }
+
+    // 2. حذف الشركة (Soft Delete)
     await prisma.insuranceCompany.update({
       where: { id },
       data: { deleted_at: new Date(), is_active: false },
     });
+
+    // 3. حذف جميع المستفيدين النشطين التابعين للشركة (Soft Delete)
+    await prisma.beneficiary.updateMany({
+      where: { company_id: id, deleted_at: null },
+      data: { deleted_at: new Date() }
+    });
+
     revalidatePath("/admin/companies");
     clearAllCaches(); // TPA-04: إعادة تحميل كاش الشركات فوراً
     return { success: true };
   } catch (error) {
+    console.error("Soft delete company error:", error);
     return { error: "تعذر حذف الشركة" };
   }
 }

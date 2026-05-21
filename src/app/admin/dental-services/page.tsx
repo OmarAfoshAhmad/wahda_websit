@@ -132,20 +132,25 @@ export default async function DentalServicesPage({
                       href={`/admin/dental-services/${company.id}`}
                       className={`group block rounded-xl border ${colors.border} bg-gradient-to-br ${colors.bg} p-5 transition-all duration-200 hover:shadow-md hover:scale-[1.01] dark:bg-none dark:bg-slate-800/50 dark:border-slate-700`}
                     >
-                      <div className="flex items-start justify-between mb-4">
-                        <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${colors.icon} dark:bg-slate-700 dark:text-slate-300 font-black text-xl`}>
-                          {company.logo ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={company.logo} alt={company.name} className="h-10 w-10 object-contain rounded-lg" />
-                          ) : (
-                            <Building2 className="h-6 w-6" />
-                          )}
+                      <div className="flex items-center justify-between mb-4 gap-4">
+                        {/* اليمين: اسم الشركة والكود */}
+                        <div className="min-w-0">
+                          <h3 className="text-base font-black text-slate-900 dark:text-white mb-1 leading-snug">{company.name}</h3>
+                          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 font-mono">{company.code}</p>
                         </div>
-                        <ChevronLeft className="h-5 w-5 text-slate-400 group-hover:text-teal-600 dark:group-hover:text-teal-400 transition-colors -rotate-180" />
+                        {/* اليسار: الشعار والـ Chevron */}
+                        <div className="flex items-center gap-3 shrink-0">
+                          <div className="flex h-16 w-24 items-center justify-center rounded-xl bg-white dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 shadow-sm p-1.5">
+                            {company.logo ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={company.logo} alt={company.name} className="h-full w-full object-contain rounded-lg" />
+                            ) : (
+                              <Building2 className="h-8 w-8 text-slate-400 dark:text-slate-500" />
+                            )}
+                          </div>
+                          <ChevronLeft className="h-5 w-5 text-slate-400 group-hover:text-teal-600 dark:group-hover:text-teal-400 transition-colors -rotate-180" />
+                        </div>
                       </div>
-
-                      <h3 className="text-base font-black text-slate-900 dark:text-white mb-1">{company.name}</h3>
-                      <p className="text-xs font-bold text-slate-500 dark:text-slate-400 font-mono mb-3">{company.code}</p>
 
                       <div className="flex flex-wrap gap-2">
                         <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full ${colors.badge} dark:bg-slate-700 dark:text-slate-300`}>

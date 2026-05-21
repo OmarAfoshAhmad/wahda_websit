@@ -3,13 +3,16 @@ const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
 const companies = [
-  { name: "مصرف الوحدة", code: "WAB", pattern: "WAB-*", ceiling: 600.00 },
   { name: "أوزون (OZONE)", code: "O3G", pattern: "^O3G2025.*", ceiling: 3000.00 },
   { name: "توسالي (Tosyali)", code: "TOSY", pattern: "^TOSY2025.*", ceiling: 3000.00 },
   { name: "فيجن (Vision)", code: "VISN", pattern: "^VISN2025.*", ceiling: 3000.00 },
   { name: "فيوتشر (Future)", code: "FUTU", pattern: "^FUTU2025.*", ceiling: 3000.00 },
   { name: "رواق (Rewaq)", code: "RWG", pattern: "^RWG2025.*", ceiling: 3000.00 },
-  { name: "فيوتشر", code: "FUT", pattern: "FUT-*", ceiling: 3000.00 },
+  { name: "أركاديا (Arcadia)", code: "ARCD", pattern: "^ARCAD2025.*", ceiling: 3000.00 },
+  { name: "حجر الماس (Hajar)", code: "HJR", pattern: "^HJR2026.*", ceiling: 3000.00 },
+  { name: "وعد (Waad)", code: "WAAD", pattern: "^WAAD2025.*", ceiling: 3000.00 },
+  { name: "الوعد المعماري (Waad Architect)", code: "WCA", pattern: "^WCA2026.*", ceiling: 3000.00 },
+  { name: "الواحة (Waha)", code: "WAHA", pattern: "^WAHA2025.*", ceiling: 3000.00 },
 ];
 
 async function main() {

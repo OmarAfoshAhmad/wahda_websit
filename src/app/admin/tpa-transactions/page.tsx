@@ -7,14 +7,14 @@ import { Card, Badge } from "@/components/ui";
 import { formatDateTripoli, formatTimeTripoli } from "@/lib/datetime";
 import Link from "next/link";
 import {
-  Stethoscope, Building2, Search, Download, ChevronRight, ChevronLeft,
-  TrendingDown, Users, ShieldCheck, Calendar, FileSpreadsheet
+  Building2, Search, Download, ChevronRight, ChevronLeft,
+  Users, ShieldCheck, Activity
 } from "lucide-react";
-import { DentalExportButton } from "@/components/dental-export-button";
+import { TpaExportButton } from "@/components/tpa-export-button";
 
 const PAGE_SIZE = 30;
 
-type DentalTx = {
+type TpaTx = {
   id: string;
   amount: Prisma.Decimal;
   actual_company_share: Prisma.Decimal | null;
@@ -28,7 +28,7 @@ type DentalTx = {
   company: { id: string; name: string; code: string } | null;
 };
 
-export default async function DentalTransactionsPage({
+export default async function TpaTransactionsPage({
   searchParams,
 }: {
   searchParams: Promise<{
@@ -52,14 +52,18 @@ export default async function DentalTransactionsPage({
   const fromDate = sp.from ?? "";
   const toDate = sp.to ?? "";
 
-  // جلب قائمة الشركات للفلتر
+  // جلب قائمة شركات التأمين عدا مصرف الوحدة للفلتر
   const companies = await prisma.insuranceCompany.findMany({
-    where: { deleted_at: null, is_active: true },
+    where: { 
+      deleted_at: null, 
+      is_active: true,
+      id: { not: "cmp7ha2km0000u9v8jse4ib5x" }
+    },
     select: { id: true, name: true, code: true },
     orderBy: { name: "asc" },
   });
 
-  // جلب قائمة المرافق للفلتر (المشرف يرى الكل، غير ذلك يرى مرفقه فقط)
+  // جلب قائمة المرافق للفلتر
   const facilities = session.is_admin
     ? await prisma.facility.findMany({ where: { deleted_at: null }, select: { id: true, name: true }, orderBy: { name: "asc" } })
     : [{ id: session.id, name: session.name }];
@@ -72,7 +76,11 @@ export default async function DentalTransactionsPage({
 
   // بناء شروط الاستعلام
   const where: Prisma.TransactionWhereInput = {
-    type: "DENTAL",
+    type: { not: "DENTAL" as any },
+    company_id: {
+      notIn: ["cmp7ha2km0000u9v8jse4ib5x"], // استثناء مصرف الوحدة
+      not: null, // استثناء الحركات العامة
+    },
     is_cancelled: false,
   };
 
@@ -158,49 +166,39 @@ export default async function DentalTransactionsPage({
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 dark:border-slate-800 pb-5">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400">
-                <Stethoscope className="h-5 w-5" />
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400">
+                <Building2 className="h-5 w-5" />
               </div>
-              <h1 className="text-2xl font-black text-slate-900 dark:text-white">حركات الأسنان</h1>
+              <h1 className="text-2xl font-black text-slate-900 dark:text-white">حركات شركات التأمين</h1>
             </div>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              سجل مستقل لجميع عمليات خصم خدمات الأسنان — مفصول عن الحركات العامة
+              سجل مستقل لجميع حركات خصم الخدمات العامة لشركات التأمين الأخرى — مفصول عن حركات مصرف الوحدة والأسنان
             </p>
           </div>
-          <div className="flex items-center gap-3">
-            {session.is_admin && (
-              <Link href="/admin/dental-transactions/import">
-                <button className="inline-flex items-center justify-center rounded-md font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 focus:ring-offset-0 disabled:pointer-events-none disabled:opacity-50 border border-slate-300 bg-white text-slate-800 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 h-10 px-4 py-2 text-sm gap-2">
-                  <FileSpreadsheet className="h-4 w-4 text-teal-600 dark:text-teal-400" />
-                  <span>استيراد حركات الأسنان</span>
-                </button>
-              </Link>
-            )}
-            <DentalExportButton
-              companyId={companyFilter !== "all" ? companyFilter : undefined}
-              companyName={selectedCompanyName ?? undefined}
-              searchQuery={searchQuery}
-              fromDate={fromDate}
-              toDate={toDate}
-            />
-          </div>
+          <TpaExportButton
+            companyId={companyFilter !== "all" ? companyFilter : undefined}
+            companyName={selectedCompanyName ?? undefined}
+            searchQuery={searchQuery}
+            fromDate={fromDate}
+            toDate={toDate}
+          />
         </div>
 
         {/* إحصائيات */}
         <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
-          <Card className="p-4 border-teal-200 dark:border-teal-800 bg-teal-50/50 dark:bg-teal-900/10">
-            <p className="text-[10px] font-black uppercase tracking-wider text-teal-600 dark:text-teal-500">إجمالي الحركات</p>
-            <p className="mt-1 text-2xl font-black text-teal-800 dark:text-teal-300">{total.toLocaleString("ar-LY")}</p>
+          <Card className="p-4 border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/10">
+            <p className="text-[10px] font-black uppercase tracking-wider text-blue-600 dark:text-blue-500">إجمالي الحركات</p>
+            <p className="mt-1 text-2xl font-black text-blue-800 dark:text-blue-300">{total.toLocaleString("ar-LY")}</p>
           </Card>
           <Card className="p-4">
             <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">إجمالي الفواتير</p>
             <p className="mt-1 text-2xl font-black text-slate-900 dark:text-white">{totalAmount.toLocaleString("ar-LY", { minimumFractionDigits: 2 })}</p>
             <p className="text-[10px] text-slate-400">د.ل</p>
           </Card>
-          <Card className="p-4 border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/10">
-            <p className="text-[10px] font-black uppercase tracking-wider text-blue-600 dark:text-blue-500">على شركات التأمين</p>
-            <p className="mt-1 text-2xl font-black text-blue-800 dark:text-blue-300">{totalCompanyShare.toLocaleString("ar-LY", { minimumFractionDigits: 2 })}</p>
-            <p className="text-[10px] text-blue-400">د.ل</p>
+          <Card className="p-4 border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-900/10">
+            <p className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-500">على شركات التأمين</p>
+            <p className="mt-1 text-2xl font-black text-emerald-800 dark:text-emerald-300">{totalCompanyShare.toLocaleString("ar-LY", { minimumFractionDigits: 2 })}</p>
+            <p className="text-[10px] text-emerald-400">د.ل</p>
           </Card>
           <Card className="p-4 border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/10">
             <p className="text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-500">على المؤمنين (كاش)</p>
@@ -220,7 +218,7 @@ export default async function DentalTransactionsPage({
                 name="q"
                 defaultValue={searchQuery}
                 placeholder="ابحث بالاسم أو رقم البطاقة..."
-                className="flex h-10 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 pr-9 pl-3 py-2 text-sm font-bold text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/30"
+                className="flex h-10 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 pr-9 pl-3 py-2 text-sm font-bold text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30"
               />
             </div>
 
@@ -230,9 +228,9 @@ export default async function DentalTransactionsPage({
               <select
                 name="company"
                 defaultValue={companyFilter}
-                className="flex h-10 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 pr-9 pl-3 py-2 text-sm font-bold text-slate-900 dark:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/30"
+                className="flex h-10 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 pr-9 pl-3 py-2 text-sm font-bold text-slate-900 dark:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30"
               >
-                <option value="all">جميع الشركات</option>
+                <option value="all">جميع الشركات الأخرى</option>
                 {companies.map(c => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
@@ -248,10 +246,10 @@ export default async function DentalTransactionsPage({
                   name="facility"
                   defaultValue={facilityFilterInputValue}
                   placeholder="كل المرافق"
-                  list="facilities-list-dental"
-                  className="flex h-10 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 pr-9 pl-3 py-2 text-sm font-bold text-slate-900 dark:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/30"
+                  list="facilities-list-tpa"
+                  className="flex h-10 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 pr-9 pl-3 py-2 text-sm font-bold text-slate-900 dark:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30"
                 />
-                <datalist id="facilities-list-dental">
+                <datalist id="facilities-list-tpa">
                   {facilities.map((f: { id: string; name: string }) => (
                     <option key={f.id} value={f.name} />
                   ))}
@@ -265,25 +263,25 @@ export default async function DentalTransactionsPage({
                 type="date"
                 name="from"
                 defaultValue={fromDate}
-                className="flex h-10 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-bold text-slate-900 dark:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/30"
+                className="flex h-10 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-bold text-slate-900 dark:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30"
               />
               <span className="text-slate-400 font-bold text-xs">—</span>
               <input
                 type="date"
                 name="to"
                 defaultValue={toDate}
-                className="flex h-10 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-bold text-slate-900 dark:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/30"
+                className="flex h-10 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-bold text-slate-900 dark:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30"
               />
             </div>
 
             <button
               type="submit"
-              className="inline-flex h-10 items-center justify-center rounded-md bg-teal-600 hover:bg-teal-700 px-4 text-sm font-black text-white transition-colors"
+              className="inline-flex h-10 items-center justify-center rounded-md bg-blue-600 hover:bg-blue-700 px-4 text-sm font-black text-white transition-colors"
             >
               تطبيق
             </button>
             <Link
-              href="/admin/dental-transactions"
+              href="/admin/tpa-transactions"
               className="inline-flex h-10 items-center justify-center rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 text-sm font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
             >
               إعادة تعيين
@@ -311,7 +309,7 @@ export default async function DentalTransactionsPage({
                 {transactions.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="px-4 py-12 text-center text-slate-500 dark:text-slate-400 font-bold">
-                      لا توجد حركات أسنان بالمعايير المحددة
+                      لا توجد حركات بالمعايير المحددة
                     </td>
                   </tr>
                 ) : (
@@ -398,7 +396,7 @@ export default async function DentalTransactionsPage({
               <div className="flex items-center gap-1">
                 {page > 1 && (
                   <Link
-                    href={`/admin/dental-transactions?${new URLSearchParams({ ...sp, page: String(page - 1) }).toString()}`}
+                    href={`/admin/tpa-transactions?${new URLSearchParams({ ...sp, page: String(page - 1) }).toString()}`}
                     className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                   >
                     <ChevronRight className="h-4 w-4" />
@@ -406,7 +404,7 @@ export default async function DentalTransactionsPage({
                 )}
                 {page < totalPages && (
                   <Link
-                    href={`/admin/dental-transactions?${new URLSearchParams({ ...sp, page: String(page + 1) }).toString()}`}
+                    href={`/admin/tpa-transactions?${new URLSearchParams({ ...sp, page: String(page + 1) }).toString()}`}
                     className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                   >
                     <ChevronLeft className="h-4 w-4" />

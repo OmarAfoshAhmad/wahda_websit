@@ -20,7 +20,8 @@ export default async function CompaniesPage() {
     include: {
       _count: {
         select: { 
-          service_policies: true 
+          service_policies: true,
+          transactions: true
         }
       },
       beneficiaries: {
@@ -81,9 +82,15 @@ export default async function CompaniesPage() {
                       <tr key={company.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                         <td className="px-5 py-4">
                           <div className="flex items-center gap-3">
-                            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary dark:bg-blue-900/30 dark:text-blue-400">
-                              <Building2 className="h-5 w-5" />
-                            </div>
+                            {company.logo ? (
+                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-1 shadow-sm">
+                                <img src={company.logo} alt={company.name} className="h-full w-full object-contain rounded" />
+                              </div>
+                            ) : (
+                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary dark:bg-blue-900/30 dark:text-blue-400">
+                                <Building2 className="h-5 w-5" />
+                              </div>
+                            )}
                             <span className="font-black text-slate-900 dark:text-white">{company.name}</span>
                           </div>
                         </td>
@@ -118,8 +125,13 @@ export default async function CompaniesPage() {
                         <td className="px-5 py-4">
                           <div className="flex items-center justify-center gap-1">
                             <CompanyForm company={company} />
-                            {session.is_admin && company.stats.active === 0 && (
-                              <DeleteCompany companyId={company.id} companyName={company.name} />
+                            {session.is_admin && (
+                              <DeleteCompany 
+                                companyId={company.id} 
+                                companyName={company.name} 
+                                activeBeneficiariesCount={company.stats.active}
+                                hasTransactions={company._count.transactions > 0}
+                              />
                             )}
                             <form action={toggleCompanyStatus.bind(null, company.id, company.is_active) as unknown as (formData: FormData) => void}>
                               <button
