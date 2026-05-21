@@ -11,14 +11,18 @@ import { formatDateTripoli, formatTimeTripoli } from "@/lib/datetime";
 
 export default async function DentalCompanyPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ companyId: string }>;
+  searchParams: Promise<{ tab?: string }>;
 }) {
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
   if (!session.is_admin && !session.is_manager) redirect("/dashboard");
 
   const { companyId } = await params;
+  const { tab } = await searchParams;
+  const activeTab = tab === "transactions" ? "transactions" : "deduct";
 
   // جلب بيانات الشركة مع سياسة الأسنان
   const company = await prisma.insuranceCompany.findUnique({
@@ -125,6 +129,37 @@ export default async function DentalCompanyPage({
           </div>
         </Card>
 
+        {/* التبويبات لعزل الخصم عن الحركات */}
+        {dentalPolicy && (
+          <div className="flex gap-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-1 w-fit">
+            <Link
+              href={`/admin/dental-services/${companyId}?tab=deduct`}
+              className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${
+                activeTab === "deduct"
+                  ? "bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-sm border border-slate-200 dark:border-slate-700"
+                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+              }`}
+            >
+              إجراء الخصم
+            </Link>
+            <Link
+              href={`/admin/dental-services/${companyId}?tab=transactions`}
+              className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${
+                activeTab === "transactions"
+                  ? "bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-sm border border-slate-200 dark:border-slate-700"
+                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+              }`}
+            >
+              <div className="flex items-center gap-1.5">
+                <span>آخر الحركات</span>
+                <span className="text-[10px] font-black bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400 px-1.5 py-0.5 rounded-full">
+                  {recentTransactions.length}
+                </span>
+              </div>
+            </Link>
+          </div>
+        )}
+
         {!dentalPolicy && (
           <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/10 p-4">
             <p className="text-sm font-bold text-amber-800 dark:text-amber-300">
@@ -134,7 +169,7 @@ export default async function DentalCompanyPage({
         )}
 
         {/* نموذج ومحرك الاقتطاع التفاعلي لخدمات الأسنان */}
-        {dentalPolicy && (
+        {dentalPolicy && activeTab === "deduct" && (
           <DentalDeductForm
             companyId={companyId}
             companyName={company.name}
@@ -144,7 +179,7 @@ export default async function DentalCompanyPage({
         )}
 
         {/* جدول آخر 10 حركات أسنان للشركة في هذا المرفق */}
-        {dentalPolicy && (
+        {dentalPolicy && activeTab === "transactions" && (
           <Card className="p-5 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl shadow-sm space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
               <div className="flex items-center gap-2.5">
