@@ -6,7 +6,19 @@ import { Button, Card, Badge } from "@/components/ui";
 import { importDentalTransactionsAction, type SkippedRowDetail, type SummaryGroup } from "@/app/actions/import-dental-transactions";
 import Link from "next/link";
 
-export function DentalTransactionImportUploader() {
+interface CompanyOption {
+  id: string;
+  name: string;
+}
+
+export function DentalTransactionImportUploader({
+  companies,
+  initialCompanyId,
+}: {
+  companies: CompanyOption[];
+  initialCompanyId?: string;
+}) {
+  const [selectedCompanyId, setSelectedCompanyId] = useState(initialCompanyId || "");
   const [file, setFile] = useState<File | null>(null);
   const [purgeOld, setPurgeOld] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
@@ -73,7 +85,7 @@ export function DentalTransactionImportUploader() {
         setFileBase64(base64);
 
         // Run dry-run scan
-        const res = await importDentalTransactionsAction(base64, false, true);
+        const res = await importDentalTransactionsAction(base64, false, true, selectedCompanyId);
         setAnalysis(res);
         setAnalyzing(false);
       };
@@ -113,7 +125,7 @@ export function DentalTransactionImportUploader() {
     setResult(null);
 
     try {
-      const res = await importDentalTransactionsAction(fileBase64, purgeOld, false);
+      const res = await importDentalTransactionsAction(fileBase64, purgeOld, false, selectedCompanyId);
       setResult(res);
       setImporting(false);
     } catch (err: any) {
@@ -153,6 +165,33 @@ export function DentalTransactionImportUploader() {
           </div>
 
           <div className="space-y-6">
+            {/* Company Selector */}
+            {initialCompanyId ? (
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-slate-700 dark:text-slate-300">شركة التأمين المستهدفة</label>
+                <div className="flex h-10 w-full items-center rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 text-sm font-black text-teal-700 dark:text-teal-400">
+                  {companies.find((c) => c.id === selectedCompanyId)?.name || selectedCompanyId}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-slate-700 dark:text-slate-300">اختر شركة التأمين المستهدفة</label>
+                <select
+                  value={selectedCompanyId}
+                  onChange={(e) => setSelectedCompanyId(e.target.value)}
+                  disabled={analyzing}
+                  className="flex h-10 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-bold text-slate-900 dark:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/30"
+                >
+                  <option value="">اختر شركة التأمين...</option>
+                  {companies.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             {/* File Picker */}
             <div className="space-y-2">
               <label className="text-sm font-bold text-slate-700 dark:text-slate-300">ملف حركات الأسنان (.xlsx)</label>
@@ -187,10 +226,10 @@ export function DentalTransactionImportUploader() {
                 />
                 <div className="space-y-1">
                   <label htmlFor="purgeOld" className="text-sm font-black text-slate-800 dark:text-white cursor-pointer select-none">
-                    مسح جميع حركات الأسنان السابقة من النظام قبل الاستيراد (إعادة تعيين كاملة)
+                    مسح جميع حركات الأسنان السابقة الخاصة بهذه الشركة فقط قبل الاستيراد
                   </label>
                   <p className="text-xs text-slate-500">
-                    إذا قمت بتفعيل هذا الخيار، سيتم حذف كل الحركات المسجلة لعيادات الأسنان (`DENTAL`) في المنظومة قبل حفظ الحركات المرفوعة حديثاً.
+                    إذا قمت بتفعيل هذا الخيار، سيتم حذف كل الحركات المسجلة لعيادات الأسنان (`DENTAL`) الخاصة بالشركة المحددة في المنظومة قبل حفظ الحركات المرفوعة حديثاً.
                   </p>
                 </div>
               </div>
@@ -204,7 +243,7 @@ export function DentalTransactionImportUploader() {
               </Link>
               <Button
                 onClick={handleAnalyze}
-                disabled={!file || analyzing}
+                disabled={!file || !selectedCompanyId || analyzing}
                 className="bg-teal-600 hover:bg-teal-700 text-white min-w-[140px]"
               >
                 {analyzing ? (
@@ -349,7 +388,7 @@ export function DentalTransactionImportUploader() {
                 <div>
                   <p className="text-xs font-black text-amber-800 dark:text-amber-300">تنبيه: مسح الحركات القديمة مفعل!</p>
                   <p className="text-[11px] text-slate-500">
-                    عند تأكيد الاستيراد، سيقوم النظام بـ **حذف** كافة حركات الأسنان المسجلة سابقاً في النظام نهائياً، ثم كتابة حركات ملف Excel الجديد فقط.
+                    عند تأكيد الاستيراد، سيقوم النظام بـ **حذف** كافة حركات الأسنان المسجلة سابقاً لهذه الشركة المحددة نهائياً، ثم كتابة حركات ملف Excel الجديد فقط.
                   </p>
                 </div>
               </Card>

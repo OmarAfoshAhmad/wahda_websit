@@ -10,7 +10,7 @@ interface Props {
     id: string;
     name: string;
     username: string;
-    facility_type_override?: "HOSPITAL" | "PHARMACY" | null;
+    facility_type_override?: "HOSPITAL" | "PHARMACY" | "DENTAL" | "OPTICS" | null;
   };
 }
 
@@ -18,8 +18,8 @@ export function FacilityEditModal({ facility }: Props) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(facility.name);
   const [username, setUsername] = useState(facility.username);
-  const [facilityType, setFacilityType] = useState<"AUTO" | "HOSPITAL" | "PHARMACY">(
-    facility.facility_type_override ?? "AUTO"
+  const [facilityType, setFacilityType] = useState<"AUTO" | "HOSPITAL" | "PHARMACY" | "DENTAL" | "OPTICS">(
+    (facility.facility_type_override as any) ?? "AUTO"
   );
   const [resetPassword, setResetPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -119,12 +119,14 @@ export function FacilityEditModal({ facility }: Props) {
                 <label className="mb-1.5 block text-sm font-bold text-slate-700 dark:text-slate-300">نوع المرفق</label>
                 <select
                   value={facilityType}
-                  onChange={(e) => setFacilityType(e.target.value as "AUTO" | "HOSPITAL" | "PHARMACY")}
+                  onChange={(e) => setFacilityType(e.target.value as any)}
                   className="flex h-10 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
                 >
                   <option value="AUTO">تلقائي (استنتاج من الاسم)</option>
-                  <option value="HOSPITAL">مشفى</option>
+                  <option value="HOSPITAL">مشفى / عيادة عامة</option>
                   <option value="PHARMACY">صيدلية</option>
+                  <option value="DENTAL">عيادة أسنان</option>
+                  <option value="OPTICS">مركز بصريات / عيون</option>
                 </select>
               </div>
 

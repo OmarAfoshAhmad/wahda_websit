@@ -270,3 +270,155 @@ export async function deleteCancellationPair(cancellationId: string) {
     return { error: "فشل حذف زوج الإلغاء والتصحيح" };
   }
 }
+
+export async function restoreSingleTransaction(transactionId: string) {
+  try {
+    const session = await requireActiveFacilitySession();
+    if (!session || (!hasPermission(session, 'correct_transactions') && !hasPermission(session, 'cancel_transactions'))) {
+      return { error: "غير مصرح لك بإجراء هذه العملية" };
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const transaction = await tx.transaction.findUnique({
+        where: { id: transactionId },
+      });
+      if (!transaction) throw new Error("TX_NOT_FOUND");
+      if (!transaction.is_cancelled) throw new Error("TX_NOT_CANCELLED");
+
+      // 1. Mark as not cancelled
+      await tx.transaction.update({
+        where: { id: transactionId },
+        data: { is_cancelled: false },
+      });
+
+      // 2. Mark any related cancellation corrections as cancelled/invalidated
+      await tx.transaction.updateMany({
+        where: { original_transaction_id: transactionId, type: "CANCELLATION" },
+        data: { is_cancelled: true },
+      });
+
+      // 3. Recalculate beneficiary balance
+      const { remaining_balance: newBalance, status: newStatus } = await calculateBeneficiaryBalance(tx, transaction.beneficiary_id);
+      
+      const beneficiary = await tx.beneficiary.findUnique({
+        where: { id: transaction.beneficiary_id },
+        select: { completed_via: true },
+      });
+
+      const beneficiaryUpdateData: any = {
+        remaining_balance: newBalance,
+        status: newStatus,
+      };
+
+      if (newStatus === "FINISHED") {
+        beneficiaryUpdateData.completed_via = beneficiary?.completed_via ?? "MANUAL";
+      } else if (newStatus !== "SUSPENDED") {
+        beneficiaryUpdateData.completed_via = null;
+      }
+
+      await tx.beneficiary.update({
+        where: { id: transaction.beneficiary_id },
+        data: beneficiaryUpdateData,
+      });
+
+      // 4. Audit Log
+      await tx.auditLog.create({
+        data: {
+          facility_id: session.id,
+          user: session.username,
+          action: "RESTORE_SOFT_DELETED_TRANSACTION",
+          metadata: {
+            transaction_id: transactionId,
+            beneficiary_id: transaction.beneficiary_id,
+            balance_after: newBalance,
+          },
+        },
+      });
+
+      await assertBeneficiaryBalanceInvariant(tx, transaction.beneficiary_id, "restoreSingleTransaction");
+    });
+
+    revalidatePath("/transactions");
+    revalidatePath("/beneficiaries");
+    revalidateTag("beneficiary-counts", "max");
+    return { success: true };
+  } catch (error) {
+    logger.error("Restore single transaction error", { error: String(error) });
+    return { error: "فشل استعادة الحركة" };
+  }
+}
+
+export async function deleteSingleTransactionPermanently(transactionId: string) {
+  try {
+    const session = await requireActiveFacilitySession();
+    if (!session || !hasPermission(session, 'delete_transaction')) {
+      return { error: "غير مصرح لك بإجراء هذه العملية" };
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const transaction = await tx.transaction.findUnique({
+        where: { id: transactionId },
+      });
+      if (!transaction) throw new Error("TX_NOT_FOUND");
+      if (!transaction.is_cancelled) throw new Error("TX_MUST_BE_CANCELLED");
+
+      // Delete related CANCELLATION transactions
+      await tx.transaction.deleteMany({
+        where: { original_transaction_id: transactionId, type: "CANCELLATION" },
+      });
+
+      // Delete the original transaction
+      await tx.transaction.delete({
+        where: { id: transactionId },
+      });
+
+      // Recalculate beneficiary balance
+      const { remaining_balance: newBalance, status: newStatus } = await calculateBeneficiaryBalance(tx, transaction.beneficiary_id);
+      
+      const beneficiary = await tx.beneficiary.findUnique({
+        where: { id: transaction.beneficiary_id },
+        select: { completed_via: true },
+      });
+
+      const beneficiaryUpdateData: any = {
+        remaining_balance: newBalance,
+        status: newStatus,
+      };
+
+      if (newStatus === "FINISHED") {
+        beneficiaryUpdateData.completed_via = beneficiary?.completed_via ?? "MANUAL";
+      } else if (newStatus !== "SUSPENDED") {
+        beneficiaryUpdateData.completed_via = null;
+      }
+
+      await tx.beneficiary.update({
+        where: { id: transaction.beneficiary_id },
+        data: beneficiaryUpdateData,
+      });
+
+      // Audit Log
+      await tx.auditLog.create({
+        data: {
+          facility_id: session.id,
+          user: session.username,
+          action: "PERMANENT_DELETE_TRANSACTION",
+          metadata: {
+            transaction_id: transactionId,
+            beneficiary_id: transaction.beneficiary_id,
+            balance_after: newBalance,
+          },
+        },
+      });
+
+      await assertBeneficiaryBalanceInvariant(tx, transaction.beneficiary_id, "deleteSingleTransactionPermanently");
+    });
+
+    revalidatePath("/transactions");
+    revalidatePath("/beneficiaries");
+    revalidateTag("beneficiary-counts", "max");
+    return { success: true };
+  } catch (error) {
+    logger.error("Permanent delete single transaction error", { error: String(error) });
+    return { error: "فشل حذف الحركة نهائياً" };
+  }
+}

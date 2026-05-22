@@ -83,7 +83,7 @@ interface DeductContextValue {
   type: DeductType;
   setType: (v: DeductType) => void;
   availableServiceTypes: string[];
-  facilityType?: "HOSPITAL" | "PHARMACY";
+  facilityType?: "HOSPITAL" | "PHARMACY" | "DENTAL" | "OPTICS";
   showConfirm: boolean;
   setShowConfirm: (v: boolean) => void;
   deducting: boolean;
@@ -131,7 +131,7 @@ export function DeductProvider({
   facilityType,
 }: {
   children: React.ReactNode;
-  facilityType?: "HOSPITAL" | "PHARMACY";
+  facilityType?: "HOSPITAL" | "PHARMACY" | "DENTAL" | "OPTICS";
 }) {
   const toast = useToast();
 
@@ -145,7 +145,15 @@ export function DeductProvider({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
-  const [type, setType] = useState<DeductType>(facilityType === "PHARMACY" ? "MEDICINE" : "SUPPLIES");
+  const [type, setType] = useState<DeductType>(
+    facilityType === "PHARMACY"
+      ? "MEDICINE"
+      : facilityType === "DENTAL"
+      ? "DENTAL"
+      : facilityType === "OPTICS"
+      ? "OPTICS"
+      : "SUPPLIES"
+  );
   const [showConfirm, setShowConfirm] = useState(false);
   const [deducting, setDeducting] = useState(false);
   const [simulation, setSimulation] = useState<SimulationResult | null>(null);
@@ -170,6 +178,10 @@ export function DeductProvider({
   useEffect(() => {
     if (facilityType === "PHARMACY" && type !== "MEDICINE") {
       setType("MEDICINE");
+    } else if (facilityType === "DENTAL" && type !== "DENTAL") {
+      setType("DENTAL");
+    } else if (facilityType === "OPTICS" && type !== "OPTICS") {
+      setType("OPTICS");
     }
   }, [facilityType]);
 
@@ -247,7 +259,17 @@ export function DeductProvider({
   const resetSearchState = useCallback(() => {
     setSearchInput(""); setCardNumber(""); setSuggestions([]);
     setShowSuggestions(false); setBeneficiary(null);
-    setAmount(""); setType(facilityType === "PHARMACY" ? "MEDICINE" : "SUPPLIES"); setShowConfirm(false);
+    setAmount("");
+    setType(
+      facilityType === "PHARMACY"
+        ? "MEDICINE"
+        : facilityType === "DENTAL"
+        ? "DENTAL"
+        : facilityType === "OPTICS"
+        ? "OPTICS"
+        : "SUPPLIES"
+    );
+    setShowConfirm(false);
     setError(null); setSuccess(null);
   }, [facilityType]);
 

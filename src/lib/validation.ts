@@ -58,7 +58,7 @@ export const createFacilitySchema = z.object({
     .min(8, "كلمة المرور يجب أن تكون 8 أحرف على الأقل")
     .max(128, "كلمة المرور طويلة جداً")
     .optional(),
-  facility_type: z.enum(["AUTO", "HOSPITAL", "PHARMACY"]).optional(),
+  facility_type: z.enum(["AUTO", "HOSPITAL", "PHARMACY", "DENTAL", "OPTICS"]).optional(),
 });
 
 export const updateFacilitySchema = z.object({
@@ -69,7 +69,7 @@ export const updateFacilitySchema = z.object({
     .min(3, "اسم المستخدم يجب أن يكون 3 أحرف على الأقل")
     .max(50, "اسم المستخدم طويل جداً")
     .regex(/^[a-z0-9_]+$/, "اسم المستخدم يجب أن يحتوي على أحرف إنجليزية صغيرة وأرقام وشرطة سفلية فقط"),
-  facility_type: z.enum(["AUTO", "HOSPITAL", "PHARMACY"]).optional(),
+  facility_type: z.enum(["AUTO", "HOSPITAL", "PHARMACY", "DENTAL", "OPTICS"]).optional(),
 });
 
 export const changePasswordSchema = z.object({

@@ -55,8 +55,10 @@ export function CreateFacilityForm() {
             className="flex h-10 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
           >
             <option value="AUTO">تلقائي (استنتاج من الاسم)</option>
-            <option value="HOSPITAL">مشفى</option>
+            <option value="HOSPITAL">مشفى / عيادة عامة</option>
             <option value="PHARMACY">صيدلية</option>
+            <option value="DENTAL">عيادة أسنان</option>
+            <option value="OPTICS">مركز بصريات / عيون</option>
           </select>
         </div>
       </div>

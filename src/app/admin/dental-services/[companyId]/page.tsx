@@ -5,7 +5,7 @@ import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-gua
 import { Shell } from "@/components/shell";
 import { Card, Badge } from "@/components/ui";
 import Link from "next/link";
-import { ArrowRight, Building2, Users, ShieldCheck, History, Printer, Search, ChevronLeft, ChevronRight, CalendarDays, RotateCcw } from "lucide-react";
+import { ArrowRight, Building2, Users, ShieldCheck, History, Printer, Search, ChevronLeft, ChevronRight, CalendarDays, RotateCcw, FileSpreadsheet } from "lucide-react";
 import { DentalDeductForm } from "@/components/dental-deduct-form";
 import { formatDateTripoli, formatTimeTripoli } from "@/lib/datetime";
 import { TransactionCancelButton } from "@/components/transaction-cancel-button";
@@ -147,6 +147,52 @@ export default async function DentalCompanyPage({
   const totalCompanyShare = Number(stats._sum.actual_company_share ?? 0);
   const totalPatientShare = Number(stats._sum.actual_patient_share ?? 0);
 
+  // ─── حساب الأرصدة المتبقية لحركات الأسنان ديناميكياً لتجنب مشاكل الـ null والـ 600 ───
+  const uniqueBenIdsForTxs = Array.from(new Set(recentTransactions.map((tx) => tx.beneficiary_id)));
+  const allBenDentalTxs = uniqueBenIdsForTxs.length > 0
+    ? await prisma.transaction.findMany({
+        where: {
+          beneficiary_id: { in: uniqueBenIdsForTxs },
+          company_id: companyId,
+          type: "DENTAL",
+          is_cancelled: false,
+        },
+        orderBy: [
+          { created_at: "asc" },
+          { id: "asc" },
+        ],
+        select: {
+          id: true,
+          beneficiary_id: true,
+          ceiling_consumed: true,
+          amount: true,
+          actual_company_share: true,
+        },
+      })
+    : [];
+
+  const txsByBenMap = new Map();
+  for (const t of allBenDentalTxs) {
+    if (!txsByBenMap.has(t.beneficiary_id)) {
+      txsByBenMap.set(t.beneficiary_id, []);
+    }
+    txsByBenMap.get(t.beneficiary_id).push(t);
+  }
+
+  const remainingAfterTxId = new Map();
+  const dentalCeiling = ceiling ?? 3000;
+
+  for (const [benId, benTxs] of txsByBenMap.entries()) {
+    let accumulatedSpent = 0;
+    for (const t of benTxs) {
+      const consumed = t.ceiling_consumed !== null
+        ? Number(t.ceiling_consumed)
+        : Number(t.actual_company_share ?? t.amount);
+      accumulatedSpent += consumed;
+      remainingAfterTxId.set(t.id, Math.max(0, dentalCeiling - accumulatedSpent));
+    }
+  }
+
   // Use a shared datalist for all modals to save DOM memory
   const globalDatalistId = "facilities-datalist-global";
   const sharedDatalist = (
@@ -216,14 +262,43 @@ export default async function DentalCompanyPage({
     ]);
 
     const benIds = benList.map((b) => b.id);
-    const remainingById = await getLedgerRemainingByBeneficiaryIds(benIds);
+    
+    // Calculate spent dental ceiling per beneficiary in the current fiscal year
+    const fiscalYear = new Date().getFullYear();
+    const startDate = new Date(fiscalYear, 0, 1);
+    const endDate = new Date(fiscalYear, 11, 31, 23, 59, 59);
 
-    companyBeneficiaries = benList.map((b) => ({
-      ...b,
-      total_balance: Number(b.total_balance),
-      remaining_balance: remainingById.get(b.id) ?? 0,
-      in_import_file: Boolean(b.is_legacy_card),
-    }));
+    const spentDentalRows = benIds.length > 0
+      ? await prisma.transaction.groupBy({
+          by: ["beneficiary_id"],
+          where: {
+            beneficiary_id: { in: benIds },
+            company_id: companyId,
+            type: "DENTAL",
+            is_cancelled: false,
+            created_at: { gte: startDate, lte: endDate },
+          },
+          _sum: {
+            ceiling_consumed: true,
+          },
+        })
+      : [];
+
+    const spentDentalMap = new Map(
+      spentDentalRows.map((row) => [row.beneficiary_id, Number(row._sum.ceiling_consumed ?? 0)])
+    );
+
+    const dentalCeiling = ceiling ?? 3000;
+
+    companyBeneficiaries = benList.map((b) => {
+      const consumed = spentDentalMap.get(b.id) ?? 0;
+      return {
+        ...b,
+        total_balance: dentalCeiling,
+        remaining_balance: Math.max(0, dentalCeiling - consumed),
+        in_import_file: Boolean(b.is_legacy_card),
+      };
+    });
 
     totalBeneficiariesCount = benCount;
     totalBeneficiariesPages = Math.ceil(benCount / PAGE_SIZE);
@@ -243,64 +318,82 @@ export default async function DentalCompanyPage({
   return (
     <Shell facilityName={session.name} session={session}>
       <div className="space-y-6 pb-12">
-        <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
-          <Link href="/admin/dental-services" className="hover:text-teal-600 dark:hover:text-teal-400 font-bold transition-colors">
-            خدمات الأسنان
-          </Link>
-          <ArrowRight className="h-4 w-4 rotate-180" />
-          <span className="font-black text-slate-900 dark:text-white">{company.name}</span>
-        </div>
-
-        <Card className="p-6 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl shadow-sm">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-teal-50 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400 border border-teal-100 dark:border-teal-900/40">
-                <Building2 className="h-6 w-6" />
-              </div>
-              <div>
-                <h1 className="text-xl font-black text-slate-900 dark:text-white">{company.name}</h1>
-                <p className="text-sm font-bold text-slate-500 dark:text-slate-400 font-mono">{company.code}</p>
-              </div>
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between border-b border-slate-200 dark:border-slate-800 pb-5">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-teal-50 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400 border border-teal-100 dark:border-teal-900/40">
+              <Building2 className="h-6 w-6" />
             </div>
-            <div className="flex flex-wrap gap-2">
-              <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2">
-                <Users className="h-4 w-4 text-teal-600" />
-                <span className="text-sm font-black text-slate-900 dark:text-white">{company._count.beneficiaries.toLocaleString("ar-LY")}</span>
-                <span className="text-xs text-slate-500">مستفيد نشط</span>
+            <div>
+              <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+                <Link href="/admin/dental-services" className="hover:text-teal-600 dark:hover:text-teal-400 font-bold transition-colors">
+                  خدمات الأسنان
+                </Link>
+                <ArrowRight className="h-3.5 w-3.5 rotate-180" />
+                <span className="font-medium">{company.name}</span>
               </div>
-              {ceiling !== null ? (
-                <div className="flex items-center gap-1.5 rounded-lg border border-teal-200 dark:border-teal-800 bg-teal-50 dark:bg-teal-900/20 px-3 py-2">
-                  <ShieldCheck className="h-4 w-4 text-teal-600" />
-                  <span className="text-sm font-black text-teal-800 dark:text-teal-300">{ceiling.toLocaleString("ar-LY")} د.ل</span>
-                  <span className="text-xs text-teal-600 dark:text-teal-400">سقف سنوي</span>
-                </div>
-              ) : (
-                <div className="flex items-center gap-1.5 rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 px-3 py-2">
-                  <ShieldCheck className="h-4 w-4 text-emerald-600" />
-                  <span className="text-sm font-black text-emerald-850 dark:text-teal-300">سقف مفتوح</span>
-                </div>
-              )}
-              {copay > 0 && (
-                <div className="flex items-center gap-1.5 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-3 py-2">
-                  <span className="text-sm font-black text-amber-800 dark:text-amber-300">تحمل {copay}%</span>
-                  <span className="text-xs text-amber-600 dark:text-amber-400">على المؤمن</span>
-                </div>
-              )}
-              <Link
-                href={`/admin/dental-services/${companyId}/print?${new URLSearchParams({
-                  q: searchQuery,
-                  from: fromDate,
-                  to: toDate,
-                }).toString()}`}
-                target="_blank"
-                className="flex items-center gap-1.5 rounded-lg border border-teal-650 dark:border-teal-500 bg-teal-600 dark:bg-teal-950 text-white dark:text-teal-300 hover:bg-teal-700 dark:hover:bg-teal-900 px-3.5 py-2 text-xs font-black transition-all shadow-sm hover:scale-[1.02] active:scale-[0.98]"
-              >
-                <Printer className="h-4 w-4" />
-                <span>طباعة الكشف</span>
-              </Link>
+              <h1 className="text-xl font-black text-slate-900 dark:text-white mt-0.5">
+                {company.name}
+                <span className="text-xs font-bold text-slate-500 dark:text-slate-400 font-mono ml-2 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+                  {company.code}
+                </span>
+              </h1>
             </div>
           </div>
-        </Card>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-xs">
+              <Users className="h-3.5 w-3.5 text-teal-600" />
+              <span className="font-black text-slate-900 dark:text-white">
+                {company._count.beneficiaries.toLocaleString("ar-LY")}
+              </span>
+              <span className="text-slate-500">نشط</span>
+            </div>
+
+            {ceiling !== null ? (
+              <div className="flex items-center gap-1.5 rounded-lg border border-teal-200 dark:border-teal-800 bg-teal-50 dark:bg-teal-900/20 px-2.5 py-1.5 text-xs">
+                <ShieldCheck className="h-3.5 w-3.5 text-teal-600" />
+                <span className="font-black text-teal-800 dark:text-teal-300">
+                  {ceiling.toLocaleString("ar-LY")} د.ل
+                </span>
+                <span className="text-teal-600 dark:text-teal-400">سقف</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 px-2.5 py-1.5 text-xs">
+                <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
+                <span className="font-black text-emerald-850 dark:text-teal-300">سقف مفتوح</span>
+              </div>
+            )}
+
+            {copay > 0 && (
+              <div className="flex items-center gap-1.5 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-2.5 py-1.5 text-xs">
+                <span className="font-black text-amber-800 dark:text-amber-300">تحمل {copay}%</span>
+              </div>
+            )}
+
+            {session.is_admin && (
+              <Link
+                href={`/admin/dental-transactions/import?companyId=${companyId}`}
+                className="flex items-center gap-1.5 rounded-lg border border-slate-350 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-750 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 px-3 py-1.5 text-xs font-black transition-all shadow-sm hover:scale-[1.01] active:scale-[0.99] mr-1"
+              >
+                <FileSpreadsheet className="h-3.5 w-3.5 text-teal-650" />
+                <span>استيراد حركات</span>
+              </Link>
+            )}
+
+            <Link
+              href={`/admin/dental-services/${companyId}/print?${new URLSearchParams({
+                q: searchQuery,
+                from: fromDate,
+                to: toDate,
+              }).toString()}`}
+              target="_blank"
+              className="flex items-center gap-1.5 rounded-lg border border-teal-650 dark:border-teal-500 bg-teal-650 dark:bg-teal-950 text-white dark:text-teal-350 hover:bg-teal-700 dark:hover:bg-teal-900 px-3 py-1.5 text-xs font-black transition-all shadow-sm hover:scale-[1.01] active:scale-[0.99] mr-1"
+            >
+              <Printer className="h-3.5 w-3.5" />
+              <span>طباعة الكشف</span>
+            </Link>
+          </div>
+        </div>
 
         {dentalPolicy && (
           <div className="flex gap-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-1 w-fit">
@@ -470,6 +563,7 @@ export default async function DentalCompanyPage({
                       <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">قيمة الفاتورة</th>
                       <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">حصة الشركة</th>
                       <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">حصة المؤمن</th>
+                      <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">الرصيد المتبقي</th>
                       <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400">التاريخ والوقت</th>
                       {(session.is_admin || canCorrect || canCancel) && (
                         <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">إجراءات</th>
@@ -479,7 +573,7 @@ export default async function DentalCompanyPage({
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {recentTransactions.length === 0 ? (
                       <tr>
-                        <td colSpan={6 + ((session.is_admin || canCorrect || canCancel) ? 1 : 0)} className="px-4 py-12 text-center text-slate-500 dark:text-slate-400 font-bold">
+                        <td colSpan={7 + ((session.is_admin || canCorrect || canCancel) ? 1 : 0)} className="px-4 py-12 text-center text-slate-500 dark:text-slate-400 font-bold">
                           لا توجد حركات مطابقة للبحث أو معايير الفلترة المحددة.
                         </td>
                       </tr>
@@ -488,6 +582,7 @@ export default async function DentalCompanyPage({
                         const amount = Number(tx.amount);
                         const companyShare = tx.actual_company_share !== null ? Number(tx.actual_company_share) : 0;
                         const patientShare = tx.actual_patient_share !== null ? Number(tx.actual_patient_share) : 0;
+                        const remaining = remainingAfterTxId.get(tx.id) ?? (tx.remaining_ceiling_after !== null ? Number(tx.remaining_ceiling_after) : (dentalCeiling - companyShare));
 
                         return (
                           <tr key={tx.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
@@ -505,6 +600,9 @@ export default async function DentalCompanyPage({
                             </td>
                             <td className="px-4 py-3.5 text-center font-mono font-black text-amber-600 dark:text-amber-450">
                               {patientShare.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل
+                            </td>
+                            <td className="px-4 py-3.5 text-center font-mono font-black text-sky-700 dark:text-sky-400">
+                              {remaining !== null ? `${remaining.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل` : "—"}
                             </td>
                             <td className="px-4 py-3.5 text-xs">
                               <span className="font-bold text-slate-700 dark:text-slate-300">{formatDateTripoli(tx.created_at)}</span>

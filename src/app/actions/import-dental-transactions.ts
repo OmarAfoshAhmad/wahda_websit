@@ -96,7 +96,8 @@ function parseExcelDate(val: any): Date {
 export async function importDentalTransactionsAction(
   fileBase64: string,
   purgeOld: boolean,
-  dryRun: boolean
+  dryRun: boolean,
+  companyId?: string
 ): Promise<ImportResult> {
   const session = await requireActiveFacilitySession();
   if (!session || !session.is_admin) {
@@ -158,6 +159,7 @@ export async function importDentalTransactionsAction(
       where: {
         card_number: { in: uniqueCards },
         deleted_at: null,
+        ...(companyId ? { company_id: companyId } : {}),
       },
       select: {
         id: true,
@@ -239,7 +241,10 @@ export async function importDentalTransactionsAction(
     // If not dry-run and purgeOld is true, execute purge first
     if (!dryRun && purgeOld) {
       await prisma.transaction.deleteMany({
-        where: { type: "DENTAL" }
+        where: {
+          type: "DENTAL",
+          ...(companyId ? { company_id: companyId } : {}),
+        }
       });
       logger.info("Purged previous dental transactions as requested.");
     }
@@ -284,6 +289,14 @@ export async function importDentalTransactionsAction(
       }
 
       if (!beneficiary) {
+        // التحقق مما إذا كان المستفيد موجوداً تحت شركة أخرى لإظهار رسالة توضيحية دقيقة
+        const otherBen = r.card 
+          ? await prisma.beneficiary.findFirst({
+              where: { card_number: r.card, deleted_at: null },
+              include: { company: true }
+            })
+          : null;
+
         skippedCount++;
         skippedDetails.push({
           rowNumber: r.rowNumber,
@@ -291,7 +304,9 @@ export async function importDentalTransactionsAction(
           card: r.card,
           facilityName: r.facilityName,
           amount: r.amount,
-          reason: "المستفيد غير موجود بقاعدة البيانات",
+          reason: otherBen 
+            ? `المستفيد تابع لشركة أخرى (${otherBen.company?.name || "بدون اسم"}) وليس الشركة المحددة`
+            : "المستفيد غير موجود بقاعدة البيانات",
         });
         continue;
       }

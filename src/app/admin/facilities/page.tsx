@@ -248,15 +248,16 @@ export default async function FacilitiesPage({
                           <td className="px-5 py-3 text-center">
                             {(() => {
                               const resolved = resolveFacilityType(f);
-                              const isPharmacy = resolved.effectiveType === "PHARMACY";
+                              let badgeClass = "bg-sky-50 text-sky-700 ring-sky-600/20 dark:bg-sky-900/30 dark:text-sky-300 dark:ring-sky-800/60";
+                              if (resolved.effectiveType === "PHARMACY") {
+                                badgeClass = "bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-900/30 dark:text-emerald-300 dark:ring-emerald-800/60";
+                              } else if (resolved.effectiveType === "DENTAL") {
+                                badgeClass = "bg-purple-50 text-purple-700 ring-purple-600/20 dark:bg-purple-900/30 dark:text-purple-300 dark:ring-purple-800/60";
+                              } else if (resolved.effectiveType === "OPTICS") {
+                                badgeClass = "bg-amber-50 text-amber-700 ring-amber-600/20 dark:bg-amber-900/30 dark:text-amber-300 dark:ring-amber-800/60";
+                              }
                               return (
-                                <span
-                                  className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset ${
-                                    isPharmacy
-                                      ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-900/30 dark:text-emerald-300 dark:ring-emerald-800/60"
-                                      : "bg-sky-50 text-sky-700 ring-sky-600/20 dark:bg-sky-900/30 dark:text-sky-300 dark:ring-sky-800/60"
-                                  }`}
-                                >
+                                <span className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset ${badgeClass}`}>
                                   {getFacilityTypeLabel(resolved.effectiveType)}
                                 </span>
                               );

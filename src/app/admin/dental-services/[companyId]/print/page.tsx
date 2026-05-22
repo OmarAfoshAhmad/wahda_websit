@@ -27,12 +27,21 @@ export default async function DentalCompanyPrintPage({
   const fromDate = sp.from ?? "";
   const toDate = sp.to ?? "";
 
-  // جلب بيانات الشركة
+  // جلب بيانات الشركة مع سياسات الخدمة النشطة
   const company = await prisma.insuranceCompany.findUnique({
     where: { id: companyId, deleted_at: null, is_active: true },
+    include: {
+      service_policies: {
+        where: { service_type: "DENTAL", is_active: true },
+      },
+    },
   });
 
   if (!company) notFound();
+
+  const dentalPolicy = company.service_policies[0] ?? null;
+  const ceiling = dentalPolicy?.annual_ceiling ? Number(dentalPolicy.annual_ceiling) : null;
+  const dentalCeiling = ceiling ?? 3000;
 
   // بناء شروط الاستعلام
   const where: any = {
@@ -68,6 +77,7 @@ export default async function DentalCompanyPrintPage({
         select: {
           name: true,
           card_number: true,
+          remaining_balance: true,
         },
       },
     },
@@ -82,6 +92,51 @@ export default async function DentalCompanyPrintPage({
   const totalAmount = transactions.reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
   const totalCompanyShare = transactions.reduce((sum, tx) => sum + Number(tx.actual_company_share || 0), 0);
   const totalPatientShare = transactions.reduce((sum, tx) => sum + Number(tx.actual_patient_share || 0), 0);
+
+  // ─── حساب الأرصدة المتبقية لحركات الأسنان ديناميكياً لتجنب مشاكل الـ null والـ 600 ───
+  const uniqueBenIdsForTxs = Array.from(new Set(transactions.map((tx) => tx.beneficiary_id)));
+  const allBenDentalTxs = uniqueBenIdsForTxs.length > 0
+    ? await prisma.transaction.findMany({
+        where: {
+          beneficiary_id: { in: uniqueBenIdsForTxs },
+          company_id: companyId,
+          type: "DENTAL",
+          is_cancelled: false,
+        },
+        orderBy: [
+          { created_at: "asc" },
+          { id: "asc" },
+        ],
+        select: {
+          id: true,
+          beneficiary_id: true,
+          ceiling_consumed: true,
+          amount: true,
+          actual_company_share: true,
+        },
+      })
+    : [];
+
+  const txsByBenMap = new Map();
+  for (const t of allBenDentalTxs) {
+    if (!txsByBenMap.has(t.beneficiary_id)) {
+      txsByBenMap.set(t.beneficiary_id, []);
+    }
+    txsByBenMap.get(t.beneficiary_id).push(t);
+  }
+
+  const remainingAfterTxId = new Map();
+
+  for (const [benId, benTxs] of txsByBenMap.entries()) {
+    let accumulatedSpent = 0;
+    for (const t of benTxs) {
+      const consumed = t.ceiling_consumed !== null
+        ? Number(t.ceiling_consumed)
+        : Number(t.actual_company_share ?? t.amount);
+      accumulatedSpent += consumed;
+      remainingAfterTxId.set(t.id, Math.max(0, dentalCeiling - accumulatedSpent));
+    }
+  }
 
   return (
     <div dir="rtl" style={{ backgroundColor: "#fff", color: "#000", margin: "0", padding: "0" }} className="min-h-screen p-8">
@@ -152,13 +207,14 @@ export default async function DentalCompanyPrintPage({
               <th className="border border-slate-400 px-3 py-2 text-center font-black">قيمة الفاتورة</th>
               <th className="border border-slate-400 px-3 py-2 text-center font-black">حصة الشركة</th>
               <th className="border border-slate-400 px-3 py-2 text-center font-black">حصة المؤمن (كاش)</th>
+              <th className="border border-slate-400 px-3 py-2 text-center font-black">الرصيد المتبقي</th>
               <th className="border border-slate-400 px-3 py-2 font-black">تاريخ ووقت الحركة</th>
             </tr>
           </thead>
           <tbody>
             {transactions.length === 0 ? (
               <tr>
-                <td colSpan={7} className="border border-slate-400 px-3 py-8 text-center text-slate-500 font-bold">
+                <td colSpan={8} className="border border-slate-400 px-3 py-8 text-center text-slate-500 font-bold">
                   لا توجد حركات أسنان مسجلة لهذه الشركة في هذا المرفق.
                 </td>
               </tr>
@@ -167,6 +223,7 @@ export default async function DentalCompanyPrintPage({
                 const amount = Number(tx.amount || 0);
                 const companyShare = tx.actual_company_share !== null ? Number(tx.actual_company_share) : 0;
                 const patientShare = tx.actual_patient_share !== null ? Number(tx.actual_patient_share) : 0;
+                const remaining = remainingAfterTxId.get(tx.id) ?? (tx.remaining_ceiling_after !== null ? Number(tx.remaining_ceiling_after) : (dentalCeiling - companyShare));
 
                 return (
                   <tr key={tx.id} className="border-b border-slate-300 hover:bg-slate-50">
@@ -176,6 +233,7 @@ export default async function DentalCompanyPrintPage({
                     <td className="border border-slate-300 px-3 py-2 text-center font-mono font-black">{amount.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل</td>
                     <td className="border border-slate-300 px-3 py-2 text-center font-mono font-black text-teal-800">{companyShare.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل</td>
                     <td className="border border-slate-300 px-3 py-2 text-center font-mono font-black text-amber-700">{patientShare.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل</td>
+                    <td className="border border-slate-300 px-3 py-2 text-center font-mono font-black text-sky-850">{remaining !== null ? `${remaining.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل` : "—"}</td>
                     <td className="border border-slate-300 px-3 py-2 font-bold text-slate-700">
                       {formatDateTripoli(tx.created_at)} <span className="text-slate-400 mr-1.5">{formatTimeTripoli(tx.created_at)}</span>
                     </td>

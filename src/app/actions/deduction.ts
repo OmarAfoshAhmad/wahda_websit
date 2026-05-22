@@ -68,8 +68,16 @@ export async function deductBalance(formData: {
 
   const { card_number, amount, type } = validated.data;
 
-  if (!session.is_admin && !session.is_manager && session.facility_type === "PHARMACY" && (type === "DENTAL" || type === "OPTICS" || type === "SUPPLIES")) {
-    return { error: "حسابات الصيدليات لا يمكنها تنفيذ هذا النوع من الخدمات" };
+  if (!session.is_admin && !session.is_manager) {
+    if (session.facility_type === "PHARMACY" && type !== "MEDICINE") {
+      return { error: "حسابات الصيدليات لا يمكنها تنفيذ سوى خدمة صرف الدواء" };
+    }
+    if (session.facility_type === "DENTAL" && type !== "DENTAL") {
+      return { error: "حسابات عيادات الأسنان لا يمكنها تنفيذ سوى خدمات الأسنان" };
+    }
+    if (session.facility_type === "OPTICS" && type !== "OPTICS") {
+      return { error: "حسابات مراكز البصريات لا يمكنها تنفيذ سوى خدمات العيون والبصريات" };
+    }
   }
 
   const manualTransactionDate =
@@ -513,11 +521,20 @@ export async function getAvailableServiceTypes(beneficiaryId: string) {
     const policyTypes = new Set(policies.map(p => p.service_type));
     const mappings = company.service_type_mappings as Record<string, string> | null;
     const allTypes = ["GENERAL", "MEDICINE", "DENTAL", "OPTICS", "SUPPLIES"];
-
-    const available = allTypes.filter(st => {
+    let available = allTypes.filter(st => {
       const mapped = mappings?.[st] ?? st;
       return policyTypes.has(mapped);
     });
+
+    if (!session.is_admin && !session.is_manager) {
+      if (session.facility_type === "PHARMACY") {
+        available = available.filter(t => t === "MEDICINE");
+      } else if (session.facility_type === "DENTAL") {
+        available = available.filter(t => t === "DENTAL");
+      } else if (session.facility_type === "OPTICS") {
+        available = available.filter(t => t === "OPTICS");
+      }
+    }
 
     return { serviceTypes: available };
   } catch {

@@ -71,7 +71,7 @@ export async function updateFacility(data: {
   id: string;
   name: string;
   username: string;
-  facility_type?: "AUTO" | "HOSPITAL" | "PHARMACY";
+  facility_type?: "AUTO" | "HOSPITAL" | "PHARMACY" | "DENTAL" | "OPTICS";
   resetPassword?: boolean;
 }) {
   const session = await requireActiveFacilitySession();
