@@ -13,6 +13,8 @@ const companies = [
   { name: "وعد (Waad)", code: "WAAD", pattern: "^WAAD2025.*", ceiling: 3000.00 },
   { name: "الوعد المعماري (Waad Architect)", code: "WCA", pattern: "^WCA2026.*", ceiling: 3000.00 },
   { name: "الواحة (Waha)", code: "WAHA", pattern: "^WAHA2025.*", ceiling: 3000.00 },
+  { name: "الجمارك (Jamarek)", code: "JMR", pattern: "^JMR2025.*", ceiling: 3000.00 },
+  { name: "الشركة الليبية للإسمنت (Cement)", code: "LCC", pattern: "^LCC2025.*", ceiling: 3000.00 },
 ];
 
 async function main() {

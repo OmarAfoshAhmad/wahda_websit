@@ -21,12 +21,14 @@ type TransactionView = {
   is_cancelled: boolean;
 };
 
-type EditableTransactionType = "MEDICINE" | "SUPPLIES";
+type EditableTransactionType = "MEDICINE" | "SUPPLIES" | "DENTAL";
 
 function toMovementType(txType: string): EditableTransactionType {
   // الجلب يكون من "نوع الحركة" لا "المصدر":
   // IMPORT و MEDICINE كلاهما = أدوية صرف عام.
-  return txType === "SUPPLIES" ? "SUPPLIES" : "MEDICINE";
+  if (txType === "SUPPLIES") return "SUPPLIES";
+  if (txType === "DENTAL") return "DENTAL";
+  return "MEDICINE";
 }
 
 export function TransactionEditModal({
@@ -178,8 +180,14 @@ export function TransactionEditModal({
                   onChange={(e) => setType(e.target.value as EditableTransactionType)}
                   className="flex h-10 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-200"
                 >
-                  <option value="SUPPLIES">كشف عام</option>
-                  <option value="MEDICINE">أدوية صرف عام</option>
+                  {transaction.type === "DENTAL" ? (
+                    <option value="DENTAL">أسنان</option>
+                  ) : (
+                    <>
+                      <option value="SUPPLIES">كشف عام</option>
+                      <option value="MEDICINE">أدوية صرف عام</option>
+                    </>
+                  )}
                 </select>
               </div>
 

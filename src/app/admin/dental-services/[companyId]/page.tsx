@@ -1,28 +1,49 @@
 import { redirect } from "next/navigation";
 import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
-import { getSessionWithFreshPermissions } from "@/lib/session-guard";
+import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-guard";
 import { Shell } from "@/components/shell";
-import { Card } from "@/components/ui";
+import { Card, Badge } from "@/components/ui";
 import Link from "next/link";
-import { ArrowRight, Building2, Users, ShieldCheck, History, Printer } from "lucide-react";
+import { ArrowRight, Building2, Users, ShieldCheck, History, Printer, Search, ChevronLeft, ChevronRight, CalendarDays, RotateCcw } from "lucide-react";
 import { DentalDeductForm } from "@/components/dental-deduct-form";
 import { formatDateTripoli, formatTimeTripoli } from "@/lib/datetime";
+import { TransactionCancelButton } from "@/components/transaction-cancel-button";
+import { TransactionEditModal } from "@/components/transaction-edit-modal";
+import { BeneficiaryEditModal } from "@/components/beneficiary-edit-modal";
+import { BeneficiaryDeleteButton } from "@/components/beneficiary-delete-button";
+import { BeneficiaryTransactionsPanelButton } from "@/components/beneficiary-transactions-panel-button";
+import { getLedgerRemainingByBeneficiaryIds } from "@/lib/ledger-balance";
+import { BeneficiaryRestoreActions } from "@/components/beneficiary-restore-actions";
+import { BeneficiariesBulkActionButton, SelectAllCheckbox, EmptyRecycleBinButton } from "@/components/beneficiaries-bulk-action-button";
 
 export default async function DentalCompanyPage({
   params,
   searchParams,
 }: {
   params: Promise<{ companyId: string }>;
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{
+    tab?: string;
+    q?: string;
+    page?: string;
+    from?: string;
+    to?: string;
+    view?: string;
+    bulk_msg?: string;
+    bulk_type?: string;
+  }>;
 }) {
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
   if (!session.is_admin && !session.is_manager) redirect("/dashboard");
 
   const { companyId } = await params;
-  const { tab } = await searchParams;
-  const activeTab = tab === "transactions" ? "transactions" : "deduct";
+  const sp = await searchParams;
+  const activeTab = sp.tab === "transactions" ? "transactions" : sp.tab === "beneficiaries" ? "beneficiaries" : "deduct";
+  const searchQuery = (sp.q ?? "").trim();
+  const page = Math.max(1, parseInt(sp.page ?? "1") || 1);
+  const fromDate = sp.from ?? "";
+  const toDate = sp.to ?? "";
 
   // جلب بيانات الشركة مع سياسة الأسنان
   const company = await prisma.insuranceCompany.findUnique({
@@ -32,7 +53,7 @@ export default async function DentalCompanyPage({
         where: { service_type: "DENTAL", is_active: true },
       },
       _count: {
-        select: { beneficiaries: { where: { deleted_at: null, status: "ACTIVE" } } },
+        select: { beneficiaries: { where: { deleted_at: null } } },
       },
     },
   });
@@ -43,32 +64,185 @@ export default async function DentalCompanyPage({
   const ceiling = dentalPolicy?.annual_ceiling ? Number(dentalPolicy.annual_ceiling) : null;
   const copay = dentalPolicy?.copay_percentage ? Number(dentalPolicy.copay_percentage) : 0;
 
-  // جلب آخر 10 حركات أسنان لهذه الشركة في هذا المرفق
-  const recentTransactions = await prisma.transaction.findMany({
-    where: {
-      company_id: companyId,
-      facility_id: session.id,
-      type: "DENTAL",
-      is_cancelled: false,
-    },
-    include: {
-      beneficiary: {
-        select: {
-          name: true,
-          card_number: true,
+  // بناء شروط الاستعلام لحركات الأسنان
+  const PAGE_SIZE = 15;
+  const where: any = {
+    company_id: companyId,
+    type: "DENTAL",
+    is_cancelled: false,
+    ...(session.is_admin ? {} : { facility_id: session.id }),
+  };
+
+  if (searchQuery) {
+    where.OR = [
+      { beneficiary: { name: { contains: searchQuery, mode: "insensitive" } } },
+      { beneficiary: { card_number: { contains: searchQuery, mode: "insensitive" } } },
+    ];
+  }
+
+  if (fromDate) {
+    const from = new Date(fromDate);
+    from.setHours(0, 0, 0, 0);
+    where.created_at = { ...(where.created_at as object ?? {}), gte: from };
+  }
+  if (toDate) {
+    const to = new Date(toDate);
+    to.setHours(23, 59, 59, 999);
+    where.created_at = { ...(where.created_at as object ?? {}), lte: to };
+  }
+
+  // جلب المرافق والتحقق من الصلاحيات
+  const facilities: Array<{ id: string; name: string }> = session.is_admin
+    ? await prisma.facility.findMany({ where: { deleted_at: null }, select: { id: true, name: true }, orderBy: { name: "asc" } })
+    : [{ id: session.id, name: session.name }];
+
+  const isReadOnlyEmployee = session.is_employee;
+  const canCancel = !isReadOnlyEmployee && hasPermission(session, "cancel_transactions");
+  const canCorrect = !isReadOnlyEmployee && hasPermission(session, "correct_transactions");
+  const canDelete = !isReadOnlyEmployee && hasPermission(session, "delete_transaction");
+  const canSingleAction = session.is_admin || canCancel || canCorrect;
+
+  const canEditBen = hasPermission(session, "edit_beneficiary");
+  const canDeleteBen = hasPermission(session, "delete_beneficiary");
+  const canManageRecycleBin = hasPermission(session, "manage_recycle_bin");
+
+  // جلب الحركات المصفاة والمرقمنة وإحصائياتها
+  const [totalCount, recentTransactions, stats] = await Promise.all([
+    prisma.transaction.count({ where }),
+    prisma.transaction.findMany({
+      where,
+      orderBy: { created_at: "desc" },
+      skip: (page - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
+      include: {
+        beneficiary: {
+          select: {
+            id: true,
+            name: true,
+            card_number: true,
+            remaining_balance: true,
+          },
+        },
+        facility: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        corrections: {
+          where: { type: "CANCELLATION", is_cancelled: false },
+          select: { id: true, amount: true, is_cancelled: true },
+          take: 1,
         },
       },
-    },
-    orderBy: {
-      created_at: "desc",
-    },
-    take: 10,
-  });
+    }),
+    prisma.transaction.aggregate({
+      where,
+      _sum: { amount: true, actual_company_share: true, actual_patient_share: true },
+    }),
+  ]);
+
+  const totalPages = Math.ceil(totalCount / PAGE_SIZE);
+  const totalAmount = Number(stats._sum.amount ?? 0);
+  const totalCompanyShare = Number(stats._sum.actual_company_share ?? 0);
+  const totalPatientShare = Number(stats._sum.actual_patient_share ?? 0);
+
+  // Use a shared datalist for all modals to save DOM memory
+  const globalDatalistId = "facilities-datalist-global";
+  const sharedDatalist = (
+    <datalist id={globalDatalistId}>
+      {facilities.map((f: { id: string; name: string }) => (
+        <option key={f.id} value={f.name} />
+      ))}
+    </datalist>
+  );
+
+  // ─── جلب المستفيدين إذا تم تحديد تبويب المستفيدين ───
+  let companyBeneficiaries: any[] = [];
+  let totalBeneficiariesCount = 0;
+  let totalBeneficiariesPages = 0;
+  let deletedCount = 0;
+
+  const isDeletedView = sp.view === "deleted";
+  const bulkMessage = (sp.bulk_msg?.trim() ?? "").slice(0, 220);
+  const bulkMessageType: "success" | "error" = sp.bulk_type === "error" ? "error" : "success";
+
+  if (activeTab === "beneficiaries") {
+    // جلب عدد المحذوفين ناعماً
+    deletedCount = await prisma.beneficiary.count({
+      where: {
+        company_id: companyId,
+        deleted_at: { not: null },
+      },
+    });
+
+    const benWhere: any = {
+      company_id: companyId,
+      deleted_at: isDeletedView ? { not: null } : null,
+    };
+    if (searchQuery) {
+      const searchTerms = searchQuery.split(/\s+/).filter(Boolean);
+      if (searchTerms.length > 0) {
+        benWhere.AND = searchTerms.map(t => ({
+          OR: [
+            { name: { contains: t, mode: "insensitive" } },
+            { card_number: { contains: t, mode: "insensitive" } },
+          ]
+        }));
+      }
+    }
+
+    const [benList, benCount] = await Promise.all([
+      prisma.beneficiary.findMany({
+        where: benWhere,
+        orderBy: { name: "asc" },
+        skip: (page - 1) * PAGE_SIZE,
+        take: PAGE_SIZE,
+        select: {
+          id: true,
+          name: true,
+          card_number: true,
+          birth_date: true,
+          status: true,
+          total_balance: true,
+          is_legacy_card: true,
+          deleted_at: true,
+          _count: {
+            select: { transactions: { where: { is_cancelled: false } } }
+          }
+        }
+      }),
+      prisma.beneficiary.count({ where: benWhere })
+    ]);
+
+    const benIds = benList.map((b) => b.id);
+    const remainingById = await getLedgerRemainingByBeneficiaryIds(benIds);
+
+    companyBeneficiaries = benList.map((b) => ({
+      ...b,
+      total_balance: Number(b.total_balance),
+      remaining_balance: remainingById.get(b.id) ?? 0,
+      in_import_file: Boolean(b.is_legacy_card),
+    }));
+
+    totalBeneficiariesCount = benCount;
+    totalBeneficiariesPages = Math.ceil(benCount / PAGE_SIZE);
+  }
+
+  const buildPageUrl = (pageNumber: number) => {
+    const params = new URLSearchParams();
+    params.set("tab", activeTab);
+    if (searchQuery) params.set("q", searchQuery);
+    if (fromDate && activeTab === "transactions") params.set("from", fromDate);
+    if (toDate && activeTab === "transactions") params.set("to", toDate);
+    if (isDeletedView && activeTab === "beneficiaries") params.set("view", "deleted");
+    params.set("page", String(pageNumber));
+    return `/admin/dental-services/${companyId}?${params.toString()}`;
+  };
 
   return (
     <Shell facilityName={session.name} session={session}>
       <div className="space-y-6 pb-12">
-        {/* breadcrumb */}
         <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
           <Link href="/admin/dental-services" className="hover:text-teal-600 dark:hover:text-teal-400 font-bold transition-colors">
             خدمات الأسنان
@@ -77,17 +251,11 @@ export default async function DentalCompanyPage({
           <span className="font-black text-slate-900 dark:text-white">{company.name}</span>
         </div>
 
-        {/* بطاقة معلومات الشركة */}
-        <Card className="p-5 border border-teal-200 dark:border-teal-850 bg-gradient-to-r from-teal-50/50 to-white dark:from-teal-900/10 dark:to-slate-900">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-400">
-                {company.logo ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={company.logo} alt={company.name} className="h-10 w-10 object-contain rounded-lg" />
-                ) : (
-                  <Building2 className="h-6 w-6" />
-                )}
+        <Card className="p-6 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl shadow-sm">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-teal-50 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400 border border-teal-100 dark:border-teal-900/40">
+                <Building2 className="h-6 w-6" />
               </div>
               <div>
                 <h1 className="text-xl font-black text-slate-900 dark:text-white">{company.name}</h1>
@@ -109,27 +277,31 @@ export default async function DentalCompanyPage({
               ) : (
                 <div className="flex items-center gap-1.5 rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 px-3 py-2">
                   <ShieldCheck className="h-4 w-4 text-emerald-600" />
-                  <span className="text-sm font-black text-emerald-800 dark:text-emerald-300">سقف مفتوح</span>
+                  <span className="text-sm font-black text-emerald-850 dark:text-teal-300">سقف مفتوح</span>
                 </div>
               )}
               {copay > 0 && (
                 <div className="flex items-center gap-1.5 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-3 py-2">
                   <span className="text-sm font-black text-amber-800 dark:text-amber-300">تحمل {copay}%</span>
-                  <span className="text-xs text-amber-605 dark:text-amber-400">على المؤمن</span>
+                  <span className="text-xs text-amber-600 dark:text-amber-400">على المؤمن</span>
                 </div>
               )}
               <Link
-                href={`/admin/dental-transactions?company=${company.id}`}
+                href={`/admin/dental-services/${companyId}/print?${new URLSearchParams({
+                  q: searchQuery,
+                  from: fromDate,
+                  to: toDate,
+                }).toString()}`}
+                target="_blank"
                 className="flex items-center gap-1.5 rounded-lg border border-teal-650 dark:border-teal-500 bg-teal-600 dark:bg-teal-950 text-white dark:text-teal-300 hover:bg-teal-700 dark:hover:bg-teal-900 px-3.5 py-2 text-xs font-black transition-all shadow-sm hover:scale-[1.02] active:scale-[0.98]"
               >
-                <History className="h-4 w-4" />
-                <span>السجل الكامل للشركة</span>
+                <Printer className="h-4 w-4" />
+                <span>طباعة الكشف</span>
               </Link>
             </div>
           </div>
         </Card>
 
-        {/* التبويبات لعزل الخصم عن الحركات */}
         {dentalPolicy && (
           <div className="flex gap-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-1 w-fit">
             <Link
@@ -153,7 +325,22 @@ export default async function DentalCompanyPage({
               <div className="flex items-center gap-1.5">
                 <span>آخر الحركات</span>
                 <span className="text-[10px] font-black bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400 px-1.5 py-0.5 rounded-full">
-                  {recentTransactions.length}
+                  {totalCount}
+                </span>
+              </div>
+            </Link>
+            <Link
+              href={`/admin/dental-services/${companyId}?tab=beneficiaries`}
+              className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${
+                activeTab === "beneficiaries"
+                  ? "bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-sm border border-slate-200 dark:border-slate-700"
+                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+              }`}
+            >
+              <div className="flex items-center gap-1.5">
+                <span>المستفيدين</span>
+                <span className="text-[10px] font-black bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400 px-1.5 py-0.5 rounded-full">
+                  {company._count.beneficiaries}
                 </span>
               </div>
             </Link>
@@ -168,7 +355,6 @@ export default async function DentalCompanyPage({
           </div>
         )}
 
-        {/* نموذج ومحرك الاقتطاع التفاعلي لخدمات الأسنان */}
         {dentalPolicy && activeTab === "deduct" && (
           <DentalDeductForm
             companyId={companyId}
@@ -178,87 +364,613 @@ export default async function DentalCompanyPage({
           />
         )}
 
-        {/* جدول آخر 10 حركات أسنان للشركة في هذا المرفق */}
         {dentalPolicy && activeTab === "transactions" && (
-          <Card className="p-5 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl shadow-sm space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
-              <div className="flex items-center gap-2.5">
-                <h2 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
-                  <History className="h-5 w-5 text-teal-600" />
-                  آخر 10 حركات أسنان لهذه الشركة في هذا المرفق
-                </h2>
-                <span className="text-[10px] font-black text-slate-400 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full px-2.5 py-1">
-                  سجل المرفق الحالي
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Link
-                  href={`/admin/dental-services/${companyId}/print`}
-                  target="_blank"
-                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 text-xs font-black text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-slate-350 transition-colors shadow-sm"
-                >
-                  <Printer className="h-4 w-4 text-teal-600" />
-                  <span>طباعة الكشف</span>
-                </Link>
-              </div>
+          <div className="space-y-4">
+            <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
+              <Card className="p-4 border-teal-200 dark:border-teal-800 bg-teal-50/50 dark:bg-teal-900/10">
+                <p className="text-[10px] font-black uppercase tracking-wider text-teal-600 dark:text-teal-500">إجمالي الحركات</p>
+                <p className="mt-1 text-2xl font-black text-teal-800 dark:text-teal-300">{totalCount.toLocaleString("ar-LY")}</p>
+              </Card>
+              <Card className="p-4">
+                <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">إجمالي الفواتير</p>
+                <p className="mt-1 text-2xl font-black text-slate-900 dark:text-white">{totalAmount.toLocaleString("ar-LY", { minimumFractionDigits: 2 })}</p>
+                <p className="text-[10px] text-slate-400">د.ل</p>
+              </Card>
+              <Card className="p-4 border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/10">
+                <p className="text-[10px] font-black uppercase tracking-wider text-blue-600 dark:text-blue-500">على الشركة</p>
+                <p className="mt-1 text-2xl font-black text-blue-800 dark:text-blue-300">{totalCompanyShare.toLocaleString("ar-LY", { minimumFractionDigits: 2 })}</p>
+                <p className="text-[10px] text-blue-400">د.ل</p>
+              </Card>
+              <Card className="p-4 border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/10">
+                <p className="text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-500">على المؤمنين</p>
+                <p className="mt-1 text-2xl font-black text-amber-800 dark:text-amber-300">{totalPatientShare.toLocaleString("ar-LY", { minimumFractionDigits: 2 })}</p>
+                <p className="text-[10px] text-amber-400">د.ل</p>
+              </Card>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-right border-collapse text-sm">
-                <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
-                  <tr>
-                    <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400">المستفيد</th>
-                    <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400">رقم البطاقة</th>
-                    <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">قيمة الفاتورة</th>
-                    <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">حصة الشركة</th>
-                    <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">حصة المؤمن</th>
-                    <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400">التاريخ والوقت</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {recentTransactions.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="px-4 py-12 text-center text-slate-500 dark:text-slate-400 font-bold">
-                        لا توجد حركات سابقة لهذه الشركة في هذا المرفق بعد.
-                      </td>
-                    </tr>
-                  ) : (
-                    recentTransactions.map((tx) => {
-                      const amount = Number(tx.amount);
-                      const companyShare = tx.actual_company_share !== null ? Number(tx.actual_company_share) : 0;
-                      const patientShare = tx.actual_patient_share !== null ? Number(tx.actual_patient_share) : 0;
+            <Card className="p-4">
+              <form method="GET" action={`/admin/dental-services/${companyId}`} className="flex flex-wrap items-center gap-3">
+                <input type="hidden" name="tab" value="transactions" />
+                <div className="relative flex-1 min-w-52">
+                  <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <input
+                    type="text"
+                    name="q"
+                    defaultValue={searchQuery}
+                    placeholder="ابحث باسم المستفيد أو رقم البطاقة..."
+                    className="flex h-10 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 pr-9 pl-3 py-2 text-sm font-bold text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/30"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-500">من</span>
+                  <input
+                    type="date"
+                    name="from"
+                    defaultValue={fromDate}
+                    className="flex h-10 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-bold text-slate-900 dark:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/30"
+                  />
+                  <span className="text-xs font-bold text-slate-500">إلى</span>
+                  <input
+                    type="date"
+                    name="to"
+                    defaultValue={toDate}
+                    className="flex h-10 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-bold text-slate-900 dark:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/30"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="submit"
+                    className="inline-flex h-10 items-center justify-center rounded-md bg-teal-600 hover:bg-teal-700 px-5 text-sm font-black text-white transition-colors cursor-pointer"
+                  >
+                    تطبيق
+                  </button>
+                  <Link
+                    href={`/admin/dental-services/${companyId}?tab=transactions`}
+                    className="inline-flex h-10 items-center justify-center rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-805 px-4 text-sm font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                  >
+                    إعادة تعيين
+                  </Link>
+                </div>
+              </form>
+            </Card>
 
-                      return (
-                        <tr key={tx.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                          <td className="px-4 py-3.5 font-black text-slate-900 dark:text-white">
-                            {tx.beneficiary?.name ?? "—"}
-                          </td>
-                          <td className="px-4 py-3.5 font-mono font-bold text-slate-600 dark:text-slate-400 text-xs">
-                            {tx.beneficiary?.card_number ?? "—"}
-                          </td>
-                          <td className="px-4 py-3.5 text-center font-mono font-black text-slate-900 dark:text-white">
-                            {amount.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل
-                          </td>
-                          <td className="px-4 py-3.5 text-center font-mono font-black text-teal-700 dark:text-teal-400">
-                            {companyShare.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل
-                          </td>
-                          <td className="px-4 py-3.5 text-center font-mono font-black text-amber-600 dark:text-amber-450">
-                            {patientShare.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل
-                          </td>
-                          <td className="px-4 py-3.5 text-xs">
-                            <span className="font-bold text-slate-700 dark:text-slate-300">{formatDateTripoli(tx.created_at)}</span>
-                            <span className="text-slate-400 mr-2">{formatTimeTripoli(tx.created_at)}</span>
+            <Card className="p-5 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl shadow-sm space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
+                <div className="flex items-center gap-2.5">
+                  <h2 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
+                    <History className="h-5 w-5 text-teal-600" />
+                    سجل حركات الأسنان لهذه الشركة في هذا المرفق
+                  </h2>
+                  <span className="text-[10px] font-black text-slate-400 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full px-2.5 py-1">
+                    صفحة {page} من {totalPages || 1}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Link
+                    href={`/admin/dental-services/${companyId}/print?${new URLSearchParams({
+                      q: searchQuery,
+                      from: fromDate,
+                      to: toDate,
+                    }).toString()}`}
+                    target="_blank"
+                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 text-xs font-black text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-slate-350 transition-colors shadow-sm"
+                  >
+                    <Printer className="h-4 w-4 text-teal-600" />
+                    <span>طباعة الكشف المصفى</span>
+                  </Link>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-right border-collapse text-sm">
+                  <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
+                    <tr>
+                      <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400">المستفيد</th>
+                      <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400">رقم البطاقة</th>
+                      <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">قيمة الفاتورة</th>
+                      <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">حصة الشركة</th>
+                      <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">حصة المؤمن</th>
+                      <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400">التاريخ والوقت</th>
+                      {(session.is_admin || canCorrect || canCancel) && (
+                        <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">إجراءات</th>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {recentTransactions.length === 0 ? (
+                      <tr>
+                        <td colSpan={6 + ((session.is_admin || canCorrect || canCancel) ? 1 : 0)} className="px-4 py-12 text-center text-slate-500 dark:text-slate-400 font-bold">
+                          لا توجد حركات مطابقة للبحث أو معايير الفلترة المحددة.
+                        </td>
+                      </tr>
+                    ) : (
+                      recentTransactions.map((tx) => {
+                        const amount = Number(tx.amount);
+                        const companyShare = tx.actual_company_share !== null ? Number(tx.actual_company_share) : 0;
+                        const patientShare = tx.actual_patient_share !== null ? Number(tx.actual_patient_share) : 0;
+
+                        return (
+                          <tr key={tx.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                            <td className="px-4 py-3.5 font-black text-slate-900 dark:text-white">
+                              {tx.beneficiary?.name ?? "—"}
+                            </td>
+                            <td className="px-4 py-3.5 font-mono font-bold text-slate-650 dark:text-slate-400 text-xs">
+                              {tx.beneficiary?.card_number ?? "—"}
+                            </td>
+                            <td className="px-4 py-3.5 text-center font-mono font-black text-slate-900 dark:text-white">
+                              {amount.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل
+                            </td>
+                            <td className="px-4 py-3.5 text-center font-mono font-black text-teal-700 dark:text-teal-400">
+                              {companyShare.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل
+                            </td>
+                            <td className="px-4 py-3.5 text-center font-mono font-black text-amber-600 dark:text-amber-450">
+                              {patientShare.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل
+                            </td>
+                            <td className="px-4 py-3.5 text-xs">
+                              <span className="font-bold text-slate-700 dark:text-slate-300">{formatDateTripoli(tx.created_at)}</span>
+                              <span className="text-slate-400 mr-2">{formatTimeTripoli(tx.created_at)}</span>
+                            </td>
+                            {(session.is_admin || canCorrect || canCancel) && (
+                              <td className="px-4 py-3.5 text-center">
+                                <div className="flex items-center justify-center gap-2">
+                                  {canSingleAction && (
+                                    <TransactionCancelButton
+                                      transactionId={tx.id}
+                                      isCancelled={tx.is_cancelled}
+                                      type={tx.type}
+                                    />
+                                  )}
+                                  {(session.is_admin || canCorrect) && (
+                                    <TransactionEditModal
+                                      transaction={{
+                                        id: tx.id,
+                                        amount: Number(tx.amount),
+                                        type: tx.type,
+                                        created_at: tx.created_at.toISOString(),
+                                        facility_id: tx.facility.id,
+                                        facility_name: tx.facility.name,
+                                        is_cancelled: tx.is_cancelled,
+                                      }}
+                                      facilities={facilities}
+                                      datalistId={globalDatalistId}
+                                    />
+                                  )}
+                                </div>
+                              </td>
+                            )}
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* أزرار الترقيم Pagination */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-4">
+                  <div className="flex items-center gap-1">
+                    {page > 1 ? (
+                      <Link
+                        href={buildPageUrl(page - 1)}
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                        title="الصفحة السابقة"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </Link>
+                    ) : (
+                      <button
+                        disabled
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 text-slate-300 dark:text-slate-600 cursor-not-allowed"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </button>
+                    )}
+
+                    {page < totalPages ? (
+                      <Link
+                        href={buildPageUrl(page + 1)}
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                        title="الصفحة التالية"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </Link>
+                    ) : (
+                      <button
+                        disabled
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 text-slate-300 dark:text-slate-600 cursor-not-allowed"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                    صفحة {page} من {totalPages} (إجمالي {totalCount} حركة)
+                  </span>
+                </div>
+              )}
+            </Card>
+          </div>
+        )}
+
+        {dentalPolicy && activeTab === "beneficiaries" && (
+          <div className="space-y-4">
+            <Card className="p-4">
+              <form method="GET" action={`/admin/dental-services/${companyId}`} className="flex items-center gap-3">
+                <input type="hidden" name="tab" value="beneficiaries" />
+                {isDeletedView && <input type="hidden" name="view" value="deleted" />}
+                <div className="relative flex-1 min-w-52">
+                  <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <input
+                    type="text"
+                    name="q"
+                    defaultValue={searchQuery}
+                    placeholder="ابحث باسم المستفيد أو رقم البطاقة..."
+                    className="flex h-10 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 pr-9 pl-3 py-2 text-sm font-bold text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/30"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="submit"
+                    className="inline-flex h-10 items-center justify-center rounded-md bg-teal-600 hover:bg-teal-700 px-5 text-sm font-black text-white transition-colors cursor-pointer"
+                  >
+                    تطبيق
+                  </button>
+                  <Link
+                    href={`/admin/dental-services/${companyId}?tab=beneficiaries`}
+                    className="inline-flex h-10 items-center justify-center rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 text-sm font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                  >
+                    إعادة تعيين
+                  </Link>
+                </div>
+              </form>
+            </Card>
+
+            {/* تبويب عرض النشطين / المحذوفين */}
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href={`/admin/dental-services/${companyId}?tab=beneficiaries${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}`}
+                className={`inline-flex items-center gap-2 rounded-md border px-3.5 py-2 text-sm font-bold transition-colors ${!isDeletedView
+                  ? "border-primary/20 bg-primary-light dark:bg-primary-light/10 text-primary dark:text-blue-400 dark:border-primary/30"
+                  : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
+                  }`}
+              >
+                <Users className="h-4 w-4" />
+                النشطون
+                <span className="rounded-full bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 text-xs font-black text-slate-600 dark:text-slate-300">
+                  {company._count.beneficiaries}
+                </span>
+              </Link>
+              <Link
+                href={`/admin/dental-services/${companyId}?tab=beneficiaries&view=deleted${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}`}
+                className={`inline-flex items-center gap-2 rounded-md border px-3.5 py-2 text-sm font-bold transition-colors ${isDeletedView
+                  ? "border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400"
+                  : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
+                  }`}
+              >
+                <RotateCcw className="h-4 w-4" />
+                المحذوفون
+                {deletedCount > 0 && (
+                  <span className="rounded-full bg-red-100 dark:bg-red-900/50 px-1.5 py-0.5 text-xs font-black text-red-600 dark:text-red-400">
+                    {deletedCount}
+                  </span>
+                )}
+              </Link>
+              {bulkMessage && (
+                <span className={`inline-flex items-center rounded-md border px-3 py-2 text-xs font-bold ${bulkMessageType === "error"
+                  ? "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300"
+                  : "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-300"
+                  }`}>
+                  {bulkMessage}
+                </span>
+              )}
+            </div>
+
+            <Card className="overflow-hidden p-5 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl shadow-sm space-y-4">
+              <form id="beneficiaries-bulk-form">
+                {(session.is_admin || (canDeleteBen && !isDeletedView) || (canManageRecycleBin && isDeletedView)) && (
+                  <div className="flex items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/40 px-4 py-3 sm:px-6 rounded-lg mb-4">
+                    <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                      {isDeletedView
+                        ? "يمكنك تحديد أكثر من مستفيد محذوف ثم تنفيذ الاستعادة الجماعية أو الحذف النهائي للسجلات القابلة."
+                        : "يمكنك تحديد أكثر من مستفيد للتصدير أو الحذف الجماعي. المستفيد الذي لديه حركات مالية سيتم تخطي حذفه تلقائيًا."}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      {isDeletedView && canManageRecycleBin && <EmptyRecycleBinButton disabled={deletedCount === 0} />}
+                      {isDeletedView && canManageRecycleBin && <BeneficiariesBulkActionButton formId="beneficiaries-bulk-form" mode="restore" />}
+                      <BeneficiariesBulkActionButton formId="beneficiaries-bulk-form" mode={isDeletedView ? "permanent" : "soft"} />
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-4 mb-4">
+                  <div className="flex items-center gap-2.5">
+                    <h2 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
+                      <Users className="h-5 w-5 text-teal-600" />
+                      {isDeletedView ? "سلة المحذوفات للمستفيدين" : "قائمة مستفيدي هذه الشركة"}
+                    </h2>
+                    <span className="text-[10px] font-black text-slate-400 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full px-2.5 py-1">
+                      صفحة {page} من {totalBeneficiariesPages || 1}
+                    </span>
+                  </div>
+                </div>
+
+                {/* ══ عرض الكارد — جوال فقط ══ */}
+                <div className="sm:hidden divide-y divide-slate-100 dark:divide-slate-800">
+                  {companyBeneficiaries.length === 0 ? (
+                    <p className="py-10 text-center text-sm italic text-slate-500 dark:text-slate-400">
+                      {isDeletedView ? "لا يوجد مستفيدون محذوفون." : "لا توجد نتائج مطابقة."}
+                    </p>
+                  ) : (
+                    companyBeneficiaries.map((beneficiary) => (
+                      <div key={beneficiary.id} className="px-4 py-3.5 hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              {(session.is_admin || (canDeleteBen && !isDeletedView) || (canManageRecycleBin && isDeletedView)) && (
+                                <input
+                                  type="checkbox"
+                                  form="beneficiaries-bulk-form"
+                                  name="ids"
+                                  value={beneficiary.id}
+                                  className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-40"
+                                />
+                              )}
+                              <p className="font-black text-slate-900 dark:text-white">{beneficiary.name}</p>
+                              <Badge variant={beneficiary.status === "ACTIVE" ? "success" : beneficiary.status === "SUSPENDED" ? "warning" : "default"}>
+                                {beneficiary.status === "ACTIVE" ? "نشط" : beneficiary.status === "SUSPENDED" ? "موقوف" : "مكتمل"}
+                              </Badge>
+                            </div>
+                            <p className="mt-1 text-xs font-mono text-slate-500 dark:text-slate-400">بطاقة: {beneficiary.card_number}</p>
+                            {beneficiary.birth_date && (
+                              <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">{formatDateTripoli(beneficiary.birth_date, "en-GB")}</p>
+                            )}
+                            {!isDeletedView && (
+                              <div className="mt-1.5 flex gap-3 text-xs font-bold">
+                                <span className="text-sky-700 dark:text-sky-300">{Number(beneficiary.remaining_balance).toLocaleString("ar-LY")} د.ل</span>
+                                <span className="text-slate-400">|</span>
+                                <span className="text-emerald-700 dark:text-emerald-300">إجمالي: {Number(beneficiary.total_balance).toLocaleString("ar-LY")} د.ل</span>
+                              </div>
+                            )}
+                            {isDeletedView && beneficiary.deleted_at && (
+                              <p className="mt-0.5 text-xs text-red-400 dark:text-red-500">محذوف: {formatDateTripoli(beneficiary.deleted_at, "en-GB")}</p>
+                            )}
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            {isDeletedView ? (
+                              canManageRecycleBin && (
+                                <BeneficiaryRestoreActions
+                                  id={beneficiary.id}
+                                  name={beneficiary.name}
+                                  hasTransactions={beneficiary._count.transactions > 0}
+                                />
+                              )
+                            ) : (
+                              <>
+                                <BeneficiaryTransactionsPanelButton
+                                  beneficiaryId={beneficiary.id}
+                                  beneficiaryName={beneficiary.name}
+                                  hasTransactions={beneficiary._count.transactions > 0}
+                                />
+
+                                {canEditBen && (
+                                  <BeneficiaryEditModal
+                                    iconOnly
+                                    beneficiary={{
+                                      id: beneficiary.id,
+                                      name: beneficiary.name,
+                                      card_number: beneficiary.card_number,
+                                      birth_date: beneficiary.birth_date ? new Date(beneficiary.birth_date).toISOString().slice(0, 10) : "",
+                                      status: beneficiary.status,
+                                      is_legacy_card: beneficiary.in_import_file,
+                                      total_balance: Number(beneficiary.total_balance),
+                                      remaining_balance: Number(beneficiary.remaining_balance),
+                                    }}
+                                  />
+                                )}
+                                {canDeleteBen && (
+                                  <BeneficiaryDeleteButton
+                                    id={beneficiary.id}
+                                    name={beneficiary.name}
+                                    hasTransactions={beneficiary._count.transactions > 0}
+                                  />
+                                )}
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* ══ عرض الجدول — شاشة كبيرة فقط ══ */}
+                <div className="hidden sm:block overflow-x-auto">
+                  <table className="w-full min-w-200 border-collapse text-right">
+                    <thead className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
+                      <tr>
+                        {(session.is_admin || (canDeleteBen && !isDeletedView) || (canManageRecycleBin && isDeletedView)) && (
+                          <th className="px-4 py-4 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">
+                            <div className="flex items-center gap-2">
+                              <SelectAllCheckbox formId="beneficiaries-bulk-form" />
+                              <span>تحديد</span>
+                            </div>
+                          </th>
+                        )}
+                        <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">المستفيد</th>
+                        <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">رقم البطاقة</th>
+                        <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">تاريخ الميلاد</th>
+                        {!isDeletedView && (
+                          <>
+                            <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-sky-600 dark:text-sky-400">الرصيد المتبقي الحالي</th>
+                            <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-emerald-600 dark:text-emerald-400">الرصيد الكلي الابتدائي</th>
+                          </>
+                        )}
+                        <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">الحالة</th>
+                        {isDeletedView && <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">تاريخ الحذف</th>}
+                        {(canEditBen || canDeleteBen || canManageRecycleBin || session.is_admin) && (
+                          <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500 text-center">إجراءات</th>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {companyBeneficiaries.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={
+                              4 +
+                              (!isDeletedView ? 2 : 0) +
+                              (isDeletedView ? 1 : 0) +
+                              ((session.is_admin || (canDeleteBen && !isDeletedView) || (canManageRecycleBin && isDeletedView)) ? 1 : 0) +
+                              ((canEditBen || canDeleteBen || canManageRecycleBin || session.is_admin) ? 1 : 0)
+                            }
+                            className="px-6 py-10 text-center text-sm text-slate-500 dark:text-slate-400"
+                          >
+                            {isDeletedView ? "سلة المحذوفات فارغة." : "لا توجد نتائج مطابقة."}
                           </td>
                         </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </Card>
+                      ) : (
+                        companyBeneficiaries.map((beneficiary) => (
+                          <tr key={beneficiary.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                            {(session.is_admin || (canDeleteBen && !isDeletedView) || (canManageRecycleBin && isDeletedView)) && (
+                              <td className="px-4 py-4">
+                                <input
+                                  type="checkbox"
+                                  form="beneficiaries-bulk-form"
+                                  name="ids"
+                                  value={beneficiary.id}
+                                  className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-40"
+                                />
+                              </td>
+                            )}
+                            <td className="px-6 py-4">
+                              <p className="font-bold text-slate-900 dark:text-white">{beneficiary.name}</p>
+                            </td>
+                            <td className="px-6 py-4 text-sm text-slate-700 dark:text-slate-300">{beneficiary.card_number}</td>
+                            <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-400">
+                              <span className="inline-flex items-center gap-2">
+                                <CalendarDays className="h-4 w-4 text-slate-400 dark:text-slate-500" />
+                                {beneficiary.birth_date ? formatDateTripoli(beneficiary.birth_date, "en-GB") : "غير مسجل"}
+                              </span>
+                            </td>
+                            {!isDeletedView && (
+                              <>
+                                <td className="px-6 py-4 text-sm font-bold text-sky-700 dark:text-sky-300">{Number(beneficiary.remaining_balance).toLocaleString("ar-LY")} د.ل</td>
+                                <td className="px-6 py-4 text-sm font-bold text-emerald-700 dark:text-emerald-300">{Number(beneficiary.total_balance).toLocaleString("ar-LY")} د.ل</td>
+                              </>
+                            )}
+                            <td className="px-6 py-4">
+                              <Badge variant={beneficiary.status === "ACTIVE" ? "success" : beneficiary.status === "SUSPENDED" ? "warning" : "default"}>
+                                {beneficiary.status === "ACTIVE" ? "نشط" : beneficiary.status === "SUSPENDED" ? "موقوف" : "مكتمل"}
+                              </Badge>
+                            </td>
+                            {isDeletedView && beneficiary.deleted_at && (
+                              <td className="px-6 py-4 text-sm text-red-500 dark:text-red-400">
+                                {formatDateTripoli(beneficiary.deleted_at, "en-GB")}
+                              </td>
+                            )}
+                            {(canEditBen || canDeleteBen || canManageRecycleBin || session.is_admin) && (
+                              <td className="px-6 py-4 text-center">
+                                <div className="flex items-center justify-center gap-1.5">
+                                  {isDeletedView ? (
+                                    canManageRecycleBin && (
+                                      <BeneficiaryRestoreActions
+                                        id={beneficiary.id}
+                                        name={beneficiary.name}
+                                        hasTransactions={beneficiary._count.transactions > 0}
+                                      />
+                                    )
+                                  ) : (
+                                    <>
+                                      <BeneficiaryTransactionsPanelButton
+                                        beneficiaryId={beneficiary.id}
+                                        beneficiaryName={beneficiary.name}
+                                        hasTransactions={beneficiary._count.transactions > 0}
+                                      />
+
+                                      {canEditBen && (
+                                        <BeneficiaryEditModal
+                                          iconOnly
+                                          beneficiary={{
+                                            id: beneficiary.id,
+                                            name: beneficiary.name,
+                                            card_number: beneficiary.card_number,
+                                            birth_date: beneficiary.birth_date ? new Date(beneficiary.birth_date).toISOString().slice(0, 10) : "",
+                                            status: beneficiary.status,
+                                            is_legacy_card: beneficiary.in_import_file,
+                                            total_balance: Number(beneficiary.total_balance),
+                                            remaining_balance: Number(beneficiary.remaining_balance),
+                                          }}
+                                        />
+                                      )}
+                                      {canDeleteBen && (
+                                        <BeneficiaryDeleteButton
+                                          id={beneficiary.id}
+                                          name={beneficiary.name}
+                                          hasTransactions={beneficiary._count.transactions > 0}
+                                        />
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+                            )}
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </form>
+
+              {/* أزرار الترقيم Pagination */}
+              {totalBeneficiariesPages > 1 && (
+                <div className="flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-4">
+                  <div className="flex items-center gap-1">
+                    {page > 1 ? (
+                      <Link
+                        href={buildPageUrl(page - 1)}
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                        title="الصفحة السابقة"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </Link>
+                    ) : (
+                      <button
+                        disabled
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 text-slate-300 dark:text-slate-600 cursor-not-allowed"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </button>
+                    )}
+
+                    {page < totalBeneficiariesPages ? (
+                      <Link
+                        href={buildPageUrl(page + 1)}
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                        title="الصفحة التالية"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </Link>
+                    ) : (
+                      <button
+                        disabled
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 text-slate-300 dark:text-slate-600 cursor-not-allowed"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                    صفحة {page} من {totalBeneficiariesPages} (إجمالي {totalBeneficiariesCount} مستفيد)
+                  </span>
+                </div>
+              )}
+            </Card>
+          </div>
         )}
       </div>
+      {sharedDatalist}
     </Shell>
   );
 }

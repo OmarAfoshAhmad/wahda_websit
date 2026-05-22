@@ -352,6 +352,52 @@ export async function getImportJobSnapshot(jobId: string, username?: string) {
 export async function processImportJob(jobId: string, username: string) {
   const initialBalance = await getCurrentInitialBalance();
 
+  // جلب جميع شركات التأمين النشطة مع سياسات الخدمة الخاصة بها
+  const activeCompanies = await prisma.insuranceCompany.findMany({
+    where: { is_active: true, deleted_at: null },
+    include: {
+      service_policies: {
+        where: { is_active: true }
+      }
+    }
+  });
+
+  const matchCompanyForCard = (
+    cardNumber: string,
+    companies: typeof activeCompanies
+  ) => {
+    const upper = cardNumber.toUpperCase().trim();
+    for (const company of companies) {
+      if (!company.card_pattern) continue;
+      try {
+        const regex = new RegExp(company.card_pattern);
+        if (regex.test(upper)) {
+          return company;
+        }
+      } catch (e) {
+        continue;
+      }
+    }
+    for (const company of companies) {
+      if (company.card_pattern && upper.startsWith(company.code)) {
+        return company;
+      }
+    }
+    return null;
+  };
+
+  const getPolicyCeiling = (company: typeof activeCompanies[number]) => {
+    const dentalPolicy = company.service_policies.find(p => p.service_type === "DENTAL");
+    if (dentalPolicy && dentalPolicy.annual_ceiling !== null) {
+      return Number(dentalPolicy.annual_ceiling);
+    }
+    const anyPolicy = company.service_policies.find(p => p.annual_ceiling !== null);
+    if (anyPolicy && anyPolicy.annual_ceiling !== null) {
+      return Number(anyPolicy.annual_ceiling);
+    }
+    return null;
+  };
+
   const lock = await prisma.importJob.updateMany({
     where: {
       id: jobId,
@@ -529,6 +575,7 @@ export async function processImportJob(jobId: string, username: string) {
             total_balance: true,
             remaining_balance: true,
             status: true,
+            company_id: true,
           },
         })
         : [];
@@ -543,7 +590,7 @@ export async function processImportJob(jobId: string, username: string) {
             card_number: { in: [...activeCards], mode: "insensitive" },
             deleted_at: null,
           },
-          select: { id: true, card_number: true, name: true, birth_date: true, is_legacy_card: true, total_balance: true, remaining_balance: true, status: true },
+          select: { id: true, card_number: true, name: true, birth_date: true, is_legacy_card: true, total_balance: true, remaining_balance: true, status: true, company_id: true },
         })
         : [];
       const cardToActiveRow = new Map(
@@ -557,7 +604,7 @@ export async function processImportJob(jobId: string, username: string) {
             card_number: { in: [...deletedCards], mode: "insensitive" },
             deleted_at: { not: null },
           },
-          select: { id: true, card_number: true, name: true, birth_date: true, is_legacy_card: true, total_balance: true, remaining_balance: true, status: true, deleted_at: true },
+          select: { id: true, card_number: true, name: true, birth_date: true, is_legacy_card: true, total_balance: true, remaining_balance: true, status: true, deleted_at: true, company_id: true },
           // آخر سجل محذوف لهذا الرقم
           orderBy: { deleted_at: "desc" },
         })
@@ -647,16 +694,40 @@ export async function processImportJob(jobId: string, username: string) {
       // إدراج المستفيدين الجدد
       if (rowsToInsert.length > 0) {
         const result = await prisma.beneficiary.createMany({
-          data: rowsToInsert.map((row) => ({
-            card_number: row.data.card_number,
-            name: row.data.name,
-            birth_date: row.data.birth_date,
-            total_balance: initialBalance,
-            remaining_balance: initialBalance,
-            status: "ACTIVE" as const,
-            // ربط بشركة التأمين إن وُجدت (استيراد من بوابة الأسنان)
-            ...(opts.company_id ? { company_id: opts.company_id } : {}),
-          })),
+          data: rowsToInsert.map((row) => {
+            const cn = normalizeCardNumber(row.data.card_number);
+            let rowCompanyId = opts.company_id || null;
+            let balance = initialBalance;
+
+            if (!rowCompanyId) {
+              const matchedComp = matchCompanyForCard(cn, activeCompanies);
+              if (matchedComp) {
+                rowCompanyId = matchedComp.id;
+                const ceiling = getPolicyCeiling(matchedComp);
+                if (ceiling !== null) {
+                  balance = ceiling;
+                }
+              }
+            } else {
+              const comp = activeCompanies.find(c => c.id === rowCompanyId);
+              if (comp) {
+                const ceiling = getPolicyCeiling(comp);
+                if (ceiling !== null) {
+                  balance = ceiling;
+                }
+              }
+            }
+
+            return {
+              card_number: row.data.card_number,
+              name: row.data.name,
+              birth_date: row.data.birth_date,
+              total_balance: balance,
+              remaining_balance: balance,
+              status: "ACTIVE" as const,
+              ...(rowCompanyId ? { company_id: rowCompanyId } : {}),
+            };
+          }),
           skipDuplicates: true,
         });
         insertedRows += result.count;
@@ -680,51 +751,74 @@ export async function processImportJob(jobId: string, username: string) {
       if (rowsToRestore.length > 0) {
         for (const row of rowsToRestore) {
           const cn = normalizeCardNumber(row.data.card_number);
-            const deletedRow = cardToDeletedRow.get(cn);
-            if (!deletedRow) continue;
+          const deletedRow = cardToDeletedRow.get(cn);
+          if (!deletedRow) continue;
 
-            const restorePersonKey = personKey(row.data.name, row.data.birth_date);
-            if (restorePersonKey) {
-              const activeMatches = personKeyToActiveRows.get(restorePersonKey) ?? [];
-              if (activeMatches.length > 0) {
-                duplicateRows += 1;
-                skippedRows.push(createSkippedRowReport({
-                  reason: "duplicate_person",
-                  rowNumber: row.rowNumber,
-                  rawRow: row.rawRow,
-                  normalized: row.data,
-                }));
-                continue;
+          const restorePersonKey = personKey(row.data.name, row.data.birth_date);
+          if (restorePersonKey) {
+            const activeMatches = personKeyToActiveRows.get(restorePersonKey) ?? [];
+            if (activeMatches.length > 0) {
+              duplicateRows += 1;
+              skippedRows.push(createSkippedRowReport({
+                reason: "duplicate_person",
+                rowNumber: row.rowNumber,
+                rawRow: row.rawRow,
+                normalized: row.data,
+              }));
+              continue;
+            }
+          }
+
+          // حفظ snapshot قبل الاستعادة
+          rollbackBeforeSnapshots.push({
+            id: deletedRow.id,
+            card_number: deletedRow.card_number,
+            name: deletedRow.name,
+            birth_date: deletedRow.birth_date?.toISOString() ?? null,
+            is_legacy_card: Boolean((deletedRow as unknown as Record<string, unknown>).is_legacy_card),
+            total_balance: String(deletedRow.total_balance),
+            remaining_balance: String(deletedRow.remaining_balance),
+            status: deletedRow.status,
+            deleted_at: deletedRow.deleted_at?.toISOString() ?? null,
+          });
+
+          let rowCompanyId = opts.company_id || deletedRow.company_id || null;
+          let balance = initialBalance;
+
+          if (!rowCompanyId) {
+            const matchedComp = matchCompanyForCard(cn, activeCompanies);
+            if (matchedComp) {
+              rowCompanyId = matchedComp.id;
+              const ceiling = getPolicyCeiling(matchedComp);
+              if (ceiling !== null) {
+                balance = ceiling;
               }
             }
+          } else {
+            const comp = activeCompanies.find(c => c.id === rowCompanyId);
+            if (comp) {
+              const ceiling = getPolicyCeiling(comp);
+              if (ceiling !== null) {
+                balance = ceiling;
+              }
+            }
+          }
 
-            // حفظ snapshot قبل الاستعادة
-            rollbackBeforeSnapshots.push({
-              id: deletedRow.id,
-              card_number: deletedRow.card_number,
-              name: deletedRow.name,
-              birth_date: deletedRow.birth_date?.toISOString() ?? null,
-              is_legacy_card: Boolean((deletedRow as unknown as Record<string, unknown>).is_legacy_card),
-              total_balance: String(deletedRow.total_balance),
-              remaining_balance: String(deletedRow.remaining_balance),
-              status: deletedRow.status,
-              deleted_at: deletedRow.deleted_at?.toISOString() ?? null,
-            });
-
-            await prisma.beneficiary.update({
-              where: { id: deletedRow.id },
-              data: {
-                deleted_at: null,
-                name: row.data.name,
-                birth_date: row.data.birth_date,
-                status: "ACTIVE",
-                ...(opts.updateBalance ? {
-                  total_balance: initialBalance,
-                  remaining_balance: initialBalance,
-                } : {}),
-              },
-            });
-            rollbackRestoredIds.push(deletedRow.id);
+          await prisma.beneficiary.update({
+            where: { id: deletedRow.id },
+            data: {
+              deleted_at: null,
+              name: row.data.name,
+              birth_date: row.data.birth_date,
+              status: "ACTIVE",
+              ...(rowCompanyId ? { company_id: rowCompanyId } : {}),
+              ...(opts.updateBalance ? {
+                total_balance: balance,
+                remaining_balance: balance,
+              } : {}),
+            },
+          });
+          rollbackRestoredIds.push(deletedRow.id);
         }
         insertedRows += rowsToRestore.length; // تُحسب كإدراج لأنها استعادة
       }
@@ -735,55 +829,78 @@ export async function processImportJob(jobId: string, username: string) {
         let successfulUpdates = 0;
         for (const row of rowsToUpdate) {
           const cn = normalizeCardNumber(row.data.card_number);
-            const activeRow = cardToActiveRow.get(cn);
-            if (!activeRow) continue;
+          const activeRow = cardToActiveRow.get(cn);
+          if (!activeRow) continue;
 
-            const updatePersonKey = personKey(row.data.name, row.data.birth_date);
-            if (updatePersonKey) {
-              const activeMatches = personKeyToActiveRows.get(updatePersonKey) ?? [];
-              const hasConflict = activeMatches.some((m) => m.id !== activeRow.id);
-              if (hasConflict) {
-                duplicateRows += 1;
-                skippedRows.push(createSkippedRowReport({
-                  reason: "duplicate_person",
-                  rowNumber: row.rowNumber,
-                  rawRow: row.rawRow,
-                  normalized: row.data,
-                }));
-                continue;
+          const updatePersonKey = personKey(row.data.name, row.data.birth_date);
+          if (updatePersonKey) {
+            const activeMatches = personKeyToActiveRows.get(updatePersonKey) ?? [];
+            const hasConflict = activeMatches.some((m) => m.id !== activeRow.id);
+            if (hasConflict) {
+              duplicateRows += 1;
+              skippedRows.push(createSkippedRowReport({
+                reason: "duplicate_person",
+                rowNumber: row.rowNumber,
+                rawRow: row.rawRow,
+                normalized: row.data,
+              }));
+              continue;
+            }
+          }
+
+          // حفظ snapshot قبل التحديث
+          rollbackBeforeSnapshots.push({
+            id: activeRow.id,
+            card_number: activeRow.card_number,
+            name: activeRow.name,
+            birth_date: activeRow.birth_date?.toISOString() ?? null,
+            is_legacy_card: Boolean((activeRow as unknown as Record<string, unknown>).is_legacy_card),
+            total_balance: String(activeRow.total_balance),
+            remaining_balance: String(activeRow.remaining_balance),
+            status: activeRow.status,
+            deleted_at: null,
+          });
+
+          let rowCompanyId = opts.company_id || activeRow.company_id || null;
+          let balance = initialBalance;
+
+          if (!rowCompanyId) {
+            const matchedComp = matchCompanyForCard(cn, activeCompanies);
+            if (matchedComp) {
+              rowCompanyId = matchedComp.id;
+              const ceiling = getPolicyCeiling(matchedComp);
+              if (ceiling !== null) {
+                balance = ceiling;
               }
             }
-
-            // حفظ snapshot قبل التحديث
-            rollbackBeforeSnapshots.push({
-              id: activeRow.id,
-              card_number: activeRow.card_number,
-              name: activeRow.name,
-              birth_date: activeRow.birth_date?.toISOString() ?? null,
-              is_legacy_card: Boolean((activeRow as unknown as Record<string, unknown>).is_legacy_card),
-              total_balance: String(activeRow.total_balance),
-              remaining_balance: String(activeRow.remaining_balance),
-              status: activeRow.status,
-              deleted_at: null,
-            });
-
-            const updateData: Record<string, unknown> = {
-              name: row.data.name,
-              birth_date: row.data.birth_date,
-              status: "ACTIVE",
-            };
-
-            // تحديث الرصيد إذا طلب المستخدم ذلك
-            if (opts.updateBalance) {
-              updateData.total_balance = initialBalance;
-              updateData.remaining_balance = initialBalance;
+          } else {
+            const comp = activeCompanies.find(c => c.id === rowCompanyId);
+            if (comp) {
+              const ceiling = getPolicyCeiling(comp);
+              if (ceiling !== null) {
+                balance = ceiling;
+              }
             }
+          }
 
-            await prisma.beneficiary.update({
-              where: { id: activeRow.id },
-              data: updateData,
-            });
-            successfulUpdates++;
+          const updateData: Record<string, any> = {
+            name: row.data.name,
+            birth_date: row.data.birth_date,
+            status: "ACTIVE",
+            ...(rowCompanyId ? { company_id: rowCompanyId } : {}),
+          };
+
+          // تحديث الرصيد إذا طلب المستخدم ذلك
+          if (opts.updateBalance) {
+            updateData.total_balance = balance;
+            updateData.remaining_balance = balance;
+          }
+
+          await prisma.beneficiary.update({
+            where: { id: activeRow.id },
+            data: updateData,
+          });
+          successfulUpdates++;
         }
         updatedRows += successfulUpdates;
       }
@@ -812,16 +929,40 @@ export async function processImportJob(jobId: string, username: string) {
             deleted_at: null,
           });
 
-          const updateData: Record<string, unknown> = {
+          const cn = normalizeCardNumber(row.data.card_number);
+          let rowCompanyId = opts.company_id || targetRow.company_id || null;
+          let balance = initialBalance;
+
+          if (!rowCompanyId) {
+            const matchedComp = matchCompanyForCard(cn, activeCompanies);
+            if (matchedComp) {
+              rowCompanyId = matchedComp.id;
+              const ceiling = getPolicyCeiling(matchedComp);
+              if (ceiling !== null) {
+                balance = ceiling;
+              }
+            }
+          } else {
+            const comp = activeCompanies.find(c => c.id === rowCompanyId);
+            if (comp) {
+              const ceiling = getPolicyCeiling(comp);
+              if (ceiling !== null) {
+                balance = ceiling;
+              }
+            }
+          }
+
+          const updateData: Record<string, any> = {
             card_number: row.data.card_number,
             name: row.data.name,
             birth_date: row.data.birth_date,
             status: "ACTIVE",
+            ...(rowCompanyId ? { company_id: rowCompanyId } : {}),
           };
 
           if (opts.updateBalance) {
-            updateData.total_balance = initialBalance;
-            updateData.remaining_balance = initialBalance;
+            updateData.total_balance = balance;
+            updateData.remaining_balance = balance;
           }
 
           await prisma.beneficiary.update({

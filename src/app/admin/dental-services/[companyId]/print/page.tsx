@@ -8,14 +8,24 @@ import { AutoPrint } from "@/components/auto-print";
 
 export default async function DentalCompanyPrintPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ companyId: string }>;
+  searchParams: Promise<{
+    q?: string;
+    from?: string;
+    to?: string;
+  }>;
 }) {
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
   if (!session.is_admin && !session.is_manager) redirect("/dashboard");
 
   const { companyId } = await params;
+  const sp = await searchParams;
+  const searchQuery = (sp.q ?? "").trim();
+  const fromDate = sp.from ?? "";
+  const toDate = sp.to ?? "";
 
   // جلب بيانات الشركة
   const company = await prisma.insuranceCompany.findUnique({
@@ -24,14 +34,35 @@ export default async function DentalCompanyPrintPage({
 
   if (!company) notFound();
 
-  // جلب جميع حركات الأسنان غير الملغاة لهذه الشركة في هذا المرفق
+  // بناء شروط الاستعلام
+  const where: any = {
+    company_id: companyId,
+    type: "DENTAL",
+    is_cancelled: false,
+    ...(session.is_admin ? {} : { facility_id: session.id }),
+  };
+
+  if (searchQuery) {
+    where.OR = [
+      { beneficiary: { name: { contains: searchQuery, mode: "insensitive" } } },
+      { beneficiary: { card_number: { contains: searchQuery, mode: "insensitive" } } },
+    ];
+  }
+
+  if (fromDate) {
+    const from = new Date(fromDate);
+    from.setHours(0, 0, 0, 0);
+    where.created_at = { ...(where.created_at as object ?? {}), gte: from };
+  }
+  if (toDate) {
+    const to = new Date(toDate);
+    to.setHours(23, 59, 59, 999);
+    where.created_at = { ...(where.created_at as object ?? {}), lte: to };
+  }
+
+  // جلب جميع حركات الأسنان غير الملغاة المطابقة للشروط
   const transactions = await prisma.transaction.findMany({
-    where: {
-      company_id: companyId,
-      facility_id: session.id,
-      type: "DENTAL",
-      is_cancelled: false,
-    },
+    where,
     include: {
       beneficiary: {
         select: {
@@ -79,6 +110,11 @@ export default async function DentalCompanyPrintPage({
           <div className="text-center">
             <h2 className="text-xl font-black text-teal-800">كشف حركات الأسنان المخصصة</h2>
             <p className="text-xs font-bold text-slate-500 mt-1">شركة التأمين: {company.name}</p>
+            {(searchQuery || fromDate || toDate) && (
+              <p className="text-[10px] font-black text-teal-700 mt-1">
+                الفلاتر المطبقة: {searchQuery ? `البحث: "${searchQuery}" ` : ""}{fromDate ? `من: ${fromDate} ` : ""}{toDate ? `إلى: ${toDate}` : ""}
+              </p>
+            )}
           </div>
           <div className="text-left space-y-1 text-xs">
             <p className="font-bold text-slate-800">المرفق: <span className="font-black text-teal-700">{session.name}</span></p>

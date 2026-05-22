@@ -178,7 +178,7 @@ export default async function TransactionPrintPage({
       <div id="printable-report">
         <div className="report-header">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.png" alt="Logo" style={{ height: '60px', margin: '0 auto 10px', display: 'block' }} />
+          <img src="/logo.png" alt="Logo" style={{ height: '60px', width: 'auto', margin: '0 auto 10px', display: 'block' }} />
           <h1 style={{ fontSize: '26px', margin: '0', fontWeight: 'bold' }}>Waha Health Care</h1>
           <h2 style={{ fontSize: '20px', margin: '8px 0' }}>سجل الحركات الكامل ({session.name})</h2>
           <p style={{ fontSize: '13px', margin: '0' }}>تاريخ استخراج الكشف: {formatDateTripoli(new Date(), "en-GB")}</p>

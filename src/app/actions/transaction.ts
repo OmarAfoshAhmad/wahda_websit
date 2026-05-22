@@ -23,7 +23,7 @@ export type AddTransactionState = {
 export type EditTransactionInput = {
   id: string;
   amount: number;
-  type: "MEDICINE" | "SUPPLIES" | "IMPORT";
+  type: "MEDICINE" | "SUPPLIES" | "IMPORT" | "DENTAL";
   transactionDate: string;
   facilityId?: string;
 };
