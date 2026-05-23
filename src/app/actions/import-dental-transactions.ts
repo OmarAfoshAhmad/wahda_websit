@@ -208,9 +208,20 @@ export async function importDentalTransactionsAction(
     
     const dbBeneficiaries = await prisma.beneficiary.findMany({
       where: {
-        card_number: { in: uniqueCards },
         deleted_at: null,
-        ...(companyId ? { company_id: companyId } : {}),
+        ...(companyId 
+          ? { company_id: companyId } 
+          : {
+              OR: uniqueCards.flatMap(c => {
+                const base = c.replace(/[^A-Z0-9]/gi, "").slice(0, 10);
+                if (base.length < 5) return [{ card_number: c }];
+                return [
+                  { card_number: { startsWith: base, mode: "insensitive" } },
+                  { card_number: { mode: "insensitive", equals: c } }
+                ];
+              })
+            }
+        ),
       },
       select: {
         id: true,
@@ -226,9 +237,67 @@ export async function importDentalTransactionsAction(
       },
     });
 
-    const beneficiaryMap = new Map(
-      dbBeneficiaries.map((b) => [b.card_number.toUpperCase(), b])
-    );
+    const resolveBeneficiary = (excelCard: string, excelName: string) => {
+      if (!excelCard) return null;
+      
+      const normExcelCard = excelCard.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+      const cleanExcelName = excelName.trim().replace(/\s+/g, " ");
+
+      // Helper to calculate name similarity
+      const nameMatch = (dbName: string, exName: string) => {
+        const cleanDb = dbName.trim().replace(/\s+/g, " ");
+        if (cleanDb === exName) return 1.0;
+        if (cleanDb.includes(exName) || exName.includes(cleanDb)) return 0.8;
+        
+        const dbWords = cleanDb.split(" ").filter(Boolean);
+        const exWords = exName.split(" ").filter(Boolean);
+        const intersection = dbWords.filter(w => exWords.includes(w));
+        if (intersection.length >= 2) return 0.6;
+        
+        return 0.0;
+      };
+
+      // 1. Exact case-insensitive card match
+      const exactMatch = dbBeneficiaries.find(b => 
+        b.card_number.trim().toUpperCase().replace(/[^A-Z0-9]/g, "") === normExcelCard
+      );
+      if (exactMatch) return exactMatch;
+
+      // 2. Base card match with name matching
+      const getBase = (c: string) => c.replace(/[MFWSD]?\d+$/, "").replace(/[MFWSD]$/, "");
+      const excelBase = getBase(normExcelCard);
+
+      const baseCandidates = dbBeneficiaries.filter(b => {
+        const dbNorm = b.card_number.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+        return getBase(dbNorm) === excelBase || dbNorm.startsWith(excelBase) || excelBase.startsWith(getBase(dbNorm));
+      });
+
+      if (baseCandidates.length > 0) {
+        if (baseCandidates.length === 1) return baseCandidates[0];
+
+        let bestCandidate = null;
+        let highestScore = 0;
+        for (const candidate of baseCandidates) {
+          const score = nameMatch(candidate.name, cleanExcelName);
+          if (score > highestScore) {
+            highestScore = score;
+            bestCandidate = candidate;
+          }
+        }
+        if (bestCandidate && highestScore > 0) {
+          return bestCandidate;
+        }
+        return baseCandidates[0];
+      }
+
+      // 3. Fallback name match if unique
+      const nameCandidates = dbBeneficiaries.filter(b => nameMatch(b.name, cleanExcelName) >= 0.8);
+      if (nameCandidates.length === 1) {
+        return nameCandidates[0];
+      }
+
+      return null;
+    };
 
     // Get list of facilities to match
     const dbFacilities = await prisma.facility.findMany({
@@ -311,7 +380,7 @@ export async function importDentalTransactionsAction(
     // Process rows
     for (const r of rawRows) {
       const facility = resolveFacility(r.facilityName);
-      const beneficiary = r.card ? beneficiaryMap.get(r.card) : null;
+      const beneficiary = r.card ? resolveBeneficiary(r.card, r.name) : null;
       const companyName = beneficiary?.company?.name || "شركة غير مطابقة أو غير معروفة";
       const resolvedFacilityName = facility?.name || r.facilityName || "مرفق غير معروف";
 
@@ -351,7 +420,10 @@ export async function importDentalTransactionsAction(
         // التحقق مما إذا كان المستفيد موجوداً تحت شركة أخرى لإظهار رسالة توضيحية دقيقة
         const otherBen = r.card 
           ? await prisma.beneficiary.findFirst({
-              where: { card_number: r.card, deleted_at: null },
+              where: {
+                card_number: { mode: "insensitive", startsWith: r.card.replace(/[^A-Z0-9]/gi, "").slice(0, 12) },
+                deleted_at: null
+              },
               include: { company: true }
             })
           : null;
