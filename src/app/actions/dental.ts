@@ -129,7 +129,7 @@ export async function getDentalBeneficiaryDetail(beneficiaryId: string, companyI
 
     const yearlyConsumed = Number(agg._sum.ceiling_consumed ?? 0);
 
-    const dentalCeiling = beneficiary.company.dental_ceiling !== null
+    const dentalCeiling = (beneficiary.company && beneficiary.company.dental_ceiling !== null)
       ? Number(beneficiary.company.dental_ceiling)
       : 3000;
 
