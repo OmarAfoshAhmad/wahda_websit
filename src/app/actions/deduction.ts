@@ -14,6 +14,7 @@ import { assertBeneficiaryBalanceInvariant, buildIdempotencyKey } from "@/lib/tx
 import { InsuranceEngine } from "@/lib/insurance/engine";
 import { findCompanyByCardNumber, getServiceTypeMapping } from "@/lib/insurance/company-matcher";
 import type { TpaValidation } from "@/lib/insurance/shadow-mode";
+import { WAHDA_BANK_COMPANY_ID } from "@/lib/constants";
 
 export async function deductBalance(formData: {
   beneficiary_id?: string;
@@ -165,8 +166,8 @@ export async function deductBalance(formData: {
         companyId = companyMatch?.id || null;
       }
 
-      // قيد عزل صارم: الخدمات الطبية العامة (دواء وكشف عام) مقصورة على موظفي مصرف الوحدة فقط
-      if (type !== "DENTAL" && companyId && companyId !== "cmp7ha2km0000u9v8jse4ib5x") {
+      // قيد عزل صارم: الخدمات الطبية العامة (دواء وكشف عام) مقصورة على منتسبي مصرف الوحدة فقط
+      if (type !== "DENTAL" && companyId && companyId !== WAHDA_BANK_COMPANY_ID) {
         throw new Error("هذا المستفيد يتبع شركة تأمين خاصة بالأسنان فقط. الخدمات العامة مقصورة على مصرف الوحدة.");
       }
 
@@ -194,14 +195,50 @@ export async function deductBalance(formData: {
       });
       const consumedThisYear = Number(consumption._sum.ceiling_consumed || 0);
 
-      // [TPA] Fetch Policy — TPA-03 FIX: التحقق من is_active لمنع الخصم بسياسة موقوفة
-      const policyRecord = companyId ? await tx.servicePolicy.findUnique({
-        where: { company_id_service_type: { company_id: companyId, service_type: policyServiceType } }
+      // [TPA] Fetch Company (Policy consolidated on InsuranceCompany)
+      const company = companyId ? await tx.insuranceCompany.findUnique({
+        where: { id: companyId }
       }) : null;
 
-      // رفض الخصم إذا كانت السياسة موجودة لكن غير فعالة
-      if (policyRecord && !policyRecord.is_active) {
-        throw new Error(`سياسة الخدمة (${policyServiceType}) غير مفعلة حالياً`);
+      // رفض الخصم إذا كانت الشركة غير فعالة
+      if (company && !company.is_active) {
+        throw new Error("شركة التأمين التابع لها هذا المستفيد غير مفعلة حالياً");
+      }
+
+      let policyRecord: {
+        service_type: string;
+        annual_ceiling: number | null;
+        copay_percentage: number;
+        allow_partial_coverage: boolean;
+      } | null = null;
+
+      if (company) {
+        let annual_ceiling: number | null = null;
+        let copay_percentage = 0;
+        let isConfigured = false;
+
+        if (policyServiceType === "DENTAL") {
+          annual_ceiling = company.dental_ceiling === null ? null : Number(company.dental_ceiling);
+          copay_percentage = Math.max(0, 100 - Number(company.dental_coverage));
+          isConfigured = true;
+        } else if (policyServiceType === "GENERAL") {
+          annual_ceiling = company.general_ceiling === null ? null : Number(company.general_ceiling);
+          copay_percentage = Math.max(0, 100 - Number(company.general_coverage));
+          isConfigured = true;
+        } else if (policyServiceType === "MEDICINE") {
+          annual_ceiling = company.medicine_ceiling === null ? null : Number(company.medicine_ceiling);
+          copay_percentage = Math.max(0, 100 - Number(company.medicine_coverage));
+          isConfigured = true;
+        }
+
+        if (isConfigured) {
+          policyRecord = {
+            service_type: policyServiceType,
+            annual_ceiling,
+            copay_percentage,
+            allow_partial_coverage: true,
+          };
+        }
       }
 
       if (type === "DENTAL" && !policyRecord) {
@@ -210,17 +247,7 @@ export async function deductBalance(formData: {
 
       let tpaData: Record<string, unknown> = {};
       if (policyRecord) {
-        // Validate policy effective dates
-        const serviceDate = manualTransactionDate || new Date();
-        if (policyRecord.effective_from && serviceDate < policyRecord.effective_from) {
-          throw new Error("سياسة الخدمة لم تبدأ بعد (تاريخ السريان لم يحين)");
-        }
-        if (policyRecord.effective_to && serviceDate > policyRecord.effective_to) {
-          throw new Error("سياسة الخدمة منتهية الصلاحية");
-        }
-
-        const effectiveCeiling = (policyRecord.annual_ceiling === null || Number(policyRecord.annual_ceiling) === 0)
-          ? null : Number(policyRecord.annual_ceiling);
+        const effectiveCeiling = policyRecord.annual_ceiling;
 
         const calcResult = InsuranceEngine.calculate({
           amount,
@@ -228,8 +255,8 @@ export async function deductBalance(formData: {
           policy: {
             serviceType: policyRecord.service_type,
             annualCeiling: effectiveCeiling,
-            copayPercentage: Number(policyRecord.copay_percentage),
-            allowPartialCoverage: policyRecord.allow_partial_coverage
+            copayPercentage: policyRecord.copay_percentage,
+            allowPartialCoverage: true
           }
         });
 
@@ -500,25 +527,17 @@ export async function getAvailableServiceTypes(beneficiaryId: string) {
 
     const company = await prisma.insuranceCompany.findUnique({
       where: { id: companyId },
-      select: { service_type_mappings: true }
+      select: {
+        service_type_mappings: true,
+        dental_ceiling: true,
+        general_ceiling: true,
+        medicine_ceiling: true,
+      }
     });
     if (!company) return { serviceTypes: [] };
 
-    const now = new Date();
-    const policies = await prisma.servicePolicy.findMany({
-      where: {
-        company_id: companyId,
-        OR: [
-          { effective_from: null, effective_to: null },
-          { effective_from: null, effective_to: { gte: now } },
-          { effective_from: { lte: now }, effective_to: null },
-          { effective_from: { lte: now }, effective_to: { gte: now } },
-        ]
-      },
-      select: { service_type: true }
-    });
-
-    const policyTypes = new Set(policies.map(p => p.service_type));
+    // All companies support GENERAL, MEDICINE, and DENTAL under consolidated model
+    const policyTypes = new Set<string>(["DENTAL", "GENERAL", "MEDICINE"]);
     const mappings = company.service_type_mappings as Record<string, string> | null;
     const allTypes = ["GENERAL", "MEDICINE", "DENTAL", "OPTICS", "SUPPLIES"];
     let available = allTypes.filter(st => {
@@ -564,25 +583,33 @@ export async function getPolicyInfo(beneficiaryId: string, serviceType: string) 
     if (!companyId) return { isTpa: false };
 
     const policyServiceType = await getServiceTypeMapping(companyId, serviceType);
-    const policy = await prisma.servicePolicy.findUnique({
-      where: { company_id_service_type: { company_id: companyId, service_type: policyServiceType } }
-    });
-    if (!policy) return { isTpa: false };
+    const company = (beneficiary.company_id && beneficiary.company) ? beneficiary.company : await prisma.insuranceCompany.findUnique({ where: { id: companyId } });
+    if (!company || !company.is_active || company.deleted_at !== null) return { isTpa: false };
+
+    let ceiling: number | null = null;
+    let copayPercentage = 0;
+    let isConfigured = false;
+
+    if (policyServiceType === "DENTAL") {
+      ceiling = company.dental_ceiling === null ? null : Number(company.dental_ceiling);
+      copayPercentage = Math.max(0, 100 - Number(company.dental_coverage));
+      isConfigured = true;
+    } else if (policyServiceType === "GENERAL") {
+      ceiling = company.general_ceiling === null ? null : Number(company.general_ceiling);
+      copayPercentage = Math.max(0, 100 - Number(company.general_coverage));
+      isConfigured = true;
+    } else if (policyServiceType === "MEDICINE") {
+      ceiling = company.medicine_ceiling === null ? null : Number(company.medicine_ceiling);
+      copayPercentage = Math.max(0, 100 - Number(company.medicine_coverage));
+      isConfigured = true;
+    }
+
+    if (!isConfigured) return { isTpa: false };
 
     const now = new Date();
-    if (policy.effective_from && now < policy.effective_from) {
-      return { isTpa: false, reason: "لم تبدأ بعد" };
-    }
-    if (policy.effective_to && now > policy.effective_to) {
-      return { isTpa: false, reason: "منتهية" };
-    }
-
     const fiscalYear = InsuranceEngine.getFiscalYear(now);
     const startDate = new Date(fiscalYear, 0, 1);
     const endDate = new Date(fiscalYear, 11, 31, 23, 59, 59);
-
-    const ceiling = (policy.annual_ceiling === null || Number(policy.annual_ceiling) === 0) ? null : Number(policy.annual_ceiling);
-    const isOpenCeiling = ceiling === null;
 
     const sum = await prisma.transaction.aggregate({
       where: {
@@ -598,14 +625,12 @@ export async function getPolicyInfo(beneficiaryId: string, serviceType: string) 
     });
     let consumed = Number(sum._sum.ceiling_consumed || 0);
 
-    const company = (beneficiary.company_id && beneficiary.company) ? beneficiary.company : await prisma.insuranceCompany.findUnique({ where: { id: companyId } });
-
     return {
       isTpa: true,
       ceiling,
       consumed,
       companyName: company?.name || "",
-      copayPercentage: ceiling === null ? 0 : Number(policy.copay_percentage),
+      copayPercentage: ceiling === null ? 0 : copayPercentage,
     };
   } catch {
     return { isTpa: false };
@@ -646,22 +671,37 @@ export async function simulateDeduction(data: {
       ? await getServiceTypeMapping(companyId, data.service_type)
       : data.service_type;
 
-    const policy = await prisma.servicePolicy.findUnique({
-      where: { company_id_service_type: { company_id: companyId, service_type: policyServiceType } }
-    });
+    const company = beneficiary.company_id === companyId && beneficiary.company 
+      ? beneficiary.company 
+      : await prisma.insuranceCompany.findUnique({ where: { id: companyId } });
+    if (!company || !company.is_active || company.deleted_at !== null) {
+      return { isLegacy: true, remainingBalance: Number(beneficiary.remaining_balance) };
+    }
 
-    if (!policy) {
+    let ceiling: number | null = null;
+    let copayPercentage = 0;
+    let isConfigured = false;
+
+    if (policyServiceType === "DENTAL") {
+      ceiling = company.dental_ceiling === null ? null : Number(company.dental_ceiling);
+      copayPercentage = Math.max(0, 100 - Number(company.dental_coverage));
+      isConfigured = true;
+    } else if (policyServiceType === "GENERAL") {
+      ceiling = company.general_ceiling === null ? null : Number(company.general_ceiling);
+      copayPercentage = Math.max(0, 100 - Number(company.general_coverage));
+      isConfigured = true;
+    } else if (policyServiceType === "MEDICINE") {
+      ceiling = company.medicine_ceiling === null ? null : Number(company.medicine_ceiling);
+      copayPercentage = Math.max(0, 100 - Number(company.medicine_coverage));
+      isConfigured = true;
+    }
+
+    if (!isConfigured) {
       return { isLegacy: true, remainingBalance: Number(beneficiary.remaining_balance) };
     }
 
     // Validate policy effective dates
     const serviceDate = data.transactionDate || new Date();
-    if (policy.effective_from && serviceDate < policy.effective_from) {
-      return { error: "سياسة الخدمة لم تبدأ بعد (تاريخ السريان لم يحين)" };
-    }
-    if (policy.effective_to && serviceDate > policy.effective_to) {
-      return { error: "سياسة الخدمة منتهية الصلاحية" };
-    }
 
     const fiscalYear = InsuranceEngine.getFiscalYear(serviceDate);
     const startDate = new Date(fiscalYear, 0, 1);
@@ -682,17 +722,14 @@ export async function simulateDeduction(data: {
 
     const consumedThisYear = Number(consumption._sum.ceiling_consumed || 0);
 
-    const effectiveCeiling = (policy.annual_ceiling === null || Number(policy.annual_ceiling) === 0)
-      ? null : Number(policy.annual_ceiling);
-
     const calcResult = InsuranceEngine.calculate({
       amount: data.amount,
       consumedThisYear,
       policy: {
-        serviceType: policy.service_type,
-        annualCeiling: effectiveCeiling,
-        copayPercentage: Number(policy.copay_percentage),
-        allowPartialCoverage: policy.allow_partial_coverage
+        serviceType: policyServiceType,
+        annualCeiling: ceiling,
+        copayPercentage,
+        allowPartialCoverage: true
       }
     });
 

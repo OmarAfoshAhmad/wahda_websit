@@ -381,47 +381,54 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
     }
 
     if (op === "permanent_delete") {
-      // يسمح بالحذف النهائي للحركات الملغاة + حذف زوج (التصحيح + الأصل) عند تحديد حركة تصحيح
-      const selectedCancellationIds = selected
-        .filter((tx) => tx.type === "CANCELLATION")
-        .map((tx) => tx.id);
-      const pairedOriginalIds = selected
-        .filter((tx) => tx.type === "CANCELLATION" && tx.original_transaction_id)
-        .map((tx) => String(tx.original_transaction_id));
-      const selectedCancelledOriginalIds = selected
-        .filter((tx) => tx.is_cancelled && tx.type !== "CANCELLATION")
-        .map((tx) => tx.id);
-
-      const candidateIds = [...new Set([...selectedCancellationIds, ...pairedOriginalIds, ...selectedCancelledOriginalIds])];
-      if (candidateIds.length === 0) {
-        return { error: "لا يمكن الحذف النهائي لحركات نشطة. الرجاء إلغاء الحركة أولاً قبل الحذف النهائي." };
-      }
+      // يسمح بالحذف النهائي المباشر لأي حركة محددة (سواء كانت نشطة أو ملغاة) لتسهيل تجربة العميل
+      const candidateIds = ids;
 
       await prisma.$transaction(async (tx) => {
         // SEC-FIX: إعادة الفحص داخل الـ transaction مع قفل FOR UPDATE لمنع TOCTOU
         const lockedTransactions = await tx.$queryRaw<Array<{
           id: string; beneficiary_id: string; amount: number; type: string;
           is_cancelled: boolean; created_at: Date; facility_id: string;
+          company_id: string | null; service_category: string | null;
+          ceiling_consumed: number | null;
         }>>`
-          SELECT id, beneficiary_id, amount::float8 AS amount, type, is_cancelled, created_at, facility_id
+          SELECT id, beneficiary_id, amount::float8 AS amount, type, is_cancelled, created_at, facility_id, company_id, service_category, ceiling_consumed::float8 AS ceiling_consumed
           FROM "Transaction"
           WHERE id = ANY(${candidateIds}::text[])
           FOR UPDATE
         `;
 
-        const pairedOriginalSet = new Set(pairedOriginalIds);
-        const validOriginals = lockedTransactions.filter(
-          (t) => t.type !== "CANCELLATION" && (t.is_cancelled || pairedOriginalSet.has(t.id))
-        );
-        const validCancellations = lockedTransactions.filter((t) => t.type === "CANCELLATION");
+        if (lockedTransactions.length === 0) return;
 
-        if (validOriginals.length === 0 && validCancellations.length === 0) return;
+        // عكس استهلاك السقف التراكمي (Wallet Consumption) للحركات النشطة التي يتم حذفها مباشرة
+        for (const transaction of lockedTransactions) {
+          if (!transaction.is_cancelled && transaction.type !== "CANCELLATION") {
+            if (transaction.company_id && transaction.ceiling_consumed && Number(transaction.ceiling_consumed) > 0) {
+              const walletType = transaction.service_category ?? transaction.type;
+              const fiscalYear = transaction.created_at.getFullYear();
+              const reverseAmount = Number(transaction.ceiling_consumed);
+
+              await tx.$executeRaw`
+                UPDATE "WalletConsumption"
+                SET consumed_amount = GREATEST(0, consumed_amount - ${reverseAmount}),
+                    version = version + 1
+                WHERE beneficiary_id = ${transaction.beneficiary_id}
+                  AND company_id = ${transaction.company_id}
+                  AND wallet_type = ${walletType}
+                  AND fiscal_year = ${fiscalYear}
+              `;
+            }
+          }
+        }
+
+        const validOriginals = lockedTransactions.filter((t) => t.type !== "CANCELLATION");
+        const validCancellations = lockedTransactions.filter((t) => t.type === "CANCELLATION");
 
         const validOriginalIds = validOriginals.map((t) => t.id);
         const validCancellationIds = validCancellations.map((t) => t.id);
 
         // SEC-FIX: حفظ snapshot كامل للحركات المحذوفة في سجل التدقيق للمرجعية
-        const deletedSnapshot = [...validOriginals, ...validCancellations].map((t) => ({
+        const deletedSnapshot = lockedTransactions.map((t) => ({
           id: t.id,
           beneficiary_id: t.beneficiary_id,
           amount: t.amount,
@@ -446,7 +453,7 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
         });
 
         // إعادة احتساب الرصيد والحالة لكل مستفيد متأثر بعد الحذف النهائي
-        const affectedBeneficiaryIds = [...new Set([...validOriginals, ...validCancellations].map((t) => t.beneficiary_id))];
+        const affectedBeneficiaryIds = [...new Set(lockedTransactions.map((t) => t.beneficiary_id))];
         const balanceChanges: Array<{ beneficiary_id: string; beneficiary_name: string; card_number: string; balance_before: number; balance_after: number; status_after: string }> = [];
 
         // قفل جميع المستفيدين المتأثرين دفعة واحدة
@@ -455,6 +462,7 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
           WHERE id = ANY(${affectedBeneficiaryIds}::text[])
           FOR UPDATE
         ` : [];
+
         const lockedBenMap = new Map(lockedAllBens.map((b) => [b.id, b]));
         for (const beneficiaryId of affectedBeneficiaryIds) {
           const lockedBen = lockedBenMap.get(beneficiaryId);
@@ -508,8 +516,8 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
             action: "PERMANENT_DELETE_TRANSACTION",
             metadata: {
               selected_count: ids.length,
-              deleted_count: validOriginals.length + validCancellations.length,
-              transaction_ids: [...validOriginalIds, ...validCancellationIds],
+              deleted_count: lockedTransactions.length,
+              transaction_ids: lockedTransactions.map((t) => t.id),
               balance_recalculated: true,
               balance_changes: balanceChanges,
               deleted_snapshot: deletedSnapshot,

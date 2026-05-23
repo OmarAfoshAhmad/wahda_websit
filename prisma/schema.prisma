@@ -20,31 +20,20 @@ model InsuranceCompany {
   created_at          DateTime        @default(now())
   updated_at          DateTime        @updatedAt
   beneficiaries       Beneficiary[]
-  service_policies    ServicePolicy[]
   transactions        Transaction[]
   wallet_consumptions WalletConsumption[]
   service_mappings    ServiceTypeMapping[]
   claims              Claim[]
 
+  // Consolidated policy settings (merged from ServicePolicy)
+  dental_ceiling      Decimal?        @db.Decimal(12, 2)
+  dental_coverage     Decimal         @db.Decimal(5, 2) @default(100.00)
+  general_ceiling     Decimal?        @db.Decimal(12, 2)
+  general_coverage    Decimal         @db.Decimal(5, 2) @default(80.00)
+  medicine_ceiling    Decimal?        @db.Decimal(12, 2)
+  medicine_coverage   Decimal         @db.Decimal(5, 2) @default(80.00)
+
   @@index([code])
-}
-
-model ServicePolicy {
-  id                    String            @id @default(cuid())
-  company_id            String
-  service_type          String            // DENTAL, OPTICS, GENERAL, etc.
-  annual_ceiling        Decimal?          @db.Decimal(12, 2)
-  copay_percentage      Decimal           @db.Decimal(5, 2) @default(0)
-  allow_partial_coverage Boolean          @default(true)
-  is_active             Boolean           @default(true)
-  effective_from        DateTime?
-  effective_to          DateTime?
-  created_at            DateTime          @default(now())
-  updated_at            DateTime          @updatedAt
-  company               InsuranceCompany  @relation(fields: [company_id], references: [id])
-
-  @@unique([company_id, service_type])
-  @@index([company_id, is_active])
 }
 
 model Facility {

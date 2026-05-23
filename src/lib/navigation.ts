@@ -37,8 +37,6 @@ export const MAINTENANCE_NAV = [
   { name: "إدارة المشاكل", href: "/admin/duplicates", icon: TriangleAlert, perms: [] },
   { name: "جدول الحقيقة", href: "/admin/truth-registry", icon: ClipboardList, perms: [] },
   { name: "شركات التأمين", href: "/admin/companies", icon: Building2, perms: ["manage_companies"] as Array<keyof ManagerPermissions> },
-  { name: "سياسات الخدمات", href: "/admin/policies", icon: ShieldCheck, perms: ["manage_companies"] as Array<keyof ManagerPermissions> },
-  { name: "حركات الأسنان", href: "/admin/dental-transactions", icon: Activity, perms: ["manage_companies"] as Array<keyof ManagerPermissions> },
   { name: "حركات شركات التأمين", href: "/admin/tpa-transactions", icon: Activity, perms: ["manage_companies"] as Array<keyof ManagerPermissions> },
 ];
 

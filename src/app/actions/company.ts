@@ -10,6 +10,12 @@ export async function createCompany(data: {
   code: string;
   card_pattern?: string;
   logo?: string;
+  dental_ceiling?: number | null;
+  dental_coverage?: number;
+  general_ceiling?: number | null;
+  general_coverage?: number;
+  medicine_ceiling?: number | null;
+  medicine_coverage?: number;
 }) {
   const session = await requireActiveFacilitySession();
   // SEC-05 FIX: يتطلب صلاحية manage_companies بدل أي مدير
@@ -33,6 +39,12 @@ export async function createCompany(data: {
         card_pattern: data.card_pattern,
         logo: data.logo,
         is_active: true,
+        dental_ceiling: data.dental_ceiling !== undefined ? data.dental_ceiling : 3000,
+        dental_coverage: data.dental_coverage !== undefined ? data.dental_coverage : 100,
+        general_ceiling: data.general_ceiling !== undefined ? data.general_ceiling : null,
+        general_coverage: data.general_coverage !== undefined ? data.general_coverage : 80,
+        medicine_ceiling: data.medicine_ceiling !== undefined ? data.medicine_ceiling : null,
+        medicine_coverage: data.medicine_coverage !== undefined ? data.medicine_coverage : 80,
       },
     });
     revalidatePath("/admin/companies");
@@ -52,6 +64,12 @@ export async function updateCompany(id: string, data: {
   card_pattern?: string;
   logo?: string;
   is_active?: boolean;
+  dental_ceiling?: number | null;
+  dental_coverage?: number;
+  general_ceiling?: number | null;
+  general_coverage?: number;
+  medicine_ceiling?: number | null;
+  medicine_coverage?: number;
 }) {
   const session = await requireActiveFacilitySession();
   if (!session?.is_admin && !session?.is_manager) {
@@ -70,7 +88,16 @@ export async function updateCompany(id: string, data: {
     await prisma.insuranceCompany.update({
       where: { id },
       data: {
-        ...data,
+        name: data.name,
+        card_pattern: data.card_pattern,
+        logo: data.logo,
+        is_active: data.is_active,
+        dental_ceiling: data.dental_ceiling,
+        dental_coverage: data.dental_coverage,
+        general_ceiling: data.general_ceiling,
+        general_coverage: data.general_coverage,
+        medicine_ceiling: data.medicine_ceiling,
+        medicine_coverage: data.medicine_coverage,
         ...(data.code ? { code: data.code.toUpperCase() } : {}),
       },
     });
@@ -120,5 +147,53 @@ export async function softDeleteCompany(id: string) {
   } catch (error) {
     console.error("Soft delete company error:", error);
     return { error: "تعذر حذف الشركة" };
+  }
+}
+
+export async function purgeUnusedBeneficiaries(companyId: string) {
+  const session = await requireActiveFacilitySession();
+  if (!session?.is_admin && !session?.is_manager) {
+    return { error: "غير مصرح لك بهذه العملية" };
+  }
+
+  try {
+    // 1. Find all beneficiaries for this company that have zero transactions
+    const beneficiaries = await prisma.beneficiary.findMany({
+      where: {
+        company_id: companyId,
+        transactions: {
+          none: {}
+        }
+      },
+      select: { id: true }
+    });
+
+    const ids = beneficiaries.map((b) => b.id);
+
+    if (ids.length === 0) {
+      return { success: true, count: 0, message: "لا يوجد مستفيدون بدون حركات لهذه الشركة." };
+    }
+
+    // 2. Perform deletion in a transaction to ensure database integrity
+    await prisma.$transaction([
+      prisma.walletConsumption.deleteMany({
+        where: { beneficiary_id: { in: ids } }
+      }),
+      prisma.notification.deleteMany({
+        where: { beneficiary_id: { in: ids } }
+      }),
+      prisma.claim.deleteMany({
+        where: { beneficiary_id: { in: ids } }
+      }),
+      prisma.beneficiary.deleteMany({
+        where: { id: { in: ids } }
+      })
+    ]);
+
+    revalidatePath("/admin/companies");
+    return { success: true, count: ids.length };
+  } catch (error) {
+    console.error("Purge unused beneficiaries error:", error);
+    return { error: "تعذر تنظيف وتطهير المستفيدين غير المستخدمين" };
   }
 }

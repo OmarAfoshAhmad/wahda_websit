@@ -6,6 +6,7 @@ import { Shell } from "@/components/shell";
 import { Card, Badge, Button } from "@/components/ui";
 import { CompanyForm } from "./company-form";
 import { DeleteCompany } from "./delete-company";
+import { PurgeBeneficiaries } from "./purge-beneficiaries";
 import { toggleCompanyStatus } from "@/app/actions/company";
 
 export default async function CompaniesPage() {
@@ -16,31 +17,40 @@ export default async function CompaniesPage() {
   }
 
   const companies = await prisma.insuranceCompany.findMany({
+    where: { deleted_at: null },
     orderBy: { name: "asc" },
     include: {
       _count: {
         select: { 
-          service_policies: true,
-          transactions: true
+          transactions: true,
+          beneficiaries: true,  // total (active + deleted)
         }
       },
-      beneficiaries: {
-        select: {
-          id: true,
-          deleted_at: true
-        }
-      }
     }
   });
 
-  const companiesWithStats = companies.map(company => {
-    const active = company.beneficiaries.filter(b => !b.deleted_at).length;
-    const deleted = company.beneficiaries.filter(b => !!b.deleted_at).length;
-    return {
-      ...company,
-      stats: { active, deleted }
-    };
+  // حساب المستفيدين النشطين والمحذوفين بطريقة مجمعة (أداء عال)
+  const activeCounts = await prisma.beneficiary.groupBy({
+    by: ["company_id"],
+    where: { deleted_at: null },
+    _count: { _all: true },
   });
+  const deletedCounts = await prisma.beneficiary.groupBy({
+    by: ["company_id"],
+    where: { deleted_at: { not: null } },
+    _count: { _all: true },
+  });
+
+  const activeMap = new Map(activeCounts.map(r => [r.company_id, r._count._all]));
+  const deletedMap = new Map(deletedCounts.map(r => [r.company_id, r._count._all]));
+
+  const companiesWithStats = companies.map(company => ({
+    ...company,
+    stats: {
+      active: activeMap.get(company.id) ?? 0,
+      deleted: deletedMap.get(company.id) ?? 0,
+    }
+  }));
 
   return (
     <Shell facilityName={session.name} session={session}>
@@ -65,7 +75,8 @@ export default async function CompaniesPage() {
                     <th className="px-5 py-4 text-xs font-black text-slate-500 dark:text-slate-400 uppercase">الكود</th>
                     <th className="px-5 py-4 text-xs font-black text-slate-500 dark:text-slate-400 uppercase">نمط البطاقات</th>
                     <th className="px-5 py-4 text-xs font-black text-slate-500 dark:text-slate-400 uppercase text-center">المستفيدون</th>
-                    <th className="px-5 py-4 text-xs font-black text-slate-500 dark:text-slate-400 uppercase text-center">السياسات</th>
+                    <th className="px-5 py-4 text-xs font-black text-slate-500 dark:text-slate-400 uppercase text-center">السقف المالي</th>
+                    <th className="px-5 py-4 text-xs font-black text-slate-500 dark:text-slate-400 uppercase text-center">نسبة التغطية</th>
                     <th className="px-5 py-4 text-xs font-black text-slate-500 dark:text-slate-400 uppercase text-center">الحالة</th>
                     <th className="px-5 py-4 text-xs font-black text-slate-500 dark:text-slate-400 uppercase text-center">إجراءات</th>
                   </tr>
@@ -73,7 +84,7 @@ export default async function CompaniesPage() {
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {companiesWithStats.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-5 py-12 text-center text-slate-500 dark:text-slate-400 font-bold">
+                      <td colSpan={8} className="px-5 py-12 text-center text-slate-500 dark:text-slate-400 font-bold">
                         لا توجد شركات مسجلة حالياً.
                       </td>
                     </tr>
@@ -91,7 +102,12 @@ export default async function CompaniesPage() {
                                 <Building2 className="h-5 w-5" />
                               </div>
                             )}
-                            <span className="font-black text-slate-900 dark:text-white">{company.name}</span>
+                            <div className="flex flex-col">
+                              <span className="font-black text-slate-900 dark:text-white leading-tight">{company.name}</span>
+                              <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-0.5">
+                                الأسنان: {company.dental_ceiling ? `${Number(company.dental_ceiling).toLocaleString("ar-LY")} د.ل` : "مفتوح"} | تغطية {Number(company.dental_coverage)}%
+                              </span>
+                            </div>
                           </div>
                         </td>
                         <td className="px-5 py-4 font-mono text-sm font-bold text-slate-600 dark:text-slate-300">
@@ -112,10 +128,11 @@ export default async function CompaniesPage() {
                             )}
                           </div>
                         </td>
-                        <td className="px-5 py-4 text-center">
-                          <Badge variant="info" className="font-mono">
-                            {company._count.service_policies}
-                          </Badge>
+                        <td className="px-5 py-4 text-center font-mono font-black text-sm text-slate-900 dark:text-white">
+                          {company.dental_ceiling ? `${Number(company.dental_ceiling).toLocaleString("ar-LY")} د.ل` : "مفتوح"}
+                        </td>
+                        <td className="px-5 py-4 text-center font-mono font-black text-sm text-teal-700 dark:text-teal-400">
+                          {company.dental_coverage !== null ? `${Number(company.dental_coverage)}%` : "0%"}
                         </td>
                         <td className="px-5 py-4 text-center">
                           <Badge variant={company.is_active ? "success" : "danger"}>
@@ -126,12 +143,19 @@ export default async function CompaniesPage() {
                           <div className="flex items-center justify-center gap-1">
                             <CompanyForm company={company} />
                             {session.is_admin && (
-                              <DeleteCompany 
-                                companyId={company.id} 
-                                companyName={company.name} 
-                                activeBeneficiariesCount={company.stats.active}
-                                hasTransactions={company._count.transactions > 0}
-                              />
+                              <>
+                                <PurgeBeneficiaries
+                                  companyId={company.id}
+                                  companyName={company.name}
+                                  activeBeneficiariesCount={company.stats.active}
+                                />
+                                <DeleteCompany 
+                                  companyId={company.id} 
+                                  companyName={company.name} 
+                                  activeBeneficiariesCount={company.stats.active}
+                                  hasTransactions={company._count.transactions > 0}
+                                />
+                              </>
                             )}
                             <form action={toggleCompanyStatus.bind(null, company.id, company.is_active) as unknown as (formData: FormData) => void}>
                               <button

@@ -78,18 +78,69 @@ function normalizeCardNumber(card: any): string {
 }
 
 function parseExcelDate(val: any): Date {
-  if (val instanceof Date) return val;
+  if (!val) return new Date();
+  
+  // 1. If ExcelJS parsed it as a Date object directly
+  if (val instanceof Date && !isNaN(val.getTime())) {
+    return val;
+  }
+  
+  // 2. If it's an object (like formula result or cell object)
+  if (typeof val === "object") {
+    if (val.result instanceof Date && !isNaN(val.result.getTime())) {
+      return val.result;
+    }
+    if (val.result !== undefined && val.result !== null) {
+      val = val.result;
+    } else if (val.text !== undefined && val.text !== null) {
+      val = val.text;
+    } else if (val.value !== undefined && val.value !== null) {
+      val = val.value;
+    }
+  }
+
+  // 3. If it's a number (Excel date serial number)
+  if (typeof val === "number" && !isNaN(val)) {
+    // Excel date serial number (e.g. 45392 represents a date in 2024)
+    // 25569 is the number of days between 1900-01-01 and 1970-01-01
+    const date = new Date((val - 25569) * 86400 * 1000);
+    if (!isNaN(date.getTime())) {
+      return date;
+    }
+  }
+
+  // 4. If it's a string
   if (typeof val === "string") {
     const cleaned = val.trim();
-    const match = cleaned.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (match) {
-      const day = parseInt(match[1], 10);
-      const month = parseInt(match[2], 10) - 1; // 0-indexed
-      const year = parseInt(match[3], 10);
+    if (!cleaned) return new Date();
+
+    // Check DD/MM/YYYY or D/M/YYYY or with dashes
+    const slashMatch = cleaned.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if (slashMatch) {
+      const day = parseInt(slashMatch[1], 10);
+      const month = parseInt(slashMatch[2], 10) - 1; // 0-indexed
+      const year = parseInt(slashMatch[3], 10);
       const d = new Date(year, month, day);
       if (!isNaN(d.getTime())) return d;
     }
+
+    // Check YYYY/MM/DD or YYYY-MM-DD
+    const isoMatch = cleaned.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+    if (isoMatch) {
+      const year = parseInt(isoMatch[1], 10);
+      const month = parseInt(isoMatch[2], 10) - 1; // 0-indexed
+      const day = parseInt(isoMatch[3], 10);
+      const d = new Date(year, month, day);
+      if (!isNaN(d.getTime())) return d;
+    }
+
+    // Try native JS Date parser
+    const parsed = new Date(cleaned);
+    if (!isNaN(parsed.getTime())) {
+      return parsed;
+    }
   }
+
   return new Date();
 }
 
@@ -215,16 +266,24 @@ export async function importDentalTransactionsAction(
       new Set(dbBeneficiaries.map((b) => b.company_id).filter(Boolean))
     ) as string[];
 
-    const dbPolicies = await prisma.servicePolicy.findMany({
+    const dbCompanies = await prisma.insuranceCompany.findMany({
       where: {
-        company_id: { in: companyIds },
-        service_type: "DENTAL",
+        id: { in: companyIds },
         is_active: true,
+        deleted_at: null,
       },
     });
 
     const policyMap = new Map(
-      dbPolicies.map((p) => [p.company_id, p])
+      dbCompanies.map((c) => [
+        c.id,
+        {
+          service_type: "DENTAL",
+          annual_ceiling: c.dental_ceiling,
+          copay_percentage: Math.max(0, 100 - Number(c.dental_coverage)),
+          allow_partial_coverage: true,
+        }
+      ])
     );
 
     // Grouping variables for preview stats
@@ -380,7 +439,10 @@ export async function importDentalTransactionsAction(
           consumed_before: calcResult.consumedBefore,
           consumed_after: calcResult.consumedAfter,
           policy_snapshot: JSON.parse(JSON.stringify(policy)),
-          calc_metadata: calcResult.metadata,
+          calc_metadata: {
+            ...(calcResult.metadata || {}),
+            notes: r.notes || `استيراد حركة سابقة - موافقة ${r.approval || "بدون"}`,
+          },
         };
 
         runningConsumption.set(consumptionKey, currentConsumed + Number(calcResult.ceilingConsumed));
@@ -388,7 +450,11 @@ export async function importDentalTransactionsAction(
         tpaData = {
           company_id: beneficiary.company_id,
           service_category: "DENTAL",
-          calc_metadata: { tpaApplied: false, reason: "no_policy" },
+          calc_metadata: { 
+            tpaApplied: false, 
+            reason: "no_policy",
+            notes: r.notes || `استيراد حركة سابقة - موافقة ${r.approval || "بدون"}`,
+          },
         };
       }
 
@@ -420,7 +486,6 @@ export async function importDentalTransactionsAction(
           type: "DENTAL",
           is_cancelled: false,
           created_at: r.date,
-          notes: r.notes || `استيراد حركة سابقة - موافقة ${r.approval || "بدون"}`,
           idempotency_key: idempotencyKey,
           ...tpaData,
         },

@@ -37,23 +37,31 @@ export async function fetchPolicyLimit(
   companyId: string,
   walletType: string,
 ): Promise<PolicyLimitRow | null> {
-  const policy = await prisma.servicePolicy.findUnique({
-    where: {
-      company_id_service_type: {
-        company_id: companyId,
-        service_type: walletType,
-      },
-    },
+  const company = await prisma.insuranceCompany.findUnique({
+    where: { id: companyId },
   });
-  if (!policy || !policy.is_active) return null;
-  const effectiveCeiling =
-    policy.annual_ceiling === null || Number(policy.annual_ceiling) === 0
-      ? null
-      : Number(policy.annual_ceiling);
+  if (!company || !company.is_active || company.deleted_at !== null) return null;
+
+  let annual_ceiling: number | null = null;
+  let copay_percentage = 0;
+
+  if (walletType === "DENTAL") {
+    annual_ceiling = company.dental_ceiling === null ? null : Number(company.dental_ceiling);
+    copay_percentage = Math.max(0, 100 - Number(company.dental_coverage));
+  } else if (walletType === "GENERAL") {
+    annual_ceiling = company.general_ceiling === null ? null : Number(company.general_ceiling);
+    copay_percentage = Math.max(0, 100 - Number(company.general_coverage));
+  } else if (walletType === "MEDICINE") {
+    annual_ceiling = company.medicine_ceiling === null ? null : Number(company.medicine_ceiling);
+    copay_percentage = Math.max(0, 100 - Number(company.medicine_coverage));
+  } else {
+    return null;
+  }
+
   return {
-    annual_ceiling: effectiveCeiling,
-    copay_percentage: Number(policy.copay_percentage),
-    allow_partial_coverage: policy.allow_partial_coverage,
+    annual_ceiling,
+    copay_percentage,
+    allow_partial_coverage: true,
   };
 }
 

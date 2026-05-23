@@ -149,23 +149,16 @@ async function main() {
           name: "المنطقة الحرة (JFZ)",
           code: "JFZ",
           card_pattern: "^JFZ2025.*",
-          is_active: true
+          is_active: true,
+          dental_ceiling: 3000.00,
+          dental_coverage: 100.00,
+          general_ceiling: null,
+          general_coverage: 80.00,
+          medicine_ceiling: null,
+          medicine_coverage: 80.00,
         }
       });
       console.log(`Created company JFZ with ID: ${jfzCompany.id}`);
-      
-      // Create DENTAL service policy with ceiling 3000
-      await prisma.servicePolicy.create({
-        data: {
-          company_id: jfzCompany.id,
-          service_type: "DENTAL",
-          annual_ceiling: 3000.00,
-          copay_percentage: 0.00,
-          allow_partial_coverage: true,
-          is_active: true
-        }
-      });
-      console.log("Created DENTAL service policy for JFZ with ceiling 3000.00 LYD");
     } else {
       jfzCompany = { id: "temp_jfz_id", name: "المنطقة الحرة (JFZ)", code: "JFZ", card_pattern: "^JFZ2025.*" };
       console.log(`[DRY RUN] Will create company JFZ and DENTAL policy with ceiling 3000.00`);
@@ -416,16 +409,7 @@ async function main() {
     const company = companies.find(c => c.code === code);
     if (!company) continue;
 
-    // Load company policy to get DENTAL ceiling
-    const policy = await prisma.servicePolicy.findUnique({
-      where: {
-        company_id_service_type: {
-          company_id: company.id,
-          service_type: "DENTAL"
-        }
-      }
-    });
-    const dentalCeiling = policy && policy.annual_ceiling ? Number(policy.annual_ceiling) : 3000.00;
+    const dentalCeiling = company.dental_ceiling ? Number(company.dental_ceiling) : 3000.00;
     console.log(`Company "${company.name}" (${code}): Using DENTAL ceiling = ${dentalCeiling}`);
 
     // Group rows by card number to process beneficiary creation / balance update

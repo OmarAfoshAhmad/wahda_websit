@@ -9,6 +9,7 @@ import {
   bulkRestoreBeneficiaries,
 } from "@/app/actions/beneficiary";
 import { ConfirmationModal } from "@/components/confirmation-modal";
+import { useToast } from "@/components/toast";
 
 type Props = {
   formId: string;
@@ -24,11 +25,18 @@ export function BeneficiariesBulkActionButton({ formId, mode }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const toast = useToast();
 
   const setPageFeedback = (message: string, type: "error" | "success") => {
     const params = new URLSearchParams(searchParams.toString());
-    params.set("bulk_msg", message);
-    params.set("bulk_type", type);
+    if (type === "success") {
+      params.delete("bulk_msg");
+      params.delete("bulk_type");
+      toast.success(message);
+    } else {
+      params.set("bulk_msg", message);
+      params.set("bulk_type", type);
+    }
     router.replace(`${pathname}?${params.toString()}`);
   };
 
@@ -90,6 +98,7 @@ export function BeneficiariesBulkActionButton({ formId, mode }: Props) {
           : await bulkPermanentDeleteBeneficiaries(formData);
 
       if (result?.error) {
+        setConfirmOpen(false);
         setPageFeedback(result.error, "error");
         return;
       }

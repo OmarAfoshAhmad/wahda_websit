@@ -16,6 +16,7 @@ import { BeneficiaryTransactionsPanelButton } from "@/components/beneficiary-tra
 import { getLedgerRemainingByBeneficiaryIds } from "@/lib/ledger-balance";
 import { BeneficiaryRestoreActions } from "@/components/beneficiary-restore-actions";
 import { BeneficiariesBulkActionButton, SelectAllCheckbox, EmptyRecycleBinButton } from "@/components/beneficiaries-bulk-action-button";
+import { TransactionsBulkActionButton, SelectAllTransactionsCheckbox } from "@/components/transactions-bulk-action-button";
 
 export default async function DentalCompanyPage({
   params,
@@ -45,13 +46,10 @@ export default async function DentalCompanyPage({
   const fromDate = sp.from ?? "";
   const toDate = sp.to ?? "";
 
-  // جلب بيانات الشركة مع سياسة الأسنان
+  // جلب بيانات الشركة مع إحصائيات المستفيدين
   const company = await prisma.insuranceCompany.findUnique({
     where: { id: companyId, deleted_at: null, is_active: true },
     include: {
-      service_policies: {
-        where: { service_type: "DENTAL", is_active: true },
-      },
       _count: {
         select: { beneficiaries: { where: { deleted_at: null } } },
       },
@@ -60,12 +58,12 @@ export default async function DentalCompanyPage({
 
   if (!company) notFound();
 
-  const dentalPolicy = company.service_policies[0] ?? null;
-  const ceiling = dentalPolicy?.annual_ceiling ? Number(dentalPolicy.annual_ceiling) : null;
-  const copay = dentalPolicy?.copay_percentage ? Number(dentalPolicy.copay_percentage) : 0;
+  const ceiling = company.dental_ceiling ? Number(company.dental_ceiling) : null;
+  const copay = Math.max(0, 100 - Number(company.dental_coverage));
+  const dentalPolicy = true;
 
   // بناء شروط الاستعلام لحركات الأسنان
-  const PAGE_SIZE = 15;
+  const PAGE_SIZE = 10;
   const where: any = {
     company_id: companyId,
     type: "DENTAL",
@@ -292,10 +290,15 @@ export default async function DentalCompanyPage({
 
     companyBeneficiaries = benList.map((b) => {
       const consumed = spentDentalMap.get(b.id) ?? 0;
+      const remaining = Math.max(0, dentalCeiling - consumed);
+      const dynamicStatus = b.status === "SUSPENDED"
+        ? "SUSPENDED"
+        : (remaining <= 0 ? "FINISHED" : "ACTIVE");
       return {
         ...b,
         total_balance: dentalCeiling,
-        remaining_balance: Math.max(0, dentalCeiling - consumed),
+        remaining_balance: remaining,
+        status: dynamicStatus,
         in_import_file: Boolean(b.is_legacy_card),
       };
     });
@@ -440,6 +443,15 @@ export default async function DentalCompanyPage({
           </div>
         )}
 
+        {bulkMessage && bulkMessageType === "error" && (
+          <div className="rounded-xl border p-4 text-sm font-bold flex items-center justify-between gap-3 shadow-sm border-red-200 bg-red-50 text-red-805 dark:border-red-950/40 dark:bg-red-950/20 dark:text-red-300">
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full animate-ping bg-current shrink-0" />
+              <span>{bulkMessage}</span>
+            </div>
+          </div>
+        )}
+
         {!dentalPolicy && (
           <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/10 p-4">
             <p className="text-sm font-bold text-amber-800 dark:text-amber-300">
@@ -554,95 +566,138 @@ export default async function DentalCompanyPage({
                 </div>
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-right border-collapse text-sm">
-                  <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
-                    <tr>
-                      <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400">المستفيد</th>
-                      <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400">رقم البطاقة</th>
-                      <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">قيمة الفاتورة</th>
-                      <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">حصة الشركة</th>
-                      <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">حصة المؤمن</th>
-                      <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">الرصيد المتبقي</th>
-                      <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400">التاريخ والوقت</th>
-                      {(session.is_admin || canCorrect || canCancel) && (
-                        <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">إجراءات</th>
+              <form id="transactions-bulk-form" className="space-y-4">
+                {(session.is_admin || canCancel || canDelete) && (
+                  <div className="flex items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/40 px-4 py-3 sm:px-6 rounded-lg">
+                    <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                      يمكنك تحديد حركات متعددة لإلغائها أو حذفها بشكل جماعي.
+                    </p>
+                    <div className="flex items-center gap-2">
+                      {(session.is_admin || canCancel) && (
+                        <TransactionsBulkActionButton
+                          formId="transactions-bulk-form"
+                          op="cancel_or_rededuct"
+                          label="إلغاء المحدد"
+                          variant="warning"
+                        />
                       )}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {recentTransactions.length === 0 ? (
-                      <tr>
-                        <td colSpan={7 + ((session.is_admin || canCorrect || canCancel) ? 1 : 0)} className="px-4 py-12 text-center text-slate-500 dark:text-slate-400 font-bold">
-                          لا توجد حركات مطابقة للبحث أو معايير الفلترة المحددة.
-                        </td>
-                      </tr>
-                    ) : (
-                      recentTransactions.map((tx) => {
-                        const amount = Number(tx.amount);
-                        const companyShare = tx.actual_company_share !== null ? Number(tx.actual_company_share) : 0;
-                        const patientShare = tx.actual_patient_share !== null ? Number(tx.actual_patient_share) : 0;
-                        const remaining = remainingAfterTxId.get(tx.id) ?? (tx.remaining_ceiling_after !== null ? Number(tx.remaining_ceiling_after) : (dentalCeiling - companyShare));
+                      {(session.is_admin || canDelete) && (
+                        <TransactionsBulkActionButton
+                          formId="transactions-bulk-form"
+                          op="permanent_delete"
+                          label="حذف نهائي للمحدد"
+                          variant="danger"
+                        />
+                      )}
+                    </div>
+                  </div>
+                )}
 
-                        return (
-                          <tr key={tx.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                            <td className="px-4 py-3.5 font-black text-slate-900 dark:text-white">
-                              {tx.beneficiary?.name ?? "—"}
-                            </td>
-                            <td className="px-4 py-3.5 font-mono font-bold text-slate-650 dark:text-slate-400 text-xs">
-                              {tx.beneficiary?.card_number ?? "—"}
-                            </td>
-                            <td className="px-4 py-3.5 text-center font-mono font-black text-slate-900 dark:text-white">
-                              {amount.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل
-                            </td>
-                            <td className="px-4 py-3.5 text-center font-mono font-black text-teal-700 dark:text-teal-400">
-                              {companyShare.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل
-                            </td>
-                            <td className="px-4 py-3.5 text-center font-mono font-black text-amber-600 dark:text-amber-450">
-                              {patientShare.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل
-                            </td>
-                            <td className="px-4 py-3.5 text-center font-mono font-black text-sky-700 dark:text-sky-400">
-                              {remaining !== null ? `${remaining.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل` : "—"}
-                            </td>
-                            <td className="px-4 py-3.5 text-xs">
-                              <span className="font-bold text-slate-700 dark:text-slate-300">{formatDateTripoli(tx.created_at)}</span>
-                              <span className="text-slate-400 mr-2">{formatTimeTripoli(tx.created_at)}</span>
-                            </td>
-                            {(session.is_admin || canCorrect || canCancel) && (
-                              <td className="px-4 py-3.5 text-center">
-                                <div className="flex items-center justify-center gap-2">
-                                  {canSingleAction && (
-                                    <TransactionCancelButton
-                                      transactionId={tx.id}
-                                      isCancelled={tx.is_cancelled}
-                                      type={tx.type}
-                                    />
-                                  )}
-                                  {(session.is_admin || canCorrect) && (
-                                    <TransactionEditModal
-                                      transaction={{
-                                        id: tx.id,
-                                        amount: Number(tx.amount),
-                                        type: tx.type,
-                                        created_at: tx.created_at.toISOString(),
-                                        facility_id: tx.facility.id,
-                                        facility_name: tx.facility.name,
-                                        is_cancelled: tx.is_cancelled,
-                                      }}
-                                      facilities={facilities}
-                                      datalistId={globalDatalistId}
-                                    />
-                                  )}
-                                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-right border-collapse text-sm">
+                    <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
+                      <tr>
+                        {(session.is_admin || canCancel || canDelete) && (
+                          <th className="px-4 py-3 text-center w-10">
+                            <SelectAllTransactionsCheckbox formId="transactions-bulk-form" />
+                          </th>
+                        )}
+                        <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400">المستفيد</th>
+                        <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400">رقم البطاقة</th>
+                        <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">قيمة الفاتورة</th>
+                        <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">حصة الشركة</th>
+                        <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">حصة المؤمن</th>
+                        <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">الرصيد المتبقي</th>
+                        <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400">التاريخ والوقت</th>
+                        {(session.is_admin || canCorrect || canCancel) && (
+                          <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">إجراءات</th>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {recentTransactions.length === 0 ? (
+                        <tr>
+                          <td colSpan={8 + ((session.is_admin || canCorrect || canCancel) ? 1 : 0)} className="px-4 py-12 text-center text-slate-500 dark:text-slate-400 font-bold">
+                            لا توجد حركات مطابقة للبحث أو معايير الفلترة المحددة.
+                          </td>
+                        </tr>
+                      ) : (
+                        recentTransactions.map((tx) => {
+                          const amount = Number(tx.amount);
+                          const companyShare = tx.actual_company_share !== null ? Number(tx.actual_company_share) : 0;
+                          const patientShare = tx.actual_patient_share !== null ? Number(tx.actual_patient_share) : 0;
+                          const remaining = remainingAfterTxId.get(tx.id) ?? (tx.remaining_ceiling_after !== null ? Number(tx.remaining_ceiling_after) : (dentalCeiling - companyShare));
+
+                          return (
+                            <tr key={tx.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                              {(session.is_admin || canCancel || canDelete) && (
+                                <td className="px-4 py-3.5 text-center w-10">
+                                  <input
+                                    type="checkbox"
+                                    name="ids"
+                                    value={tx.id}
+                                    className="h-4 w-4 rounded border-slate-350 dark:border-slate-700 text-teal-650 focus:ring-teal-500/30"
+                                  />
+                                </td>
+                              )}
+                              <td className="px-4 py-3.5 font-black text-slate-900 dark:text-white">
+                                {tx.beneficiary?.name ?? "—"}
                               </td>
-                            )}
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                              <td className="px-4 py-3.5 font-mono font-bold text-slate-650 dark:text-slate-400 text-xs">
+                                {tx.beneficiary?.card_number ?? "—"}
+                              </td>
+                              <td className="px-4 py-3.5 text-center font-mono font-black text-slate-900 dark:text-white">
+                                {amount.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل
+                              </td>
+                              <td className="px-4 py-3.5 text-center font-mono font-black text-teal-700 dark:text-teal-400">
+                                {companyShare.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل
+                              </td>
+                              <td className="px-4 py-3.5 text-center font-mono font-black text-amber-600 dark:text-amber-450">
+                                {patientShare.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل
+                              </td>
+                              <td className="px-4 py-3.5 text-center font-mono font-black text-sky-700 dark:text-sky-400">
+                                {remaining !== null ? `${remaining.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل` : "—"}
+                              </td>
+                              <td className="px-4 py-3.5 text-xs">
+                                <span className="font-bold text-slate-700 dark:text-slate-300">{formatDateTripoli(tx.created_at)}</span>
+                                <span className="text-slate-400 mr-2">{formatTimeTripoli(tx.created_at)}</span>
+                              </td>
+                              {(session.is_admin || canCorrect || canCancel) && (
+                                <td className="px-4 py-3.5 text-center">
+                                  <div className="flex items-center justify-center gap-2">
+                                    {canSingleAction && (
+                                      <TransactionCancelButton
+                                        transactionId={tx.id}
+                                        isCancelled={tx.is_cancelled}
+                                        type={tx.type}
+                                      />
+                                    )}
+                                    {(session.is_admin || canCorrect) && (
+                                      <TransactionEditModal
+                                        transaction={{
+                                          id: tx.id,
+                                          amount: Number(tx.amount),
+                                          type: tx.type,
+                                          created_at: tx.created_at.toISOString(),
+                                          facility_id: tx.facility.id,
+                                          facility_name: tx.facility.name,
+                                          is_cancelled: tx.is_cancelled,
+                                        }}
+                                        facilities={facilities}
+                                        datalistId={globalDatalistId}
+                                      />
+                                    )}
+                                  </div>
+                                </td>
+                              )}
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </form>
 
               {/* أزرار الترقيم Pagination */}
               {totalPages > 1 && (
@@ -754,14 +809,6 @@ export default async function DentalCompanyPage({
                   </span>
                 )}
               </Link>
-              {bulkMessage && (
-                <span className={`inline-flex items-center rounded-md border px-3 py-2 text-xs font-bold ${bulkMessageType === "error"
-                  ? "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300"
-                  : "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-300"
-                  }`}>
-                  {bulkMessage}
-                </span>
-              )}
             </div>
 
             <Card className="overflow-hidden p-5 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl shadow-sm space-y-4">

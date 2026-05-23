@@ -23,25 +23,19 @@ async function migrate() {
   });
   console.log(`✅ تم التأكد من وجود الشركة: ${wahaBank.name} (${wahaBank.id})`);
 
-  // 2. إنشاء سياسة خدمات الأسنان الافتراضية (سقف 600، نسبة تحمل 0)
-  const dentalPolicy = await prisma.servicePolicy.upsert({
-    where: {
-      company_id_service_type: {
-        company_id: wahaBank.id,
-        service_type: "DENTAL",
-      },
-    },
-    update: {},
-    create: {
-      company_id: wahaBank.id,
-      service_type: "DENTAL",
-      annual_ceiling: 600,
-      copay_percentage: 0,
-      allow_partial_coverage: true,
-      is_active: true,
+  // 2. ضبط سياسات الخدمات المدمجة في الشركة (سقف أسنان 600، تغطية 100%)
+  await prisma.insuranceCompany.update({
+    where: { id: wahaBank.id },
+    data: {
+      dental_ceiling: 600,
+      dental_coverage: 100,
+      general_ceiling: null,
+      general_coverage: 80,
+      medicine_ceiling: null,
+      medicine_coverage: 80,
     },
   });
-  console.log(`✅ تم ضبط سياسة الأسنان: ${dentalPolicy.annual_ceiling} د.ل`);
+  console.log(`✅ تم ضبط سياسات الشركة: أسنان 600 د.ل (100%) | عام مفتوح (80%) | أدوية مفتوح (80%)`);
 
   // 3. ربط المستفيدين الحاليين (الذين يبدأ رقمهم بـ WAB) بالشركة
   const updateResult = await prisma.beneficiary.updateMany({

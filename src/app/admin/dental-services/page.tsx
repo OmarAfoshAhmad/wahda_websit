@@ -20,15 +20,11 @@ export default async function DentalServicesPage({
   const { tab } = await searchParams;
   const activeTab = tab === "import" ? "import" : "companies";
 
-  // جلب شركات التأمين مع إحصائيات المستفيدين وسياسات الأسنان
+  // جلب شركات التأمين مع إحصائيات المستفيدين
   const companies = await prisma.insuranceCompany.findMany({
     where: { deleted_at: null, is_active: true },
     orderBy: { name: "asc" },
     include: {
-      service_policies: {
-        where: { service_type: "DENTAL", is_active: true },
-        select: { annual_ceiling: true, copay_percentage: true },
-      },
       _count: {
         select: {
           beneficiaries: {
@@ -39,8 +35,8 @@ export default async function DentalServicesPage({
     },
   });
 
-  // شركات لها سياسة أسنان نشطة (للعرض في البوابة)
-  const dentalCompanies = companies.filter(c => c.service_policies.length > 0);
+  // جميع الشركات النشطة تدعم خدمات الأسنان
+  const dentalCompanies = companies;
   // جميع الشركات (للاستيراد)
   const allCompaniesForImport = companies.map(c => ({ id: c.id, name: c.name, code: c.code }));
 
@@ -121,9 +117,8 @@ export default async function DentalServicesPage({
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {dentalCompanies.map((company, idx) => {
                   const colors = DENTAL_COLORS[idx % DENTAL_COLORS.length];
-                  const policy = company.service_policies[0];
-                  const ceiling = policy?.annual_ceiling ? Number(policy.annual_ceiling) : null;
-                  const copay = policy?.copay_percentage ? Number(policy.copay_percentage) : 0;
+                  const ceiling = company.dental_ceiling ? Number(company.dental_ceiling) : null;
+                  const copay = Math.max(0, 100 - Number(company.dental_coverage));
                   const beneficiaryCount = company._count.beneficiaries;
 
                   return (

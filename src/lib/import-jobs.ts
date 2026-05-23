@@ -352,14 +352,9 @@ export async function getImportJobSnapshot(jobId: string, username?: string) {
 export async function processImportJob(jobId: string, username: string) {
   const initialBalance = await getCurrentInitialBalance();
 
-  // جلب جميع شركات التأمين النشطة مع سياسات الخدمة الخاصة بها
+  // جلب جميع شركات التأمين النشطة
   const activeCompanies = await prisma.insuranceCompany.findMany({
-    where: { is_active: true, deleted_at: null },
-    include: {
-      service_policies: {
-        where: { is_active: true }
-      }
-    }
+    where: { is_active: true, deleted_at: null }
   });
 
   const matchCompanyForCard = (
@@ -387,13 +382,14 @@ export async function processImportJob(jobId: string, username: string) {
   };
 
   const getPolicyCeiling = (company: typeof activeCompanies[number]) => {
-    const dentalPolicy = company.service_policies.find(p => p.service_type === "DENTAL");
-    if (dentalPolicy && dentalPolicy.annual_ceiling !== null) {
-      return Number(dentalPolicy.annual_ceiling);
+    if (company.dental_ceiling !== null) {
+      return Number(company.dental_ceiling);
     }
-    const anyPolicy = company.service_policies.find(p => p.annual_ceiling !== null);
-    if (anyPolicy && anyPolicy.annual_ceiling !== null) {
-      return Number(anyPolicy.annual_ceiling);
+    if (company.general_ceiling !== null) {
+      return Number(company.general_ceiling);
+    }
+    if (company.medicine_ceiling !== null) {
+      return Number(company.medicine_ceiling);
     }
     return null;
   };

@@ -13,6 +13,7 @@ import { assertBeneficiariesBalanceInvariant, buildIdempotencyKey } from "@/lib/
 import { Prisma } from "@prisma/client";
 import { InsuranceEngine } from "@/lib/insurance/engine";
 import { getServiceTypeMapping } from "@/lib/insurance/company-matcher";
+import { WAHDA_BANK_COMPANY_ID } from "@/lib/constants";
 
 // ─── نوع بيانات عضو العائلة ─────────────────────────────────────────
 export type FamilyMember = {
@@ -68,7 +69,7 @@ export async function lookupFamily(query: string): Promise<{
         },
         {
           OR: [
-            { company_id: "cmp7ha2km0000u9v8jse4ib5x" },
+            { company_id: WAHDA_BANK_COMPANY_ID },
             { company_id: null }
           ]
         }
@@ -96,7 +97,7 @@ export async function lookupFamily(query: string): Promise<{
     SELECT id, card_number, name, remaining_balance::float8, status
     FROM "Beneficiary"
     WHERE deleted_at IS NULL
-      AND ("company_id" = 'cmp7ha2km0000u9v8jse4ib5x' OR "company_id" IS NULL)
+      AND ("company_id" = '${WAHDA_BANK_COMPANY_ID}' OR "company_id" IS NULL)
       AND UPPER(card_number) LIKE ${baseCard + "%"}
     ORDER BY remaining_balance DESC
     LIMIT 50
@@ -291,17 +292,52 @@ export async function executeCashClaim(input: {
           });
           const consumedThisYear = Number(consumption._sum.ceiling_consumed || 0);
 
-          const policyRecord = await tx.servicePolicy.findUnique({
-            where: { company_id_service_type: { company_id: ben.company_id, service_type: policyServiceType } }
+          const company = await tx.insuranceCompany.findUnique({
+            where: { id: ben.company_id }
           });
 
-          if (policyRecord && !policyRecord.is_active) {
-            throw new Error(`سياسة الخدمة (${policyServiceType}) غير مفعلة حالياً للعضو ${ben.name}`);
+          if (company && !company.is_active) {
+            throw new Error(`شركة التأمين (${company.name}) غير مفعلة حالياً للعضو ${ben.name}`);
+          }
+
+          let policyRecord: {
+            service_type: string;
+            annual_ceiling: number | null;
+            copay_percentage: number;
+            allow_partial_coverage: boolean;
+          } | null = null;
+
+          if (company) {
+            let annual_ceiling: number | null = null;
+            let copay_percentage = 0;
+            let isConfigured = false;
+
+            if (policyServiceType === "DENTAL") {
+              annual_ceiling = company.dental_ceiling === null ? null : Number(company.dental_ceiling);
+              copay_percentage = Math.max(0, 100 - Number(company.dental_coverage));
+              isConfigured = true;
+            } else if (policyServiceType === "GENERAL") {
+              annual_ceiling = company.general_ceiling === null ? null : Number(company.general_ceiling);
+              copay_percentage = Math.max(0, 100 - Number(company.general_coverage));
+              isConfigured = true;
+            } else if (policyServiceType === "MEDICINE") {
+              annual_ceiling = company.medicine_ceiling === null ? null : Number(company.medicine_ceiling);
+              copay_percentage = Math.max(0, 100 - Number(company.medicine_coverage));
+              isConfigured = true;
+            }
+
+            if (isConfigured) {
+              policyRecord = {
+                service_type: policyServiceType,
+                annual_ceiling,
+                copay_percentage,
+                allow_partial_coverage: true,
+              };
+            }
           }
 
           if (policyRecord) {
-            const effectiveCeiling = (policyRecord.annual_ceiling === null || Number(policyRecord.annual_ceiling) === 0)
-              ? null : Number(policyRecord.annual_ceiling);
+            const effectiveCeiling = policyRecord.annual_ceiling;
 
             const calcResult = InsuranceEngine.calculate({
               amount: alloc.amount,
@@ -309,8 +345,8 @@ export async function executeCashClaim(input: {
               policy: {
                 serviceType: policyRecord.service_type,
                 annualCeiling: effectiveCeiling,
-                copayPercentage: Number(policyRecord.copay_percentage),
-                allowPartialCoverage: policyRecord.allow_partial_coverage
+                copayPercentage: policyRecord.copay_percentage,
+                allowPartialCoverage: true
               }
             });
 

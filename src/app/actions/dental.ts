@@ -30,7 +30,7 @@ export async function searchCompanyBeneficiaries(query: string, companyId: strin
       where: {
         company_id: companyId,
         deleted_at: null,
-        status: "ACTIVE",
+        status: { in: ["ACTIVE", "FINISHED"] },
         company: { is_active: true, deleted_at: null },
         OR: [
           { name: { contains: q, mode: "insensitive" } },
@@ -45,20 +45,28 @@ export async function searchCompanyBeneficiaries(query: string, companyId: strin
         status: true,
         remaining_balance: true,
         total_balance: true,
+        company: {
+          select: {
+            dental_ceiling: true
+          }
+        }
       },
       orderBy: { name: "asc" },
       take: 20
     });
 
     return {
-      items: rows.map(r => ({
-        id: r.id,
-        name: r.name,
-        card_number: r.card_number,
-        status: r.status,
-        remaining_balance: Number(r.remaining_balance),
-        total_balance: Number(r.total_balance),
-      }))
+      items: rows.map(r => {
+        const dentalCeiling = r.company?.dental_ceiling !== null ? Number(r.company?.dental_ceiling) : 3000;
+        return {
+          id: r.id,
+          name: r.name,
+          card_number: r.card_number,
+          status: r.status,
+          remaining_balance: dentalCeiling,
+          total_balance: dentalCeiling,
+        };
+      })
     };
   } catch (error) {
     logger.error("Search company beneficiaries error", { error: String(error) });
@@ -92,7 +100,8 @@ export async function getDentalBeneficiaryDetail(beneficiaryId: string, companyI
             id: true,
             name: true,
             code: true,
-            logo: true
+            logo: true,
+            dental_ceiling: true
           }
         }
       }
@@ -120,15 +129,24 @@ export async function getDentalBeneficiaryDetail(beneficiaryId: string, companyI
 
     const yearlyConsumed = Number(agg._sum.ceiling_consumed ?? 0);
 
+    const dentalCeiling = beneficiary.company.dental_ceiling !== null
+      ? Number(beneficiary.company.dental_ceiling)
+      : 3000;
+
+    const dynamicRemaining = Math.max(0, dentalCeiling - yearlyConsumed);
+    const dynamicStatus = beneficiary.status === "SUSPENDED"
+      ? "SUSPENDED"
+      : (dynamicRemaining <= 0 ? "FINISHED" : "ACTIVE");
+
     return {
       success: true,
       beneficiary: {
         id: beneficiary.id,
         name: beneficiary.name,
         card_number: beneficiary.card_number,
-        status: beneficiary.status,
-        remaining_balance: Number(beneficiary.remaining_balance),
-        total_balance: Number(beneficiary.total_balance),
+        status: dynamicStatus,
+        remaining_balance: dynamicRemaining,
+        total_balance: dentalCeiling,
         company: beneficiary.company
       },
       yearlyConsumed

@@ -1,17 +1,19 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { useEffect } from "react";
+import { useState, useTransition, useEffect } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { bulkTransactionSelectionAction } from "@/app/actions/cancel-transaction";
 import { ConfirmationModal } from "@/components/confirmation-modal";
+import { useToast } from "@/components/toast";
 
 type Props = {
   formId: string;
-  mode: "soft" | "permanent" | "restore";
+  op: "cancel_or_rededuct" | "soft_delete" | "permanent_delete" | "restore_delete";
+  label: string;
+  variant?: "danger" | "warning" | "info" | "success";
 };
 
-export function TransactionsBulkActionButton({ formId, mode }: Props) {
+export function TransactionsBulkActionButton({ formId, op, label, variant = "danger" }: Props) {
   const [isPending, startTransition] = useTransition();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmText, setConfirmText] = useState("");
@@ -21,10 +23,18 @@ export function TransactionsBulkActionButton({ formId, mode }: Props) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
+  const toast = useToast();
+
   const setPageFeedback = (message: string, type: "error" | "success") => {
     const params = new URLSearchParams(searchParams.toString());
-    params.set("bulk_msg", message);
-    params.set("bulk_type", type);
+    if (type === "success") {
+      params.delete("bulk_msg");
+      params.delete("bulk_type");
+      toast.success(message);
+    } else {
+      params.set("bulk_msg", message);
+      params.set("bulk_type", type);
+    }
     router.replace(`${pathname}?${params.toString()}`);
   };
 
@@ -57,13 +67,17 @@ export function TransactionsBulkActionButton({ formId, mode }: Props) {
       return;
     }
 
-    const selectedCount = checked.length;
-    const nextConfirmText =
-      mode === "soft"
-        ? `سيتم إلغاء (حذف ناعم) لـ ${selectedCount} حركة مالية مع إعادة المبالغ لأرصدة المستفيدين. هل تريد المتابعة؟`
-        : mode === "restore"
-        ? `سيتم استعادة ${selectedCount} حركة ملغاة وإعادة خصم مبالغها من أرصدة المستفيدين. هل تريد المتابعة؟`
-        : `سيتم حذف ${selectedCount} حركة ملغاة نهائياً من قاعدة البيانات. هذا الإجراء غير قابل للتراجع. هل تريد المتابعة؟`;
+    const count = checked.length;
+    let nextConfirmText = "";
+    if (op === "cancel_or_rededuct") {
+      nextConfirmText = `هل أنت متأكد من إلغاء ${count} حركة محددة؟ سيتم استرجاع المبالغ إلى أرصدة المستفيدين وتعديل استهلاكاتهم.`;
+    } else if (op === "permanent_delete") {
+      nextConfirmText = `هل أنت متأكد من حذف ${count} حركة محددة نهائياً من قاعدة البيانات؟ سيتم إعادة احتساب أرصدة المستفيدين تلقائياً. هذا الإجراء لا يمكن التراجع عنه!`;
+    } else if (op === "soft_delete") {
+      nextConfirmText = `هل أنت متأكد من حذف ${count} حركة محددة حذفاً ناعماً؟`;
+    } else {
+      nextConfirmText = `هل أنت متأكد من استعادة ${count} حركة محددة؟`;
+    }
 
     setSelectedIds(checked.map((input) => input.value));
     setConfirmText(nextConfirmText);
@@ -75,23 +89,46 @@ export function TransactionsBulkActionButton({ formId, mode }: Props) {
 
     startTransition(async () => {
       const formData = new FormData();
-      selectedIds.forEach((id) => formData.append("ids", id));
-      
-      const op = mode === "soft" ? "soft_delete" : mode === "restore" ? "restore_delete" : "permanent_delete";
       formData.append("op", op);
+      selectedIds.forEach((id) => formData.append("ids", id));
 
       const result = await bulkTransactionSelectionAction(formData);
 
       if (result?.error) {
+        setConfirmOpen(false);
         setPageFeedback(result.error, "error");
         return;
       }
 
       setConfirmOpen(false);
-      setPageFeedback("تم تنفيذ العملية الجماعية بنجاح", "success");
+      setPageFeedback("تم تنفيذ العملية بنجاح على الحركات المحددة!", "success");
+      
+      // Uncheck all checkboxes on success
+      const form = document.getElementById(formId) as HTMLFormElement | null;
+      if (form) {
+        const checkboxes = form.querySelectorAll<HTMLInputElement>('input[name="ids"]:checked');
+        checkboxes.forEach((cb) => {
+          cb.checked = false;
+        });
+        const event = new Event("change", { bubbles: true });
+        form.dispatchEvent(event);
+      }
+      
       router.refresh();
     });
   };
+
+  // Button styles based on variant and op
+  let btnClasses = "inline-flex h-8 items-center justify-center rounded-md border px-3 text-xs font-black transition-colors disabled:opacity-60 ";
+  if (variant === "danger") {
+    btnClasses += "border-red-300 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-900 dark:bg-red-950/20 dark:text-red-400 dark:hover:bg-red-950/40";
+  } else if (variant === "warning") {
+    btnClasses += "border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-400 dark:hover:bg-amber-950/40";
+  } else if (variant === "success") {
+    btnClasses += "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-400 dark:hover:bg-emerald-950/40";
+  } else {
+    btnClasses += "border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700";
+  }
 
   return (
     <>
@@ -99,21 +136,9 @@ export function TransactionsBulkActionButton({ formId, mode }: Props) {
         type="button"
         onClick={handleClick}
         disabled={isPending}
-        className={
-          mode === "soft"
-            ? "inline-flex h-8 items-center justify-center rounded-md border border-red-300 bg-red-50 px-3 text-xs font-black text-red-700 transition-colors hover:bg-red-100 disabled:opacity-60 dark:border-red-900 dark:bg-red-950/20 dark:text-red-400 dark:hover:bg-red-950/40"
-            : mode === "restore"
-            ? "inline-flex h-8 items-center justify-center rounded-md border border-emerald-300 bg-emerald-50 px-3 text-xs font-black text-emerald-700 transition-colors hover:bg-emerald-100 disabled:opacity-60 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
-            : "inline-flex h-8 items-center justify-center rounded-md border border-red-400 bg-red-100 px-3 text-xs font-black text-red-800 transition-colors hover:bg-red-200 disabled:opacity-60 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300 dark:hover:bg-red-950/50"
-        }
+        className={btnClasses}
       >
-        {isPending
-          ? "جارٍ التنفيذ..."
-          : mode === "soft"
-          ? "إلغاء الحركات المحددة"
-          : mode === "restore"
-          ? "استعادة الحركات المحددة"
-          : "حذف نهائي للمحدد"}
+        {isPending ? "جارٍ التنفيذ..." : label}
         <span className="mr-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-white/80 px-1 text-[10px] font-black text-slate-700 dark:bg-slate-800 dark:text-slate-200">
           {selectedCount}
         </span>
@@ -125,10 +150,62 @@ export function TransactionsBulkActionButton({ formId, mode }: Props) {
         onConfirm={handleConfirm}
         title="تأكيد العملية الجماعية"
         description={confirmText}
-        confirmLabel={mode === "soft" ? "نعم، إلغاء الحركات" : mode === "restore" ? "نعم، استعادة" : "نعم، حذف نهائي"}
-        variant={mode === "restore" ? "info" : "danger"}
+        confirmLabel="تأكيد ومتابعة"
+        variant={variant === "success" ? "info" : "danger"}
         isLoading={isPending}
       />
     </>
+  );
+}
+
+export function SelectAllTransactionsCheckbox({ formId }: { formId: string }) {
+  const [isChecked, setIsChecked] = useState(false);
+
+  useEffect(() => {
+    const updateState = () => {
+      const form = document.getElementById(formId) as HTMLFormElement | null;
+      if (!form) return;
+      const allEnabled = Array.from(form.querySelectorAll<HTMLInputElement>('input[name="ids"]:not(:disabled)'));
+      const allChecked = allEnabled.length > 0 && allEnabled.every(cb => cb.checked);
+      setIsChecked(allChecked);
+    };
+
+    updateState();
+
+    const form = document.getElementById(formId);
+    if (!form) return;
+
+    form.addEventListener("change", updateState);
+    
+    const observer = new MutationObserver(() => updateState());
+    observer.observe(form, { childList: true, subtree: true });
+
+    return () => {
+      form.removeEventListener("change", updateState);
+      observer.disconnect();
+    };
+  }, [formId]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const checked = e.target.checked;
+    setIsChecked(checked);
+    const form = document.getElementById(formId) as HTMLFormElement | null;
+    if (!form) return;
+    const checkboxes = form.querySelectorAll<HTMLInputElement>('input[name="ids"]:not(:disabled)');
+    checkboxes.forEach((cb) => {
+      cb.checked = checked;
+    });
+    const event = new Event("change", { bubbles: true });
+    form.dispatchEvent(event);
+  };
+
+  return (
+    <input
+      type="checkbox"
+      checked={isChecked}
+      onChange={handleChange}
+      title="تحديد الكل"
+      className="h-4 w-4 rounded border-slate-350 dark:border-slate-700 text-teal-650 focus:ring-teal-500/30"
+    />
   );
 }

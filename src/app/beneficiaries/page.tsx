@@ -448,11 +448,8 @@ export default async function BeneficiariesPage({
               <span className="rounded-full bg-red-100 dark:bg-red-900/50 px-1.5 py-0.5 text-xs font-black text-red-600 dark:text-red-400">{deletedCount}</span>
             )}
           </Link>
-          {bulkMessage && (
-            <span className={`inline-flex items-center rounded-md border px-3 py-2 text-xs font-bold ${bulkMessageType === "error"
-              ? "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300"
-              : "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-300"
-              }`}>
+          {bulkMessage && bulkMessageType === "error" && (
+            <span className="inline-flex items-center rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300">
               {bulkMessage}
             </span>
           )}

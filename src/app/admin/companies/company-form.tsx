@@ -12,8 +12,20 @@ interface Props {
     code: string;
     card_pattern: string | null;
     logo?: string | null;
+    dental_ceiling?: any;
+    dental_coverage?: any;
+    general_ceiling?: any;
+    general_coverage?: any;
+    medicine_ceiling?: any;
+    medicine_coverage?: any;
   };
 }
+
+const isValidImageUrl = (url?: string | null) => {
+  if (!url) return false;
+  const clean = url.trim().toLowerCase();
+  return clean.startsWith("data:image/") || clean.startsWith("http://") || clean.startsWith("https://") || clean.startsWith("/");
+};
 
 export function CompanyForm({ company }: Props) {
   const [open, setOpen] = useState(false);
@@ -26,6 +38,12 @@ export function CompanyForm({ company }: Props) {
     code: company?.code ?? "",
     card_pattern: company?.card_pattern ?? "",
     logo: company?.logo ?? "",
+    dental_ceiling: company?.dental_ceiling !== undefined && company?.dental_ceiling !== null ? String(Number(company.dental_ceiling)) : "3000",
+    dental_coverage: company?.dental_coverage !== undefined && company?.dental_coverage !== null ? String(Number(company.dental_coverage)) : "100",
+    general_ceiling: company?.general_ceiling !== undefined && company?.general_ceiling !== null ? String(Number(company.general_ceiling)) : "",
+    general_coverage: company?.general_coverage !== undefined && company?.general_coverage !== null ? String(Number(company.general_coverage)) : "0",
+    medicine_ceiling: company?.medicine_ceiling !== undefined && company?.medicine_ceiling !== null ? String(Number(company.medicine_ceiling)) : "",
+    medicine_coverage: company?.medicine_coverage !== undefined && company?.medicine_coverage !== null ? String(Number(company.medicine_coverage)) : "0",
   });
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -70,9 +88,22 @@ export function CompanyForm({ company }: Props) {
     setError(null);
 
     try {
+      const payload = {
+        name: formData.name,
+        code: formData.code,
+        card_pattern: formData.card_pattern || undefined,
+        logo: formData.logo || undefined,
+        dental_ceiling: formData.dental_ceiling === "" ? null : Number(formData.dental_ceiling),
+        dental_coverage: Number(formData.dental_coverage),
+        general_ceiling: formData.general_ceiling === "" ? null : Number(formData.general_ceiling),
+        general_coverage: Number(formData.general_coverage),
+        medicine_ceiling: formData.medicine_ceiling === "" ? null : Number(formData.medicine_ceiling),
+        medicine_coverage: Number(formData.medicine_coverage),
+      };
+
       const result = company 
-        ? await updateCompany(company.id, formData)
-        : await createCompany(formData);
+        ? await updateCompany(company.id, payload)
+        : await createCompany(payload);
 
       if (result.error) {
         setError(result.error);
@@ -81,7 +112,7 @@ export function CompanyForm({ company }: Props) {
         setTimeout(() => {
           setOpen(false);
           setSuccess(false);
-          if (!company) setFormData({ name: "", code: "", card_pattern: "", logo: "" });
+           if (!company) setFormData({ name: "", code: "", card_pattern: "", logo: "", dental_ceiling: "3000", dental_coverage: "100", general_ceiling: "", general_coverage: "0", medicine_ceiling: "", medicine_coverage: "0" });
         }, 800);
       }
     } catch {
@@ -158,10 +189,37 @@ export function CompanyForm({ company }: Props) {
                 <p className="mt-1 text-xs text-slate-400">يستخدم للتحقق التلقائي عند الإدخال (مثال: WAB-.* لشركة الوحدة)</p>
               </div>
 
+              {/* قسم التغطية والأسقف المالية */}
+              <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 space-y-4">
+                <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 border-b pb-2">سقف وتغطية الخدمات</h3>
+                
+                {/* الأسنان */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="mb-1 block text-xs font-bold text-slate-600 dark:text-slate-400">سقف الأسنان (DENTAL)</label>
+                    <Input
+                      type="number"
+                      value={formData.dental_ceiling}
+                      onChange={(e) => setFormData({ ...formData, dental_ceiling: e.target.value })}
+                      placeholder="مفتوح"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-bold text-slate-600 dark:text-slate-400">نسبة تغطية الأسنان (%)</label>
+                    <Input
+                      type="number"
+                      value={formData.dental_coverage}
+                      onChange={(e) => setFormData({ ...formData, dental_coverage: e.target.value })}
+                      placeholder="100"
+                    />
+                  </div>
+                </div>
+              </div>
+
               <div>
                 <label className="mb-1.5 block text-sm font-bold text-slate-700 dark:text-slate-300">شعار الشركة (اختياري)</label>
                 <div className="flex items-center gap-4">
-                  {formData.logo ? (
+                  {formData.logo && isValidImageUrl(formData.logo) ? (
                     <div className="relative h-12 w-12 shrink-0 rounded-md border border-slate-200 bg-white p-1">
                       <img src={formData.logo} alt="Logo" className="h-full w-full object-contain" />
                       <button

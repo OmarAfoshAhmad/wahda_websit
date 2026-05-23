@@ -29,9 +29,6 @@ vi.mock('../lib/prisma', () => ({
       findUnique: vi.fn().mockResolvedValue(null),
       findMany: vi.fn().mockResolvedValue([]),
     },
-    servicePolicy: {
-      findUnique: vi.fn().mockResolvedValue(null),
-    },
   },
 }));
 
