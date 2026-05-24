@@ -37,7 +37,7 @@ export default async function DentalCompanyPage({
 }) {
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
-  const canAccess = session.is_admin || hasPermission(session, "dental_services");
+  const canAccess = session.is_admin || session.facility_type === "DENTAL" || hasPermission(session, "dental_services");
   if (!canAccess) redirect("/dashboard");
 
 
@@ -578,13 +578,13 @@ export default async function DentalCompanyPage({
                     <span>طباعة الكشف المصفى</span>
                   </Link>
 
-                  {!isReadOnlyEmployee && (
+                  {hasDentalFullAccess && (
                     <DentalAddTransactionButton
                       companyId={companyId}
                       companyName={company.name}
                       facilities={facilities}
                       defaultFacilityId={session.id}
-                      canChooseFacility={session.is_admin}
+                      canChooseFacility={hasDentalFullAccess}
                       copayPercentage={copay}
                       annualCeiling={ceiling}
                       dentalSettings={company.dental_settings}

@@ -16,7 +16,7 @@ export default async function DentalServicesPage({
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
   
-  const canAccess = session.is_admin || hasPermission(session, "dental_services");
+  const canAccess = session.is_admin || session.facility_type === "DENTAL" || hasPermission(session, "dental_services");
   if (!canAccess) {
     redirect("/dashboard");
   }
