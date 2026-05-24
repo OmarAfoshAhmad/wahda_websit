@@ -3,9 +3,9 @@ const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
 const companies = [
-  { name: "الشركة الليبية للإسمنت (Cement)", code: "LCC", pattern: "^LCC2025.*", ceiling: 2000.00, coverage: 100 },
-  { name: "أوزون (OZONE)", code: "O3G", pattern: "^O3G2025.*", ceiling: 3000.00, coverage: 100 },
-  { name: "توسالي (Tosyali)", code: "TOSY", pattern: "^TOSY2025.*", ceiling: 3000.00, coverage: 100 },
+  { name: "الشركة الليبية للإسمنت (Cement)", code: "LCC", pattern: "^LCC2025.*", ceiling: 2000.00, coverage: 80 },
+  { name: "أوزون (OZONE)", code: "O3G", pattern: "^O3G2025.*", ceiling: 2000.00, coverage: 80 },
+  { name: "توسالي (Tosyali)", code: "TOSY", pattern: "^TOSY2025.*", ceiling: 3000.00, coverage: 80 },
   { name: "فيجن (Vision)", code: "VISN", pattern: "^VISN2025.*", ceiling: 3000.00, coverage: 100 },
   { name: "فيوتشر (Future)", code: "FUTU", pattern: "^FUTU2025.*", ceiling: 3000.00, coverage: 100 },
   { name: "رواق (Rewaq)", code: "RWG", pattern: "^RWG2025.*", ceiling: 3000.00, coverage: 100 },
