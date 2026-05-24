@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireActiveFacilitySession } from "@/lib/session-guard";
+import { hasPermission, requireActiveFacilitySession } from "@/lib/session-guard";
 import { checkRateLimit } from "@/lib/rate-limit";
 import prisma from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
@@ -12,6 +12,10 @@ export async function GET(request: NextRequest) {
   const session = await requireActiveFacilitySession();
   if (!session) {
     return new NextResponse("Unauthorized", { status: 401 });
+  }
+  const canExport = !session.is_manager || hasPermission(session, "export_data");
+  if (!canExport) {
+    return new NextResponse("Forbidden", { status: 403 });
   }
 
   const rateLimitError = await checkRateLimit(`api:${session.id}`, "api");
@@ -27,10 +31,10 @@ export async function GET(request: NextRequest) {
   const q = searchParams.get("q");
   const txIdsParam = (searchParams.get("tx_ids") ?? "").trim();
   const txIdList = searchParams.getAll("tx_id").map((id) => id.trim()).filter((id) => id.length > 0);
-  const page = Math.max(1, Number.parseInt(searchParams.get("page") ?? "1", 10) || 1);
+  const _page = Math.max(1, Number.parseInt(searchParams.get("page") ?? "1", 10) || 1);
   const allowedPageSizes = [10, 25, 50, 100, 200];
   const requestedPageSize = Number.parseInt(searchParams.get("pageSize") ?? "10", 10);
-  const pageSize = allowedPageSizes.includes(requestedPageSize) ? requestedPageSize : 10;
+  const _pageSize = allowedPageSizes.includes(requestedPageSize) ? requestedPageSize : 10;
   const sort = searchParams.get("sort") ?? "created_at";
   const order = searchParams.get("order") === "asc" ? "asc" : "desc";
   const source = searchParams.get("source") ?? "all";
@@ -67,7 +71,7 @@ export async function GET(request: NextRequest) {
   const existingAndBase = Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : [];
   where.AND = [
     ...existingAndBase,
-    { type: { not: "DENTAL" as any } },
+    { type: { not: "DENTAL" } },
     {
       OR: [
         { company_id: "cmp7ha2km0000u9v8jse4ib5x" },

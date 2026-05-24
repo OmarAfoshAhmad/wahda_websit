@@ -59,10 +59,10 @@ export function Shell({
   const pathname = usePathname();
   const [isMaintenanceOpen, setIsMaintenanceOpen] = useState(false);
 
-  const isAdmin = session.is_admin;
-  const isManager = session.is_manager;
-  const isEmployee = session.is_employee;
-  const canUseCashClaim = (isEmployee || isManager) && hasPermission(session, "cash_claim");
+  const isAdmin = session.role === "ADMIN";
+  const isManager = session.role === "MANAGER";
+  const isEmployee = session.role === "EMPLOYEE";
+  const canUseCashClaim = (session.role === "EMPLOYEE" || session.role === "MANAGER") && hasPermission(session, "cash_claim");
 
   const permsHash = useMemo(() => JSON.stringify(session.manager_permissions), [session.manager_permissions]);
 
@@ -74,7 +74,11 @@ export function Shell({
       return [...BASE_NAV, ...filteredManagerNav, ...(canUseCashClaim ? [CASH_CLAIM_NAV] : []), ...filteredSuperAdminNav, DENTAL_NAV];
     }
     
-    const showDental = session.is_admin || session.facility_type === "DENTAL" || hasPermission(session, "dental_services");
+    const showDental =
+      session.role === "ADMIN" ||
+      session.role === "MANAGER" ||
+      session.facility_type === "DENTAL" ||
+      hasPermission(session, "dental_services");
 
 
     if (isManager || isEmployee) {

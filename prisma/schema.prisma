@@ -49,10 +49,13 @@ model Facility {
   is_manager           Boolean       @default(false)
   manager_permissions  Json?
   is_employee          Boolean       @default(false)
+  role                 String        @default("FACILITY")
+  facility_type        String?
   transactions         Transaction[]
 
   @@index([deleted_at])
   @@index([is_manager], map: "idx_facility_is_manager_fixed")
+  @@index([role])
 }
 
 model Beneficiary {

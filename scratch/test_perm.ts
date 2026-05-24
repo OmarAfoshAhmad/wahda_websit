@@ -13,6 +13,7 @@ async function main() {
     id: dbRecord.id,
     name: dbRecord.name,
     username: dbRecord.username,
+    role: dbRecord.role as any,
     is_admin: dbRecord.is_admin,
     is_manager: dbRecord.is_manager,
     is_employee: dbRecord.is_employee,

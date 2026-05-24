@@ -54,13 +54,14 @@ export default async function ManagersPage({
 
   const managers = await prisma.facility.findMany({
     where: {
-      OR: [{ is_manager: true }, { is_admin: true }, { is_employee: true }],
+      role: { in: ["ADMIN", "MANAGER", "EMPLOYEE"] },
       deleted_at: isDeletedView ? { not: null } : null,
     },
     select: {
       id: true,
       name: true,
       username: true,
+      role: true,
       is_admin: true,
       is_manager: true,
       manager_permissions: true,
@@ -154,11 +155,11 @@ export default async function ManagersPage({
                             <p className="font-black text-sm text-slate-900 dark:text-white truncate">
                               {mgr.name}
                             </p>
-                            {mgr.is_admin ? (
+                            {mgr.role === "ADMIN" ? (
                               <span className="inline-flex items-center rounded-full bg-violet-100 dark:bg-violet-900/30 px-2 py-0.5 text-xs font-bold text-violet-700 dark:text-violet-400">
                                 المبرمج
                               </span>
-                            ) : mgr.is_manager ? (
+                            ) : mgr.role === "MANAGER" ? (
                               <span className="inline-flex items-center rounded-full bg-blue-100 dark:bg-blue-900/30 px-2 py-0.5 text-xs font-bold text-blue-700 dark:text-blue-400">
                                 مدير
                               </span>
@@ -178,7 +179,7 @@ export default async function ManagersPage({
                           </p>
                         </div>
                         <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:shrink-0">
-                          {!isDeletedView && !mgr.is_admin && (
+                          {!isDeletedView && mgr.role !== "ADMIN" && (
                             <ManagerPermissionsModal
                               managerId={mgr.id}
                               managerName={mgr.name}
@@ -201,7 +202,7 @@ export default async function ManagersPage({
                       {/* الصلاحيات الممنوحة */}
                       {/* الصلاحيات */}
                       <div className="mb-2 flex flex-wrap gap-1.5">
-                        {mgr.is_admin ? (
+                        {mgr.role === "ADMIN" ? (
                           /* المبرمج: كل الصلاحيات مفعلة + صلاحيات حصرية */
                           <>
                             {(Object.keys(PERMISSION_LABELS) as Array<keyof ManagerPermissions>).map((k) => (

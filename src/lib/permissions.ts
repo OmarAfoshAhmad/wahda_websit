@@ -25,10 +25,13 @@ export type ManagerPermissions = {
   dental_services: boolean; // صلاحية خدمات الأسنان
 };
 
+export type UserRole = "ADMIN" | "MANAGER" | "EMPLOYEE" | "FACILITY";
+
 export interface Session {
   id: string;
   name: string;
   username: string;
+  role: UserRole;
   is_admin: boolean;
   is_manager: boolean;
   is_employee: boolean;
@@ -42,20 +45,22 @@ export interface Session {
  * صحيح إذا كان المستخدم مشرفاً أو مديراً أو موظفاً (يحق له الوصول لصفحات الإدارة)
  */
 export function canAccessAdmin(session: Session): boolean {
-  return session.is_admin || session.is_manager || session.is_employee;
+  return session.role === "ADMIN" || session.role === "MANAGER" || session.role === "EMPLOYEE";
 }
 
 /**
  * صحيح إذا كان للمستخدم صلاحية تنفيذ عملية معينة.
- * - المشرف (is_admin) دائماً لديه جميع الصلاحيات.
- * - المدير (is_manager) أو الموظف (is_employee) يملكان فقط الصلاحيات التي فُعِّلت لهما.
+ * - المشرف (ADMIN) دائماً لديه جميع الصلاحيات.
+ * - المدير (MANAGER) أو الموظف (EMPLOYEE) يملكان فقط الصلاحيات التي فُعِّلت لهما.
+ * - المرفق العادي (FACILITY) لا يملك أي صلاحيات إدارية.
  */
 export function hasPermission(
   session: Session,
   permission: keyof ManagerPermissions
 ): boolean {
   if (!session) return false;
-  if (session.is_admin === true) return true;
+  if (session.role === "ADMIN") return true;
+  if (session.role !== "MANAGER" && session.role !== "EMPLOYEE") return false;
   
   let perms = session.manager_permissions;
   if (!perms) return false;

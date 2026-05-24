@@ -49,6 +49,8 @@ export async function authenticate(prevState: unknown, formData: FormData) {
         is_admin: true,
         is_manager: true,
         is_employee: true,
+        role: true,
+        facility_type: true,
         manager_permissions: true,
         must_change_password: true,
       },
@@ -90,30 +92,17 @@ export async function authenticate(prevState: unknown, formData: FormData) {
     }
 
     stage = "create-session";
-    const facilityTypeOverrideRows = await prisma.$queryRaw<Array<{ facility_type_override: string | null }>>`
-      SELECT (metadata->>'facility_type_override') AS facility_type_override
-      FROM "AuditLog"
-      WHERE action IN ('CREATE_FACILITY', 'UPDATE_FACILITY')
-        AND (metadata->>'facility_id') = ${facility.id}
-        AND metadata ? 'facility_type_override'
-      ORDER BY created_at DESC
-      LIMIT 1
-    `;
-
-    const facilityType =
-      normalizeFacilityTypeOverride(facilityTypeOverrideRows[0]?.facility_type_override) ??
-      inferFacilityTypeFromText(facility.name, facility.username);
-
     await login({
       id: facility.id,
       name: facility.name,
       username: facility.username,
+      role: facility.role as any,
       is_admin: facility.is_admin,
       is_manager: facility.is_manager,
       is_employee: facility.is_employee,
       manager_permissions: facility.manager_permissions as ManagerPermissions | null,
       must_change_password: facility.must_change_password,
-      facility_type: facilityType,
+      facility_type: (facility.facility_type as any) || null,
     });
   } catch (error) {
     const err = error as {
@@ -183,6 +172,7 @@ export async function changePassword(prevState: unknown, formData: FormData) {
     id: session.id,
     name: session.name,
     username: session.username,
+    role: session.role,
     is_admin: session.is_admin,
     is_manager: session.is_manager,
     is_employee: Boolean(session.is_employee),

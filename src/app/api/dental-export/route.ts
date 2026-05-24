@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireActiveFacilitySession } from "@/lib/session-guard";
+import { hasPermission, requireActiveFacilitySession } from "@/lib/session-guard";
 import prisma from "@/lib/prisma";
 import ExcelJS from "exceljs";
 import { Prisma } from "@prisma/client";
@@ -7,7 +7,9 @@ import { Prisma } from "@prisma/client";
 export async function GET(request: Request) {
   const session = await requireActiveFacilitySession();
   if (!session) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
-  if (!session.is_admin && !session.is_manager) {
+
+  const canExport = session.is_admin || (session.is_manager && hasPermission(session, "export_data"));
+  if (!canExport) {
     return NextResponse.json({ error: "ممنوع" }, { status: 403 });
   }
 
@@ -22,6 +24,11 @@ export async function GET(request: Request) {
     type: "DENTAL",
     is_cancelled: false,
   };
+
+  if (!session.is_admin) {
+    // المدير لا يصدّر إلا بيانات مرفقه فقط.
+    where.facility_id = session.id;
+  }
 
   if (companyId) where.company_id = companyId;
 

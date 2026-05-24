@@ -37,7 +37,7 @@ export default async function DentalCompanyPage({
 }) {
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
-  const canAccess = session.is_admin || session.facility_type === "DENTAL" || hasPermission(session, "dental_services");
+  const canAccess = session.role === "ADMIN" || session.role === "MANAGER" || session.facility_type === "DENTAL" || hasPermission(session, "dental_services");
   if (!canAccess) redirect("/dashboard");
 
 
@@ -1152,3 +1152,4 @@ export default async function DentalCompanyPage({
     </Shell>
   );
 }
+

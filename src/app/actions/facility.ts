@@ -32,16 +32,25 @@ export async function createFacility(prevState: unknown, formData: FormData) {
   const tempPassword = "123456";
   const password_hash = await bcrypt.hash(tempPassword, 10);
 
-  const createdFacility = await prisma.facility.create({
-    data: { name, username, password_hash, is_admin: false, must_change_password: true },
-    select: { id: true },
-  });
-
   const inferredFacilityType = inferFacilityTypeFromText(name, username);
   const normalizedOverride =
     facility_type === "AUTO"
       ? null
       : normalizeFacilityTypeOverride(facility_type);
+  const finalType = normalizedOverride ?? inferredFacilityType;
+
+  const createdFacility = await prisma.facility.create({
+    data: { 
+      name, 
+      username, 
+      password_hash, 
+      is_admin: false, 
+      must_change_password: true,
+      role: "FACILITY",
+      facility_type: finalType
+    },
+    select: { id: true },
+  });
 
   await prisma.auditLog.create({
     data: {
@@ -98,12 +107,17 @@ export async function updateFacility(data: {
     return { error: "اسم المستخدم محجوز مسبقاً، اختر اسماً آخر" };
   }
 
-  const updateData: Record<string, unknown> = { name, username };
   const inferredFacilityType = inferFacilityTypeFromText(name, username);
   const normalizedOverride =
     facility_type === "AUTO"
       ? null
       : normalizeFacilityTypeOverride(facility_type);
+  const finalType = normalizedOverride ?? inferredFacilityType;
+  const updateData: Record<string, unknown> = { 
+    name, 
+    username,
+    facility_type: finalType
+  };
 
   if (data.resetPassword) {
     const tempPassword = "123456";
@@ -164,7 +178,13 @@ export async function toggleFacilityAdmin(id: string): Promise<{ error?: string;
   if (!facility || facility.deleted_at) return { error: "المرفق غير موجود" };
 
   const newIsAdmin = !facility.is_admin;
-  await prisma.facility.update({ where: { id }, data: { is_admin: newIsAdmin } });
+  await prisma.facility.update({ 
+    where: { id }, 
+    data: { 
+      is_admin: newIsAdmin,
+      role: newIsAdmin ? "ADMIN" : "FACILITY"
+    } 
+  });
 
   await prisma.auditLog.create({
     data: {
@@ -387,6 +407,8 @@ export async function importFacilitiesFromExcel(formData: FormData): Promise<{
     password_hash: defaultPasswordHash,
     is_admin: false,
     must_change_password: true,
+    role: "FACILITY",
+    facility_type: inferFacilityTypeFromText(f.name, f.username),
   }));
 
   // ── 4. إدراج دفعي (createMany) ──────────────────────────────────────────

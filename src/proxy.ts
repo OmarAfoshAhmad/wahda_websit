@@ -127,10 +127,8 @@ export async function proxy(req: NextRequest) {
     return NextResponse.redirect(new URL("/dashboard", req.nextUrl));
   }
 
-  // حماية مسارات /admin للمشرفين فقط
-  if (path.startsWith("/admin") && !session?.is_admin) {
-    return NextResponse.redirect(new URL("/dashboard", req.nextUrl));
-  }
+  // ملاحظة: صلاحيات /admin تُفحَص داخل الصفحات نفسها عبر getSessionWithFreshPermissions.
+  // منع /admin هنا اعتماداً على JWT فقط قد يحجب المديرين بسبب بيانات جلسة قديمة (stale JWT).
 
   // تجديد الجلسة (sliding window) مع الحفاظ على جميع حقول الجلسة
   if (cookie && session) {

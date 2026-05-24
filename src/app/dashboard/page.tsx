@@ -77,13 +77,13 @@ export default async function Dashboard() {
                       hasPermission(session, "manage_card_numbering") ||
                       hasPermission(session, "view_audit_log");
 
-  if (session.is_employee && canUseCashClaim && !hasAdminNav) {
+  if (session.role === "EMPLOYEE" && canUseCashClaim && !hasAdminNav) {
     redirect("/cash-claim");
   }
 
-  const canViewStats = session.is_admin || session.is_manager;
-  const isAdmin = session.is_admin;
-  const canUseDeduct = !session.is_employee && (!session.is_manager || hasPermission(session, "deduct_balance"));
+  const canViewStats = session.role === "ADMIN" || session.role === "MANAGER";
+  const isAdmin = session.role === "ADMIN";
+  const canUseDeduct = session.role !== "EMPLOYEE" && (session.role !== "MANAGER" || hasPermission(session, "deduct_balance"));
   const cacheTag = isAdmin ? "admin" : session.id;
 
   const [adminStats, todayStats] = await Promise.all([
@@ -106,7 +106,7 @@ export default async function Dashboard() {
           <div>
             <h1 className="text-2xl font-black text-slate-900 dark:text-white">مرحباً، {session.name}</h1>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              {session.is_admin ? "لوحة تحكم المشرف (المبرمج)" : session.is_manager ? "لوحة تحكم المدير" : "نافذة الخصم والمتابعة"}
+              {session.role === "ADMIN" ? "لوحة تحكم المشرف (المبرمج)" : session.role === "MANAGER" ? "لوحة تحكم المدير" : "نافذة الخصم والمتابعة"}
             </p>
           </div>
         </div>

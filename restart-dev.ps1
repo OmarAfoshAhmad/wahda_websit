@@ -31,8 +31,13 @@ foreach ($port in $ports) {
 
 # 2) Kill leftover node.exe processes for this workspace path.
 $workspacePath = $PSScriptRoot
-$nodeProcesses = Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" |
-    Where-Object { $_.CommandLine -and $_.CommandLine -like "*$workspacePath*" }
+$nodeProcesses = @()
+try {
+    $nodeProcesses = Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" |
+        Where-Object { $_.CommandLine -and $_.CommandLine -like "*$workspacePath*" }
+} catch {
+    Write-Host "Skipping workspace process sweep (insufficient process query permissions)." -ForegroundColor DarkYellow
+}
 
 foreach ($p in $nodeProcesses) {
     $procId = [int]$p.ProcessId

@@ -2,10 +2,9 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { User, Download } from "lucide-react";
 import prisma from "@/lib/prisma";
-import { Prisma } from "@prisma/client";
 import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-guard";
 import { getArabicSearchTerms } from "@/lib/search";
-import { getFacilityTypeLabel, inferFacilityTypeFromText, normalizeFacilityTypeOverride } from "@/lib/facility-type";
+import { getFacilityTypeLabel, type FacilityType } from "@/lib/facility-type";
 import { Shell } from "@/components/shell";
 import { Card, Badge, Input, Button } from "@/components/ui";
 import { CreateFacilityForm } from "./create-form";
@@ -45,7 +44,8 @@ const DEFAULT_PERMISSIONS = {
   dental_services: false,
 };
 
-const PAGE_SIZE = 8;
+// زيادة عدد العناصر المعروضة إلى 10 على الأقل ومنع التمرير العمودي
+const PAGE_SIZE = 10;
 
 export default async function FacilitiesPage({
   searchParams,
@@ -67,10 +67,10 @@ export default async function FacilitiesPage({
   const sortCol: SortCol = (ALLOWED_SORT as ReadonlyArray<string>).includes(sort ?? "") ? sort as SortCol : "created_at";
   const sortDir: "asc" | "desc" = order === "asc" ? "asc" : "desc";
 
+  // فلترة المرافق فقط باستخدام دور FACILITY لضمان عدم ظهور الموظفين أو المديرين هنا
   const where = {
     deleted_at: isDeletedView ? { not: null } : null,
-    is_admin: false,
-    is_manager: false,
+    role: "FACILITY",
     ...(q && q.trim()
       ? {
         OR: getArabicSearchTerms(q.trim()).flatMap(t => [
@@ -83,8 +83,7 @@ export default async function FacilitiesPage({
 
   const allWhere = {
     deleted_at: isDeletedView ? { not: null } : null,
-    is_admin: false,
-    is_manager: false,
+    role: "FACILITY",
   };
 
   const [facilities, totalCount, allFacilities] = await Promise.all([
@@ -99,7 +98,8 @@ export default async function FacilitiesPage({
         id: true,
         name: true,
         username: true,
-        is_admin: true,
+        role: true,
+        facility_type: true,
         must_change_password: true,
         created_at: true,
         _count: { select: { transactions: { where: { is_cancelled: false } } } },
@@ -115,7 +115,8 @@ export default async function FacilitiesPage({
         id: true,
         name: true,
         username: true,
-        is_admin: true,
+        role: true,
+        facility_type: true,
         created_at: true,
         _count: { select: { transactions: { where: { is_cancelled: false } } } },
         deleted_at: true,
@@ -123,33 +124,6 @@ export default async function FacilitiesPage({
       },
     }),
   ]);
-
-  const allFacilityIds = [...new Set([...facilities, ...allFacilities].map((f) => f.id))];
-  const typeOverrideRows = allFacilityIds.length > 0
-    ? await prisma.$queryRaw<Array<{ facility_id: string; facility_type_override: string | null }>>`
-        SELECT DISTINCT ON ((metadata->>'facility_id'))
-          (metadata->>'facility_id') AS facility_id,
-          (metadata->>'facility_type_override') AS facility_type_override
-        FROM "AuditLog"
-        WHERE action IN ('CREATE_FACILITY', 'UPDATE_FACILITY')
-          AND metadata ? 'facility_type_override'
-          AND (metadata->>'facility_id') IN (${Prisma.join(allFacilityIds)})
-        ORDER BY (metadata->>'facility_id'), created_at DESC
-      `
-    : [];
-
-  const typeOverrideByFacilityId = new Map<string, string | null>(
-    typeOverrideRows.map((row) => [row.facility_id, row.facility_type_override])
-  );
-
-  const resolveFacilityType = (facility: { id: string; name: string; username: string }) => {
-    const override = normalizeFacilityTypeOverride(typeOverrideByFacilityId.get(facility.id));
-    const inferred = inferFacilityTypeFromText(facility.name, facility.username);
-    return {
-      effectiveType: override ?? inferred,
-      overrideType: override,
-    };
-  };
 
   const canAdd = hasPermission(session, "add_facility");
   const canEdit = hasPermission(session, "edit_facility");
@@ -261,7 +235,7 @@ export default async function FacilitiesPage({
                         </Link>
                       </th>
                       <th className="px-5 py-3 text-center text-xs font-black text-slate-500 dark:text-slate-400 uppercase">نوع المرفق</th>
-                      {(canEdit || canDelete || session.is_admin) && <th className="px-5 py-3 text-center text-xs font-black text-slate-500 dark:text-slate-400 uppercase no-print">إجراءات</th>}
+                      {(canEdit || canDelete || session.role === "ADMIN") && <th className="px-5 py-3 text-center text-xs font-black text-slate-500 dark:text-slate-400 uppercase no-print">إجراءات</th>}
                     </tr>
                   </thead>
                   {/* صفوف الشاشة (الصفحة الحالية فقط) */}
@@ -277,30 +251,30 @@ export default async function FacilitiesPage({
                           <td className="px-5 py-3 text-sm text-slate-900 dark:text-white text-center">{f._count.transactions}</td>
                           <td className="px-5 py-3 text-center">
                             {(() => {
-                              const resolved = resolveFacilityType(f);
+                              const fType = (f.facility_type as FacilityType) || "HOSPITAL";
                               let badgeClass = "bg-sky-50 text-sky-700 ring-sky-600/20 dark:bg-sky-900/30 dark:text-sky-300 dark:ring-sky-800/60";
-                              if (resolved.effectiveType === "PHARMACY") {
+                              if (fType === "PHARMACY") {
                                 badgeClass = "bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-900/30 dark:text-emerald-300 dark:ring-emerald-800/60";
-                              } else if (resolved.effectiveType === "DENTAL") {
+                              } else if (fType === "DENTAL") {
                                 badgeClass = "bg-purple-50 text-purple-700 ring-purple-600/20 dark:bg-purple-900/30 dark:text-purple-300 dark:ring-purple-800/60";
-                              } else if (resolved.effectiveType === "OPTICS") {
+                              } else if (fType === "OPTICS") {
                                 badgeClass = "bg-amber-50 text-amber-700 ring-amber-600/20 dark:bg-amber-900/30 dark:text-amber-300 dark:ring-amber-800/60";
                               }
                               return (
                                 <span className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset ${badgeClass}`}>
-                                  {getFacilityTypeLabel(resolved.effectiveType)}
+                                  {getFacilityTypeLabel(fType)}
                                 </span>
                               );
                             })()}
                           </td>
-                          {(canEdit || canDelete || session.is_admin) && (
+                          {(canEdit || canDelete || session.role === "ADMIN") && (
                             <td className="px-5 py-3 no-print">
                               <div className="flex items-center justify-center gap-2">
-                                {!f.is_admin && (
+                                {f.role !== "ADMIN" && (
                                   <>
                                     {!isDeletedView && canEdit && (
                                       <>
-                                        <FacilityEditModal facility={{ id: f.id, name: f.name, username: f.username, facility_type_override: resolveFacilityType(f).overrideType }} />
+                                        <FacilityEditModal facility={{ id: f.id, name: f.name, username: f.username, facility_type_override: f.facility_type as FacilityType | null }} />
                                         <ManagerPermissionsModal
                                           managerId={f.id}
                                           managerName={f.name}
@@ -339,7 +313,7 @@ export default async function FacilitiesPage({
                         <td className="px-5 py-3 text-sm font-bold text-slate-900 dark:text-white text-center">{f.name}</td>
                         <td className="px-5 py-3 text-sm font-mono text-slate-600 text-center">{f.username}</td>
                         <td className="px-5 py-3 text-sm text-slate-900 dark:text-white text-center">{f._count.transactions}</td>
-                        <td className="px-5 py-3 text-center">{getFacilityTypeLabel(resolveFacilityType(f).effectiveType)}</td>
+                        <td className="px-5 py-3 text-center">{getFacilityTypeLabel((f.facility_type as FacilityType) || "HOSPITAL")}</td>
                         <td className="px-5 py-3 no-print"></td>
                       </tr>
                     ))}
@@ -366,12 +340,12 @@ export default async function FacilitiesPage({
                             {f._count.transactions} عملية
                           </p>
                           <p className="mt-1 text-[11px] font-bold text-indigo-700 dark:text-indigo-300">
-                            {getFacilityTypeLabel(resolveFacilityType(f).effectiveType)}
+                            {getFacilityTypeLabel((f.facility_type as FacilityType) || "HOSPITAL")}
                           </p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2 no-print">
-                        <Badge variant="default">{getFacilityTypeLabel(resolveFacilityType(f).effectiveType)}</Badge>
+                        <Badge variant="default">{getFacilityTypeLabel((f.facility_type as FacilityType) || "HOSPITAL")}</Badge>
                       </div>
                     </div>
                   ))
@@ -382,7 +356,7 @@ export default async function FacilitiesPage({
 
           {/* استيراد وإنشاء (عمود جانبي) — متاح للمشرف فقط */}
           <div className="space-y-4 no-print">
-            {(session.is_admin || canAdd) && (
+            {(session.role === "ADMIN" || canAdd) && (
               <Card className="p-4">
                 <FacilityImportUploader />
                 <div className="mt-4 border-t border-slate-100 dark:border-slate-800 pt-4">
