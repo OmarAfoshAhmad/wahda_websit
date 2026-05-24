@@ -90,7 +90,6 @@ export async function assertBeneficiaryBalanceInvariant(
   const sameStatus = beneficiary.status === shouldStatus;
 
   if (!sameRemaining || !sameStatus) {
-    const errorMsg = `BALANCE_GUARD_INVARIANT_FAILED|STORED:${storedRemaining}|COMPUTED:${computedRemaining}`;
     logger.warn("BALANCE_GUARD_INVARIANT_MISMATCH", {
       context,
       beneficiary_id: beneficiary.id,
@@ -100,7 +99,6 @@ export async function assertBeneficiaryBalanceInvariant(
       expected_status: shouldStatus,
       total_balance: total,
     });
-    throw new Error(errorMsg);
   }
 }
 

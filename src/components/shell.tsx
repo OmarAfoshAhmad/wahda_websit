@@ -71,7 +71,7 @@ export function Shell({
     const filteredSuperAdminNav = SUPER_ADMIN_NAV.filter(item => hasPermission(session, item.perm));
 
     if (isAdmin) {
-      return [...BASE_NAV, ...MANAGER_NAV, ...(canUseCashClaim ? [CASH_CLAIM_NAV] : []), ...SUPER_ADMIN_NAV, DENTAL_NAV];
+      return [...BASE_NAV, ...filteredManagerNav, ...(canUseCashClaim ? [CASH_CLAIM_NAV] : []), ...filteredSuperAdminNav, DENTAL_NAV];
     }
     
     const showDental = session.is_admin || session.facility_type === "DENTAL" || hasPermission(session, "dental_services");

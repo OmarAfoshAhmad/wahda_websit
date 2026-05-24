@@ -75,7 +75,7 @@ export async function updateCompany(id: string, data: {
   dental_settings?: any;
 }) {
   const session = await requireActiveFacilitySession();
-  if (!session?.is_admin && !session?.is_manager) {
+  if (!session?.is_admin && !hasPermission(session!, "manage_companies")) {
     return { error: "غير مصرح لك بهذه العملية" };
   }
 

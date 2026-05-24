@@ -42,23 +42,9 @@ export function DeductionAction() {
     SUPPLIES: "كشف عام",
   };
 
-  const serviceTypes = availableServiceTypes.map((t) => ({
-    value: t,
-    label: typeLabels[t] || t,
-  }));
-
-  if (serviceTypes.length === 0) {
-    if (facilityType === "PHARMACY") {
-      serviceTypes.push({ value: "MEDICINE", label: "أدوية صرف عام" });
-    } else if (facilityType === "DENTAL") {
-      serviceTypes.push({ value: "DENTAL", label: "خدمات أسنان" });
-    } else if (facilityType === "OPTICS") {
-      serviceTypes.push({ value: "OPTICS", label: "خدمات بصريات / عيون" });
-    } else {
-      serviceTypes.push({ value: "SUPPLIES", label: "كشف عام" });
-      serviceTypes.push({ value: "MEDICINE", label: "أدوية صرف عام" });
-    }
-  }
+  const serviceTypes = availableServiceTypes.length > 0
+    ? availableServiceTypes.map((t) => ({ value: t, label: typeLabels[t] || t }))
+    : [{ value: "SUPPLIES", label: "كشف عام" }, { value: "MEDICINE", label: "أدوية صرف عام" }];
 
   return (
     <div className="space-y-4">

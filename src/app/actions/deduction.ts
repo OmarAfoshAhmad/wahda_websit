@@ -71,7 +71,7 @@ export async function deductBalance(formData: {
   const { card_number, amount, type } = validated.data;
   const dentalSubCategory = formData.dentalSubCategory;
 
-  if (!session.is_admin && !session.is_manager) {
+  if (!session.is_admin) {
     if (session.facility_type === "PHARMACY" && type !== "MEDICINE") {
       return { error: "حسابات الصيدليات لا يمكنها تنفيذ سوى خدمة صرف الدواء" };
     }
@@ -563,7 +563,7 @@ export async function getAvailableServiceTypes(beneficiaryId: string) {
       return policyTypes.has(mapped);
     });
 
-    if (!session.is_admin && !session.is_manager) {
+    if (!session.is_admin) {
       if (session.facility_type === "PHARMACY") {
         available = available.filter(t => t === "MEDICINE");
       } else if (session.facility_type === "DENTAL") {

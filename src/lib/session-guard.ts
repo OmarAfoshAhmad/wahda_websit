@@ -1,6 +1,7 @@
 import prisma from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { type Session, type ManagerPermissions, hasPermission, canAccessAdmin } from "./permissions";
+import { inferFacilityTypeFromText } from "./facility-type";
 
 /**
  * يسترجع الجلسة الحالية ويتحقق من أن المرفق لم يُحذف ناعماً.
@@ -19,18 +20,19 @@ export async function requireActiveFacilitySession(): Promise<Session | null> {
     return session;
   }
 
-  // المدير والموظف: نجلب الصلاحيات الفعلية من DB لضمان تحديثها فوراً
+  // المدير والموظف: نجلب الصلاحيات + facility_type من DB لضمان تحديثهما فوراً
   // (الـ JWT قد يحمل صلاحيات قديمة إذا عُدّلت بعد تسجيل الدخول)
   if (session.is_manager || session.is_employee) {
     const dbRecord = await prisma.facility.findFirst({
       where: { id: session.id, deleted_at: null },
-      select: { manager_permissions: true },
+      select: { manager_permissions: true, name: true },
     });
 
     if (!dbRecord) return null; // الحساب محذوف
 
     // تحديث الصلاحيات في الجلسة من قاعدة البيانات
     session.manager_permissions = (dbRecord.manager_permissions as ManagerPermissions) ?? null;
+    session.facility_type = inferFacilityTypeFromText(dbRecord.name);
     return session;
   }
 
@@ -78,6 +80,7 @@ export async function getSessionWithFreshPermissions(): Promise<Session | null> 
     is_employee: dbRecord.is_employee,
     name: dbRecord.name,
     manager_permissions: perms as any as ManagerPermissions || null,
+    facility_type: inferFacilityTypeFromText(dbRecord.name),
   };
 }
 
