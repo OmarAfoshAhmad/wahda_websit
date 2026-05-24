@@ -16,6 +16,7 @@ export async function createCompany(data: {
   general_coverage?: number;
   medicine_ceiling?: number | null;
   medicine_coverage?: number;
+  dental_settings?: any;
 }) {
   const session = await requireActiveFacilitySession();
   // SEC-05 FIX: يتطلب صلاحية manage_companies بدل أي مدير
@@ -45,6 +46,7 @@ export async function createCompany(data: {
         general_coverage: data.general_coverage !== undefined ? data.general_coverage : 80,
         medicine_ceiling: data.medicine_ceiling !== undefined ? data.medicine_ceiling : null,
         medicine_coverage: data.medicine_coverage !== undefined ? data.medicine_coverage : 80,
+        dental_settings: data.dental_settings,
       },
     });
     revalidatePath("/admin/companies");
@@ -70,6 +72,7 @@ export async function updateCompany(id: string, data: {
   general_coverage?: number;
   medicine_ceiling?: number | null;
   medicine_coverage?: number;
+  dental_settings?: any;
 }) {
   const session = await requireActiveFacilitySession();
   if (!session?.is_admin && !session?.is_manager) {
@@ -98,6 +101,7 @@ export async function updateCompany(id: string, data: {
         general_coverage: data.general_coverage,
         medicine_ceiling: data.medicine_ceiling,
         medicine_coverage: data.medicine_coverage,
+        dental_settings: data.dental_settings,
         ...(data.code ? { code: data.code.toUpperCase() } : {}),
       },
     });

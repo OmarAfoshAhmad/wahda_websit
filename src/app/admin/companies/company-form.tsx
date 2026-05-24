@@ -18,6 +18,7 @@ interface Props {
     general_coverage?: any;
     medicine_ceiling?: any;
     medicine_coverage?: any;
+    dental_settings?: any;
   };
 }
 
@@ -38,13 +39,25 @@ export function CompanyForm({ company }: Props) {
     code: company?.code ?? "",
     card_pattern: company?.card_pattern ?? "",
     logo: company?.logo ?? "",
-    dental_ceiling: company?.dental_ceiling !== undefined && company?.dental_ceiling !== null ? String(Number(company.dental_ceiling)) : "3000",
+    dental_ceiling: company ? (company.dental_ceiling !== null ? String(Number(company.dental_ceiling)) : "") : "3000",
     dental_coverage: company?.dental_coverage !== undefined && company?.dental_coverage !== null ? String(Number(company.dental_coverage)) : "100",
     general_ceiling: company?.general_ceiling !== undefined && company?.general_ceiling !== null ? String(Number(company.general_ceiling)) : "",
     general_coverage: company?.general_coverage !== undefined && company?.general_coverage !== null ? String(Number(company.general_coverage)) : "0",
     medicine_ceiling: company?.medicine_ceiling !== undefined && company?.medicine_ceiling !== null ? String(Number(company.medicine_ceiling)) : "",
     medicine_coverage: company?.medicine_coverage !== undefined && company?.medicine_coverage !== null ? String(Number(company.medicine_coverage)) : "0",
   });
+
+  // parse dental_settings from JSON
+  const settings = company?.dental_settings ? (company.dental_settings as any) : null;
+  
+  const [customOrtho, setCustomOrtho] = useState(!!settings?.ortho?.enabled);
+  const [orthoCoverage, setOrthoCoverage] = useState(settings?.ortho?.coverage !== undefined && settings?.ortho?.coverage !== null ? String(settings.ortho.coverage) : "50");
+
+  const [customImplant, setCustomImplant] = useState(!!settings?.implant?.enabled);
+  const [implantCoverage, setImplantCoverage] = useState(settings?.implant?.coverage !== undefined && settings?.implant?.coverage !== null ? String(settings.implant.coverage) : "50");
+
+  const [customProsthetics, setCustomProsthetics] = useState(!!settings?.prosthetics?.enabled);
+  const [prostheticsCoverage, setProstheticsCoverage] = useState(settings?.prosthetics?.coverage !== undefined && settings?.prosthetics?.coverage !== null ? String(settings.prosthetics.coverage) : "50");
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -88,6 +101,12 @@ export function CompanyForm({ company }: Props) {
     setError(null);
 
     try {
+      const dentalSettings = {
+        ortho: { enabled: customOrtho, coverage: customOrtho ? Number(orthoCoverage) : null },
+        implant: { enabled: customImplant, coverage: customImplant ? Number(implantCoverage) : null },
+        prosthetics: { enabled: customProsthetics, coverage: customProsthetics ? Number(prostheticsCoverage) : null }
+      };
+
       const payload = {
         name: formData.name,
         code: formData.code,
@@ -99,6 +118,7 @@ export function CompanyForm({ company }: Props) {
         general_coverage: Number(formData.general_coverage),
         medicine_ceiling: formData.medicine_ceiling === "" ? null : Number(formData.medicine_ceiling),
         medicine_coverage: Number(formData.medicine_coverage),
+        dental_settings: dentalSettings,
       };
 
       const result = company 
@@ -112,7 +132,15 @@ export function CompanyForm({ company }: Props) {
         setTimeout(() => {
           setOpen(false);
           setSuccess(false);
-           if (!company) setFormData({ name: "", code: "", card_pattern: "", logo: "", dental_ceiling: "3000", dental_coverage: "100", general_ceiling: "", general_coverage: "0", medicine_ceiling: "", medicine_coverage: "0" });
+          if (!company) {
+            setFormData({ name: "", code: "", card_pattern: "", logo: "", dental_ceiling: "3000", dental_coverage: "100", general_ceiling: "", general_coverage: "0", medicine_ceiling: "", medicine_coverage: "0" });
+            setCustomOrtho(false);
+            setOrthoCoverage("50");
+            setCustomImplant(false);
+            setImplantCoverage("50");
+            setCustomProsthetics(false);
+            setProstheticsCoverage("50");
+          }
         }, 800);
       }
     } catch {
@@ -144,7 +172,7 @@ export function CompanyForm({ company }: Props) {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm"
           onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}
         >
-          <Card className="w-full max-w-md p-6">
+          <Card className="w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
             <div className="mb-5 flex items-center justify-between">
               <h2 className="text-lg font-black text-slate-900 dark:text-white">
                 {company ? "تعديل بيانات الشركة" : "إضافة شركة تأمين جديدة"}
@@ -194,24 +222,113 @@ export function CompanyForm({ company }: Props) {
                 <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 border-b pb-2">سقف وتغطية الخدمات</h3>
                 
                 {/* الأسنان */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="mb-1 block text-xs font-bold text-slate-600 dark:text-slate-400">سقف الأسنان (DENTAL)</label>
-                    <Input
-                      type="number"
-                      value={formData.dental_ceiling}
-                      onChange={(e) => setFormData({ ...formData, dental_ceiling: e.target.value })}
-                      placeholder="مفتوح"
-                    />
+                <div className="space-y-3">
+                  <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300">الأسنان (DENTAL)</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="mb-1 block text-[10px] font-bold text-slate-500">سقف الأسنان</label>
+                      <Input
+                        type="number"
+                        value={formData.dental_ceiling}
+                        onChange={(e) => setFormData({ ...formData, dental_ceiling: e.target.value })}
+                        placeholder="مفتوح"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[10px] font-bold text-slate-500">نسبة التغطية (%)</label>
+                      <Input
+                        type="number"
+                        value={formData.dental_coverage}
+                        onChange={(e) => setFormData({ ...formData, dental_coverage: e.target.value })}
+                        placeholder="100"
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label className="mb-1 block text-xs font-bold text-slate-600 dark:text-slate-400">نسبة تغطية الأسنان (%)</label>
-                    <Input
-                      type="number"
-                      value={formData.dental_coverage}
-                      onChange={(e) => setFormData({ ...formData, dental_coverage: e.target.value })}
-                      placeholder="100"
-                    />
+
+                  {/* سياسات خاصة للخدمات الفرعية */}
+                  <div className="mt-2 space-y-2 border-t pt-2 border-slate-200 dark:border-slate-800">
+                    <div className="text-[10px] font-bold text-slate-400 dark:text-slate-550 uppercase tracking-wider mb-1">تخصيص تغطية الخدمات الفرعية:</div>
+                    
+                    {/* تقويم */}
+                    <div className="space-y-1.5 bg-slate-100/50 dark:bg-slate-800/20 p-2 rounded-md">
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={customOrtho}
+                          onChange={(e) => setCustomOrtho(e.target.checked)}
+                          className="h-3.5 w-3.5 rounded border-slate-300 text-teal-600 focus:ring-teal-500 bg-white dark:bg-slate-900"
+                        />
+                        <span className="text-xs font-bold text-slate-650 dark:text-slate-350">سياسة خاصة لتقويم الأسنان</span>
+                      </label>
+                      {customOrtho && (
+                        <div className="mt-1.5 grid grid-cols-2 gap-3 pl-1">
+                          <div>
+                            <label className="mb-1 block text-[9px] font-bold text-slate-505">نسبة التغطية للتقويم (%)</label>
+                            <Input
+                              type="number"
+                              value={orthoCoverage}
+                              onChange={(e) => setOrthoCoverage(e.target.value)}
+                              placeholder="50"
+                              required
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* زراعة */}
+                    <div className="space-y-1.5 bg-slate-100/50 dark:bg-slate-800/20 p-2 rounded-md">
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={customImplant}
+                          onChange={(e) => setCustomImplant(e.target.checked)}
+                          className="h-3.5 w-3.5 rounded border-slate-300 text-teal-600 focus:ring-teal-500 bg-white dark:bg-slate-900"
+                        />
+                        <span className="text-xs font-bold text-slate-650 dark:text-slate-350">سياسة خاصة لزراعة الأسنان</span>
+                      </label>
+                      {customImplant && (
+                        <div className="mt-1.5 grid grid-cols-2 gap-3 pl-1">
+                          <div>
+                            <label className="mb-1 block text-[9px] font-bold text-slate-505">نسبة التغطية للزراعة (%)</label>
+                            <Input
+                              type="number"
+                              value={implantCoverage}
+                              onChange={(e) => setImplantCoverage(e.target.value)}
+                              placeholder="50"
+                              required
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* تركيبات */}
+                    <div className="space-y-1.5 bg-slate-100/50 dark:bg-slate-800/20 p-2 rounded-md">
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={customProsthetics}
+                          onChange={(e) => setCustomProsthetics(e.target.checked)}
+                          className="h-3.5 w-3.5 rounded border-slate-300 text-teal-600 focus:ring-teal-500 bg-white dark:bg-slate-900"
+                        />
+                        <span className="text-xs font-bold text-slate-650 dark:text-slate-350">سياسة خاصة لتركيبات الأسنان</span>
+                      </label>
+                      {customProsthetics && (
+                        <div className="mt-1.5 grid grid-cols-2 gap-3 pl-1">
+                          <div>
+                            <label className="mb-1 block text-[9px] font-bold text-slate-505">نسبة التغطية للتركيبات (%)</label>
+                            <Input
+                              type="number"
+                              value={prostheticsCoverage}
+                              onChange={(e) => setProstheticsCoverage(e.target.value)}
+                              placeholder="50"
+                              required
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>

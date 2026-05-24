@@ -18,6 +18,9 @@ export async function resolveWallet(
 ): Promise<string> {
   if (!companyId) return serviceType;
   if (!SERVICE_TYPES_WITH_MAPPINGS.includes(serviceType as any)) {
+    if (serviceType.startsWith("DENTAL")) {
+      return "DENTAL";
+    }
     return serviceType;
   }
   const mapping = await prisma.serviceTypeMapping.findUnique({
@@ -346,7 +349,10 @@ export async function seedConsumptionFromTransactions(
 
   const grouped: Record<string, number> = {};
   for (const t of txns) {
-    const wallet = t.service_category ?? "GENERAL";
+    let wallet = t.service_category ?? "GENERAL";
+    if (wallet.startsWith("DENTAL")) {
+      wallet = "DENTAL";
+    }
     grouped[wallet] = (grouped[wallet] ?? 0) + Number(t.ceiling_consumed ?? 0);
   }
 

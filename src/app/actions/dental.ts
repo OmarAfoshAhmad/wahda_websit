@@ -81,7 +81,7 @@ export async function getDentalBeneficiaryDetail(beneficiaryId: string, companyI
   }
 
   try {
-    const beneficiary = await prisma.beneficiary.findFirst({
+    const rawBeneficiary = await prisma.beneficiary.findFirst({
       where: {
         id: beneficiaryId,
         company_id: companyId,
@@ -101,11 +101,14 @@ export async function getDentalBeneficiaryDetail(beneficiaryId: string, companyI
             name: true,
             code: true,
             logo: true,
-            dental_ceiling: true
-          }
+            dental_ceiling: true,
+            dental_settings: true
+          } as any
         }
       }
     });
+
+    const beneficiary = rawBeneficiary as any;
 
     if (!beneficiary) {
       return { error: "المستفيد غير موجود" };
@@ -131,12 +134,12 @@ export async function getDentalBeneficiaryDetail(beneficiaryId: string, companyI
 
     const dentalCeiling = (beneficiary.company && beneficiary.company.dental_ceiling !== null)
       ? Number(beneficiary.company.dental_ceiling)
-      : 3000;
+      : (beneficiary.company ? null : 3000);
 
-    const dynamicRemaining = Math.max(0, dentalCeiling - yearlyConsumed);
+    const dynamicRemaining = dentalCeiling === null ? null : Math.max(0, dentalCeiling - yearlyConsumed);
     const dynamicStatus = beneficiary.status === "SUSPENDED"
       ? "SUSPENDED"
-      : (dynamicRemaining <= 0 ? "FINISHED" : "ACTIVE");
+      : (dynamicRemaining !== null && dynamicRemaining <= 0 ? "FINISHED" : "ACTIVE");
 
     return {
       success: true,

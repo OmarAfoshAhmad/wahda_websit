@@ -11,6 +11,8 @@ export function DentalDeductionAction() {
     beneficiary,
     amount,
     setAmount,
+    subCategory,
+    setSubCategory,
     showConfirm,
     setShowConfirm,
     deducting,
@@ -34,7 +36,22 @@ export function DentalDeductionAction() {
   const hasAmount = amountNum > 0;
 
   // حساب فوري للحصص
-  const copayFactor = copayPercentage / 100;
+  const settings = beneficiary?.company?.dental_settings ? (beneficiary.company.dental_settings as any) : null;
+  const hasCustomPolicies = !!(
+    settings?.ortho?.enabled ||
+    settings?.implant?.enabled ||
+    settings?.prosthetics?.enabled
+  );
+  let categoryCoverage = 100 - copayPercentage; // default coverage
+  if (subCategory === "DENTAL_ORTHO" && settings?.ortho?.enabled) {
+    categoryCoverage = Number(settings.ortho.coverage);
+  } else if (subCategory === "DENTAL_IMPLANT" && settings?.implant?.enabled) {
+    categoryCoverage = Number(settings.implant.coverage);
+  } else if (subCategory === "DENTAL_PROSTHETICS" && settings?.prosthetics?.enabled) {
+    categoryCoverage = Number(settings.prosthetics.coverage);
+  }
+  const effectiveCopayPercentage = 100 - categoryCoverage;
+  const copayFactor = effectiveCopayPercentage / 100;
   const originalCompanyShare = amountNum * (1 - copayFactor);
   const originalPatientShare = amountNum * copayFactor;
 
@@ -74,6 +91,36 @@ export function DentalDeductionAction() {
         <h3 className="font-black text-slate-900 dark:text-white">اقتطاع خدمات الأسنان</h3>
         <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">تطبيق خصم مالي مباشر وحساب نسب التحمل</p>
       </div>
+
+      {/* اختيار نوع الخدمة إذا كان هناك سياسات مخصصة */}
+      {hasCustomPolicies && (
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-slate-550">
+            تصنيف خدمة الأسنان
+          </label>
+          <select
+            id="dental-subcategory-select"
+            className="flex h-11 w-full rounded-md border border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 px-3 py-2 text-sm font-bold text-slate-900 focus-visible:outline-none focus-visible:border-teal-500 focus-visible:ring-2 focus-visible:ring-teal-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+            value={subCategory}
+            onChange={(e) => {
+              setSubCategory(e.target.value);
+              setShowConfirm(false);
+            }}
+            disabled={deducting}
+          >
+            <option value="DENTAL">خدمات أسنان عامة ({100 - copayPercentage}% تغطية)</option>
+            {settings?.ortho?.enabled && (
+              <option value="DENTAL_ORTHO">تقويم الأسنان ({settings.ortho.coverage}% تغطية)</option>
+            )}
+            {settings?.implant?.enabled && (
+              <option value="DENTAL_IMPLANT">زراعة الأسنان ({settings.implant.coverage}% تغطية)</option>
+            )}
+            {settings?.prosthetics?.enabled && (
+              <option value="DENTAL_PROSTHETICS">تركيبات الأسنان ({settings.prosthetics.coverage}% تغطية)</option>
+            )}
+          </select>
+        </div>
+      )}
 
       {/* حقل القيمة */}
       <div className="space-y-1.5">
@@ -174,7 +221,9 @@ export function DentalDeductionAction() {
                 <p className="text-2xl font-black text-teal-700 dark:text-teal-400">{formatCurrency(amountNum)} د.ل</p>
                 <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-white dark:bg-slate-800 px-3 py-1 text-[10px] font-bold text-slate-500 border border-slate-200 dark:border-slate-750">
                   <span className="h-1.5 w-1.5 rounded-full bg-teal-500" />
-                  أسنان • {beneficiary.name}
+                  {subCategory === "DENTAL_ORTHO" ? "تقويم الأسنان" :
+                   subCategory === "DENTAL_IMPLANT" ? "زراعة الأسنان" :
+                   subCategory === "DENTAL_PROSTHETICS" ? "تركيبات الأسنان" : "أسنان عامة"} • {beneficiary.name}
                 </div>
               </div>
               <div className="flex gap-2">

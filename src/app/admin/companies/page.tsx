@@ -44,11 +44,22 @@ export default async function CompaniesPage() {
   const activeMap = new Map(activeCounts.map(r => [r.company_id, r._count._all]));
   const deletedMap = new Map(deletedCounts.map(r => [r.company_id, r._count._all]));
 
-  const companiesWithStats = companies.map(company => ({
-    ...company,
+  const companiesWithStats = companies.map((c: any) => ({
+    ...c,
+    dental_ceiling: c.dental_ceiling ? Number(c.dental_ceiling) : null,
+    dental_coverage: c.dental_coverage ? Number(c.dental_coverage) : 100,
+    general_ceiling: c.general_ceiling ? Number(c.general_ceiling) : null,
+    general_coverage: c.general_coverage ? Number(c.general_coverage) : 80,
+    medicine_ceiling: c.medicine_ceiling ? Number(c.medicine_ceiling) : null,
+    medicine_coverage: c.medicine_coverage ? Number(c.medicine_coverage) : 80,
+    dental_settings: c.dental_settings ? JSON.parse(JSON.stringify(c.dental_settings)) : null,
+    service_type_mappings: c.service_type_mappings ? JSON.parse(JSON.stringify(c.service_type_mappings)) : null,
+    created_at: c.created_at.toISOString(),
+    updated_at: c.updated_at.toISOString(),
+    deleted_at: c.deleted_at ? c.deleted_at.toISOString() : null,
     stats: {
-      active: activeMap.get(company.id) ?? 0,
-      deleted: deletedMap.get(company.id) ?? 0,
+      active: activeMap.get(c.id) ?? 0,
+      deleted: deletedMap.get(c.id) ?? 0,
     }
   }));
 
@@ -107,6 +118,29 @@ export default async function CompaniesPage() {
                               <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-0.5">
                                 الأسنان: {company.dental_ceiling ? `${Number(company.dental_ceiling).toLocaleString("ar-LY")} د.ل` : "مفتوح"} | تغطية {Number(company.dental_coverage)}%
                               </span>
+                              {company.dental_settings && (() => {
+                                const settings = company.dental_settings;
+                                const activePolicies = [];
+                                if (settings.ortho?.enabled) {
+                                  activePolicies.push(`تقويم (${settings.ortho.coverage}%)`);
+                                }
+                                if (settings.implant?.enabled) {
+                                  activePolicies.push(`زراعة (${settings.implant.coverage}%)`);
+                                }
+                                if (settings.prosthetics?.enabled) {
+                                  activePolicies.push(`تركيبات (${settings.prosthetics.coverage}%)`);
+                                }
+                                if (activePolicies.length === 0) return null;
+                                return (
+                                  <div className="flex flex-wrap gap-1 mt-1">
+                                    {activePolicies.map((policy, idx) => (
+                                      <span key={idx} className="inline-flex items-center rounded bg-teal-50 dark:bg-teal-950/40 px-1 py-0.2 text-[8px] font-extrabold text-teal-700 dark:text-teal-400 border border-teal-200/40 dark:border-teal-900/20">
+                                        {policy}
+                                      </span>
+                                    ))}
+                                  </div>
+                                );
+                              })()}
                             </div>
                           </div>
                         </td>

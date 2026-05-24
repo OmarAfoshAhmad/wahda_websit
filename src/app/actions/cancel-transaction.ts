@@ -120,7 +120,10 @@ export async function cancelTransaction(transactionId: string) {
       // FIN-02 FIX: عكس WalletConsumption عند إلغاء حركة TPA
       // يضمن أن السقف السنوي يُستعاد للمستفيد ولا يُفقد نهائياً
       if (transaction.company_id && transaction.ceiling_consumed && Number(transaction.ceiling_consumed) > 0) {
-        const walletType = transaction.service_category ?? transaction.type;
+        let walletType = transaction.service_category ?? transaction.type;
+        if (walletType.startsWith("DENTAL")) {
+          walletType = "DENTAL";
+        }
         const fiscalYear = transaction.created_at.getFullYear();
         const reverseAmount = Number(transaction.ceiling_consumed);
 
@@ -404,7 +407,10 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
         for (const transaction of lockedTransactions) {
           if (!transaction.is_cancelled && transaction.type !== "CANCELLATION") {
             if (transaction.company_id && transaction.ceiling_consumed && Number(transaction.ceiling_consumed) > 0) {
-              const walletType = transaction.service_category ?? transaction.type;
+              let walletType = transaction.service_category ?? transaction.type;
+              if (walletType.startsWith("DENTAL")) {
+                walletType = "DENTAL";
+              }
               const fiscalYear = transaction.created_at.getFullYear();
               const reverseAmount = Number(transaction.ceiling_consumed);
 

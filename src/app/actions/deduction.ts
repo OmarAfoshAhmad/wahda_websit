@@ -24,6 +24,7 @@ export async function deductBalance(formData: {
   transactionDate?: Date;
   facilityId?: string;
   requestId?: string;
+  dentalSubCategory?: string;
 }) {
   const session = await requireActiveFacilitySession();
   const canDeduct = !!session && !session.is_employee && (!session.is_manager || hasPermission(session, "deduct_balance"));
@@ -68,6 +69,7 @@ export async function deductBalance(formData: {
   }
 
   const { card_number, amount, type } = validated.data;
+  const dentalSubCategory = formData.dentalSubCategory;
 
   if (!session.is_admin && !session.is_manager) {
     if (session.facility_type === "PHARMACY" && type !== "MEDICINE") {
@@ -181,13 +183,18 @@ export async function deductBalance(formData: {
         ? await getServiceTypeMapping(companyId, type)
         : type;
 
+      const dentalCategories = ["DENTAL", "DENTAL_ORTHO", "DENTAL_IMPLANT", "DENTAL_PROSTHETICS"];
+      const targetServiceCategories = policyServiceType === "DENTAL"
+        ? dentalCategories
+        : [policyServiceType];
+
       const consumption = await tx.transaction.aggregate({
         where: {
           beneficiary_id: beneficiary.id,
           is_cancelled: false,
           created_at: { gte: startDate, lte: endDate },
           OR: [
-            { service_category: policyServiceType },
+            { service_category: { in: targetServiceCategories } },
             { service_category: null, type: policyServiceType as any }
           ]
         },
@@ -219,7 +226,18 @@ export async function deductBalance(formData: {
 
         if (policyServiceType === "DENTAL") {
           annual_ceiling = company.dental_ceiling === null ? null : Number(company.dental_ceiling);
-          copay_percentage = Math.max(0, 100 - Number(company.dental_coverage));
+          const settings = (company as any).dental_settings ? ((company as any).dental_settings as any) : null;
+          let categoryCoverage = Math.max(0, Number(company.dental_coverage)); // default coverage
+
+          if (dentalSubCategory === "DENTAL_ORTHO" && settings?.ortho?.enabled) {
+            categoryCoverage = Number(settings.ortho.coverage);
+          } else if (dentalSubCategory === "DENTAL_IMPLANT" && settings?.implant?.enabled) {
+            categoryCoverage = Number(settings.implant.coverage);
+          } else if (dentalSubCategory === "DENTAL_PROSTHETICS" && settings?.prosthetics?.enabled) {
+            categoryCoverage = Number(settings.prosthetics.coverage);
+          }
+          
+          copay_percentage = Math.max(0, 100 - categoryCoverage);
           isConfigured = true;
         } else if (policyServiceType === "GENERAL") {
           annual_ceiling = company.general_ceiling === null ? null : Number(company.general_ceiling);
@@ -272,7 +290,7 @@ export async function deductBalance(formData: {
 
         tpaData = {
           company_id: companyId,
-          service_category: policyServiceType,
+          service_category: type === "DENTAL" && dentalSubCategory ? dentalSubCategory : policyServiceType,
           original_company_share: calcResult.originalCompanyShare,
           original_patient_share: calcResult.originalPatientShare,
           actual_company_share: calcResult.actualCompanyShare,
@@ -289,7 +307,7 @@ export async function deductBalance(formData: {
         // Silent fallback tracked: company found but no policy — store basic info
         tpaData = {
           company_id: companyId,
-          service_category: policyServiceType,
+          service_category: type === "DENTAL" && dentalSubCategory ? dentalSubCategory : policyServiceType,
           calc_metadata: { tpaApplied: false, reason: "no_policy" },
         };
       }
@@ -564,7 +582,7 @@ export async function getAvailableServiceTypes(beneficiaryId: string) {
 /**
  * الحصول على معلومات سياسة TPA للمستفيد (خفيف، بدون حساب)
  */
-export async function getPolicyInfo(beneficiaryId: string, serviceType: string) {
+export async function getPolicyInfo(beneficiaryId: string, serviceType: string, dentalSubCategory?: string) {
   const session = await requireActiveFacilitySession();
   if (!session) return { isTpa: false };
 
@@ -592,7 +610,17 @@ export async function getPolicyInfo(beneficiaryId: string, serviceType: string) 
 
     if (policyServiceType === "DENTAL") {
       ceiling = company.dental_ceiling === null ? null : Number(company.dental_ceiling);
-      copayPercentage = Math.max(0, 100 - Number(company.dental_coverage));
+      const isJulian = company.code.toUpperCase() === "JULI" ||
+                       company.code.toUpperCase() === "JULIANA" ||
+                       company.name.includes("جوليانة") ||
+                       company.name.toLowerCase().includes("julian");
+      const isSpecialSubCategory = dentalSubCategory && ["DENTAL_ORTHO", "DENTAL_IMPLANT", "DENTAL_PROSTHETICS"].includes(dentalSubCategory);
+
+      if (isJulian && isSpecialSubCategory) {
+        copayPercentage = 50;
+      } else {
+        copayPercentage = Math.max(0, 100 - Number(company.dental_coverage));
+      }
       isConfigured = true;
     } else if (policyServiceType === "GENERAL") {
       ceiling = company.general_ceiling === null ? null : Number(company.general_ceiling);
@@ -611,13 +639,18 @@ export async function getPolicyInfo(beneficiaryId: string, serviceType: string) 
     const startDate = new Date(fiscalYear, 0, 1);
     const endDate = new Date(fiscalYear, 11, 31, 23, 59, 59);
 
+    const dentalCategories = ["DENTAL", "DENTAL_ORTHO", "DENTAL_IMPLANT", "DENTAL_PROSTHETICS"];
+    const targetServiceCategories = policyServiceType === "DENTAL"
+      ? dentalCategories
+      : [policyServiceType];
+
     const sum = await prisma.transaction.aggregate({
       where: {
         beneficiary_id: beneficiaryId,
         is_cancelled: false,
         created_at: { gte: startDate, lte: endDate },
         OR: [
-          { service_category: policyServiceType },
+          { service_category: { in: targetServiceCategories } },
           { service_category: null, type: policyServiceType as any },
         ]
       },
@@ -647,6 +680,7 @@ export async function simulateDeduction(data: {
   amount: number;
   service_type: string;
   transactionDate?: Date;
+  dentalSubCategory?: string;
 }) {
   const session = await requireActiveFacilitySession();
   if (!session) return { error: "انتهت الجلسة" };
@@ -684,7 +718,17 @@ export async function simulateDeduction(data: {
 
     if (policyServiceType === "DENTAL") {
       ceiling = company.dental_ceiling === null ? null : Number(company.dental_ceiling);
-      copayPercentage = Math.max(0, 100 - Number(company.dental_coverage));
+      const isJulian = company.code.toUpperCase() === "JULI" ||
+                       company.code.toUpperCase() === "JULIANA" ||
+                       company.name.includes("جوليانة") ||
+                       company.name.toLowerCase().includes("julian");
+      const isSpecialSubCategory = data.dentalSubCategory && ["DENTAL_ORTHO", "DENTAL_IMPLANT", "DENTAL_PROSTHETICS"].includes(data.dentalSubCategory);
+
+      if (isJulian && isSpecialSubCategory) {
+        copayPercentage = 50;
+      } else {
+        copayPercentage = Math.max(0, 100 - Number(company.dental_coverage));
+      }
       isConfigured = true;
     } else if (policyServiceType === "GENERAL") {
       ceiling = company.general_ceiling === null ? null : Number(company.general_ceiling);
@@ -707,13 +751,18 @@ export async function simulateDeduction(data: {
     const startDate = new Date(fiscalYear, 0, 1);
     const endDate = new Date(fiscalYear, 11, 31, 23, 59, 59);
 
+    const dentalCategories = ["DENTAL", "DENTAL_ORTHO", "DENTAL_IMPLANT", "DENTAL_PROSTHETICS"];
+    const targetServiceCategories = policyServiceType === "DENTAL"
+      ? dentalCategories
+      : [policyServiceType];
+
     const consumption = await prisma.transaction.aggregate({
       where: {
         beneficiary_id: beneficiary.id,
         is_cancelled: false,
         created_at: { gte: startDate, lte: endDate },
         OR: [
-          { service_category: policyServiceType },
+          { service_category: { in: targetServiceCategories } },
           { service_category: null, type: policyServiceType as any }
         ]
       },

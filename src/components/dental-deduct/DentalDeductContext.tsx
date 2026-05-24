@@ -9,10 +9,10 @@ export interface DentalBeneficiary {
   id: string;
   card_number: string;
   name: string;
-  remaining_balance: number;
-  total_balance: number;
+  remaining_balance: number | null;
+  total_balance: number | null;
   status: string;
-  company?: { id: string; name: string; code: string; logo?: string | null } | null;
+  company?: { id: string; name: string; code: string; logo?: string | null; dental_settings?: any } | null;
 }
 
 export interface DentalSuggestion {
@@ -20,8 +20,8 @@ export interface DentalSuggestion {
   card_number: string;
   name: string;
   status: string;
-  remaining_balance: number;
-  total_balance: number;
+  remaining_balance: number | null;
+  total_balance: number | null;
 }
 
 interface DentalDeductContextValue {
@@ -59,6 +59,8 @@ interface DentalDeductContextValue {
   // Deduction
   amount: string;
   setAmount: (v: string) => void;
+  subCategory: string;
+  setSubCategory: (v: string) => void;
   showConfirm: boolean;
   setShowConfirm: (v: boolean) => void;
   deducting: boolean;
@@ -106,6 +108,7 @@ export function DentalDeductProvider({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
+  const [subCategory, setSubCategory] = useState("DENTAL");
   const [showConfirm, setShowConfirm] = useState(false);
   const [deducting, setDeducting] = useState(false);
 
@@ -210,6 +213,7 @@ export function DentalDeductProvider({
     setShowSuggestions(false);
     setBeneficiary(null);
     setAmount("");
+    setSubCategory("DENTAL");
     setShowConfirm(false);
     setError(null);
     setSuccess(null);
@@ -300,6 +304,7 @@ export function DentalDeductProvider({
         card_number: beneficiary.card_number,
         amount: amountNum,
         type: "DENTAL",
+        dentalSubCategory: subCategory,
         requestId: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
       });
 
@@ -314,7 +319,17 @@ export function DentalDeductProvider({
         toast.success(`تم تسجيل خصم بقيمة ${amountNum.toLocaleString("ar-LY")} د.ل بنجاح!`);
         
         // Update yearly consumed amount
-        const copayFactor = copayPercentage / 100;
+        const settings = beneficiary.company?.dental_settings ? (beneficiary.company.dental_settings as any) : null;
+        let categoryCoverage = 100 - copayPercentage; // default coverage
+        if (subCategory === "DENTAL_ORTHO" && settings?.ortho?.enabled) {
+          categoryCoverage = Number(settings.ortho.coverage);
+        } else if (subCategory === "DENTAL_IMPLANT" && settings?.implant?.enabled) {
+          categoryCoverage = Number(settings.implant.coverage);
+        } else if (subCategory === "DENTAL_PROSTHETICS" && settings?.prosthetics?.enabled) {
+          categoryCoverage = Number(settings.prosthetics.coverage);
+        }
+        const effectiveCopay = 100 - categoryCoverage;
+        const copayFactor = effectiveCopay / 100;
         const originalCompanyShare = amountNum * (1 - copayFactor);
         const remaining = annualCeiling !== null ? Math.max(0, annualCeiling - yearlyConsumed) : Infinity;
         const addedCompanyShare = annualCeiling === null
@@ -330,7 +345,7 @@ export function DentalDeductProvider({
       setShowConfirm(false);
       setError("حدث خطأ في الاتصال. حاول مرة أخرى.");
     }
-  }, [beneficiary, amount, yearlyConsumed, annualCeiling, copayPercentage, toast]);
+  }, [beneficiary, amount, subCategory, yearlyConsumed, annualCeiling, copayPercentage, toast]);
 
   const remainingCeiling = annualCeiling !== null ? Math.max(0, annualCeiling - yearlyConsumed) : null;
 
@@ -363,6 +378,8 @@ export function DentalDeductProvider({
         remainingCeiling,
         amount,
         setAmount,
+        subCategory,
+        setSubCategory,
         showConfirm,
         setShowConfirm,
         deducting,
