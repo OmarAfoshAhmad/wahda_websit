@@ -39,7 +39,7 @@ export default async function DentalCompanyPrintPage({
   if (!company) notFound();
 
   const ceiling = company.dental_ceiling ? Number(company.dental_ceiling) : null;
-  const dentalCeiling = ceiling ?? 3000;
+  const dentalCeiling = ceiling;
 
   // بناء شروط الاستعلام
   const where: any = {
@@ -123,6 +123,7 @@ export default async function DentalCompanyPrintPage({
   }
 
   const remainingAfterTxId = new Map();
+  const accumulatedSpentByTxId = new Map();
 
   for (const [, benTxs] of txsByBenMap.entries()) {
     let accumulatedSpent = 0;
@@ -131,7 +132,8 @@ export default async function DentalCompanyPrintPage({
         ? Number(t.ceiling_consumed)
         : Number(t.actual_company_share ?? t.amount);
       accumulatedSpent += consumed;
-      remainingAfterTxId.set(t.id, Math.max(0, dentalCeiling - accumulatedSpent));
+      accumulatedSpentByTxId.set(t.id, accumulatedSpent);
+      remainingAfterTxId.set(t.id, dentalCeiling === null ? 999999999 : Math.max(0, dentalCeiling - accumulatedSpent));
     }
   }
 
@@ -187,7 +189,7 @@ export default async function DentalCompanyPrintPage({
                   <h2 className="text-lg font-black text-teal-800">كشف حركات الأسنان المخصصة</h2>
                   <p className="text-xs font-bold text-slate-600 mt-0.5">شركة التأمين: {company.name}</p>
                   {copay > 0 && (
-                    <p className="text-[10px] font-black text-amber-700 mt-0.5">نسبة التحمل: {copay}% | السقف: {dentalCeiling.toLocaleString("ar-LY")} د.ل</p>
+                    <p className="text-[10px] font-black text-amber-700 mt-0.5">نسبة التحمل: {copay}% | السقف: {dentalCeiling !== null ? `${dentalCeiling.toLocaleString("ar-LY")} د.ل` : "مفتوح"}</p>
                   )}
                   {(searchQuery || fromDate || toDate) && (
                     <p className="text-[10px] font-black text-teal-700 mt-0.5">
@@ -214,7 +216,9 @@ export default async function DentalCompanyPrintPage({
                     <th className="border border-slate-400 px-2 py-2 text-center font-black">قيمة الفاتورة</th>
                     <th className="border border-slate-400 px-2 py-2 text-center font-black">حصة الشركة</th>
                     <th className="border border-slate-400 px-2 py-2 text-center font-black">حصة المؤمن (كاش)</th>
-                    <th className="border border-slate-400 px-2 py-2 text-center font-black">الرصيد المتبقي</th>
+                    <th className="border border-slate-400 px-2 py-2 text-center font-black">
+                       {dentalCeiling === null ? "الرصيد المستهلك" : "الرصيد المتبقي"}
+                     </th>
                     <th className="border border-slate-400 px-2 py-2 font-black">التاريخ</th>
                   </tr>
                 </thead>
@@ -230,7 +234,8 @@ export default async function DentalCompanyPrintPage({
                       const amount = Number(tx.amount || 0);
                       const companyShare = tx.actual_company_share !== null ? Number(tx.actual_company_share) : 0;
                       const patientShare = tx.actual_patient_share !== null ? Number(tx.actual_patient_share) : 0;
-                      const remaining = remainingAfterTxId.get(tx.id) ?? (tx.remaining_ceiling_after !== null ? Number(tx.remaining_ceiling_after) : (dentalCeiling - companyShare));
+                      const remaining = remainingAfterTxId.get(tx.id) ?? (tx.remaining_ceiling_after !== null ? Number(tx.remaining_ceiling_after) : (dentalCeiling !== null ? (dentalCeiling - companyShare) : 999999999));
+                      const consumedAccumulated = accumulatedSpentByTxId.get(tx.id) ?? companyShare;
                       const rowNum = globalStart + idx + 1;
                       const isEven = rowNum % 2 === 0;
 
@@ -242,7 +247,13 @@ export default async function DentalCompanyPrintPage({
                           <td className="border border-slate-300 px-2 py-1.5 text-center font-mono font-black">{amount.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل</td>
                           <td className="border border-slate-300 px-2 py-1.5 text-center font-mono font-black text-teal-800">{companyShare.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل</td>
                           <td className="border border-slate-300 px-2 py-1.5 text-center font-mono font-black text-amber-700">{patientShare.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل</td>
-                          <td className="border border-slate-300 px-2 py-1.5 text-center font-mono font-black text-sky-800">{remaining !== null ? `${remaining.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل` : "—"}</td>
+                          <td className="border border-slate-300 px-2 py-1.5 text-center font-mono font-black text-sky-800">
+                            {remaining !== null && remaining < 99999999 ? (
+                              `${remaining.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل`
+                            ) : (
+                              `${consumedAccumulated.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل`
+                            )}
+                          </td>
                           <td className="border border-slate-300 px-2 py-1.5 font-bold text-slate-700">
                             {formatDateTripoli(tx.created_at)}
                           </td>

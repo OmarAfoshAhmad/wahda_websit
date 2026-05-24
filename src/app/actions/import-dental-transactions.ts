@@ -265,12 +265,17 @@ export async function importDentalTransactionsAction(
       if (exactMatch) return exactMatch;
 
       // 2. Base card match with name matching
-      const getBase = (c: string) => c.replace(/[MFWSD]?\d+$/, "").replace(/[MFWSD]$/, "");
+      const getBase = (c: string) => {
+        // Strip relation suffix (e.g. S1, D2, W1, H1 or single letter S, D, W, M, F, H at the end)
+        const withoutSuffix = c.replace(/[MFWSDH]\d+$/, "").replace(/[MFWSDH]$/, "");
+        // Normalize padding zeros after the year (e.g. 20250008 -> 20258)
+        return withoutSuffix.replace(/(20\d{2})0+/, "$1");
+      };
       const excelBase = getBase(normExcelCard);
 
       const baseCandidates = dbBeneficiaries.filter(b => {
         const dbNorm = b.card_number.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
-        return getBase(dbNorm) === excelBase || dbNorm.startsWith(excelBase) || excelBase.startsWith(getBase(dbNorm));
+        return getBase(dbNorm) === excelBase;
       });
 
       if (baseCandidates.length > 0) {

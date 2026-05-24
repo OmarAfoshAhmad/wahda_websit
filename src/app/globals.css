@@ -288,3 +288,9 @@ textarea {
     display: table-row-group;
   }
 }
+
+/* Fix select dropdown option colors in dark mode system-wide */
+select option {
+  background-color: var(--surface) !important;
+  color: var(--text-main) !important;
+}

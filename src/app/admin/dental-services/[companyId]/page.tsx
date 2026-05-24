@@ -7,6 +7,7 @@ import { Card, Badge } from "@/components/ui";
 import Link from "next/link";
 import { ArrowRight, Building2, Users, ShieldCheck, History, Printer, Search, ChevronLeft, ChevronRight, CalendarDays, RotateCcw, FileSpreadsheet } from "lucide-react";
 import { DentalDeductForm } from "@/components/dental-deduct-form";
+import { DentalAddTransactionButton } from "@/components/dental-add-transaction-button";
 import { formatDateTripoli, formatTimeTripoli } from "@/lib/datetime";
 import { TransactionCancelButton } from "@/components/transaction-cancel-button";
 import { TransactionEditModal } from "@/components/transaction-edit-modal";
@@ -187,7 +188,8 @@ export default async function DentalCompanyPage({
   }
 
   const remainingAfterTxId = new Map();
-  const dentalCeiling = ceiling ?? 3000;
+  const accumulatedSpentByTxId = new Map();
+  const dentalCeiling = ceiling;
 
   for (const [benId, benTxs] of txsByBenMap.entries()) {
     let accumulatedSpent = 0;
@@ -196,7 +198,8 @@ export default async function DentalCompanyPage({
         ? Number(t.ceiling_consumed)
         : Number(t.actual_company_share ?? t.amount);
       accumulatedSpent += consumed;
-      remainingAfterTxId.set(t.id, Math.max(0, dentalCeiling - accumulatedSpent));
+      accumulatedSpentByTxId.set(t.id, accumulatedSpent);
+      remainingAfterTxId.set(t.id, dentalCeiling === null ? 999999999 : Math.max(0, dentalCeiling - accumulatedSpent));
     }
   }
 
@@ -295,17 +298,17 @@ export default async function DentalCompanyPage({
       spentDentalRows.map((row) => [row.beneficiary_id, Number(row._sum.ceiling_consumed ?? 0)])
     );
 
-    const dentalCeiling = ceiling ?? 3000;
+    const dentalCeiling = ceiling;
 
     companyBeneficiaries = benList.map((b) => {
       const consumed = spentDentalMap.get(b.id) ?? 0;
-      const remaining = Math.max(0, dentalCeiling - consumed);
+      const remaining = dentalCeiling === null ? 999999999 : Math.max(0, dentalCeiling - consumed);
       const dynamicStatus = b.status === "SUSPENDED"
         ? "SUSPENDED"
-        : (remaining <= 0 ? "FINISHED" : "ACTIVE");
+        : (dentalCeiling !== null && remaining <= 0 ? "FINISHED" : "ACTIVE");
       return {
         ...b,
-        total_balance: dentalCeiling,
+        total_balance: dentalCeiling ?? 999999999,
         remaining_balance: remaining,
         status: dynamicStatus,
         in_import_file: Boolean(b.is_legacy_card),
@@ -574,6 +577,19 @@ export default async function DentalCompanyPage({
                     <Printer className="h-4 w-4 text-teal-600" />
                     <span>طباعة الكشف المصفى</span>
                   </Link>
+
+                  {!isReadOnlyEmployee && (
+                    <DentalAddTransactionButton
+                      companyId={companyId}
+                      companyName={company.name}
+                      facilities={facilities}
+                      defaultFacilityId={session.id}
+                      canChooseFacility={session.is_admin}
+                      copayPercentage={copay}
+                      annualCeiling={ceiling}
+                      dentalSettings={company.dental_settings}
+                    />
+                  )}
                 </div>
               </div>
 
@@ -618,8 +634,10 @@ export default async function DentalCompanyPage({
                         <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">قيمة الفاتورة</th>
                         <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">حصة الشركة</th>
                         <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">حصة المؤمن</th>
-                        <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">الرصيد المتبقي</th>
-                        <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400">التاريخ والوقت</th>
+                        <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">
+                           {dentalCeiling === null ? "الرصيد المستهلك" : "الرصيد المتبقي"}
+                        </th>
+                        <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400">التاريخ</th>
                         {(session.is_admin || canCorrect || canCancel) && (
                           <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">إجراءات</th>
                         )}
@@ -637,7 +655,8 @@ export default async function DentalCompanyPage({
                           const amount = Number(tx.amount);
                           const companyShare = tx.actual_company_share !== null ? Number(tx.actual_company_share) : 0;
                           const patientShare = tx.actual_patient_share !== null ? Number(tx.actual_patient_share) : 0;
-                          const remaining = remainingAfterTxId.get(tx.id) ?? (tx.remaining_ceiling_after !== null ? Number(tx.remaining_ceiling_after) : (dentalCeiling - companyShare));
+                          const remaining = remainingAfterTxId.get(tx.id) ?? (tx.remaining_ceiling_after !== null ? Number(tx.remaining_ceiling_after) : (dentalCeiling !== null ? (dentalCeiling - companyShare) : 999999999));
+                          const consumedAccumulated = accumulatedSpentByTxId.get(tx.id) ?? companyShare;
 
                           return (
                             <tr key={tx.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
@@ -667,11 +686,14 @@ export default async function DentalCompanyPage({
                                 {patientShare.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل
                               </td>
                               <td className="px-4 py-3.5 text-center font-mono font-black text-sky-700 dark:text-sky-400">
-                                {remaining !== null ? `${remaining.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل` : "—"}
+                                {remaining !== null && remaining < 99999999 ? (
+                                    `${remaining.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل`
+                                  ) : (
+                                    `${consumedAccumulated.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل`
+                                  )}
                               </td>
                               <td className="px-4 py-3.5 text-xs">
                                 <span className="font-bold text-slate-700 dark:text-slate-300">{formatDateTripoli(tx.created_at)}</span>
-                                <span className="text-slate-400 mr-2">{formatTimeTripoli(tx.created_at)}</span>
                               </td>
                               {(session.is_admin || canCorrect || canCancel) && (
                                 <td className="px-4 py-3.5 text-center">

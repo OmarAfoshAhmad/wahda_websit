@@ -216,9 +216,25 @@ export function DentalDeductionAction() {
             </Button>
           ) : (
             <div className="space-y-3 rounded-xl border-2 border-teal-200 dark:border-teal-900/60 bg-teal-50/20 dark:bg-teal-950/10 p-4">
-              <div className="text-center">
-                <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">تأكيد الاقتطاع النهائي</p>
-                <p className="text-2xl font-black text-teal-700 dark:text-teal-400">{formatCurrency(amountNum)} د.ل</p>
+              <div className="text-center space-y-2">
+                <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">تأكيد الاقتطاع النهائي (حصة الشركة)</p>
+                <p className="text-2xl font-black text-teal-700 dark:text-teal-400">{formatCurrency(actualCompanyShare)} د.ل</p>
+                
+                <div className="mt-1 flex flex-col gap-1 text-[11px] font-bold text-slate-600 dark:text-slate-350 bg-white dark:bg-slate-800/50 rounded-lg p-2.5 border border-slate-200/60 dark:border-slate-700">
+                  <div className="flex justify-between">
+                    <span>إجمالي الفاتورة:</span>
+                    <span>{formatCurrency(amountNum)} د.ل</span>
+                  </div>
+                  <div className="flex justify-between text-teal-655 dark:text-teal-400 border-t border-dashed border-slate-100 dark:border-slate-800 pt-1">
+                    <span>حصة الشركة ({categoryCoverage}%):</span>
+                    <span>{formatCurrency(actualCompanyShare)} د.ل</span>
+                  </div>
+                  <div className="flex justify-between text-amber-655 dark:text-amber-400">
+                    <span>تحمل المريض ({effectiveCopayPercentage}%):</span>
+                    <span>{formatCurrency(actualPatientShare)} د.ل</span>
+                  </div>
+                </div>
+
                 <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-white dark:bg-slate-800 px-3 py-1 text-[10px] font-bold text-slate-500 border border-slate-200 dark:border-slate-750">
                   <span className="h-1.5 w-1.5 rounded-full bg-teal-500" />
                   {subCategory === "DENTAL_ORTHO" ? "تقويم الأسنان" :
