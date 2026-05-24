@@ -30,6 +30,7 @@ const PERMISSION_LABELS: Record<keyof ManagerPermissions, string> = {
   migrate_card_numbering: "ترحيل أرقام البطاقات (تنفيذ نهائي)",
   manage_users: "إدارة الحسابات (إنشاء، تعديل، حذف، صلاحيات)",
   manage_companies: "إدارة شركات التأمين والسياسات",
+  dental_services: "صلاحية خدمات الأسنان (خصم، حركات، كشف)",
 };
 
 interface Props {

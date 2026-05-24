@@ -107,10 +107,10 @@ async function upsertConsumption(
 
   if (expectedVersion === 0) {
     await prisma.$executeRawUnsafe(
-      `INSERT INTO "WalletConsumption" (id, beneficiary_id, company_id, wallet_type, fiscal_year, consumed_amount, version)
-       VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, 1)
+      `INSERT INTO "WalletConsumption" (id, beneficiary_id, company_id, wallet_type, fiscal_year, consumed_amount, version, updated_at)
+       VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, 1, NOW())
        ON CONFLICT (beneficiary_id, company_id, wallet_type, fiscal_year)
-       DO UPDATE SET consumed_amount = "WalletConsumption".consumed_amount + $5, version = "WalletConsumption".version + 1`,
+       DO UPDATE SET consumed_amount = "WalletConsumption".consumed_amount + $5, version = "WalletConsumption".version + 1, updated_at = NOW()`,
       beneficiaryId,
       companyId,
       walletType,
@@ -120,7 +120,7 @@ async function upsertConsumption(
   } else {
     const result = await prisma.$executeRawUnsafe(
       `UPDATE "WalletConsumption"
-       SET consumed_amount = consumed_amount + $5, version = version + 1
+       SET consumed_amount = consumed_amount + $5, version = version + 1, updated_at = NOW()
        WHERE beneficiary_id = $1 AND company_id = $2 AND wallet_type = $3 AND fiscal_year = $4
          AND version = $6`,
       beneficiaryId,
@@ -353,10 +353,10 @@ export async function seedConsumptionFromTransactions(
   for (const [walletType, total] of Object.entries(grouped)) {
     if (total <= 0) continue;
     await prisma.$executeRawUnsafe(
-      `INSERT INTO "WalletConsumption" (id, beneficiary_id, company_id, wallet_type, fiscal_year, consumed_amount, version)
-       VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, 1)
+      `INSERT INTO "WalletConsumption" (id, beneficiary_id, company_id, wallet_type, fiscal_year, consumed_amount, version, updated_at)
+       VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, 1, NOW())
        ON CONFLICT (beneficiary_id, company_id, wallet_type, fiscal_year)
-       DO UPDATE SET consumed_amount = GREATEST("WalletConsumption".consumed_amount, $5)`,
+       DO UPDATE SET consumed_amount = GREATEST("WalletConsumption".consumed_amount, $5), updated_at = NOW()`,
       beneficiaryId,
       companyId,
       walletType,

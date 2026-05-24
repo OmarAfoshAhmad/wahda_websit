@@ -36,6 +36,7 @@ const PERMISSION_LABELS: Record<keyof ManagerPermissions, string> = {
   migrate_card_numbering: "ترحيل البطاقات",
   manage_users: "إدارة الحسابات",
   manage_companies: "إدارة شركات التأمين",
+  dental_services: "خدمات الأسنان",
 };
 
 export default async function ManagersPage({
@@ -53,7 +54,7 @@ export default async function ManagersPage({
 
   const managers = await prisma.facility.findMany({
     where: {
-      OR: [{ is_manager: true }, { is_admin: true }, { manager_permissions: { not: Prisma.JsonNull } }],
+      OR: [{ is_manager: true }, { is_admin: true }, { is_employee: true }],
       deleted_at: isDeletedView ? { not: null } : null,
     },
     select: {
@@ -138,6 +139,7 @@ export default async function ManagersPage({
                     migrate_card_numbering: perms.migrate_card_numbering ?? false,
                     manage_users: perms.manage_users ?? false,
                     manage_companies: perms.manage_companies ?? false,
+                    dental_services: perms.dental_services ?? false,
                   };
 
                   return (

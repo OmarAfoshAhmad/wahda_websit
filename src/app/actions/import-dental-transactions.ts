@@ -31,6 +31,7 @@ export type ImportResult = {
   totalRows: number;
   insertedCount: number;
   skippedCount: number;
+  autoCreatedCount: number;
   skippedDetails: SkippedRowDetail[];
   groups: SummaryGroup[];
 };
@@ -330,9 +331,16 @@ export async function importDentalTransactionsAction(
       return loose || null;
     };
 
-    // Policy cache
+    // Policy cache — نحمّل سياسة الشركة المستهدفة أولاً حتى تكون متاحة للمستفيدين الجدد
+    const targetCompany = companyId
+      ? await prisma.insuranceCompany.findUnique({
+          where: { id: companyId, deleted_at: null, is_active: true },
+        })
+      : null;
+
+    const extraIds = companyId ? [companyId] : [];
     const companyIds = Array.from(
-      new Set(dbBeneficiaries.map((b) => b.company_id).filter(Boolean))
+      new Set([...dbBeneficiaries.map((b) => b.company_id).filter(Boolean), ...extraIds])
     ) as string[];
 
     const dbCompanies = await prisma.insuranceCompany.findMany({
@@ -377,10 +385,56 @@ export async function importDentalTransactionsAction(
       logger.info("Purged previous dental transactions as requested.");
     }
 
+    // عداد المستفيدين الذين أُنشئوا تلقائياً
+    let autoCreatedCount = 0;
+
     // Process rows
     for (const r of rawRows) {
       const facility = resolveFacility(r.facilityName);
-      const beneficiary = r.card ? resolveBeneficiary(r.card, r.name) : null;
+      let beneficiary = r.card ? resolveBeneficiary(r.card, r.name) : null;
+
+      // ── إنشاء المستفيد تلقائياً إذا لم يكن موجوداً وكانت الشركة معروفة ──
+      if (!beneficiary && r.card && companyId && targetCompany) {
+        if (dryRun) {
+          // في وضع المعاينة: نُعامله كـ "سيُنشأ" ونضيفه للذاكرة المؤقتة
+          const tempBen = {
+            id: `__temp__${r.card}`,
+            card_number: r.card,
+            name: r.name,
+            company_id: companyId,
+            company: { id: companyId, name: targetCompany.name },
+          };
+          (dbBeneficiaries as any[]).push(tempBen);
+          beneficiary = tempBen as any;
+        } else {
+          // في وضع الكتابة الفعلي: أنشئ المستفيد في قاعدة البيانات
+          try {
+            const newBen = await prisma.beneficiary.create({
+              data: {
+                card_number: r.card,
+                name: r.name,
+                company_id: companyId,
+                status: "ACTIVE",
+              },
+              select: {
+                id: true,
+                card_number: true,
+                name: true,
+                company_id: true,
+                company: { select: { id: true, name: true } },
+              },
+            });
+            // أضفه للذاكرة المؤقتة حتى تُحل الصفوف اللاحقة بنفس رقم البطاقة
+            (dbBeneficiaries as any[]).push(newBen);
+            beneficiary = newBen as any;
+            autoCreatedCount++;
+            logger.info(`Auto-created beneficiary: ${r.name} (${r.card}) for company ${targetCompany.name}`);
+          } catch (createErr) {
+            logger.warn(`Failed to auto-create beneficiary ${r.card}:`, { error: String(createErr) });
+          }
+        }
+      }
+
       const companyName = beneficiary?.company?.name || "شركة غير مطابقة أو غير معروفة";
       const resolvedFacilityName = facility?.name || r.facilityName || "مرفق غير معروف";
 
@@ -417,17 +471,7 @@ export async function importDentalTransactionsAction(
       }
 
       if (!beneficiary) {
-        // التحقق مما إذا كان المستفيد موجوداً تحت شركة أخرى لإظهار رسالة توضيحية دقيقة
-        const otherBen = r.card 
-          ? await prisma.beneficiary.findFirst({
-              where: {
-                card_number: { mode: "insensitive", startsWith: r.card.replace(/[^A-Z0-9]/gi, "").slice(0, 12) },
-                deleted_at: null
-              },
-              include: { company: true }
-            })
-          : null;
-
+        // وصلنا هنا فقط إذا فشل الإنشاء التلقائي أو لم تُحدَّد شركة
         skippedCount++;
         skippedDetails.push({
           rowNumber: r.rowNumber,
@@ -435,9 +479,9 @@ export async function importDentalTransactionsAction(
           card: r.card,
           facilityName: r.facilityName,
           amount: r.amount,
-          reason: otherBen 
-            ? `المستفيد تابع لشركة أخرى (${otherBen.company?.name || "بدون اسم"}) وليس الشركة المحددة`
-            : "المستفيد غير موجود بقاعدة البيانات",
+          reason: companyId
+            ? "فشل إنشاء المستفيد تلقائياً — تحقق من قاعدة البيانات"
+            : "المستفيد غير موجود ولم تُحدَّد شركة تأمين لإنشائه تلقائياً",
         });
         continue;
       }
@@ -583,11 +627,16 @@ export async function importDentalTransactionsAction(
       revalidatePath("/admin/dental-transactions");
     }
 
+    if (!dryRun && autoCreatedCount > 0) {
+      revalidatePath("/beneficiaries");
+    }
+
     return {
       success: true,
       totalRows,
       insertedCount,
       skippedCount,
+      autoCreatedCount,
       skippedDetails,
       groups,
     };
@@ -599,6 +648,7 @@ export async function importDentalTransactionsAction(
       totalRows: 0,
       insertedCount: 0,
       skippedCount: 0,
+      autoCreatedCount: 0,
       skippedDetails: [],
       groups: [],
     };

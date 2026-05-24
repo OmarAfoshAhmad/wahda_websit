@@ -22,6 +22,7 @@ export type ManagerPermissions = {
   migrate_card_numbering: boolean;
   manage_users: boolean;
   manage_companies: boolean; // SEC-05 FIX: صلاحية إدارة شركات التأمين وسياساتها
+  dental_services: boolean; // صلاحية خدمات الأسنان
 };
 
 export interface Session {
@@ -56,18 +57,15 @@ export function hasPermission(
   if (!session) return false;
   if (session.is_admin === true) return true;
   
-  if (session.is_manager || session.is_employee) {
-    let perms = session.manager_permissions;
-    if (!perms) return false;
+  let perms = session.manager_permissions;
+  if (!perms) return false;
 
-    try {
-      const permsObj = typeof perms === "string" ? JSON.parse(perms) : perms;
-      const val = permsObj[permission];
-      return !!val && (val === true || val === "true" || val === 1 || val === "1");
-    } catch (e) {
-      console.error("Error parsing permissions:", e);
-      return false;
-    }
+  try {
+    const permsObj = typeof perms === "string" ? JSON.parse(perms) : perms;
+    const val = permsObj[permission];
+    return !!val && (val === true || val === "true" || val === 1 || val === "1");
+  } catch (e) {
+    console.error("Error parsing permissions:", e);
+    return false;
   }
-  return false;
 }

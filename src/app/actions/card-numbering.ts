@@ -116,6 +116,16 @@ export async function getCardNumberingArchive(showDeleted: boolean = false) {
   }
 }
 
+const normalizeArabicText = (text: string): string => {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/[أإآ]/g, "ا")
+    .replace(/ة/g, "ه")
+    .replace(/ى/g, "ي")
+    .replace(/\s+/g, " ");
+};
+
 export async function importCardNumberingAction(data: CardNumberingItem[], options: { prefix: string, padding: number, sourceFile?: string, city?: string, batchNumber?: string }) {
   const session = await getSession();
   if (!session || !hasPermission(session, "manage_card_numbering")) return { error: "غير مصرح" };
@@ -150,16 +160,54 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
     const countsPerEmp = new Map<string, number>();
     const seenInBatch = new Set<string>();
 
+    // جلب كل المستفيدين الحاليين في النظام وأرشيف الترقيم لتسريع التحقق ومتابعة الترقيم
+    const employeeNumbers = Array.from(
+      new Set(data.map(item => String(item.employee_number || "").trim().replace(/^0+/, "")))
+    ).filter(Boolean);
+
+    // تحديد الشركة المستهدفة بناء على البادئة لتجنب مقارنة المستفيدين مع شركات أخرى (مثل مصرف الوحدة)
+    const companies = await prisma.insuranceCompany.findMany({
+      where: { deleted_at: null }
+    });
+    const sortedCompanies = [...companies].sort((a, b) => b.code.length - a.code.length);
+    let targetCompany = null;
+    for (const cmp of sortedCompanies) {
+      if (prefix.toLowerCase().startsWith(cmp.code.toLowerCase())) {
+        targetCompany = cmp;
+        break;
+      }
+    }
+    const prefixFilter = targetCompany ? targetCompany.code : prefix.substring(0, 3);
+
+    // البحث في النظام (مع تقييد البحث بالشركة المستهدفة فقط)
+    const existingSystemBens = await prisma.beneficiary.findMany({
+      where: {
+        OR: employeeNumbers.map(emp => ({
+          card_number: { contains: emp }
+        })),
+        company_id: targetCompany ? targetCompany.id : undefined,
+        deleted_at: null
+      },
+      select: { card_number: true, name: true }
+    });
+
+    // البحث في الأرشيف (مع تقييد البحث ببادئة الشركة المستهدفة فقط)
+    const existingArchiveItems = await prisma.cardNumberingArchive.findMany({
+      where: {
+        employee_number: { in: employeeNumbers },
+        card_number: { startsWith: prefixFilter }
+      },
+      select: { card_number: true, name: true, status: true, employee_number: true }
+    });
+
     for (const item of data) {
       const empNumRaw = String(item.employee_number || "").trim();
-      // إزالة الأصفار البادئة لضمان عدم تكرار الحشو (Double Padding)
       const empNum = empNumRaw.replace(/^0+/, "");
       const name = String(item.name || "").trim();
       const statusVal = String(item.status || "").trim();
       const relVal = String(item.relationship || "").trim();
       const notesVal = String(item.field3 || "").trim();
 
-      // استبعاد الحالات المطلوبة (متوفي أو ملحق) في أي من الحقول الأساسية أو الملاحظات
       const fullTextSearch = `${statusVal} ${name} ${relVal} ${notesVal}`.toLowerCase();
       const isDeceased = fullTextSearch.includes("متوفي") || fullTextSearch.includes("متوفى") || fullTextSearch.includes("وفاة");
       const isAppendix = fullTextSearch.includes("ملحق");
@@ -176,7 +224,6 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
         exclusionReason = "ملحق";
       } 
       
-      // لا نستبعد بسبب تاريخ الميلاد، فقط نعطي ملاحظة
       if (isMissingBirthDate && !exclusionReason) {
         errorMsg = "⚠️ تاريخ الميلاد مفقود";
       }
@@ -196,57 +243,128 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
 
       const baseCard = prefix + (padding > 0 ? empNum.padStart(padding, "0") : empNum);
       let rel = String(item.relationship || "").trim();
-      const isMain = !rel || MAIN_ACCOUNT_TERMS.includes(rel) || rel === "Employee";
+      const isMain = !rel || MAIN_ACCOUNT_TERMS.includes(rel) || rel.toLowerCase() === "employee";
 
-      // رقم البطاقة النهائي: للموظف الرئيسي نستخدم الرقم الأساسي، وللتابعين نستخدم نظام الترميز
       let finalCardNumber = baseCard;
-      if (!isMain) {
-        const relCode = RELATIONSHIP_CODE_MAP[rel] || "X"; // استخدم X كافتراضي لمنع التصادم
-        
-        const relCountKey = `rel_${empNum}_${relCode}`;
-        const currentRelCount = (countsPerEmp.get(relCountKey) || 0) + 1;
-        countsPerEmp.set(relCountKey, currentRelCount);
-        
-        finalCardNumber = baseCard + relCode + currentRelCount;
+
+      if (!exclusionReason && empNum && name) {
+        // العثور على البادئة (رقم بطاقة الموظف الرئيسي) الموجودة بالفعل في المنظومة أو الأرشيف
+        let matchedBaseCard = baseCard;
+        const existingMainSystem = existingSystemBens.find(b => {
+          const cardLower = b.card_number.toLowerCase();
+          return cardLower.includes(empNum.toLowerCase()) && !/[wsdmfh]/i.test(cardLower.substring(cardLower.indexOf(empNum.toLowerCase())));
+        });
+        const existingMainArchive = existingArchiveItems.find(a => {
+          const cardLower = a.card_number.toLowerCase();
+          return cardLower.includes(empNum.toLowerCase()) && !/[wsdmfh]/i.test(cardLower.substring(cardLower.indexOf(empNum.toLowerCase())));
+        });
+        if (existingMainSystem) {
+          matchedBaseCard = existingMainSystem.card_number;
+        } else if (existingMainArchive) {
+          matchedBaseCard = existingMainArchive.card_number;
+        }
+
+        if (isMain) {
+          finalCardNumber = matchedBaseCard;
+        } else {
+          // البحث عن هذا التابع بالاسم والرقم الوظيفي في المنظومة أو الأرشيف لإعادة استخدام نفس بطاقته
+          const systemMatch = existingSystemBens.find(b => 
+            b.card_number.toLowerCase().includes(empNum.toLowerCase()) &&
+            normalizeArabicText(b.name) === normalizeArabicText(name)
+          );
+
+          const archiveMatch = existingArchiveItems.find(a => 
+            a.employee_number.toLowerCase() === empNum.toLowerCase() &&
+            normalizeArabicText(a.name) === normalizeArabicText(name)
+          );
+
+          if (systemMatch) {
+            finalCardNumber = systemMatch.card_number;
+          } else if (archiveMatch) {
+            finalCardNumber = archiveMatch.card_number;
+          } else {
+            // توليد لاحقة جديدة
+            const relCode = RELATIONSHIP_CODE_MAP[rel] || "X";
+            const relCountKey = `rel_${empNum}_${relCode}`;
+
+            if (!countsPerEmp.has(relCountKey)) {
+              let maxSuffix = 0;
+              const prefixToMatch = (matchedBaseCard + relCode).toLowerCase();
+
+              existingSystemBens.forEach(b => {
+                const cardLower = b.card_number.toLowerCase();
+                if (cardLower.startsWith(prefixToMatch)) {
+                  const suffixStr = cardLower.substring(prefixToMatch.length);
+                  const suffixNum = parseInt(suffixStr, 10);
+                  if (!isNaN(suffixNum) && suffixNum > maxSuffix) {
+                    maxSuffix = suffixNum;
+                  }
+                }
+              });
+
+              existingArchiveItems.forEach(a => {
+                const cardLower = a.card_number.toLowerCase();
+                if (cardLower.startsWith(prefixToMatch)) {
+                  const suffixStr = cardLower.substring(prefixToMatch.length);
+                  const suffixNum = parseInt(suffixStr, 10);
+                  if (!isNaN(suffixNum) && suffixNum > maxSuffix) {
+                    maxSuffix = suffixNum;
+                  }
+                }
+              });
+
+              countsPerEmp.set(relCountKey, maxSuffix);
+            }
+
+            const currentRelCount = countsPerEmp.get(relCountKey)! + 1;
+            countsPerEmp.set(relCountKey, currentRelCount);
+            
+            finalCardNumber = matchedBaseCard + relCode + currentRelCount;
+          }
+        }
       }
 
       const rowKey = `${finalCardNumber}`;
 
-      // 1. الأولوية: التحقق من التكرار داخل نفس الملف الحالي
-      if (seenInBatch.has(rowKey)) {
-        status = "DUPLICATE";
-        errorMsg = "[FILE] مكرر في نفس الملف";
-        report.duplicate++;
-      }
-      // 2. التحقق من التكرار في المنظومة الرئيسية
-      else {
-        const existingInSystem = await prisma.beneficiary.findFirst({
-          where: { card_number: { equals: finalCardNumber, mode: "insensitive" }, deleted_at: null }
-        });
-
-        if (existingInSystem) {
+      if (status !== "ERROR") {
+        // 1. التحقق من التكرار داخل الملف
+        if (seenInBatch.has(rowKey)) {
           status = "DUPLICATE";
-          errorMsg = "[SYSTEM] موجود مسبقاً في المنظومة الرئيسية";
+          errorMsg = "[FILE] مكرر في نفس الملف";
           report.duplicate++;
         }
-        // 3. التحقق من التكرار في الأرشيف (دفعات سابقة)
+        // 2. التحقق من التكرار بالمنظومة
         else {
-          const existingInArchive = await prisma.cardNumberingArchive.findFirst({
-            where: { card_number: { equals: finalCardNumber, mode: "insensitive" } }
-          });
-          
-          if (existingInArchive) {
-            const isMigrated = existingInArchive.status === "MIGRATED";
-            if (isMigrated) {
-              status = "DUPLICATE";
-              errorMsg = "[ARCHIVE] هذا المستفيد تم ترحيله مسبقاً";
-              report.duplicate++;
+          const existingInSystem = existingSystemBens.find(b => 
+            b.card_number.toLowerCase() === finalCardNumber.toLowerCase() ||
+            (b.card_number.toLowerCase().includes(empNum.toLowerCase()) && normalizeArabicText(b.name) === normalizeArabicText(name))
+          );
+
+          if (existingInSystem) {
+            status = "DUPLICATE";
+            errorMsg = "[SYSTEM] موجود مسبقاً في المنظومة الرئيسية";
+            report.duplicate++;
+          }
+          // 3. التحقق من التكرار في الأرشيف
+          else {
+            const existingInArchive = existingArchiveItems.find(a => 
+              a.card_number.toLowerCase() === finalCardNumber.toLowerCase() ||
+              (a.employee_number.toLowerCase() === empNum.toLowerCase() && normalizeArabicText(a.name) === normalizeArabicText(name))
+            );
+
+            if (existingInArchive) {
+              const isMigrated = existingInArchive.status === "MIGRATED";
+              if (isMigrated) {
+                status = "DUPLICATE";
+                errorMsg = "[ARCHIVE] هذا المستفيد تم ترحيله مسبقاً";
+                report.duplicate++;
+              } else {
+                status = "READY";
+                report.ready++;
+              }
             } else {
-              status = "READY";
               report.ready++;
             }
-          } else {
-            report.ready++;
           }
         }
       }
@@ -261,17 +379,14 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
         }
       }
 
-      // --- حساب نسبة التطابق بين التاريخ الأصلي والمحسوب ---
       const { percentage: matchPercentage, mismatches } = calculateMatchPercentage(
         item.original_date,
         item.birth_date
       );
 
-      // --- جلب البيانات المرجعية من جدول الحقيقة (CardIssuanceRegistry) ---
       let autoCity = item.city;
       let autoBatch = item.batch_number;
 
-      // نبحث عن بيانات الموظف الرئيسي في جدول الحقيقة باستخدام رقم البطاقة الأساسي
       const registryEntry = await prisma.cardIssuanceRegistry.findUnique({
         where: { card_number_upper: baseCard }
       });
@@ -343,6 +458,11 @@ export async function migrateCardNumberingAction(ids: string[]) {
   const changes = []; // لتخزين التغييرات لأغراض التراجع
 
   try {
+    const companies = await prisma.insuranceCompany.findMany({
+      where: { deleted_at: null }
+    });
+    const sortedCompanies = [...companies].sort((a, b) => b.code.length - a.code.length);
+
     const items = await prisma.cardNumberingArchive.findMany({
       where: {
         id: { in: ids },
@@ -352,6 +472,15 @@ export async function migrateCardNumberingAction(ids: string[]) {
 
     for (const item of items) {
       try {
+        // تحديد الشركة المستهدفة بناء على البادئة لرقم البطاقة المُراد ترحيله
+        let companyId = null;
+        for (const cmp of sortedCompanies) {
+          if (item.card_number.toLowerCase().startsWith(cmp.code.toLowerCase())) {
+            companyId = cmp.id;
+            break;
+          }
+        }
+
         // 1. البحث عن أي مستفيد موجود بنفس رقم البطاقة (حتى لو كان محذوفاً ناعماً)
         const existingByCard = await prisma.beneficiary.findFirst({
           where: {
@@ -369,6 +498,7 @@ export async function migrateCardNumberingAction(ids: string[]) {
               birth_date: item.birth_date || existingByCard.birth_date,
               city: item.city || existingByCard.city,           // ترحيل المدينة
               batch_number: item.batch_number || existingByCard.batch_number, // ترحيل رقم الدفعة
+              company_id: companyId || existingByCard.company_id, // ربط الشركة
               deleted_at: null, // استعادة السجل إذا كان في سلة المحذوفات
               status: "ACTIVE"
             }
@@ -409,6 +539,7 @@ export async function migrateCardNumberingAction(ids: string[]) {
               birth_date: item.birth_date || existingByEmp.birth_date,
               city: item.city || existingByEmp.city,           // ترحيل المدينة
               batch_number: item.batch_number || existingByEmp.batch_number, // ترحيل رقم الدفعة
+              company_id: companyId || existingByEmp.company_id, // ربط الشركة
             }
           });
           report.updated++;
@@ -429,6 +560,7 @@ export async function migrateCardNumberingAction(ids: string[]) {
               birth_date: item.birth_date,
               city: item.city,           // ترحيل المدينة للجديد
               batch_number: item.batch_number, // ترحيل رقم الدفعة للجديد
+              company_id: companyId,     // ربط المستفيد الجديد بالشركة المكتشفة تلقائياً
               status: "ACTIVE",
               total_balance: 600,
               remaining_balance: 600,
@@ -454,6 +586,7 @@ export async function migrateCardNumberingAction(ids: string[]) {
           data: {
             beneficiary_id: changes[changes.length - 1].beneficiaryId,
             facility_id: session.id,
+            company_id: companyId, // ربط الحركة بالشركة
             amount: 0,
             type: "SETTLEMENT",
             idempotency_key: `MIG-REC-${item.id}`

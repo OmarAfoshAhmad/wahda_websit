@@ -148,9 +148,9 @@ export function CardNumberingClient({
           const findKey = (keywords: string[]) => 
             keys.find(k => keywords.some(kw => String(k).includes(kw)));
 
-          const nameKey = findKey(["الأسم", "الاسم", "الإسم", "اسم المستفيد", "المستفيد", "Name", "اسم الموظف", "اسم العضو", "Full Name"]);
-          const relKey = findKey(["صلة", "القرابة", "Relationship", "النوع", "الصلة", "Rel"]);
-          const bDateKey = findKey(["ميلاد", "Birth", "تاريخ", "BDate", "DOB"]);
+          const nameKey = findKey(["الأسم", "الاسم", "الإسم", "اسم المستفيد", "اسم الموظف", "اسم العضو", "Full Name", "Name"]);
+          const relKey = findKey(["صلة", "القرابة", "Relationship", "النوع", "الصلة", "Rel", "الصفة", "المستفيد", "العلاقة", "صفة"]);
+          const bDateKey = findKey(["تاريخ الملاد", "الملاد", "ميلاد", "المواليد", "تاريخ الميلاد", "Birth", "BDate", "DOB", "تاريخ"]);
           const statusKey = findKey(["الحالة", "Status", "الوضع"]);
           const notesKey = findKey(["ملاحظات", "Notes", "البيان", "ملاحظة"]);
           const empNumKey = findKey(["الرقم الوظيفي", "رقم الموظف", "رقم العضو", "رقم التامين", "رقم التأمين", "Emp", "ID", "الرقم التسلسلي", "رقم"]);
@@ -189,7 +189,7 @@ export function CardNumberingClient({
             }
           }
 
-          const relKeywords = ["زوجة", "زوج", "ابن", "ابنة", "ام", "اب", "موظف", "رب الأسرة", "صاحب البطاقة", "بنت", "ولد", "والدة", "والد"];
+          const relKeywords = ["زوجة", "زوج", "ابن", "ابنة", "ابنه", "ابنته", "ام", "أم", "والدة", "اب", "أب", "والد", "موظف", "موظفة", "رب الأسرة", "صاحب البطاقة", "بنت", "ولد"];
           if (!rel || rel.length < 2) {
             const foundRel = values.find(v => relKeywords.includes(v));
             if (foundRel) rel = foundRel;
@@ -390,7 +390,7 @@ export function CardNumberingClient({
       return;
     }
 
-    const getExclusionReason = (item: any) => {
+        const getExclusionReason = (item: any) => {
       const text = `${item.name} ${item.status || ""} ${item.relationship || ""} ${item.error_message || ""}`.toLowerCase();
       if (text.includes("متوفي") || text.includes("متوفى") || text.includes("وفاة")) {
         return "متوفي";
@@ -400,6 +400,15 @@ export function CardNumberingClient({
       }
       if (!item.birth_date || String(item.birth_date).trim() === "") {
         return "تاريخ الميلاد مفقود";
+      }
+      if (item.status === "DUPLICATE") {
+        if (item.error_message?.includes("[SYSTEM]")) return "مكرر بالمنظومة";
+        if (item.error_message?.includes("[FILE]")) return "مكرر بالملف";
+        if (item.error_message?.includes("[ARCHIVE]")) return "مكرر بالأرشيف";
+        return "مكرر";
+      }
+      if (item.status === "ERROR") {
+        return item.error_message || "خطأ";
       }
       return null;
     };
@@ -412,7 +421,7 @@ export function CardNumberingClient({
       if (["أم", "ام", "والدة"].includes(r)) return 3;
       if (["زوجة", "زوج"].includes(r)) return 4;
       if (["ابن", "ولد"].includes(r)) return 5;
-      if (["ابنة", "بنت", "ابنه"].includes(r)) return 6;
+      if (["ابنة", "بنت", "ابنه", "ابنته"].includes(r)) return 6;
       return 7;
     };
 
@@ -458,7 +467,9 @@ export function CardNumberingClient({
         "اسم المستفيد": item.name,
         "رقم البطاقة": item.card_number,
         "المواليد": item.birth_date ? new Date(item.birth_date).toLocaleDateString('en-GB') : "",
-        "image": ""
+        "image": "",
+        "الحالة": item.status === "READY" ? "جاهز" : item.status === "MIGRATED" ? "مرحل" : item.status === "DUPLICATE" ? "مكرر" : "خطأ",
+        "التفاصيل": item.error_message || ""
       }));
       const ws1 = XLSX.utils.json_to_sheet(exportData);
       XLSX.utils.book_append_sheet(wb, ws1, "المستفيدين الفعليين");
@@ -473,7 +484,9 @@ export function CardNumberingClient({
         "رقم البطاقة": item.card_number,
         "المواليد": item.birth_date ? new Date(item.birth_date).toLocaleDateString('en-GB') : "",
         "image": "",
-        "سبب الاستبعاد": getExclusionReason(item) || "مستبعد"
+        "سبب الاستبعاد": getExclusionReason(item) || "مستبعد",
+        "الحالة": item.status === "READY" ? "جاهز" : item.status === "MIGRATED" ? "مرحل" : item.status === "DUPLICATE" ? "مكرر" : "خطأ",
+        "التفاصيل": item.error_message || ""
       }));
       const ws2 = XLSX.utils.json_to_sheet(excludedData);
       XLSX.utils.book_append_sheet(wb, ws2, "باقي الحالات");
@@ -860,7 +873,7 @@ export function CardNumberingClient({
             active={statusFilter === "DUPLICATE_FILE"} 
             onClick={() => setStatusFilter("DUPLICATE_FILE")}
             label="مكرر في الملف"
-            count={items.filter(i => i.status === "DUPLICATE_FILE").length}
+            count={items.filter(i => i.status === "DUPLICATE" && i.error_message?.includes("[FILE]")).length}
             variant="warning"
           />
           <StatusChip 

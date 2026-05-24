@@ -16,6 +16,34 @@ import { FacilityImportUploader } from "@/components/facility-import-uploader";
 import { PaginationButtons } from "@/components/pagination-buttons";
 import { PrintButton } from "@/components/print-button";
 import { formatDateTripoli } from "@/lib/datetime";
+import { ManagerPermissionsModal } from "@/components/manager-permissions-modal";
+
+const DEFAULT_PERMISSIONS = {
+  import_beneficiaries: false,
+  add_beneficiary: false,
+  edit_beneficiary: false,
+  delete_beneficiary: false,
+  add_facility: false,
+  edit_facility: false,
+  delete_facility: false,
+  cancel_transactions: false,
+  correct_transactions: false,
+  manage_recycle_bin: false,
+  export_data: false,
+  print_cards: false,
+  view_audit_log: false,
+  view_reports: false,
+  view_facilities: false,
+  view_beneficiaries: true,
+  deduct_balance: true,
+  delete_transaction: false,
+  cash_claim: false,
+  manage_card_numbering: false,
+  migrate_card_numbering: false,
+  manage_users: false,
+  manage_companies: false,
+  dental_services: false,
+};
 
 const PAGE_SIZE = 8;
 
@@ -76,6 +104,7 @@ export default async function FacilitiesPage({
         created_at: true,
         _count: { select: { transactions: { where: { is_cancelled: false } } } },
         deleted_at: true,
+        manager_permissions: true,
       },
     }),
     prisma.facility.count({ where }),
@@ -90,6 +119,7 @@ export default async function FacilitiesPage({
         created_at: true,
         _count: { select: { transactions: { where: { is_cancelled: false } } } },
         deleted_at: true,
+        manager_permissions: true,
       },
     }),
   ]);
@@ -268,7 +298,16 @@ export default async function FacilitiesPage({
                               <div className="flex items-center justify-center gap-2">
                                 {!f.is_admin && (
                                   <>
-                                    {!isDeletedView && canEdit && <FacilityEditModal facility={{ id: f.id, name: f.name, username: f.username, facility_type_override: resolveFacilityType(f).overrideType }} />}
+                                    {!isDeletedView && canEdit && (
+                                      <>
+                                        <FacilityEditModal facility={{ id: f.id, name: f.name, username: f.username, facility_type_override: resolveFacilityType(f).overrideType }} />
+                                        <ManagerPermissionsModal
+                                          managerId={f.id}
+                                          managerName={f.name}
+                                          permissions={(f as any).manager_permissions || DEFAULT_PERMISSIONS}
+                                        />
+                                      </>
+                                    )}
                                     {!isDeletedView && canDelete && f.id !== session.id && (
                                       <FacilityDeleteButton
                                         id={f.id}

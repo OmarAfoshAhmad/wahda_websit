@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
-import { getSessionWithFreshPermissions } from "@/lib/session-guard";
+import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-guard";
 import { formatDateTripoli, formatTimeTripoli } from "@/lib/datetime";
 import { BackButton } from "@/components/back-button";
 import { AutoPrint } from "@/components/auto-print";
@@ -21,7 +21,9 @@ export default async function DentalCompanyPrintPage({
 }) {
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
-  if (!session.is_admin && !session.is_manager) redirect("/dashboard");
+  const canAccess = session.is_admin || hasPermission(session, "dental_services");
+  if (!canAccess) redirect("/dashboard");
+
 
   const { companyId } = await params;
   const sp = await searchParams;
@@ -30,9 +32,9 @@ export default async function DentalCompanyPrintPage({
   const toDate = sp.to ?? "";
 
   // جلب بيانات الشركة
-  const company = await prisma.insuranceCompany.findUnique({
+  const company = (await prisma.insuranceCompany.findUnique({
     where: { id: companyId, deleted_at: null, is_active: true },
-  });
+  })) as any;
 
   if (!company) notFound();
 

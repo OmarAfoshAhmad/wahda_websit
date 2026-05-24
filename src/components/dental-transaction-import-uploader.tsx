@@ -31,6 +31,7 @@ export function DentalTransactionImportUploader({
     totalRows: number;
     insertedCount: number;
     skippedCount: number;
+    autoCreatedCount: number;
     skippedDetails: SkippedRowDetail[];
     groups: SummaryGroup[];
   } | null>(null);
@@ -42,6 +43,7 @@ export function DentalTransactionImportUploader({
     totalRows: number;
     insertedCount: number;
     skippedCount: number;
+    autoCreatedCount: number;
     skippedDetails: SkippedRowDetail[];
   } | null>(null);
 
@@ -456,6 +458,19 @@ export function DentalTransactionImportUploader({
                   <p className="mt-1 text-2xl font-black text-amber-800 dark:text-amber-300">{result.skippedCount}</p>
                 </Card>
               </div>
+
+              {/* عداد المستفيدين الجدد */}
+              {(result.autoCreatedCount ?? 0) > 0 && (
+                <div className="flex items-center gap-3 rounded-md border border-teal-200 dark:border-teal-800 bg-teal-50 dark:bg-teal-900/20 px-4 py-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-teal-100 dark:bg-teal-800 text-teal-700 dark:text-teal-300 text-sm font-black shrink-0">
+                    {result.autoCreatedCount}
+                  </div>
+                  <div>
+                    <p className="text-sm font-black text-teal-800 dark:text-teal-300">مستفيد جديد تم إنشاؤه تلقائياً</p>
+                    <p className="text-xs text-slate-500">تم إنشاء هؤلاء المستفيدين في قاعدة البيانات لأنهم كانوا في الملف دون تسجيل مسبق.</p>
+                  </div>
+                </div>
+              )}
 
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
                 <Button variant="outline" onClick={resetAll}>

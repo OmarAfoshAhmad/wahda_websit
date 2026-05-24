@@ -36,25 +36,31 @@ export default async function DentalCompanyPage({
 }) {
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
-  if (!session.is_admin && !session.is_manager) redirect("/dashboard");
+  const canAccess = session.is_admin || hasPermission(session, "dental_services");
+  if (!canAccess) redirect("/dashboard");
 
+
+  const canViewBeneficiaries = session.is_admin || hasPermission(session, "view_beneficiaries");
   const { companyId } = await params;
   const sp = await searchParams;
-  const activeTab = sp.tab === "transactions" ? "transactions" : sp.tab === "beneficiaries" ? "beneficiaries" : "deduct";
+  let activeTab = sp.tab === "transactions" ? "transactions" : sp.tab === "beneficiaries" ? "beneficiaries" : "deduct";
+  if (!canViewBeneficiaries && activeTab === "beneficiaries") {
+    activeTab = "deduct";
+  }
   const searchQuery = (sp.q ?? "").trim();
   const page = Math.max(1, parseInt(sp.page ?? "1") || 1);
   const fromDate = sp.from ?? "";
   const toDate = sp.to ?? "";
 
   // جلب بيانات الشركة مع إحصائيات المستفيدين
-  const company = await prisma.insuranceCompany.findUnique({
+  const company = (await prisma.insuranceCompany.findUnique({
     where: { id: companyId, deleted_at: null, is_active: true },
     include: {
       _count: {
         select: { beneficiaries: { where: { deleted_at: null } } },
       },
     },
-  });
+  })) as any;
 
   if (!company) notFound();
 
@@ -63,12 +69,14 @@ export default async function DentalCompanyPage({
   const dentalPolicy = true;
 
   // بناء شروط الاستعلام لحركات الأسنان
+  // من يملك صلاحية dental_services يرى جميع حركات الشركة (مثل المشرف في سياق الأسنان)
+  const hasDentalFullAccess = session.is_admin || hasPermission(session, "dental_services");
   const PAGE_SIZE = 10;
   const where: any = {
     company_id: companyId,
     type: "DENTAL",
     is_cancelled: false,
-    ...(session.is_admin ? {} : { facility_id: session.id }),
+    ...(hasDentalFullAccess ? {} : { facility_id: session.id }),
   };
 
   if (searchQuery) {
@@ -90,7 +98,8 @@ export default async function DentalCompanyPage({
   }
 
   // جلب المرافق والتحقق من الصلاحيات
-  const facilities: Array<{ id: string; name: string }> = session.is_admin
+  // من يملك dental_services يحتاج قائمة المرافق الكاملة للاقتطاع
+  const facilities: Array<{ id: string; name: string }> = hasDentalFullAccess
     ? await prisma.facility.findMany({ where: { deleted_at: null }, select: { id: true, name: true }, orderBy: { name: "asc" } })
     : [{ id: session.id, name: session.name }];
 
@@ -425,21 +434,23 @@ export default async function DentalCompanyPage({
                 </span>
               </div>
             </Link>
-            <Link
-              href={`/admin/dental-services/${companyId}?tab=beneficiaries`}
-              className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${
-                activeTab === "beneficiaries"
-                  ? "bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-sm border border-slate-200 dark:border-slate-700"
-                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-              }`}
-            >
-              <div className="flex items-center gap-1.5">
-                <span>المستفيدين</span>
-                <span className="text-[10px] font-black bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400 px-1.5 py-0.5 rounded-full">
-                  {company._count.beneficiaries}
-                </span>
-              </div>
-            </Link>
+            {canViewBeneficiaries && (
+              <Link
+                href={`/admin/dental-services/${companyId}?tab=beneficiaries`}
+                className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${
+                  activeTab === "beneficiaries"
+                    ? "bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-sm border border-slate-200 dark:border-slate-700"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+                }`}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span>المستفيدين</span>
+                  <span className="text-[10px] font-black bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400 px-1.5 py-0.5 rounded-full">
+                    {company._count.beneficiaries}
+                  </span>
+                </div>
+              </Link>
+            )}
           </div>
         )}
 

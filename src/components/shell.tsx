@@ -74,17 +74,20 @@ export function Shell({
       return [...BASE_NAV, ...MANAGER_NAV, ...(canUseCashClaim ? [CASH_CLAIM_NAV] : []), ...SUPER_ADMIN_NAV, DENTAL_NAV];
     }
     
+    const showDental = hasPermission(session, "dental_services");
+
+
     if (isManager || isEmployee) {
       return [
         ...(isEmployee && canUseCashClaim ? [EMPLOYEE_HOME_NAV, BASE_NAV[1]] : BASE_NAV),
         ...filteredManagerNav,
         ...(isManager && canUseCashClaim ? [CASH_CLAIM_NAV] : []),
         ...filteredSuperAdminNav,
-        ...(isManager ? [DENTAL_NAV] : []),
+        ...(showDental ? [DENTAL_NAV] : []),
       ];
     }
 
-    return BASE_NAV;
+    return showDental ? [...BASE_NAV, DENTAL_NAV] : BASE_NAV;
   }, [isAdmin, isManager, isEmployee, canUseCashClaim, permsHash]);
 
   const filteredMaintenanceNav = useMemo(() => {

@@ -11,7 +11,7 @@ function isManagementOrEmployeeAccount(account: {
   is_admin: boolean;
   manager_permissions: unknown;
 }) {
-  return account.is_manager || account.is_admin || account.manager_permissions !== null;
+  return true; // Allow permissions management for any account type (including normal facilities)
 }
 
 const DEFAULT_PERMISSIONS: ManagerPermissions = {
@@ -38,6 +38,7 @@ const DEFAULT_PERMISSIONS: ManagerPermissions = {
   migrate_card_numbering: false,
   manage_users: false,
   manage_companies: false,
+  dental_services: false,
 };
 
 const EMPLOYEE_PERMISSIONS: ManagerPermissions = {
@@ -64,6 +65,7 @@ const EMPLOYEE_PERMISSIONS: ManagerPermissions = {
   migrate_card_numbering: false,
   manage_users: false,
   manage_companies: false,
+  dental_services: false,
 };
 
 // ── إنشاء حساب مدير جديد (المبرمج فقط) ──────────────────────────────
@@ -164,6 +166,7 @@ export async function updateManagerPermissions(
     migrate_card_numbering: permissions.migrate_card_numbering === true,
     manage_users: permissions.manage_users === true,
     manage_companies: permissions.manage_companies === true,
+    dental_services: permissions.dental_services === true,
   };
 
   await prisma.facility.update({
@@ -181,6 +184,7 @@ export async function updateManagerPermissions(
   });
 
   revalidatePath("/admin/managers");
+  revalidatePath("/admin/facilities");
   return { success: true };
 }
 

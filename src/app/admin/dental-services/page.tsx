@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { Stethoscope, Users, Building2, Upload, ChevronLeft, ShieldCheck } from "lucide-react";
 import prisma from "@/lib/prisma";
-import { getSessionWithFreshPermissions } from "@/lib/session-guard";
+import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-guard";
 import { Shell } from "@/components/shell";
 import { Card, Badge } from "@/components/ui";
 import Link from "next/link";
@@ -15,10 +15,22 @@ export default async function DentalServicesPage({
 }) {
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
-  if (!session.is_admin && !session.is_manager) redirect("/dashboard");
+  
+  const canAccess = session.is_admin || hasPermission(session, "dental_services");
+  if (!canAccess) {
+    redirect("/dashboard");
+  }
 
+
+
+
+
+  const canImport = session.is_admin || hasPermission(session, "import_beneficiaries");
   const { tab } = await searchParams;
-  const activeTab = tab === "import" ? "import" : "companies";
+  let activeTab = tab === "import" ? "import" : "companies";
+  if (!canImport && activeTab === "import") {
+    activeTab = "companies";
+  }
 
   // جلب شركات التأمين مع إحصائيات المستفيدين
   const companies = await prisma.insuranceCompany.findMany({
@@ -67,6 +79,8 @@ export default async function DentalServicesPage({
           </div>
         </div>
 
+
+
         {/* التبويبات */}
         <div className="flex gap-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-1 w-fit">
           <Link
@@ -85,19 +99,21 @@ export default async function DentalServicesPage({
               </span>
             </div>
           </Link>
-          <Link
-            href="/admin/dental-services?tab=import"
-            className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${
-              activeTab === "import"
-                ? "bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-sm border border-slate-200 dark:border-slate-700"
-                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              <Upload className="h-4 w-4" />
-              استيراد المستفيدين
-            </div>
-          </Link>
+          {canImport && (
+            <Link
+              href="/admin/dental-services?tab=import"
+              className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${
+                activeTab === "import"
+                  ? "bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-sm border border-slate-200 dark:border-slate-700"
+                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Upload className="h-4 w-4" />
+                استيراد المستفيدين
+              </div>
+            </Link>
+          )}
         </div>
 
         {/* محتوى التبويب: الشركات */}
