@@ -15,7 +15,7 @@ const companies = [
   { name: "الوعد المعماري (Waad Architect)", code: "WCA", pattern: "^WCA2026.*", ceiling: 3000.00, coverage: 100 },
   { name: "الواحة (Waha)", code: "WAHA", pattern: "^WAHA2025.*", ceiling: 3000.00, coverage: 100 },
   { name: "الجمارك (Jamarek)", code: "JMR", pattern: "^JMR2025.*", ceiling: 3000.00, coverage: 75 },
-  { name: "المنطقة الحرة (JFZ)", code: "JFZ", pattern: "^JFZ2025.*", ceiling: 3000.00, coverage: 75 },
+  { name: "المنطقة الحرة (JFZ)", code: "JFZ", pattern: "^JFZ2025.*", ceiling: null, coverage: 75 },
 ];
 
 async function main() {

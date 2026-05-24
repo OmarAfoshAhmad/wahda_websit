@@ -59,6 +59,6 @@
     "vitest": "^4.1.2"
   },
   "prisma": {
-    "seed": "npx ts-node prisma/seed.ts"
+    "seed": "npx ts-node prisma/seed.ts && node prisma/seed-companies.js"
   }
 }
