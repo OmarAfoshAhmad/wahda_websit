@@ -153,7 +153,7 @@ export async function importDentalTransactionsAction(
 ): Promise<ImportResult> {
   const session = await requireActiveFacilitySession();
   if (!session || !session.is_admin) {
-    return { success: false, error: "غير مصرح — مخصص للمشرفين فقط", totalRows: 0, insertedCount: 0, skippedCount: 0, skippedDetails: [], groups: [] };
+    return { success: false, error: "غير مصرح — مخصص للمشرفين فقط", totalRows: 0, insertedCount: 0, skippedCount: 0, autoCreatedCount: 0, skippedDetails: [], groups: [] };
   }
 
   try {
@@ -162,7 +162,7 @@ export async function importDentalTransactionsAction(
     await workbook.xlsx.load(buffer as any);
     const ws = workbook.getWorksheet(1) || workbook.worksheets[0];
     if (!ws) {
-      return { success: false, error: "ملف Excel فارغ أو لا يحتوي على ورقة عمل صالحة.", totalRows: 0, insertedCount: 0, skippedCount: 0, skippedDetails: [], groups: [] };
+      return { success: false, error: "ملف Excel فارغ أو لا يحتوي على ورقة عمل صالحة.", totalRows: 0, insertedCount: 0, skippedCount: 0, autoCreatedCount: 0, skippedDetails: [], groups: [] };
     }
 
     const rawRows: any[] = [];
@@ -198,7 +198,7 @@ export async function importDentalTransactionsAction(
 
     const totalRows = rawRows.length;
     if (totalRows === 0) {
-      return { success: false, error: "لم يتم العثور على أي حركات صالحة في الملف.", totalRows: 0, insertedCount: 0, skippedCount: 0, skippedDetails: [], groups: [] };
+      return { success: false, error: "لم يتم العثور على أي حركات صالحة في الملف.", totalRows: 0, insertedCount: 0, skippedCount: 0, autoCreatedCount: 0, skippedDetails: [], groups: [] };
     }
 
     // Sort chronologically by date

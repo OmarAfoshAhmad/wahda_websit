@@ -77,6 +77,7 @@ export function DentalTransactionImportUploader({
             totalRows: 0,
             insertedCount: 0,
             skippedCount: 0,
+            autoCreatedCount: 0,
             skippedDetails: [],
             groups: [],
           });
@@ -99,6 +100,7 @@ export function DentalTransactionImportUploader({
           totalRows: 0,
           insertedCount: 0,
           skippedCount: 0,
+          autoCreatedCount: 0,
           skippedDetails: [],
           groups: [],
         });
@@ -113,6 +115,7 @@ export function DentalTransactionImportUploader({
         totalRows: 0,
         insertedCount: 0,
         skippedCount: 0,
+        autoCreatedCount: 0,
         skippedDetails: [],
         groups: [],
       });
@@ -137,6 +140,7 @@ export function DentalTransactionImportUploader({
         totalRows: 0,
         insertedCount: 0,
         skippedCount: 0,
+        autoCreatedCount: 0,
         skippedDetails: [],
       });
       setImporting(false);
