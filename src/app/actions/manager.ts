@@ -52,9 +52,15 @@ export async function createManager(prevState: unknown, formData: FormData) {
     return { error: "اسم المستخدم: أحرف إنجليزية صغيرة وأرقام وشرطة سفلية فقط" };
   }
 
-  const existing = await prisma.facility.findUnique({ where: { username } });
+  const existing = await prisma.facility.findUnique({
+    where: { username },
+    select: { deleted_at: true },
+  });
   if (existing) {
-    return { error: "اسم المستخدم محجوز مسبقاً، اختر اسماً آخر" };
+    if (existing.deleted_at) {
+      return { error: "اسم المستخدم مرتبط بحساب موجود في المحذوفات. يمكنك استرجاعه من تبويب المحذوفات أو اختيار اسم آخر." };
+    }
+    return { error: "اسم المستخدم مستخدم فعلياً. اختر اسماً آخر." };
   }
 
   const tempPassword = "123456";
@@ -132,6 +138,58 @@ export async function updateManagerPermissions(
       user: session.username,
       action: "UPDATE_MANAGER_PERMISSIONS",
       metadata: { manager_id: managerId, permissions: safePermissions },
+    },
+  });
+
+  revalidatePath("/admin/managers");
+  revalidatePath("/admin/facilities");
+  return { success: true };
+}
+
+// ── تعديل اسم حساب إدارة/موظف ───────────────────────────────────────
+export async function updateManagerName(
+  managerId: string,
+  nextName: string,
+): Promise<{ error?: string; success?: boolean }> {
+  const session = await requireActiveFacilitySession();
+  if (!session || !hasPermission(session, "manage_users")) {
+    return { error: "غير مصرح بهذه العملية" };
+  }
+
+  const name = String(nextName ?? "").trim();
+  if (!name || name.length < 2 || name.length > 80) {
+    return { error: "الاسم يجب أن يكون بين 2 و80 حرفاً" };
+  }
+
+  const manager = await prisma.facility.findUnique({
+    where: { id: managerId },
+    select: {
+      id: true,
+      role: true,
+      is_manager: true,
+      is_employee: true,
+      is_admin: true,
+      manager_permissions: true,
+      deleted_at: true,
+      name: true,
+    },
+  });
+
+  if (!manager || !isPermissionsManagedAccount(manager) || manager.deleted_at) {
+    return { error: "الحساب غير موجود أو غير قابل للتعديل" };
+  }
+
+  await prisma.facility.update({
+    where: { id: managerId },
+    data: { name },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      facility_id: session.id,
+      user: session.username,
+      action: "UPDATE_MANAGER_NAME",
+      metadata: { manager_id: managerId, old_name: manager.name, new_name: name },
     },
   });
 
@@ -318,9 +376,15 @@ export async function createEmployee(prevState: unknown, formData: FormData) {
     return { error: "اسم المستخدم: أحرف إنجليزية صغيرة وأرقام وشرطة سفلية فقط" };
   }
 
-  const existing = await prisma.facility.findUnique({ where: { username } });
+  const existing = await prisma.facility.findUnique({
+    where: { username },
+    select: { deleted_at: true },
+  });
   if (existing) {
-    return { error: "اسم المستخدم محجوز مسبقاً، اختر اسماً آخر" };
+    if (existing.deleted_at) {
+      return { error: "اسم المستخدم مرتبط بحساب موجود في المحذوفات. يمكنك استرجاعه من تبويب المحذوفات أو اختيار اسم آخر." };
+    }
+    return { error: "اسم المستخدم مستخدم فعلياً. اختر اسماً آخر." };
   }
 
   const tempPassword = "123456";

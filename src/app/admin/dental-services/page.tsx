@@ -177,9 +177,13 @@ export default async function DentalServicesPage({
                             سقف مفتوح
                           </span>
                         )}
-                        {copay > 0 && (
+                        {copay > 0 ? (
                           <span className="inline-flex items-center text-[11px] font-bold px-2 py-1 rounded-full bg-white/70 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
                             تحمل {copay}%
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center text-[11px] font-bold px-2 py-1 rounded-full bg-emerald-100/70 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                            لا يوجد خصم
                           </span>
                         )}
                       </div>

@@ -8,6 +8,7 @@ import { ManagerCreateForm } from "@/components/manager-create-form";
 import { ManagerPermissionsModal } from "@/components/manager-permissions-modal";
 import { ManagerDeleteButton } from "@/components/manager-delete-button";
 import { ManagerRecycleActions } from "@/components/manager-recycle-actions";
+import { ManagerEditNameModal } from "@/components/manager-edit-name-modal";
 import type { ManagerPermissions } from "@/lib/permissions";
 import { formatDateTripoli } from "@/lib/datetime";
 import {
@@ -32,8 +33,13 @@ export default async function ManagersPage({
 
   const managers = await prisma.facility.findMany({
     where: {
-      role: { in: ["ADMIN", "MANAGER", "EMPLOYEE"] },
       deleted_at: isDeletedView ? { not: null } : null,
+      OR: [
+        { role: { in: ["ADMIN", "MANAGER", "EMPLOYEE"] } },
+        { is_admin: true },
+        { is_manager: true },
+        { is_employee: true },
+      ],
     },
     select: {
       id: true,
@@ -42,6 +48,7 @@ export default async function ManagersPage({
       role: true,
       is_admin: true,
       is_manager: true,
+      is_employee: true,
       manager_permissions: true,
       must_change_password: true,
       created_at: true,
@@ -97,6 +104,7 @@ export default async function ManagersPage({
                     role: mgr.role,
                     is_admin: mgr.is_admin,
                     is_manager: mgr.is_manager,
+                    is_employee: mgr.is_employee,
                   });
                   const fullPerms: ManagerPermissions = normalizeManagerPermissionsForRole(
                     managerRole,
@@ -115,11 +123,11 @@ export default async function ManagersPage({
                             <p className="font-black text-sm text-slate-900 dark:text-white truncate">
                               {mgr.name}
                             </p>
-                            {mgr.role === "ADMIN" ? (
+                            {managerRole === "ADMIN" ? (
                               <span className="inline-flex items-center rounded-full bg-violet-100 dark:bg-violet-900/30 px-2 py-0.5 text-xs font-bold text-violet-700 dark:text-violet-400">
                                 المبرمج
                               </span>
-                            ) : mgr.role === "MANAGER" ? (
+                            ) : managerRole === "MANAGER" ? (
                               <span className="inline-flex items-center rounded-full bg-blue-100 dark:bg-blue-900/30 px-2 py-0.5 text-xs font-bold text-blue-700 dark:text-blue-400">
                                 مدير
                               </span>
@@ -139,7 +147,10 @@ export default async function ManagersPage({
                           </p>
                         </div>
                         <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:shrink-0">
-                          {!isDeletedView && mgr.role !== "ADMIN" && (
+                          {!isDeletedView && managerRole !== "ADMIN" && (
+                            <ManagerEditNameModal managerId={mgr.id} managerName={mgr.name} />
+                          )}
+                          {!isDeletedView && managerRole !== "ADMIN" && (
                             <ManagerPermissionsModal
                               managerId={mgr.id}
                               managerName={mgr.name}
@@ -147,10 +158,10 @@ export default async function ManagersPage({
                               accountRole={managerRole}
                             />
                           )}
-                          {!isDeletedView && mgr.id !== session.id && (
+                          {!isDeletedView && mgr.id !== session.id && managerRole !== "ADMIN" && (
                             <ManagerDeleteButton id={mgr.id} name={mgr.name} />
                           )}
-                          {isDeletedView && mgr.id !== session.id && (
+                          {isDeletedView && mgr.id !== session.id && managerRole !== "ADMIN" && (
                             <ManagerRecycleActions
                               id={mgr.id}
                               name={mgr.name}
@@ -163,7 +174,7 @@ export default async function ManagersPage({
                       {/* الصلاحيات الممنوحة */}
                       {/* الصلاحيات */}
                       <div className="mb-2 flex flex-wrap gap-1.5">
-                        {mgr.role === "ADMIN" ? (
+                        {managerRole === "ADMIN" ? (
                           /* المبرمج: كل الصلاحيات مفعلة + صلاحيات حصرية */
                           <>
                             {PERMISSION_KEYS.map((k) => (
