@@ -89,6 +89,7 @@ export default async function TransactionsPage({
 }) {
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
+  if (!hasPermission(session, "view_transactions")) redirect("/dashboard");
 
   const { start_date, end_date, facility_id, page: pageParam, pageSize: pageSizeParam, q, sort, order, status: _status, tx_type, source, focus_tx, company_id: companyIdParam } = await searchParams;
   const allowedPageSizes = [10, 25, 50, 100, 200, 500, 1000];
@@ -108,7 +109,6 @@ export default async function TransactionsPage({
   });
 
   const companyFilterId = (companyIdParam ?? "").trim();
-  const selectedCompany = allCompanies.find(c => c.id === companyFilterId);
 
   // ألوان ثابتة لكل شركة بناءً على ترتيبها
   const COMPANY_COLORS = [
@@ -420,6 +420,7 @@ export default async function TransactionsPage({
   const isReadOnlyEmployee = session.is_employee;
   const canCancel = !isReadOnlyEmployee && hasPermission(session, "cancel_transactions");
   const canCorrect = !isReadOnlyEmployee && hasPermission(session, "correct_transactions");
+  const canEditTransaction = !isReadOnlyEmployee && hasPermission(session, "edit_transaction");
   const canDelete = !isReadOnlyEmployee && hasPermission(session, "delete_transaction");
   const canSingleAction = session.is_admin || canCancel || canCorrect;
   const canExport = !session.is_manager || hasPermission(session, "export_data");
@@ -429,7 +430,7 @@ export default async function TransactionsPage({
     ((session.is_admin || canCancel || canDelete) ? 1 : 0) +
     (session.is_admin ? 1 : 0) +
     (session.is_admin ? 1 : 0) +
-    ((session.is_admin || canCorrect || canCancel) ? 1 : 0);
+    ((session.is_admin || canCorrect || canCancel || canEditTransaction) ? 1 : 0);
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
@@ -848,7 +849,7 @@ export default async function TransactionsPage({
                     </th>
 
                     {session.is_admin && <th className="print:hidden px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 text-center">المصدر</th>}
-                    {(session.is_admin || canCorrect || canCancel) && <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 no-print">إجراءات</th>}
+                    {(session.is_admin || canCorrect || canCancel || canEditTransaction) && <th className="px-6 py-4 text-xs font-black text-slate-400 dark:text-slate-500 no-print">إجراءات</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
@@ -857,7 +858,7 @@ export default async function TransactionsPage({
                       <td colSpan={tableColSpan} className="px-6 py-10 text-center italic text-slate-500 dark:text-slate-400">لا توجد نتائج مطابقة للفلاتر الحالية.</td>
                     </tr>
                   ) : (
-                    transactionRows.map((tx: TransactionRow, idx: number) => (
+                    transactionRows.map((tx: TransactionRow) => (
                       (() => {
                         const currentBalance = remainingAfterByTxId.get(tx.id) ?? Number(tx.beneficiary.remaining_balance);
                         const amount = Number(tx.amount);
@@ -972,7 +973,7 @@ export default async function TransactionsPage({
                             )}
                           </td>
                         )}
-                        {(session.is_admin || canCorrect || canCancel) && (
+                        {(session.is_admin || canCorrect || canCancel || canEditTransaction) && (
                           <td className="px-6 py-4 text-center no-print">
                             <div className="flex items-center justify-center gap-2">
                               {canSingleAction && (
@@ -982,7 +983,7 @@ export default async function TransactionsPage({
                                   type={tx.type}
                                 />
                               )}
-                              {(session.is_admin || canCorrect) && (
+                              {(session.is_admin || canEditTransaction) && (
                                 <TransactionEditModal
                                   transaction={{
                                     id: tx.id,

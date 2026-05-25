@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { UserCog } from "lucide-react";
-import { Prisma } from "@prisma/client";
 import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-guard";
 import prisma from "@/lib/prisma";
 import { Shell } from "@/components/shell";
@@ -9,35 +8,14 @@ import { ManagerCreateForm } from "@/components/manager-create-form";
 import { ManagerPermissionsModal } from "@/components/manager-permissions-modal";
 import { ManagerDeleteButton } from "@/components/manager-delete-button";
 import { ManagerRecycleActions } from "@/components/manager-recycle-actions";
-import type { ManagerPermissions } from "@/lib/auth";
+import type { ManagerPermissions } from "@/lib/permissions";
 import { formatDateTripoli } from "@/lib/datetime";
-
-const PERMISSION_LABELS: Record<keyof ManagerPermissions, string> = {
-  import_beneficiaries: "استيراد مستفيدين",
-  add_beneficiary: "إضافة مستفيد",
-  edit_beneficiary: "تعديل مستفيد",
-  delete_beneficiary: "حذف مستفيد",
-  add_facility: "إضافة مرفق",
-  edit_facility: "تعديل مرفق",
-  delete_facility: "حذف مرفق",
-  cancel_transactions: "إلغاء حركات",
-  correct_transactions: "تصحيح حركات",
-  manage_recycle_bin: "سلة المحذوفات",
-  export_data: "تصدير بيانات",
-  print_cards: "طباعة كروت",
-  view_audit_log: "سجل المراقبة",
-  view_reports: "التقارير",
-  view_facilities: "المرافق",
-  view_beneficiaries: "المستفيدون",
-  deduct_balance: "نقطة بيع",
-  delete_transaction: "حذف حركات",
-  cash_claim: "كاش عائلي",
-  manage_card_numbering: "ترقيم البطاقات",
-  migrate_card_numbering: "ترحيل البطاقات",
-  manage_users: "إدارة الحسابات",
-  manage_companies: "إدارة شركات التأمين",
-  dental_services: "خدمات الأسنان",
-};
+import {
+  PERMISSION_KEYS,
+  PERMISSION_LABELS,
+  normalizeManagerPermissionsForRole,
+  resolvePermissionRole,
+} from "@/lib/permission-catalog";
 
 export default async function ManagersPage({
   searchParams,
@@ -115,33 +93,15 @@ export default async function ManagersPage({
               <div className="space-y-3">
                 {managers.map((mgr) => {
                   const perms = (mgr.manager_permissions ?? {}) as Partial<ManagerPermissions>;
-
-                  const fullPerms: ManagerPermissions = {
-                    import_beneficiaries: perms.import_beneficiaries ?? false,
-                    add_beneficiary: perms.add_beneficiary ?? false,
-                    edit_beneficiary: perms.edit_beneficiary ?? false,
-                    delete_beneficiary: perms.delete_beneficiary ?? false,
-                    add_facility: perms.add_facility ?? false,
-                    edit_facility: perms.edit_facility ?? false,
-                    delete_facility: perms.delete_facility ?? false,
-                    cancel_transactions: perms.cancel_transactions ?? false,
-                    correct_transactions: perms.correct_transactions ?? false,
-                    manage_recycle_bin: perms.manage_recycle_bin ?? false,
-                    export_data: perms.export_data ?? false,
-                    print_cards: perms.print_cards ?? false,
-                    view_audit_log: perms.view_audit_log ?? false,
-                    view_reports: perms.view_reports ?? false,
-                    view_facilities: perms.view_facilities ?? false,
-                    view_beneficiaries: perms.view_beneficiaries ?? true,
-                    deduct_balance: perms.deduct_balance ?? false,
-                    delete_transaction: perms.delete_transaction ?? false,
-                    cash_claim: perms.cash_claim ?? false,
-                    manage_card_numbering: perms.manage_card_numbering ?? false,
-                    migrate_card_numbering: perms.migrate_card_numbering ?? false,
-                    manage_users: perms.manage_users ?? false,
-                    manage_companies: perms.manage_companies ?? false,
-                    dental_services: perms.dental_services ?? false,
-                  };
+                  const managerRole = resolvePermissionRole({
+                    role: mgr.role,
+                    is_admin: mgr.is_admin,
+                    is_manager: mgr.is_manager,
+                  });
+                  const fullPerms: ManagerPermissions = normalizeManagerPermissionsForRole(
+                    managerRole,
+                    perms,
+                  );
 
                   return (
                     <div
@@ -184,6 +144,7 @@ export default async function ManagersPage({
                               managerId={mgr.id}
                               managerName={mgr.name}
                               permissions={fullPerms}
+                              accountRole={managerRole}
                             />
                           )}
                           {!isDeletedView && mgr.id !== session.id && (
@@ -205,7 +166,7 @@ export default async function ManagersPage({
                         {mgr.role === "ADMIN" ? (
                           /* المبرمج: كل الصلاحيات مفعلة + صلاحيات حصرية */
                           <>
-                            {(Object.keys(PERMISSION_LABELS) as Array<keyof ManagerPermissions>).map((k) => (
+                            {PERMISSION_KEYS.map((k) => (
                               <span
                                 key={k}
                                 className="inline-flex items-center rounded-full bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 text-xs font-bold text-emerald-700 dark:text-emerald-400"
@@ -228,16 +189,16 @@ export default async function ManagersPage({
                           </>
                         ) : (
                           /* المدير: صلاحيات حسب التفعيل */
-                          (Object.keys(PERMISSION_LABELS) as Array<keyof ManagerPermissions>).map((k) => (
+                          PERMISSION_KEYS.map((k) => (
                             <span
                               key={k}
                               className={
-                                perms[k] === true
+                                fullPerms[k] === true
                                   ? "inline-flex items-center rounded-full bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 text-xs font-bold text-emerald-700 dark:text-emerald-400"
                                   : "inline-flex items-center rounded-full bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-xs font-bold text-slate-400 dark:text-slate-500 line-through"
                               }
                             >
-                              {perms[k] === true ? "✓" : "✗"} {PERMISSION_LABELS[k]}
+                              {fullPerms[k] === true ? "✓" : "✗"} {PERMISSION_LABELS[k]}
                             </span>
                           ))
                         )}

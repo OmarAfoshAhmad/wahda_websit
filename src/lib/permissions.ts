@@ -1,4 +1,8 @@
+import { normalizeManagerPermissionsForRole } from "./permission-catalog";
+
 export type ManagerPermissions = {
+  view_dashboard: boolean;
+  view_transactions: boolean;
   import_beneficiaries: boolean;
   add_beneficiary: boolean;
   edit_beneficiary: boolean;
@@ -8,6 +12,7 @@ export type ManagerPermissions = {
   delete_facility: boolean;
   cancel_transactions: boolean;
   correct_transactions: boolean;
+  edit_transaction: boolean;
   manage_recycle_bin: boolean;
   export_data: boolean;
   print_cards: boolean;
@@ -15,6 +20,7 @@ export type ManagerPermissions = {
   view_reports: boolean;
   view_facilities: boolean;
   view_beneficiaries: boolean;
+  view_dental_beneficiaries: boolean;
   deduct_balance: boolean;
   delete_transaction: boolean;
   cash_claim: boolean;
@@ -52,7 +58,7 @@ export function canAccessAdmin(session: Session): boolean {
  * صحيح إذا كان للمستخدم صلاحية تنفيذ عملية معينة.
  * - المشرف (ADMIN) دائماً لديه جميع الصلاحيات.
  * - المدير (MANAGER) أو الموظف (EMPLOYEE) يملكان فقط الصلاحيات التي فُعِّلت لهما.
- * - المرفق العادي (FACILITY) لا يملك أي صلاحيات إدارية.
+ * - المرفق العادي (FACILITY) يملك صلاحيات مقيدة جداً وفق سياسة الدور الرسمية.
  */
 export function hasPermission(
   session: Session,
@@ -60,17 +66,10 @@ export function hasPermission(
 ): boolean {
   if (!session) return false;
   if (session.role === "ADMIN") return true;
-  if (session.role !== "MANAGER" && session.role !== "EMPLOYEE") return false;
-  
-  let perms = session.manager_permissions;
-  if (!perms) return false;
-
-  try {
-    const permsObj = typeof perms === "string" ? JSON.parse(perms) : perms;
-    const val = permsObj[permission];
-    return !!val && (val === true || val === "true" || val === 1 || val === "1");
-  } catch (e) {
-    console.error("Error parsing permissions:", e);
+  if (session.role !== "MANAGER" && session.role !== "EMPLOYEE" && session.role !== "FACILITY") {
     return false;
   }
+
+  const perms = normalizeManagerPermissionsForRole(session.role, session.manager_permissions);
+  return perms[permission] === true;
 }

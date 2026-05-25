@@ -3,10 +3,9 @@ import { Stethoscope, Users, Building2, Upload, ChevronLeft, ShieldCheck } from 
 import prisma from "@/lib/prisma";
 import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-guard";
 import { Shell } from "@/components/shell";
-import { Card, Badge } from "@/components/ui";
+import { Card } from "@/components/ui";
 import Link from "next/link";
 import { DentalImportUploader } from "@/components/dental-import-uploader";
-import { Decimal } from "@prisma/client/runtime/library";
 
 export default async function DentalServicesPage({
   searchParams,
@@ -16,7 +15,7 @@ export default async function DentalServicesPage({
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
   
-  const canAccess = session.role === "ADMIN" || session.role === "MANAGER" || session.facility_type === "DENTAL" || hasPermission(session, "dental_services");
+  const canAccess = hasPermission(session, "dental_services");
   if (!canAccess) {
     redirect("/dashboard");
   }
@@ -65,55 +64,54 @@ export default async function DentalServicesPage({
     <Shell facilityName={session.name} session={session}>
       <div className="space-y-6 pb-12">
         {/* العنوان */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 dark:border-slate-800 pb-5">
+        <div className="flex flex-col gap-4 border-b border-slate-200 dark:border-slate-800 pb-5">
           <div>
-            <div className="flex items-center gap-2 mb-1">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400">
-                <Stethoscope className="h-5 w-5" />
+            <div className="mb-1 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-2">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400">
+                  <Stethoscope className="h-5 w-5" />
+                </div>
+                <h1 className="text-2xl font-black text-slate-900 dark:text-white">خدمات الأسنان</h1>
               </div>
-              <h1 className="text-2xl font-black text-slate-900 dark:text-white">خدمات الأسنان</h1>
+
+              <div className="mr-1 flex gap-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-1 w-fit">
+                <Link
+                  href="/admin/dental-services?tab=companies"
+                  className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${
+                    activeTab === "companies"
+                      ? "bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-sm border border-slate-200 dark:border-slate-700"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Building2 className="h-4 w-4" />
+                    شركات التأمين
+                    <span className="text-[10px] font-black bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400 px-1.5 py-0.5 rounded-full">
+                      {dentalCompanies.length}
+                    </span>
+                  </div>
+                </Link>
+                {canImport && (
+                  <Link
+                    href="/admin/dental-services?tab=import"
+                    className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${
+                      activeTab === "import"
+                        ? "bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-sm border border-slate-200 dark:border-slate-700"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Upload className="h-4 w-4" />
+                      استيراد المستفيدين
+                    </div>
+                  </Link>
+                )}
+              </div>
             </div>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
               إدارة مستفيدي شركات التأمين لخدمات الأسنان وتطبيق الاقتطاع المالي.
             </p>
           </div>
-        </div>
-
-
-
-        {/* التبويبات */}
-        <div className="flex gap-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-1 w-fit">
-          <Link
-            href="/admin/dental-services?tab=companies"
-            className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${
-              activeTab === "companies"
-                ? "bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-sm border border-slate-200 dark:border-slate-700"
-                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              <Building2 className="h-4 w-4" />
-              شركات التأمين
-              <span className="text-[10px] font-black bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400 px-1.5 py-0.5 rounded-full">
-                {dentalCompanies.length}
-              </span>
-            </div>
-          </Link>
-          {canImport && (
-            <Link
-              href="/admin/dental-services?tab=import"
-              className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${
-                activeTab === "import"
-                  ? "bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-sm border border-slate-200 dark:border-slate-700"
-                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <Upload className="h-4 w-4" />
-                استيراد المستفيدين
-              </div>
-            </Link>
-          )}
         </div>
 
         {/* محتوى التبويب: الشركات */}

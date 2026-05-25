@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-guard";
-import { formatDateTripoli, formatTimeTripoli } from "@/lib/datetime";
+import { formatDateTripoli } from "@/lib/datetime";
 import { BackButton } from "@/components/back-button";
 import { AutoPrint } from "@/components/auto-print";
 
@@ -21,7 +21,7 @@ export default async function DentalCompanyPrintPage({
 }) {
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
-  const canAccess = session.role === "ADMIN" || session.role === "MANAGER" || session.facility_type === "DENTAL" || hasPermission(session, "dental_services");
+  const canAccess = hasPermission(session, "dental_services");
   if (!canAccess) redirect("/dashboard");
 
 
@@ -42,11 +42,12 @@ export default async function DentalCompanyPrintPage({
   const dentalCeiling = ceiling;
 
   // بناء شروط الاستعلام
+  const hasDentalFullAccess = session.is_admin || hasPermission(session, "dental_services");
   const where: any = {
     company_id: companyId,
     type: "DENTAL",
     is_cancelled: false,
-    ...(session.is_admin ? {} : { facility_id: session.id }),
+    ...(hasDentalFullAccess ? {} : { facility_id: session.id }),
   };
 
   if (searchQuery) {

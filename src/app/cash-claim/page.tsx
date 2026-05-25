@@ -13,13 +13,18 @@ export default async function CashClaimPage() {
   if (!session) redirect("/login");
 
   const canUseCashClaim = hasPermission(session, "cash_claim");
-  const hasAdminNav = hasPermission(session, "view_facilities") || 
-                      hasPermission(session, "view_beneficiaries") ||
-                      hasPermission(session, "manage_card_numbering");
-
-  if (!session.is_employee || (!canUseCashClaim && !hasAdminNav)) {
+  if (!canUseCashClaim) {
     redirect("/dashboard");
   }
+
+  const canPickFacility = session.is_admin || session.is_manager;
+  const facilities = canPickFacility
+    ? await prisma.facility.findMany({
+        where: { deleted_at: null },
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
+      })
+    : [];
 
   // جلب آخر 10 حركات لهذا الموظف/المرفق
   const recentTransactions = await prisma.transaction.findMany({
@@ -40,8 +45,8 @@ export default async function CashClaimPage() {
         </div>
         
         <CashClaimForm
-          facilities={[]}
-          showFacilityPicker={false}
+          facilities={facilities}
+          showFacilityPicker={canPickFacility}
         />
 
         {/* قائمة الحركات الأخيرة */}

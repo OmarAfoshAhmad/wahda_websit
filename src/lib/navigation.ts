@@ -10,15 +10,13 @@ import {
   Banknote, 
   Home,
   Activity,
-  CreditCard,
-  ShieldCheck,
   Stethoscope
 } from "lucide-react";
 import type { ManagerPermissions } from "./permissions";
 
 export const BASE_NAV = [
-  { name: "الرئيسية", href: "/dashboard", icon: LayoutDashboard },
-  { name: "الحركات", href: "/transactions", icon: Activity },
+  { name: "الرئيسية", href: "/dashboard", icon: LayoutDashboard, perm: "view_dashboard" as keyof ManagerPermissions },
+  { name: "الحركات", href: "/transactions", icon: Activity, perm: "view_transactions" as keyof ManagerPermissions },
 ];
 
 export const MANAGER_NAV = [

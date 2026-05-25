@@ -8,13 +8,12 @@ import Link from "next/link";
 import { ArrowRight, Building2, Users, ShieldCheck, History, Printer, Search, ChevronLeft, ChevronRight, CalendarDays, RotateCcw, FileSpreadsheet } from "lucide-react";
 import { DentalDeductForm } from "@/components/dental-deduct-form";
 import { DentalAddTransactionButton } from "@/components/dental-add-transaction-button";
-import { formatDateTripoli, formatTimeTripoli } from "@/lib/datetime";
+import { formatDateTripoli } from "@/lib/datetime";
 import { TransactionCancelButton } from "@/components/transaction-cancel-button";
 import { TransactionEditModal } from "@/components/transaction-edit-modal";
 import { BeneficiaryEditModal } from "@/components/beneficiary-edit-modal";
 import { BeneficiaryDeleteButton } from "@/components/beneficiary-delete-button";
 import { BeneficiaryTransactionsPanelButton } from "@/components/beneficiary-transactions-panel-button";
-import { getLedgerRemainingByBeneficiaryIds } from "@/lib/ledger-balance";
 import { BeneficiaryRestoreActions } from "@/components/beneficiary-restore-actions";
 import { BeneficiariesBulkActionButton, SelectAllCheckbox, EmptyRecycleBinButton } from "@/components/beneficiaries-bulk-action-button";
 import { TransactionsBulkActionButton, SelectAllTransactionsCheckbox } from "@/components/transactions-bulk-action-button";
@@ -37,11 +36,11 @@ export default async function DentalCompanyPage({
 }) {
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
-  const canAccess = session.role === "ADMIN" || session.role === "MANAGER" || session.facility_type === "DENTAL" || hasPermission(session, "dental_services");
+  const canAccess = hasPermission(session, "dental_services");
   if (!canAccess) redirect("/dashboard");
 
 
-  const canViewBeneficiaries = session.is_admin || hasPermission(session, "view_beneficiaries");
+  const canViewBeneficiaries = session.is_admin || hasPermission(session, "view_dental_beneficiaries");
   const { companyId } = await params;
   const sp = await searchParams;
   let activeTab = sp.tab === "transactions" ? "transactions" : sp.tab === "beneficiaries" ? "beneficiaries" : "deduct";
@@ -107,6 +106,7 @@ export default async function DentalCompanyPage({
   const isReadOnlyEmployee = session.is_employee;
   const canCancel = !isReadOnlyEmployee && hasPermission(session, "cancel_transactions");
   const canCorrect = !isReadOnlyEmployee && hasPermission(session, "correct_transactions");
+  const canEditTransaction = !isReadOnlyEmployee && hasPermission(session, "edit_transaction");
   const canDelete = !isReadOnlyEmployee && hasPermission(session, "delete_transaction");
   const canSingleAction = session.is_admin || canCancel || canCorrect;
 
@@ -191,7 +191,7 @@ export default async function DentalCompanyPage({
   const accumulatedSpentByTxId = new Map();
   const dentalCeiling = ceiling;
 
-  for (const [benId, benTxs] of txsByBenMap.entries()) {
+  for (const [_benId, benTxs] of txsByBenMap.entries()) {
     let accumulatedSpent = 0;
     for (const t of benTxs) {
       const consumed = t.ceiling_consumed !== null
@@ -334,11 +334,11 @@ export default async function DentalCompanyPage({
     <Shell facilityName={session.name} session={session}>
       <div className="space-y-6 pb-12">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between border-b border-slate-200 dark:border-slate-800 pb-5">
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 flex-1 items-start gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-teal-50 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400 border border-teal-100 dark:border-teal-900/40">
               <Building2 className="h-6 w-6" />
             </div>
-            <div>
+            <div className="min-w-0 flex-1 space-y-2">
               <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
                 <Link href="/admin/dental-services" className="hover:text-teal-600 dark:hover:text-teal-400 font-bold transition-colors">
                   خدمات الأسنان
@@ -346,12 +346,61 @@ export default async function DentalCompanyPage({
                 <ArrowRight className="h-3.5 w-3.5 rotate-180" />
                 <span className="font-medium">{company.name}</span>
               </div>
-              <h1 className="text-xl font-black text-slate-900 dark:text-white mt-0.5">
-                {company.name}
-                <span className="text-xs font-bold text-slate-500 dark:text-slate-400 font-mono ml-2 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
-                  {company.code}
-                </span>
-              </h1>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-xl font-black text-slate-900 dark:text-white mt-0.5">
+                  {company.name}
+                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400 font-mono ml-2 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+                    {company.code}
+                  </span>
+                </h1>
+
+                {dentalPolicy && (
+                  <div className="mr-1 flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-1 w-fit">
+                    <Link
+                      href={`/admin/dental-services/${companyId}?tab=deduct`}
+                      className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${
+                        activeTab === "deduct"
+                          ? "bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-sm border border-slate-200 dark:border-slate-700"
+                          : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+                      }`}
+                    >
+                      إجراء الخصم
+                    </Link>
+                    <Link
+                      href={`/admin/dental-services/${companyId}?tab=transactions`}
+                      className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${
+                        activeTab === "transactions"
+                          ? "bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-sm border border-slate-200 dark:border-slate-700"
+                          : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span>آخر الحركات</span>
+                        <span className="text-[10px] font-black bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400 px-1.5 py-0.5 rounded-full">
+                          {totalCount}
+                        </span>
+                      </div>
+                    </Link>
+                    {canViewBeneficiaries && (
+                      <Link
+                        href={`/admin/dental-services/${companyId}?tab=beneficiaries`}
+                        className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${
+                          activeTab === "beneficiaries"
+                            ? "bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-sm border border-slate-200 dark:border-slate-700"
+                            : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span>المستفيدين</span>
+                          <span className="text-[10px] font-black bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400 px-1.5 py-0.5 rounded-full">
+                            {company._count.beneficiaries}
+                          </span>
+                        </div>
+                      </Link>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -409,53 +458,6 @@ export default async function DentalCompanyPage({
             </Link>
           </div>
         </div>
-
-        {dentalPolicy && (
-          <div className="flex gap-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-1 w-fit">
-            <Link
-              href={`/admin/dental-services/${companyId}?tab=deduct`}
-              className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${
-                activeTab === "deduct"
-                  ? "bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-sm border border-slate-200 dark:border-slate-700"
-                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-              }`}
-            >
-              إجراء الخصم
-            </Link>
-            <Link
-              href={`/admin/dental-services/${companyId}?tab=transactions`}
-              className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${
-                activeTab === "transactions"
-                  ? "bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-sm border border-slate-200 dark:border-slate-700"
-                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-              }`}
-            >
-              <div className="flex items-center gap-1.5">
-                <span>آخر الحركات</span>
-                <span className="text-[10px] font-black bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400 px-1.5 py-0.5 rounded-full">
-                  {totalCount}
-                </span>
-              </div>
-            </Link>
-            {canViewBeneficiaries && (
-              <Link
-                href={`/admin/dental-services/${companyId}?tab=beneficiaries`}
-                className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${
-                  activeTab === "beneficiaries"
-                    ? "bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-sm border border-slate-200 dark:border-slate-700"
-                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-                }`}
-              >
-                <div className="flex items-center gap-1.5">
-                  <span>المستفيدين</span>
-                  <span className="text-[10px] font-black bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400 px-1.5 py-0.5 rounded-full">
-                    {company._count.beneficiaries}
-                  </span>
-                </div>
-              </Link>
-            )}
-          </div>
-        )}
 
         {bulkMessage && bulkMessageType === "error" && (
           <div className="rounded-xl border p-4 text-sm font-bold flex items-center justify-between gap-3 shadow-sm border-red-200 bg-red-50 text-red-805 dark:border-red-950/40 dark:bg-red-950/20 dark:text-red-300">
@@ -545,7 +547,7 @@ export default async function DentalCompanyPage({
                   </button>
                   <Link
                     href={`/admin/dental-services/${companyId}?tab=transactions`}
-                    className="inline-flex h-10 items-center justify-center rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-805 px-4 text-sm font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                    className="inline-flex h-10 items-center justify-center rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 text-sm font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                   >
                     إعادة تعيين
                   </Link>
@@ -565,6 +567,15 @@ export default async function DentalCompanyPage({
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
+                  {(session.is_admin || canDelete) && (
+                    <TransactionsBulkActionButton
+                      formId="transactions-bulk-form"
+                      op="permanent_delete"
+                      label="حذف نهائي للمحدد"
+                      variant="danger"
+                    />
+                  )}
+
                   <Link
                     href={`/admin/dental-services/${companyId}/print?${new URLSearchParams({
                       q: searchQuery,
@@ -594,10 +605,10 @@ export default async function DentalCompanyPage({
               </div>
 
               <form id="transactions-bulk-form" className="space-y-4">
-                {(session.is_admin || canCancel || canDelete) && (
+                {(session.is_admin || canCancel) && (
                   <div className="flex items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/40 px-4 py-3 sm:px-6 rounded-lg">
                     <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
-                      يمكنك تحديد حركات متعددة لإلغائها أو حذفها بشكل جماعي.
+                      يمكنك تحديد حركات متعددة لإلغائها بشكل جماعي.
                     </p>
                     <div className="flex items-center gap-2">
                       {(session.is_admin || canCancel) && (
@@ -606,14 +617,6 @@ export default async function DentalCompanyPage({
                           op="cancel_or_rededuct"
                           label="إلغاء المحدد"
                           variant="warning"
-                        />
-                      )}
-                      {(session.is_admin || canDelete) && (
-                        <TransactionsBulkActionButton
-                          formId="transactions-bulk-form"
-                          op="permanent_delete"
-                          label="حذف نهائي للمحدد"
-                          variant="danger"
                         />
                       )}
                     </div>
@@ -638,7 +641,7 @@ export default async function DentalCompanyPage({
                            {dentalCeiling === null ? "الرصيد المستهلك" : "الرصيد المتبقي"}
                         </th>
                         <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400">التاريخ</th>
-                        {(session.is_admin || canCorrect || canCancel) && (
+                        {(session.is_admin || canCorrect || canCancel || canEditTransaction) && (
                           <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">إجراءات</th>
                         )}
                       </tr>
@@ -646,7 +649,7 @@ export default async function DentalCompanyPage({
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                       {recentTransactions.length === 0 ? (
                         <tr>
-                          <td colSpan={8 + ((session.is_admin || canCorrect || canCancel) ? 1 : 0)} className="px-4 py-12 text-center text-slate-500 dark:text-slate-400 font-bold">
+                          <td colSpan={8 + ((session.is_admin || canCorrect || canCancel || canEditTransaction) ? 1 : 0)} className="px-4 py-12 text-center text-slate-500 dark:text-slate-400 font-bold">
                             لا توجد حركات مطابقة للبحث أو معايير الفلترة المحددة.
                           </td>
                         </tr>
@@ -695,7 +698,7 @@ export default async function DentalCompanyPage({
                               <td className="px-4 py-3.5 text-xs">
                                 <span className="font-bold text-slate-700 dark:text-slate-300">{formatDateTripoli(tx.created_at)}</span>
                               </td>
-                              {(session.is_admin || canCorrect || canCancel) && (
+                              {(session.is_admin || canCorrect || canCancel || canEditTransaction) && (
                                 <td className="px-4 py-3.5 text-center">
                                   <div className="flex items-center justify-center gap-2">
                                     {canSingleAction && (
@@ -705,7 +708,7 @@ export default async function DentalCompanyPage({
                                         type={tx.type}
                                       />
                                     )}
-                                    {(session.is_admin || canCorrect) && (
+                                    {(session.is_admin || canEditTransaction) && (
                                       <TransactionEditModal
                                         transaction={{
                                           id: tx.id,

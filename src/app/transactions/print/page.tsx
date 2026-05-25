@@ -5,6 +5,7 @@ import { getArabicSearchTerms } from "@/lib/search";
 import { formatDateTripoli, formatTimeTripoli, getStartOfDayTripoli, getEndOfDayTripoli } from "@/lib/datetime";
 import { BackButton } from "@/components/back-button";
 import { AutoPrint } from "@/components/auto-print";
+import { hasPermission } from "@/lib/permissions";
 
 export default async function TransactionPrintPage({
   searchParams,
@@ -13,6 +14,7 @@ export default async function TransactionPrintPage({
 }) {
   const session = await getSession();
   if (!session) redirect("/login");
+  if (!hasPermission(session, "view_transactions")) redirect("/dashboard");
 
   const { start_date, end_date, facility_id, q, source, tx_type, status } = await searchParams;
 
@@ -108,10 +110,6 @@ export default async function TransactionPrintPage({
 
   const reportTotalAmount = Number(totals._sum.amount ?? 0);
   const reportRowsCount = totals._count.id;
-  const isSingleBeneficiary = transactions.length > 0 && transactions.every(t => (t as any).beneficiary_id === (transactions[0] as any).beneficiary_id);
-  const reportTotalRemaining = isSingleBeneficiary ? Number(transactions[0].beneficiary?.remaining_balance ?? 0) : 0;
-
-  const colSpan = session.is_admin ? 7 : 6;
 
   return (
     <div dir="rtl" style={{ backgroundColor: '#fff', color: '#000', margin: '0', padding: '0' }}>

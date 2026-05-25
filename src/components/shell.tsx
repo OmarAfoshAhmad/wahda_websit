@@ -8,8 +8,7 @@ import { cn } from "@/components/ui/core";
 import { 
   LogOut, 
   KeyRound, 
-  Wrench,
-  ChevronDown
+  Wrench
 } from "lucide-react";
 import { logout } from "@/app/actions/auth";
 import { ThemeSwitcher } from "./theme-switcher";
@@ -23,7 +22,7 @@ import {
   EMPLOYEE_HOME_NAV,
   DENTAL_NAV
 } from "@/lib/navigation";
-import type { Session } from "@/lib/permissions";
+import type { ManagerPermissions, Session } from "@/lib/permissions";
 
 const safeLogout = async () => {
   try { await logout(); } catch { window.location.href = "/login"; }
@@ -47,6 +46,13 @@ function NavLink({ item, isActive }: { item: any, isActive: boolean }) {
   );
 }
 
+function filterNavByPermission<T extends { perm?: keyof ManagerPermissions }>(
+  items: ReadonlyArray<T>,
+  session: Session,
+): T[] {
+  return items.filter((item) => !item.perm || hasPermission(session, item.perm));
+}
+
 export function Shell({
   children,
   facilityName,
@@ -62,28 +68,25 @@ export function Shell({
   const isAdmin = session.role === "ADMIN";
   const isManager = session.role === "MANAGER";
   const isEmployee = session.role === "EMPLOYEE";
-  const canUseCashClaim = (session.role === "EMPLOYEE" || session.role === "MANAGER") && hasPermission(session, "cash_claim");
+  const canUseCashClaim = hasPermission(session, "cash_claim");
 
   const permsHash = useMemo(() => JSON.stringify(session.manager_permissions), [session.manager_permissions]);
 
   const allNav = useMemo(() => {
+    const filteredBaseNav = filterNavByPermission(BASE_NAV, session);
     const filteredManagerNav = MANAGER_NAV.filter(item => hasPermission(session, item.perm));
     const filteredSuperAdminNav = SUPER_ADMIN_NAV.filter(item => hasPermission(session, item.perm));
+    const showDental = hasPermission(session, "dental_services");
 
     if (isAdmin) {
-      return [...BASE_NAV, ...filteredManagerNav, ...(canUseCashClaim ? [CASH_CLAIM_NAV] : []), ...filteredSuperAdminNav, DENTAL_NAV];
+      return [...filteredBaseNav, ...filteredManagerNav, ...(canUseCashClaim ? [CASH_CLAIM_NAV] : []), ...filteredSuperAdminNav, ...(showDental ? [DENTAL_NAV] : [])];
     }
-    
-    const showDental =
-      session.role === "ADMIN" ||
-      session.role === "MANAGER" ||
-      session.facility_type === "DENTAL" ||
-      hasPermission(session, "dental_services");
-
 
     if (isManager || isEmployee) {
       return [
-        ...(isEmployee && canUseCashClaim ? [EMPLOYEE_HOME_NAV, BASE_NAV[1]] : BASE_NAV),
+        ...(isEmployee && canUseCashClaim
+          ? [EMPLOYEE_HOME_NAV, ...filteredBaseNav.filter((item) => item.href === "/transactions")]
+          : filteredBaseNav),
         ...filteredManagerNav,
         ...(isManager && canUseCashClaim ? [CASH_CLAIM_NAV] : []),
         ...filteredSuperAdminNav,
@@ -91,8 +94,12 @@ export function Shell({
       ];
     }
 
-    return showDental ? [...BASE_NAV, DENTAL_NAV] : BASE_NAV;
-  }, [isAdmin, isManager, isEmployee, canUseCashClaim, permsHash]);
+    return [
+      ...filteredBaseNav,
+      ...(canUseCashClaim ? [CASH_CLAIM_NAV] : []),
+      ...(showDental ? [DENTAL_NAV] : []),
+    ];
+  }, [isAdmin, isManager, isEmployee, canUseCashClaim, permsHash, session]);
 
   const filteredMaintenanceNav = useMemo(() => {
     return MAINTENANCE_NAV.filter(item => {
@@ -100,7 +107,7 @@ export function Shell({
       if (item.perms.length === 0) return false;
       return item.perms.some(p => hasPermission(session, p));
     });
-  }, [isAdmin, permsHash]);
+  }, [isAdmin, permsHash, session]);
 
   const showMaintenance = filteredMaintenanceNav.length > 0;
   const roleLabel = isAdmin ? "المبرمج" : isManager ? "مدير" : isEmployee ? "موظف" : "مرفق";

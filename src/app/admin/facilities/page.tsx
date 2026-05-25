@@ -6,7 +6,7 @@ import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-gua
 import { getArabicSearchTerms } from "@/lib/search";
 import { getFacilityTypeLabel, type FacilityType } from "@/lib/facility-type";
 import { Shell } from "@/components/shell";
-import { Card, Badge, Input, Button } from "@/components/ui";
+import { Card, Input, Button } from "@/components/ui";
 import { CreateFacilityForm } from "./create-form";
 import { FacilityEditModal } from "@/components/facility-edit-modal";
 import { FacilityDeleteButton } from "@/components/facility-delete-button";
@@ -16,36 +16,25 @@ import { PaginationButtons } from "@/components/pagination-buttons";
 import { PrintButton } from "@/components/print-button";
 import { formatDateTripoli } from "@/lib/datetime";
 import { ManagerPermissionsModal } from "@/components/manager-permissions-modal";
-
-const DEFAULT_PERMISSIONS = {
-  import_beneficiaries: false,
-  add_beneficiary: false,
-  edit_beneficiary: false,
-  delete_beneficiary: false,
-  add_facility: false,
-  edit_facility: false,
-  delete_facility: false,
-  cancel_transactions: false,
-  correct_transactions: false,
-  manage_recycle_bin: false,
-  export_data: false,
-  print_cards: false,
-  view_audit_log: false,
-  view_reports: false,
-  view_facilities: false,
-  view_beneficiaries: true,
-  deduct_balance: true,
-  delete_transaction: false,
-  cash_claim: false,
-  manage_card_numbering: false,
-  migrate_card_numbering: false,
-  manage_users: false,
-  manage_companies: false,
-  dental_services: false,
-};
+import { normalizeManagerPermissionsForRole } from "@/lib/permission-catalog";
 
 // زيادة عدد العناصر المعروضة إلى 10 على الأقل ومنع التمرير العمودي
 const PAGE_SIZE = 10;
+const FACILITY_TYPE_BADGE_BASE_CLASS =
+  "inline-flex h-8 w-[170px] items-center justify-center whitespace-nowrap rounded-md px-2 text-[11px] font-bold leading-none ring-1 ring-inset";
+
+function getFacilityTypeBadgeClass(fType: FacilityType): string {
+  if (fType === "PHARMACY") {
+    return "bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-900/30 dark:text-emerald-300 dark:ring-emerald-800/60";
+  }
+  if (fType === "DENTAL") {
+    return "bg-purple-50 text-purple-700 ring-purple-600/20 dark:bg-purple-900/30 dark:text-purple-300 dark:ring-purple-800/60";
+  }
+  if (fType === "OPTICS") {
+    return "bg-amber-50 text-amber-700 ring-amber-600/20 dark:bg-amber-900/30 dark:text-amber-300 dark:ring-amber-800/60";
+  }
+  return "bg-sky-50 text-sky-700 ring-sky-600/20 dark:bg-sky-900/30 dark:text-sky-300 dark:ring-sky-800/60";
+}
 
 export default async function FacilitiesPage({
   searchParams,
@@ -62,7 +51,7 @@ export default async function FacilitiesPage({
   const page = Math.max(1, parseInt(pageParam ?? "1", 10) || 1);
   const isDeletedView = view === "deleted";
 
-  const ALLOWED_SORT = ["name", "username", "created_at", "transactions"] as const;
+  const ALLOWED_SORT = ["name", "username", "created_at", "transactions", "facility_type"] as const;
   type SortCol = typeof ALLOWED_SORT[number];
   const sortCol: SortCol = (ALLOWED_SORT as ReadonlyArray<string>).includes(sort ?? "") ? sort as SortCol : "created_at";
   const sortDir: "asc" | "desc" = order === "asc" ? "asc" : "desc";
@@ -89,9 +78,12 @@ export default async function FacilitiesPage({
   const [facilities, totalCount, allFacilities] = await Promise.all([
     prisma.facility.findMany({
       where,
-      orderBy: sortCol === "transactions"
-        ? { transactions: { _count: sortDir } }
-        : { [sortCol]: sortDir },
+      orderBy:
+        sortCol === "transactions"
+          ? { transactions: { _count: sortDir } }
+          : sortCol === "facility_type"
+            ? { facility_type: sortDir }
+            : { [sortCol]: sortDir },
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
       select: {
@@ -234,7 +226,11 @@ export default async function FacilitiesPage({
                           عدد المعاملات {sortCol === "transactions" ? (sortDir === "asc" ? "↑" : "↓") : ""}
                         </Link>
                       </th>
-                      <th className="px-5 py-3 text-center text-xs font-black text-slate-500 dark:text-slate-400 uppercase">نوع المرفق</th>
+                      <th className="px-5 py-3 text-center text-xs font-black text-slate-500 dark:text-slate-400 uppercase">
+                        <Link href={sortHref("facility_type")} className="inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
+                          نوع المرفق {sortCol === "facility_type" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                        </Link>
+                      </th>
                       {(canEdit || canDelete || session.role === "ADMIN") && <th className="px-5 py-3 text-center text-xs font-black text-slate-500 dark:text-slate-400 uppercase no-print">إجراءات</th>}
                     </tr>
                   </thead>
@@ -252,16 +248,9 @@ export default async function FacilitiesPage({
                           <td className="px-5 py-3 text-center">
                             {(() => {
                               const fType = (f.facility_type as FacilityType) || "HOSPITAL";
-                              let badgeClass = "bg-sky-50 text-sky-700 ring-sky-600/20 dark:bg-sky-900/30 dark:text-sky-300 dark:ring-sky-800/60";
-                              if (fType === "PHARMACY") {
-                                badgeClass = "bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-900/30 dark:text-emerald-300 dark:ring-emerald-800/60";
-                              } else if (fType === "DENTAL") {
-                                badgeClass = "bg-purple-50 text-purple-700 ring-purple-600/20 dark:bg-purple-900/30 dark:text-purple-300 dark:ring-purple-800/60";
-                              } else if (fType === "OPTICS") {
-                                badgeClass = "bg-amber-50 text-amber-700 ring-amber-600/20 dark:bg-amber-900/30 dark:text-amber-300 dark:ring-amber-800/60";
-                              }
+                              const badgeClass = getFacilityTypeBadgeClass(fType);
                               return (
-                                <span className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset ${badgeClass}`}>
+                                <span className={`${FACILITY_TYPE_BADGE_BASE_CLASS} ${badgeClass}`}>
                                   {getFacilityTypeLabel(fType)}
                                 </span>
                               );
@@ -278,7 +267,8 @@ export default async function FacilitiesPage({
                                         <ManagerPermissionsModal
                                           managerId={f.id}
                                           managerName={f.name}
-                                          permissions={(f as any).manager_permissions || DEFAULT_PERMISSIONS}
+                                          permissions={normalizeManagerPermissionsForRole("FACILITY", f.manager_permissions)}
+                                          accountRole="FACILITY"
                                         />
                                       </>
                                     )}
@@ -345,7 +335,14 @@ export default async function FacilitiesPage({
                         </div>
                       </div>
                       <div className="flex items-center gap-2 no-print">
-                        <Badge variant="default">{getFacilityTypeLabel((f.facility_type as FacilityType) || "HOSPITAL")}</Badge>
+                        {(() => {
+                          const fType = (f.facility_type as FacilityType) || "HOSPITAL";
+                          return (
+                            <span className={`${FACILITY_TYPE_BADGE_BASE_CLASS} ${getFacilityTypeBadgeClass(fType)}`}>
+                              {getFacilityTypeLabel(fType)}
+                            </span>
+                          );
+                        })()}
                       </div>
                     </div>
                   ))

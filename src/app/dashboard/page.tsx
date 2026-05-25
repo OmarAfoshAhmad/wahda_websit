@@ -71,6 +71,16 @@ export default async function Dashboard() {
     redirect("/login");
   }
 
+  if (!hasPermission(session, "view_dashboard")) {
+    if (hasPermission(session, "view_transactions")) {
+      redirect("/transactions");
+    }
+    if (hasPermission(session, "cash_claim")) {
+      redirect("/cash-claim");
+    }
+    redirect("/settings");
+  }
+
   const canUseCashClaim = hasPermission(session, "cash_claim");
   const hasAdminNav = hasPermission(session, "view_facilities") || 
                       hasPermission(session, "view_beneficiaries") ||

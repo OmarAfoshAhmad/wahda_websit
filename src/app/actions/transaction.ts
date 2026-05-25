@@ -129,7 +129,7 @@ export async function addTransactionFromForm(
 
 export async function updateTransactionEntry(input: EditTransactionInput): Promise<{ success?: string; error?: string }> {
   const session = await requireActiveFacilitySession();
-  if (!session || !hasPermission(session, "correct_transactions")) {
+  if (!session || !hasPermission(session, "edit_transaction")) {
     return { error: "غير مصرح لك بإجراء هذه العملية" };
   }
 

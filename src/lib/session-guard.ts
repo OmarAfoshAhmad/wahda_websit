@@ -1,6 +1,7 @@
 import prisma from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { type Session, type ManagerPermissions, type UserRole, hasPermission, canAccessAdmin } from "./permissions";
+import { normalizeManagerPermissionsForRole } from "./permission-catalog";
 
 /**
  * يسترجع الجلسة الحالية ويتحقق من أن المرفق لم يُحذف ناعماً.
@@ -29,10 +30,12 @@ export async function requireActiveFacilitySession(): Promise<Session | null> {
   if (!dbRecord) return null;
 
   const role = dbRecord.role as UserRole;
+  const facilityType = dbRecord.facility_type as Session["facility_type"] | null;
   // توحيد الأعلام مع الدور لتجاوز أي عدم اتساق قديم في الحقول المنطقية.
   const isAdmin = dbRecord.is_admin || role === "ADMIN";
   const isManager = dbRecord.is_manager || role === "MANAGER";
   const isEmployee = dbRecord.is_employee || role === "EMPLOYEE";
+  const managerPermissions = normalizeManagerPermissionsForRole(role, dbRecord.manager_permissions);
 
   return {
     ...session,
@@ -42,8 +45,8 @@ export async function requireActiveFacilitySession(): Promise<Session | null> {
     is_admin: isAdmin,
     is_manager: isManager,
     is_employee: isEmployee,
-    facility_type: (dbRecord.facility_type as any) || null,
-    manager_permissions: (dbRecord.manager_permissions as ManagerPermissions) ?? null,
+    facility_type: facilityType ?? undefined,
+    manager_permissions: managerPermissions,
   };
 }
 
@@ -74,10 +77,12 @@ export async function getSessionWithFreshPermissions(): Promise<Session | null> 
   }
 
   const role = dbRecord.role as UserRole;
+  const facilityType = dbRecord.facility_type as Session["facility_type"] | null;
   // توحيد الأعلام مع الدور لتجاوز أي عدم اتساق قديم في الحقول المنطقية.
   const isAdmin = dbRecord.is_admin || role === "ADMIN";
   const isManager = dbRecord.is_manager || role === "MANAGER";
   const isEmployee = dbRecord.is_employee || role === "EMPLOYEE";
+  const managerPermissions = normalizeManagerPermissionsForRole(role, dbRecord.manager_permissions);
 
   return {
     ...session,
@@ -87,8 +92,8 @@ export async function getSessionWithFreshPermissions(): Promise<Session | null> 
     is_admin: isAdmin,
     is_manager: isManager,
     is_employee: isEmployee,
-    facility_type: (dbRecord.facility_type as any) || null,
-    manager_permissions: (dbRecord.manager_permissions as ManagerPermissions) ?? null,
+    facility_type: facilityType ?? undefined,
+    manager_permissions: managerPermissions,
   };
 }
 

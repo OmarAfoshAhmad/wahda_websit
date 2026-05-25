@@ -7,6 +7,10 @@ import { createFacilitySchema, updateFacilitySchema } from "@/lib/validation";
 import { inferFacilityTypeFromText, normalizeFacilityTypeOverride } from "@/lib/facility-type";
 import ExcelJS from "exceljs";
 import { revalidatePath } from "next/cache";
+import {
+  getAllPermissionsEnabled,
+  getDefaultPermissionsForRole,
+} from "@/lib/permission-catalog";
 
 export async function createFacility(prevState: unknown, formData: FormData) {
   const session = await requireActiveFacilitySession();
@@ -45,9 +49,12 @@ export async function createFacility(prevState: unknown, formData: FormData) {
       username, 
       password_hash, 
       is_admin: false, 
+      is_manager: false,
+      is_employee: false,
       must_change_password: true,
       role: "FACILITY",
-      facility_type: finalType
+      facility_type: finalType,
+      manager_permissions: getDefaultPermissionsForRole("FACILITY") as unknown as Record<string, boolean>,
     },
     select: { id: true },
   });
@@ -99,6 +106,9 @@ export async function updateFacility(data: {
   const facility = await prisma.facility.findUnique({ where: { id } });
   if (!facility) {
     return { error: "المرفق غير موجود" };
+  }
+  if (facility.role !== "FACILITY") {
+    return { error: "هذا الحساب ليس مرفقًا صحيًا قابلاً للتعديل من شاشة المرافق" };
   }
 
   // التحقق من عدم تكرار اسم المستخدم
@@ -174,15 +184,29 @@ export async function toggleFacilityAdmin(id: string): Promise<{ error?: string;
   if (!session?.is_admin) return { error: "غير مصرح لك بهذه العملية" };
   if (id === session.id) return { error: "لا يمكن تغيير صلاحياتك الخاصة" };
 
-  const facility = await prisma.facility.findUnique({ where: { id }, select: { is_admin: true, name: true, username: true, deleted_at: true } });
+  const facility = await prisma.facility.findUnique({
+    where: { id },
+    select: { is_admin: true, name: true, username: true, deleted_at: true, role: true },
+  });
   if (!facility || facility.deleted_at) return { error: "المرفق غير موجود" };
+  if (facility.role !== "FACILITY" && facility.role !== "ADMIN") {
+    return { error: "يمكن ترقية/إرجاع حسابات المرافق فقط" };
+  }
 
   const newIsAdmin = !facility.is_admin;
+  const nextRole = newIsAdmin ? "ADMIN" : "FACILITY";
+  const nextPermissions = newIsAdmin
+    ? getAllPermissionsEnabled()
+    : getDefaultPermissionsForRole("FACILITY");
+
   await prisma.facility.update({ 
     where: { id }, 
     data: { 
       is_admin: newIsAdmin,
-      role: newIsAdmin ? "ADMIN" : "FACILITY"
+      is_manager: false,
+      is_employee: false,
+      role: nextRole,
+      manager_permissions: nextPermissions as unknown as Record<string, boolean>,
     } 
   });
 
@@ -204,6 +228,18 @@ export async function deleteFacility(id: string): Promise<{ error?: string; succ
   if (!session?.is_admin) return { error: "غير مصرح لك بهذه العملية" };
   if (!id) return { error: "معرّف المرفق غير صالح" };
   if (id === session.id) return { error: "لا يمكن حذف الحساب الحالي" };
+
+  const facility = await prisma.facility.findUnique({
+    where: { id },
+    select: { id: true, role: true, deleted_at: true },
+  });
+  if (!facility) return { error: "المرفق غير موجود" };
+  if (facility.role !== "FACILITY") {
+    return { error: "لا يمكن حذف حساب غير مرفق من شاشة المرافق" };
+  }
+  if (facility.deleted_at) {
+    return { error: "المرفق محذوف بالفعل" };
+  }
 
   // التحقق من وجود عمليات مرتبطة بهذا المرفق
   const txCount = await prisma.transaction.count({ where: { facility_id: id } });
@@ -237,9 +273,12 @@ export async function restoreFacility(id: string): Promise<{ error?: string; suc
 
   const facility = await prisma.facility.findUnique({
     where: { id },
-    select: { id: true, deleted_at: true, name: true },
+    select: { id: true, deleted_at: true, name: true, role: true },
   });
   if (!facility) return { error: "المرفق غير موجود" };
+  if (facility.role !== "FACILITY") {
+    return { error: "لا يمكن استعادة حساب غير مرفق من شاشة المرافق" };
+  }
   if (!facility.deleted_at) return { error: "المرفق غير محذوف" };
 
   await prisma.facility.update({
@@ -271,11 +310,15 @@ export async function permanentlyDeleteFacility(id: string): Promise<{ error?: s
       id: true,
       deleted_at: true,
       name: true,
+      role: true,
       _count: { select: { transactions: true } },
     },
   });
 
   if (!facility) return { error: "المرفق غير موجود" };
+  if (facility.role !== "FACILITY") {
+    return { error: "لا يمكن حذف حساب غير مرفق من شاشة المرافق" };
+  }
   if (!facility.deleted_at) return { error: "يجب حذف المرفق حذفا ناعما أولا" };
   if (facility._count.transactions > 0) {
     return { error: `لا يمكن الحذف النهائي — يوجد ${facility._count.transactions} معاملات مرتبطة` };
@@ -406,9 +449,12 @@ export async function importFacilitiesFromExcel(formData: FormData): Promise<{
     username: f.username,
     password_hash: defaultPasswordHash,
     is_admin: false,
+    is_manager: false,
+    is_employee: false,
     must_change_password: true,
     role: "FACILITY",
     facility_type: inferFacilityTypeFromText(f.name, f.username),
+    manager_permissions: getDefaultPermissionsForRole("FACILITY") as unknown as Record<string, boolean>,
   }));
 
   // ── 4. إدراج دفعي (createMany) ──────────────────────────────────────────

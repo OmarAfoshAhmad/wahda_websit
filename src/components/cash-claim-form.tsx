@@ -51,7 +51,7 @@ function autoDistribute(invoiceTotal: number, members: FamilyMember[]): Allocati
     amounts.set(member.id, put);
   }
 
-  let allocated = [...amounts.values()].reduce((s, v) => s + v, 0);
+  const allocated = [...amounts.values()].reduce((s, v) => s + v, 0);
   let remaining = invoiceTotal - allocated;
 
   // إعادة توزيع الباقي على من لديهم سعة متبقية
@@ -73,6 +73,172 @@ function autoDistribute(invoiceTotal: number, members: FamilyMember[]): Allocati
   return eligible
     .map((m) => ({ beneficiary_id: m.id, amount: amounts.get(m.id) ?? 0 }))
     .filter((a) => a.amount > 0);
+}
+
+function buildEligibleMap(members: FamilyMember[]) {
+  return new Map(
+    members
+      .filter((m) => m.eligible)
+      .map((m) => [m.id, m]),
+  );
+}
+
+function toAllocationMap(allocations: Allocation[]) {
+  return new Map(allocations.map((a) => [a.beneficiary_id, a.amount]));
+}
+
+function normalizeAllocationMap(map: Map<string, number>, members: FamilyMember[]) {
+  const eligibleMap = buildEligibleMap(members);
+  const next = new Map<string, number>();
+
+  for (const [beneficiaryId, amount] of map.entries()) {
+    const member = eligibleMap.get(beneficiaryId);
+    if (!member) continue;
+    const normalizedAmount = Math.max(0, Math.floor(Number(amount) || 0));
+    if (normalizedAmount <= 0) continue;
+    next.set(beneficiaryId, Math.min(normalizedAmount, member.remaining_balance));
+  }
+
+  return next;
+}
+
+function allocationTotal(map: Map<string, number>) {
+  let total = 0;
+  for (const amount of map.values()) total += amount;
+  return total;
+}
+
+function fillGap(
+  map: Map<string, number>,
+  members: FamilyMember[],
+  gap: number,
+  excludeBeneficiaryId?: string,
+) {
+  if (gap <= 0) return 0;
+
+  const candidates = members
+    .filter((m) => m.eligible && m.id !== excludeBeneficiaryId)
+    .map((m) => {
+      const current = map.get(m.id) ?? 0;
+      const spare = Math.max(0, m.remaining_balance - current);
+      return { member: m, spare };
+    })
+    .filter((c) => c.spare > 0)
+    .sort((a, b) => b.spare - a.spare);
+
+  let remainingGap = gap;
+  for (const candidate of candidates) {
+    if (remainingGap <= 0) break;
+    const current = map.get(candidate.member.id) ?? 0;
+    const put = Math.min(candidate.spare, remainingGap);
+    map.set(candidate.member.id, current + put);
+    remainingGap -= put;
+  }
+
+  return remainingGap;
+}
+
+function trimOverInvoice(
+  map: Map<string, number>,
+  members: FamilyMember[],
+  over: number,
+  excludeBeneficiaryId?: string,
+) {
+  if (over <= 0) return 0;
+
+  const candidates = members
+    .filter((m) => m.eligible && m.id !== excludeBeneficiaryId)
+    .map((m) => ({ member: m, current: map.get(m.id) ?? 0 }))
+    .filter((c) => c.current > 0)
+    .sort((a, b) => b.current - a.current);
+
+  let remainingOver = over;
+  for (const candidate of candidates) {
+    if (remainingOver <= 0) break;
+    const current = map.get(candidate.member.id) ?? 0;
+    const cut = Math.min(current, remainingOver);
+    const next = current - cut;
+    if (next > 0) map.set(candidate.member.id, next);
+    else map.delete(candidate.member.id);
+    remainingOver -= cut;
+  }
+
+  return remainingOver;
+}
+
+function mapToAllocations(map: Map<string, number>, members: FamilyMember[]): Allocation[] {
+  return members
+    .map((m) => ({ beneficiary_id: m.id, amount: map.get(m.id) ?? 0 }))
+    .filter((a) => a.amount > 0);
+}
+
+function rebalanceAllocationsForEdit(params: {
+  members: FamilyMember[];
+  previousAllocations: Allocation[];
+  beneficiaryId: string;
+  requestedAmount: number;
+  invoiceTotal: number;
+}) {
+  const { members, previousAllocations, beneficiaryId, requestedAmount, invoiceTotal } = params;
+  const member = members.find((m) => m.id === beneficiaryId);
+  if (!member || !member.eligible) {
+    return {
+      allocations: previousAllocations,
+      remainingGap: Math.max(0, invoiceTotal - previousAllocations.reduce((s, a) => s + a.amount, 0)),
+      cappedByBalance: false,
+      appliedAmount: 0,
+    };
+  }
+
+  const normalizedRequested = Math.max(0, Math.floor(Number(requestedAmount) || 0));
+  const appliedAmount = Math.min(normalizedRequested, member.remaining_balance);
+  const cappedByBalance = normalizedRequested > member.remaining_balance;
+
+  const currentMap = normalizeAllocationMap(toAllocationMap(previousAllocations), members);
+  if (appliedAmount > 0) currentMap.set(beneficiaryId, appliedAmount);
+  else currentMap.delete(beneficiaryId);
+
+  let total = allocationTotal(currentMap);
+
+  if (total < invoiceTotal) {
+    const gap = invoiceTotal - total;
+    fillGap(currentMap, members, gap, beneficiaryId);
+    total = allocationTotal(currentMap);
+  } else if (total > invoiceTotal) {
+    let over = total - invoiceTotal;
+    over = trimOverInvoice(currentMap, members, over, beneficiaryId);
+    if (over > 0) {
+      const editedCurrent = currentMap.get(beneficiaryId) ?? 0;
+      const cutFromEdited = Math.min(editedCurrent, over);
+      const nextEdited = editedCurrent - cutFromEdited;
+      if (nextEdited > 0) currentMap.set(beneficiaryId, nextEdited);
+      else currentMap.delete(beneficiaryId);
+    }
+    total = allocationTotal(currentMap);
+  }
+
+  return {
+    allocations: mapToAllocations(currentMap, members),
+    remainingGap: Math.max(0, invoiceTotal - total),
+    cappedByBalance,
+    appliedAmount,
+  };
+}
+
+function rebalanceRemainingGap(params: {
+  members: FamilyMember[];
+  previousAllocations: Allocation[];
+  invoiceTotal: number;
+}) {
+  const { members, previousAllocations, invoiceTotal } = params;
+  const currentMap = normalizeAllocationMap(toAllocationMap(previousAllocations), members);
+  const total = allocationTotal(currentMap);
+  const gap = Math.max(0, invoiceTotal - total);
+  const remainingGap = fillGap(currentMap, members, gap);
+  return {
+    allocations: mapToAllocations(currentMap, members),
+    remainingGap,
+  };
 }
 
 export function CashClaimForm({ facilities, showFacilityPicker }: Props) {
@@ -106,6 +272,10 @@ export function CashClaimForm({ facilities, showFacilityPicker }: Props) {
   const totalAllocated = useMemo(() => {
     return allocations.reduce((s, a) => s + a.amount, 0);
   }, [allocations]);
+
+  const remainingToAllocate = useMemo(() => {
+    return Math.max(0, invoiceValue - totalAllocated);
+  }, [invoiceValue, totalAllocated]);
 
   const canSubmit =
     members.length > 0 &&
@@ -182,42 +352,53 @@ export function CashClaimForm({ facilities, showFacilityPicker }: Props) {
       return;
     }
 
-    if (raw === "") {
-      setAllocations((prev) => {
-        const prevTotal = prev.reduce((s, a) => s + a.amount, 0);
-        const oldAmount = prev.find((a) => a.beneficiary_id === beneficiaryId)?.amount ?? 0;
-        const nextTotal = prevTotal - oldAmount;
-        if (nextTotal > invoiceValue) return prev;
-        return prev.filter((a) => a.beneficiary_id !== beneficiaryId);
-      });
-      return;
-    }
-
-    const amount = Number(raw);
-    if (!Number.isFinite(amount) || amount < 0) return;
-    if (!Number.isInteger(amount)) return;
-
     const member = members.find((m) => m.id === beneficiaryId);
     if (!member) return;
-
-    if (amount > member.remaining_balance) {
-      toast.error(`لا يمكن تجاوز رصيد ${member.name}`);
+    if (!member.eligible) {
+      toast.error(`${member.name} غير مؤهل للتوزيع`);
       return;
     }
 
-    setAllocations((prev) => {
-      const prevTotal = prev.reduce((s, a) => s + a.amount, 0);
-      const oldAmount = prev.find((a) => a.beneficiary_id === beneficiaryId)?.amount ?? 0;
-      const nextTotal = prevTotal - oldAmount + amount;
-      if (nextTotal > invoiceValue) {
-        toast.error("لا يمكن تجاوز قيمة الفاتورة في مجموع التوزيع");
-        return prev;
-      }
+    const requestedAmount = raw === "" ? 0 : Number(raw);
+    if (!Number.isFinite(requestedAmount) || requestedAmount < 0) return;
+    if (!Number.isInteger(requestedAmount)) return;
 
-      const rest = prev.filter((a) => a.beneficiary_id !== beneficiaryId);
-      if (amount === 0) return rest;
-      return [...rest, { beneficiary_id: beneficiaryId, amount }];
+    const result = rebalanceAllocationsForEdit({
+      members,
+      previousAllocations: allocations,
+      beneficiaryId,
+      requestedAmount,
+      invoiceTotal: invoiceValue,
     });
+    setAllocations(result.allocations);
+
+    if (result.cappedByBalance) {
+      toast.info(
+        `رصيد ${member.name} لا يكفي. تم اعتماد ${formatNumber(result.appliedAmount)} د.ل له، ونقل الفرق تلقائياً لباقي العائلة قدر الإمكان.`,
+      );
+    } else if (result.remainingGap > 0) {
+      toast.error(
+        `تعذر تغطية كامل الفاتورة. المتبقي غير مغطى: ${formatNumber(result.remainingGap)} د.ل`,
+      );
+    }
+  };
+
+  const completeRemainingGap = () => {
+    if (!Number.isInteger(invoiceValue) || invoiceValue <= 0) {
+      toast.error("أدخل قيمة الفاتورة أولاً");
+      return;
+    }
+    const result = rebalanceRemainingGap({
+      members,
+      previousAllocations: allocations,
+      invoiceTotal: invoiceValue,
+    });
+    setAllocations(result.allocations);
+    if (result.remainingGap === 0) {
+      toast.success("تم إكمال الفرق المتبقي تلقائياً بنجاح");
+    } else {
+      toast.error(`لا تزال هناك قيمة غير مغطاة: ${formatNumber(result.remainingGap)} د.ل`);
+    }
   };
 
   useEffect(() => {
@@ -371,6 +552,10 @@ export function CashClaimForm({ facilities, showFacilityPicker }: Props) {
             </Button>
           </div>
 
+          <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
+            عند تعديل مبلغ أي فرد، يتم نقل الفرق تلقائياً لباقي الأفراد المؤهلين ضمن حدود أرصدتهم ودون تجاوز قيمة الفاتورة.
+          </p>
+
           {baseCard && (
             <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-700 dark:bg-slate-800/50">
               رقم العائلة الأساسي: <strong>{baseCard}</strong>
@@ -383,6 +568,9 @@ export function CashClaimForm({ facilities, showFacilityPicker }: Props) {
           <div className="text-sm text-slate-600 dark:text-slate-300">إجمالي المتاح: <strong>{formatNumber(totalAvailable)}</strong> د.ل</div>
           <div className="text-sm text-slate-600 dark:text-slate-300">إجمالي الموزع: <strong>{formatNumber(totalAllocated)}</strong> د.ل</div>
           <div className="text-sm text-slate-600 dark:text-slate-300">قيمة الفاتورة: <strong>{formatNumber(invoiceValue)}</strong> د.ل</div>
+          <div className="text-sm text-slate-600 dark:text-slate-300">
+            المتبقي للتغطية: <strong>{formatNumber(remainingToAllocate)}</strong> د.ل
+          </div>
           <div className="pt-1">
             {totalAllocated === invoiceValue && invoiceValue > 0 ? (
               <Badge variant="success">التوزيع متطابق</Badge>
@@ -390,6 +578,15 @@ export function CashClaimForm({ facilities, showFacilityPicker }: Props) {
               <Badge variant="warning">التوزيع غير مكتمل</Badge>
             )}
           </div>
+          <Button
+            type="button"
+            variant="secondary"
+            className="w-full"
+            disabled={members.length === 0 || !invoiceTotal || remainingToAllocate <= 0}
+            onClick={completeRemainingGap}
+          >
+            إكمال الفرق تلقائياً
+          </Button>
           <Button
             type="button"
             className="mt-2 w-full"
@@ -435,6 +632,7 @@ export function CashClaimForm({ facilities, showFacilityPicker }: Props) {
                         <Input
                           type="number"
                           min={0}
+                          max={m.remaining_balance}
                           step={1}
                           disabled={!m.eligible}
                           value={amount === 0 ? "" : String(amount)}
