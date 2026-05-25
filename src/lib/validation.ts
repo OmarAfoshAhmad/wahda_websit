@@ -125,6 +125,7 @@ export const createBeneficiarySchema = z.object({
   name: z.string().min(2, "الاسم يجب أن يكون حرفين على الأقل").max(100, "الاسم طويل جداً"),
   card_number: z.string().min(3, "رقم البطاقة غير صالح").max(50, "رقم البطاقة طويل جداً").regex(/^[A-Za-z0-9\u0600-\u06FF\s\-_]+$/, "رقم البطاقة يحتوي على أحرف غير مسموحة"),
   birth_date: z.string().max(20, "تاريخ غير صالح").regex(/^(\d{4}-\d{2}-\d{2})?$/, "صيغة التاريخ يجب أن تكون YYYY-MM-DD").optional(),
+  company_id: z.string().min(1, "معرف الشركة غير صالح").max(100, "معرف الشركة غير صالح").optional(),
 });
 
 export const updateInitialBalanceSchema = z.object({

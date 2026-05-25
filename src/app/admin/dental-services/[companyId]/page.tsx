@@ -11,6 +11,7 @@ import { DentalAddTransactionButton } from "@/components/dental-add-transaction-
 import { formatDateTripoli } from "@/lib/datetime";
 import { TransactionCancelButton } from "@/components/transaction-cancel-button";
 import { TransactionEditModal } from "@/components/transaction-edit-modal";
+import { BeneficiaryCreateModal } from "@/components/beneficiary-create-modal";
 import { BeneficiaryEditModal } from "@/components/beneficiary-edit-modal";
 import { BeneficiaryDeleteButton } from "@/components/beneficiary-delete-button";
 import { BeneficiaryTransactionsPanelButton } from "@/components/beneficiary-transactions-panel-button";
@@ -112,6 +113,7 @@ export default async function DentalCompanyPage({
 
   const canEditBen = hasPermission(session, "edit_beneficiary");
   const canDeleteBen = hasPermission(session, "delete_beneficiary");
+  const canAddBen = session.is_admin || hasPermission(session, "add_beneficiary");
   const canManageRecycleBin = hasPermission(session, "manage_recycle_bin");
 
   // جلب الحركات المصفاة والمرقمنة وإحصائياتها
@@ -220,6 +222,8 @@ export default async function DentalCompanyPage({
   let deletedCount = 0;
 
   const isDeletedView = sp.view === "deleted";
+  const showBeneficiariesBulkRow =
+    session.is_admin || (canDeleteBen && !isDeletedView) || (canManageRecycleBin && isDeletedView);
   const bulkMessage = (sp.bulk_msg?.trim() ?? "").slice(0, 220);
   const bulkMessageType: "success" | "error" = sp.bulk_type === "error" ? "error" : "success";
 
@@ -251,7 +255,7 @@ export default async function DentalCompanyPage({
     const [benList, benCount] = await Promise.all([
       prisma.beneficiary.findMany({
         where: benWhere,
-        orderBy: { name: "asc" },
+        orderBy: [{ created_at: "desc" }, { id: "desc" }],
         skip: (page - 1) * PAGE_SIZE,
         take: PAGE_SIZE,
         select: {
@@ -849,30 +853,25 @@ export default async function DentalCompanyPage({
 
             <Card className="overflow-hidden p-5 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl shadow-sm space-y-4">
               <form id="beneficiaries-bulk-form">
-                {(session.is_admin || (canDeleteBen && !isDeletedView) || (canManageRecycleBin && isDeletedView)) && (
-                  <div className="flex items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/40 px-4 py-3 sm:px-6 rounded-lg mb-4">
-                    <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
-                      {isDeletedView
-                        ? "يمكنك تحديد أكثر من مستفيد محذوف ثم تنفيذ الاستعادة الجماعية أو الحذف النهائي للسجلات القابلة."
-                        : "يمكنك تحديد أكثر من مستفيد للتصدير أو الحذف الجماعي. المستفيد الذي لديه حركات مالية سيتم تخطي حذفه تلقائيًا."}
-                    </p>
-                    <div className="flex items-center gap-2">
-                      {isDeletedView && canManageRecycleBin && <EmptyRecycleBinButton disabled={deletedCount === 0} />}
-                      {isDeletedView && canManageRecycleBin && <BeneficiariesBulkActionButton formId="beneficiaries-bulk-form" mode="restore" />}
-                      <BeneficiariesBulkActionButton formId="beneficiaries-bulk-form" mode={isDeletedView ? "permanent" : "soft"} />
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-4 mb-4">
-                  <div className="flex items-center gap-2.5">
-                    <h2 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
+                <div className="flex items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-4 mb-4">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <h2 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2 whitespace-nowrap">
                       <Users className="h-5 w-5 text-teal-600" />
                       {isDeletedView ? "سلة المحذوفات للمستفيدين" : "قائمة مستفيدي هذه الشركة"}
                     </h2>
-                    <span className="text-[10px] font-black text-slate-400 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full px-2.5 py-1">
+                    <span className="shrink-0 text-[10px] font-black text-slate-400 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full px-2.5 py-1">
                       صفحة {page} من {totalBeneficiariesPages || 1}
                     </span>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {!isDeletedView && canAddBen && <BeneficiaryCreateModal companyId={companyId} />}
+                    {showBeneficiariesBulkRow && (
+                      <>
+                        <BeneficiariesBulkActionButton formId="beneficiaries-bulk-form" mode={isDeletedView ? "permanent" : "soft"} />
+                        {isDeletedView && canManageRecycleBin && <BeneficiariesBulkActionButton formId="beneficiaries-bulk-form" mode="restore" />}
+                        {isDeletedView && canManageRecycleBin && <EmptyRecycleBinButton disabled={deletedCount === 0} />}
+                      </>
+                    )}
                   </div>
                 </div>
 

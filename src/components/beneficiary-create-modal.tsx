@@ -12,7 +12,11 @@ function isLikelyValidCardNumber(value: string): boolean {
   return /^[A-Za-z0-9\u0600-\u06FF\s\-_]+$/.test(v);
 }
 
-export function BeneficiaryCreateModal() {
+type BeneficiaryCreateModalProps = {
+  companyId?: string;
+};
+
+export function BeneficiaryCreateModal({ companyId }: BeneficiaryCreateModalProps) {
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [name, setName] = useState("");
@@ -52,6 +56,7 @@ export function BeneficiaryCreateModal() {
           name,
           card_number: cardNumber,
           ...(birthDate ? { birth_date: birthDate } : {}),
+          ...(companyId ? { company_id: companyId } : {}),
         });
 
         if (result.error) {

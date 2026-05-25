@@ -114,8 +114,8 @@ export default async function BeneficiariesPage({
 
   const pageHref = (p: number) => buildBeneficiaryParams({ page: String(p) });
 
-  const cardAgeOnlyHref = buildBeneficiaryParams({ card_age: "old", page: "1" });
-  const cardAgeAllHref = buildBeneficiaryParams({ card_age: undefined, page: "1" });
+  const _cardAgeOnlyHref = buildBeneficiaryParams({ card_age: "old", page: "1" });
+  const _cardAgeAllHref = buildBeneficiaryParams({ card_age: undefined, page: "1" });
 
   const baseFilter: Record<string, unknown> = isDeletedView
     ? { deleted_at: { not: null } }
@@ -259,18 +259,9 @@ export default async function BeneficiariesPage({
   ]);
 
   const issuanceCityOptions = issuanceCityRows.map((r) => r.city).filter((v) => Boolean(v));
-  const issuanceBatchCountByValue = new Map(
-    issuanceBatchRows
-      .map((r) => ({ batch: String(r.batch_number ?? "").trim(), total: Number(r.total) || 0 }))
-      .filter((v) => Boolean(v.batch))
-      .map((v) => [v.batch, v.total] as const)
-  );
-
-  // ثابت: عرض فلتر الدفعات من 1 إلى 16 بترتيب رقمي.
-  const issuanceBatchOptions = Array.from({ length: 16 }, (_, i) => String(i + 1)).map((batch) => ({
-    batch,
-    total: issuanceBatchCountByValue.get(batch) ?? 0,
-  }));
+  const issuanceBatchOptions = issuanceBatchRows
+    .map((r) => ({ batch: String(r.batch_number ?? "").trim(), total: Number(r.total) || 0 }))
+    .filter((v, index, arr) => Boolean(v.batch) && arr.findIndex((x) => x.batch === v.batch) === index);
 
   const orderedRawBeneficiaries = focusedBeneficiary
     ? [focusedBeneficiary, ...rawBeneficiaries.filter((b) => b.id !== focusedBeneficiary.id)].slice(0, PAGE_SIZE)

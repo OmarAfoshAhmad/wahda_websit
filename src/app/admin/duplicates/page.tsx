@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import prisma from "@/lib/prisma";
-import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-guard";
+import { getSessionWithFreshPermissions } from "@/lib/session-guard";
 import { getLedgerRemainingByBeneficiaryIds } from "@/lib/ledger-balance";
 import { Shell } from "@/components/shell";
 import { Card, Badge, Input, Button } from "@/components/ui";
@@ -23,7 +23,6 @@ import {
   mergeAuditGroupRedirectAction,
   mergeAuditBatchAction,
   undoMergeAction,
-  ignoreAction,
 } from "@/app/actions/duplicate-page-actions";
 
 type IssuanceRegistryRow = {
@@ -223,7 +222,7 @@ export default async function DuplicatesAdminPage({
     return `/admin/duplicates?${params.toString()}`;
   };
 
-  const buildHealthSubtabHref = (nextHealthSubtab: "general" | "legacy-cards") => {
+  const _buildHealthSubtabHref = (nextHealthSubtab: "general" | "legacy-cards") => {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
     params.set("pz", String(pageZero));
@@ -408,6 +407,7 @@ export default async function DuplicatesAdminPage({
   const globalDuplicateTotal =
     (needsBeneficiaryData ? zeroVariantGroups.length + sameNameGroups.length + needsReviewZeroVariants.length : 0) +
     (activeTab === "debt" ? debtCases.length : 0);
+  const birthDateConflictsCount = sameNameGroups.filter((g) => g.hasBirthDateConflict).length;
   const debtExportBeforeHref = "/api/admin/duplicates/debt-over-limit/export?mode=before";
   const debtExportAfterHref = `/api/admin/duplicates/debt-over-limit/export?mode=after${debtAudit ? `&auditId=${encodeURIComponent(debtAudit)}` : ""}`;
   const debtViewAllHref = `/admin/duplicates?${new URLSearchParams({
@@ -436,10 +436,10 @@ export default async function DuplicatesAdminPage({
   }).toString()}`;
 
   const isRegistryTab = activeTab === "legacycards";
-  let registryRows: IssuanceRegistryRow[] = [];
+  let _registryRows: IssuanceRegistryRow[] = [];
   let registryTotal = 0;
-  let registryCityOptions: Array<{ city: string }> = [];
-  let registryBatchOptions: Array<{ batch_number: string | null }> = [];
+  let _registryCityOptions: Array<{ city: string }> = [];
+  let _registryBatchOptions: Array<{ batch_number: string | null }> = [];
 
   if (isRegistryTab) {
     const registryRowsSql = searchQuery
@@ -520,10 +520,10 @@ export default async function DuplicatesAdminPage({
       `,
     ]);
 
-    registryRows = rowsResult;
+    _registryRows = rowsResult;
     registryTotal = countResult.length > 0 ? Number(countResult[0].count ?? 0) : 0;
-    registryCityOptions = cityResult;
-    registryBatchOptions = batchResult;
+    _registryCityOptions = cityResult;
+    _registryBatchOptions = batchResult;
   }
 
   const noZeroFilterSql = searchQuery
@@ -586,7 +586,7 @@ export default async function DuplicatesAdminPage({
     ? await getLedgerRemainingByBeneficiaryIds(noZeroRows.map((row) => row.id))
     : new Map<string, number>();
 
-  const registryPages = Math.max(1, Math.ceil(registryTotal / registryPageSize));
+  const _registryPages = Math.max(1, Math.ceil(registryTotal / registryPageSize));
   const noZeroPages = Math.max(1, Math.ceil(noZeroTotal / noZeroPageSize));
 
   return (
@@ -721,27 +721,66 @@ export default async function DuplicatesAdminPage({
           </div>
         </Card>
 
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-          <Card className="p-4">
-            <p className="text-xs font-bold text-slate-500 dark:text-slate-400">جاهزة للدمج</p>
-            <p className="mt-1 text-2xl font-black text-slate-900 dark:text-white">{zeroVariantGroups.length}</p>
-          </Card>
-          <Card className="p-4">
-            <p className="text-xs font-bold text-slate-500 dark:text-slate-400">نفس الاسم (تدقيق)</p>
-            <p className="mt-1 text-2xl font-black text-slate-900 dark:text-white">{sameNameGroups.length}</p>
-          </Card>
-          <Card className="p-4">
-            <p className="text-xs font-bold text-slate-500 dark:text-slate-400">اختلاف الأصفار (تدقيق)</p>
-            <p className="mt-1 text-2xl font-black text-amber-600 dark:text-amber-400">{needsReviewZeroVariants.length}</p>
-          </Card>
-          <Card className="p-4">
-            <p className="text-xs font-bold text-slate-500 dark:text-slate-400">مديونية تجاوز الرصيد</p>
-            <p className="mt-1 text-2xl font-black text-slate-900 dark:text-white">{debtCases.length}</p>
-          </Card>
-          <Card className="p-4 border-sky-200 dark:border-sky-800 bg-sky-50/40 dark:bg-sky-950/20">
-            <p className="text-xs font-bold text-sky-700 dark:text-sky-300">إجمالي حالات التكرارات</p>
-            <p className="mt-1 text-2xl font-black text-sky-800 dark:text-sky-200">{globalDuplicateTotal}</p>
-          </Card>
+        <div id="cases-overview" className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+          <Link href={`${buildTabHref("review")}#zero-ready-cases`} className="block">
+            <Card className={`p-4 transition-all hover:shadow-sm ${activeTab === "review" ? "ring-2 ring-emerald-200 dark:ring-emerald-800" : ""}`}>
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-xs font-bold text-slate-500 dark:text-slate-400">جاهزة للدمج</p>
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${zeroVariantGroups.length > 0 ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"}`}>
+                  {zeroVariantGroups.length > 0 ? "جاهزة" : "لا حالات"}
+                </span>
+              </div>
+              <p className="mt-1 text-2xl font-black text-slate-900 dark:text-white">{zeroVariantGroups.length}</p>
+            </Card>
+          </Link>
+
+          <Link href={`${buildTabHref("audit")}#audit-same-name-cases`} className="block">
+            <Card className={`p-4 transition-all hover:shadow-sm ${activeTab === "audit" ? "ring-2 ring-amber-200 dark:ring-amber-800" : ""}`}>
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-xs font-bold text-slate-500 dark:text-slate-400">نفس الاسم (تدقيق)</p>
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${sameNameGroups.length > 0 ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"}`}>
+                  {sameNameGroups.length > 0 ? "تحتاج تدقيق" : "مكتملة"}
+                </span>
+              </div>
+              <p className="mt-1 text-2xl font-black text-slate-900 dark:text-white">{sameNameGroups.length}</p>
+            </Card>
+          </Link>
+
+          <Link href={`${buildTabHref("audit")}#audit-zero-review-cases`} className="block">
+            <Card className={`p-4 transition-all hover:shadow-sm ${activeTab === "audit" ? "ring-2 ring-amber-200 dark:ring-amber-800" : ""}`}>
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-xs font-bold text-slate-500 dark:text-slate-400">اختلاف الأصفار (تدقيق)</p>
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${needsReviewZeroVariants.length > 0 ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"}`}>
+                  {needsReviewZeroVariants.length > 0 ? "تحتاج تدقيق" : "مكتملة"}
+                </span>
+              </div>
+              <p className="mt-1 text-2xl font-black text-amber-600 dark:text-amber-400">{needsReviewZeroVariants.length}</p>
+            </Card>
+          </Link>
+
+          <Link href={`${buildTabHref("debt")}#debt-cases`} className="block">
+            <Card className={`p-4 transition-all hover:shadow-sm ${activeTab === "debt" ? "ring-2 ring-red-200 dark:ring-red-800" : ""}`}>
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-xs font-bold text-slate-500 dark:text-slate-400">مديونية تجاوز الرصيد</p>
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${debtCases.length > 0 ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"}`}>
+                  {debtCases.length > 0 ? "تحتاج تسوية" : "سليمة"}
+                </span>
+              </div>
+              <p className="mt-1 text-2xl font-black text-slate-900 dark:text-white">{debtCases.length}</p>
+            </Card>
+          </Link>
+
+          <Link href={`${buildTabHref("review")}#cases-overview`} className="block">
+            <Card className="p-4 border-sky-200 dark:border-sky-800 bg-sky-50/40 dark:bg-sky-950/20 transition-all hover:shadow-sm">
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-xs font-bold text-sky-700 dark:text-sky-300">إجمالي حالات التكرارات</p>
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${globalDuplicateTotal > 0 ? "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"}`}>
+                  {globalDuplicateTotal > 0 ? "متابعة مطلوبة" : "لا توجد حالات"}
+                </span>
+              </div>
+              <p className="mt-1 text-2xl font-black text-sky-800 dark:text-sky-200">{globalDuplicateTotal}</p>
+            </Card>
+          </Link>
         </div>
 
         {activeTab === "merged" && (
@@ -870,22 +909,37 @@ export default async function DuplicatesAdminPage({
           <>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3" suppressHydrationWarning={true}>
               <Card className="p-4">
-                <p className="text-sm font-bold text-slate-500 dark:text-slate-400" suppressHydrationWarning={true}>تكرار الأصفار (جاهز للدمج)</p>
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-bold text-slate-500 dark:text-slate-400" suppressHydrationWarning={true}>تكرار الأصفار (جاهز للدمج)</p>
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${zeroVariantGroups.length > 0 ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"}`}>
+                    {zeroVariantGroups.length > 0 ? "جاهز" : "لا حالات"}
+                  </span>
+                </div>
                 <p className="mt-1 text-2xl font-black text-slate-900 dark:text-white" suppressHydrationWarning={true}>{zeroVariantGroups.length}</p>
               </Card>
               <Card className="p-4">
-                <p className="text-sm font-bold text-slate-500 dark:text-slate-400" suppressHydrationWarning={true}>نفس الاسم — تحتاج تدقيق</p>
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-bold text-slate-500 dark:text-slate-400" suppressHydrationWarning={true}>نفس الاسم — تحتاج تدقيق</p>
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${sameNameGroups.length > 0 ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"}`}>
+                    {sameNameGroups.length > 0 ? "مفتوحة" : "مكتملة"}
+                  </span>
+                </div>
                 <p className="mt-1 text-2xl font-black text-slate-900 dark:text-white" suppressHydrationWarning={true}>{sameNameGroups.length}</p>
               </Card>
               <Card className="p-4">
-                <p className="text-sm font-bold text-slate-500 dark:text-slate-400" suppressHydrationWarning={true}>تعارض تاريخ الميلاد (أشخاص مختلفون محتملون)</p>
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-bold text-slate-500 dark:text-slate-400" suppressHydrationWarning={true}>تعارض تاريخ الميلاد (أشخاص مختلفون محتملون)</p>
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${birthDateConflictsCount > 0 ? "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"}`}>
+                    {birthDateConflictsCount > 0 ? "تحقق يدوي" : "مستقرة"}
+                  </span>
+                </div>
                 <p className="mt-1 text-2xl font-black text-amber-600 dark:text-amber-400" suppressHydrationWarning={true}>
-                  {sameNameGroups.filter((g) => g.hasBirthDateConflict).length}
+                  {birthDateConflictsCount}
                 </p>
               </Card>
             </div>
 
-            <Card className="overflow-hidden">
+            <Card id="zero-ready-cases" className="overflow-hidden">
               <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 px-4 py-3 sm:px-6">
                 <h2 className="text-sm font-black text-slate-900 dark:text-white">حالات اختلاف الأصفار (جاهزة للدمج)</h2>
                 {zeroVariantGroups.length > 0 && (
@@ -1014,7 +1068,7 @@ export default async function DuplicatesAdminPage({
               </div>
             </Card>
 
-            <Card className="overflow-hidden">
+            <Card id="debt-cases" className="overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full min-w-245 text-sm">
                   <thead className="bg-slate-50 dark:bg-slate-900/40">
@@ -1164,7 +1218,7 @@ export default async function DuplicatesAdminPage({
             </Card>
 
             {/* ── تكرار أصفار بأسماء مختلفة ────────────────────── */}
-            <Card className="overflow-hidden">
+            <Card id="audit-zero-review-cases" className="overflow-hidden">
               <div className="border-b border-slate-200 dark:border-slate-800 px-4 py-3 sm:px-6">
                 <h2 className="text-sm font-black text-amber-700 dark:text-amber-400">تكرار أصفار بأسماء مختلفة (يحتاج تدقيق)</h2>
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
@@ -1277,7 +1331,7 @@ export default async function DuplicatesAdminPage({
               </form>
             )}
 
-            <Card className="overflow-hidden">
+            <Card id="audit-same-name-cases" className="overflow-hidden">
               <div className="border-b border-slate-200 dark:border-slate-800 px-4 py-3 sm:px-6">
                 <h2 className="text-sm font-black text-slate-900 dark:text-white">نفس الاسم ببطاقات متعددة (للمراجعة)</h2>
               </div>

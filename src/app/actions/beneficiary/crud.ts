@@ -78,6 +78,7 @@ export async function createBeneficiary(data: {
   name: string;
   card_number: string;
   birth_date?: string;
+  company_id?: string;
 }) {
   const session = await requireActiveFacilitySession();
   if (!session || !hasPermission(session, 'add_beneficiary')) {
@@ -93,6 +94,7 @@ export async function createBeneficiary(data: {
   const normalizedCardNumber = utils.normalizeCardNumber(payload.card_number);
   const normalizedName = normalizePersonName(payload.name);
   const parsedBirthDate = utils.parseBirthDate(payload.birth_date);
+  const requestedCompanyId = payload.company_id?.trim() || undefined;
   const initialBalance = await getCurrentInitialBalance();
 
   try {
@@ -116,11 +118,24 @@ export async function createBeneficiary(data: {
         }
       }
 
+      let beneficiaryCompanyId: string | undefined = undefined;
+      if (requestedCompanyId) {
+        const targetCompany = await tx.insuranceCompany.findFirst({
+          where: { id: requestedCompanyId, deleted_at: null, is_active: true },
+          select: { id: true },
+        });
+        if (!targetCompany) {
+          throw new Error("COMPANY_NOT_FOUND");
+        }
+        beneficiaryCompanyId = targetCompany.id;
+      }
+
       const beneficiary = await tx.beneficiary.create({
         data: {
           name: normalizedName,
           card_number: normalizedCardNumber,
           birth_date: parsedBirthDate,
+          ...(beneficiaryCompanyId ? { company_id: beneficiaryCompanyId } : {}),
           total_balance: initialBalance,
           remaining_balance: initialBalance,
           status: "ACTIVE",
@@ -240,11 +255,16 @@ export async function createBeneficiary(data: {
     revalidatePath("/beneficiaries");
     revalidateTag("beneficiary-counts", "max");
     revalidatePath("/deduct");
+    revalidatePath("/admin/dental-services");
+    if (requestedCompanyId) {
+      revalidatePath(`/admin/dental-services/${requestedCompanyId}`);
+    }
     return { success: true };
   } catch (error: unknown) {
     if (error instanceof Error) {
       if (error.message === "CARD_EXISTS") return { error: "رقم البطاقة مستخدم مسبقاً ولا يمكن استخدامه لشخص آخر" };
       if (error.message === "PERSON_EXISTS") return { error: "هذا المستفيد (نفس الاسم وتاريخ الميلاد) مسجل مسبقاً برقم بطاقة آخر" };
+      if (error.message === "COMPANY_NOT_FOUND") return { error: "شركة التأمين المحددة غير موجودة أو غير نشطة" };
     }
     logger.error("Create beneficiary error", { error: String(error) });
     return { error: "تعذر إنشاء المستفيد" };
