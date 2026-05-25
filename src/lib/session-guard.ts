@@ -1,7 +1,7 @@
 import prisma from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { type Session, type ManagerPermissions, type UserRole, hasPermission, canAccessAdmin } from "./permissions";
-import { normalizeManagerPermissionsForRole } from "./permission-catalog";
+import { normalizeManagerPermissionsForRole, resolvePermissionRole } from "./permission-catalog";
 
 /**
  * يسترجع الجلسة الحالية ويتحقق من أن المرفق لم يُحذف ناعماً.
@@ -29,12 +29,17 @@ export async function requireActiveFacilitySession(): Promise<Session | null> {
 
   if (!dbRecord) return null;
 
-  const role = dbRecord.role as UserRole;
+  const role = resolvePermissionRole({
+    role: dbRecord.role,
+    is_admin: dbRecord.is_admin,
+    is_manager: dbRecord.is_manager,
+    is_employee: dbRecord.is_employee,
+  }) as UserRole;
   const facilityType = dbRecord.facility_type as Session["facility_type"] | null;
-  // توحيد الأعلام مع الدور لتجاوز أي عدم اتساق قديم في الحقول المنطقية.
-  const isAdmin = dbRecord.is_admin || role === "ADMIN";
-  const isManager = dbRecord.is_manager || role === "MANAGER";
-  const isEmployee = dbRecord.is_employee || role === "EMPLOYEE";
+  // توحيد الأعلام اعتماداً على الدور المحسوب (يعالج حالات role غير المتسق بعد الاستعادة/الرفع).
+  const isAdmin = role === "ADMIN";
+  const isManager = role === "MANAGER";
+  const isEmployee = role === "EMPLOYEE";
   const managerPermissions = normalizeManagerPermissionsForRole(role, dbRecord.manager_permissions);
 
   return {
@@ -76,12 +81,17 @@ export async function getSessionWithFreshPermissions(): Promise<Session | null> 
     return null;
   }
 
-  const role = dbRecord.role as UserRole;
+  const role = resolvePermissionRole({
+    role: dbRecord.role,
+    is_admin: dbRecord.is_admin,
+    is_manager: dbRecord.is_manager,
+    is_employee: dbRecord.is_employee,
+  }) as UserRole;
   const facilityType = dbRecord.facility_type as Session["facility_type"] | null;
-  // توحيد الأعلام مع الدور لتجاوز أي عدم اتساق قديم في الحقول المنطقية.
-  const isAdmin = dbRecord.is_admin || role === "ADMIN";
-  const isManager = dbRecord.is_manager || role === "MANAGER";
-  const isEmployee = dbRecord.is_employee || role === "EMPLOYEE";
+  // توحيد الأعلام اعتماداً على الدور المحسوب (يعالج حالات role غير المتسق بعد الاستعادة/الرفع).
+  const isAdmin = role === "ADMIN";
+  const isManager = role === "MANAGER";
+  const isEmployee = role === "EMPLOYEE";
   const managerPermissions = normalizeManagerPermissionsForRole(role, dbRecord.manager_permissions);
 
   return {

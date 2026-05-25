@@ -51,7 +51,7 @@ export interface Session {
  * صحيح إذا كان المستخدم مشرفاً أو مديراً أو موظفاً (يحق له الوصول لصفحات الإدارة)
  */
 export function canAccessAdmin(session: Session): boolean {
-  return session.role === "ADMIN" || session.role === "MANAGER" || session.role === "EMPLOYEE";
+  return session.is_admin || session.is_manager || session.is_employee;
 }
 
 /**
@@ -65,11 +65,15 @@ export function hasPermission(
   permission: keyof ManagerPermissions
 ): boolean {
   if (!session) return false;
-  if (session.role === "ADMIN") return true;
-  if (session.role !== "MANAGER" && session.role !== "EMPLOYEE" && session.role !== "FACILITY") {
+  if (session.is_admin || session.role === "ADMIN") return true;
+
+  const effectiveRole: UserRole =
+    session.is_manager ? "MANAGER" : session.is_employee ? "EMPLOYEE" : session.role;
+
+  if (effectiveRole !== "MANAGER" && effectiveRole !== "EMPLOYEE" && effectiveRole !== "FACILITY") {
     return false;
   }
 
-  const perms = normalizeManagerPermissionsForRole(session.role, session.manager_permissions);
+  const perms = normalizeManagerPermissionsForRole(effectiveRole, session.manager_permissions);
   return perms[permission] === true;
 }
