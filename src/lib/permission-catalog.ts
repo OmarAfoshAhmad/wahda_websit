@@ -146,9 +146,8 @@ const ROLE_DEFAULT_ENABLED_PERMISSION_KEYS: Record<
   FACILITY: [
     "view_dashboard",
     "view_transactions",
-    "view_beneficiaries",
-    "view_dental_beneficiaries",
     "deduct_balance",
+    "dental_services",
   ],
 };
 

@@ -9,42 +9,53 @@ import {
   Upload, 
   FileSpreadsheet, 
   CheckCircle2, 
-  AlertCircle, 
   Search, 
   Info, 
-  XCircle, 
-  CheckSquare, 
-  Square,
-  RefreshCw,
-  SlidersHorizontal,
   ChevronRight,
   ChevronLeft
 } from "lucide-react";
 import { 
   importTruthRegistryAction, 
+  cleanImportTruthRegistryAction,
   validateTruthRegistryAction, 
   RegistryImportItem 
 } from "@/app/actions/truth-registry";
+import { canonicalizeCardNumber } from "@/lib/normalize";
 
 type ParsedItem = {
   card_number: string;
   card_number_upper: string;
+  canonical_card: string;
   name: string;
   birth_date: string | null;
-  status: "READY" | "DUPLICATE_FILE" | "DUPLICATE_SYSTEM" | "ERROR";
+  status: "READY" | "IN_SYSTEM" | "DUPLICATE_FILE" | "DUPLICATE_SYSTEM" | "ERROR";
   error_message: string;
   source_row: number;
 };
 
+type RegistryValidationInfo = {
+  name: string | null;
+  city: string | null;
+  batch: string | null;
+};
+
+type RegistryValidationResult = {
+  success?: boolean;
+  error?: string;
+  existing?: Array<[string, RegistryValidationInfo]>;
+  existing_truth?: Array<[string, RegistryValidationInfo]>;
+  existing_system?: Array<[string, RegistryValidationInfo]>;
+};
+
 export function TruthRegistryImport() {
-  const { toast, success, error } = useToast();
+  const { success, error } = useToast();
   const [isParsing, setIsParsing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   
   // خيارات الاستيراد
   const [city, setCity] = useState("طرابلس");
   const [batchNumber, setBatchNumber] = useState("");
-  const [overwriteExisting, setOverwriteExisting] = useState(true);
+  const [importMode, setImportMode] = useState<"update" | "skip" | "clean">("update");
 
   // السجلات التي تم تحليلها ومعاينتها
   const [parsedItems, setParsedItems] = useState<ParsedItem[] | null>(null);
@@ -57,6 +68,7 @@ export function TruthRegistryImport() {
 
   const [detectedCardKey, setDetectedCardKey] = useState("");
   const [detectedNameKey, setDetectedNameKey] = useState("");
+  const [detectedBirthKey, setDetectedBirthKey] = useState("");
 
   // كتل البحث والتصفية
   const [searchInput, setSearchInput] = useState("");
@@ -84,10 +96,14 @@ export function TruthRegistryImport() {
   const stats = {
     total: parsedItems?.length || 0,
     ready: parsedItems?.filter(i => i.status === "READY").length || 0,
+    inSystem: parsedItems?.filter(i => i.status === "IN_SYSTEM").length || 0,
     duplicateFile: parsedItems?.filter(i => i.status === "DUPLICATE_FILE").length || 0,
     duplicateSystem: parsedItems?.filter(i => i.status === "DUPLICATE_SYSTEM").length || 0,
     error: parsedItems?.filter(i => i.status === "ERROR").length || 0,
   };
+  const importableCount = importMode === "skip"
+    ? stats.ready + stats.inSystem
+    : stats.ready + stats.inSystem + stats.duplicateSystem;
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -131,7 +147,7 @@ export function TruthRegistryImport() {
           }
         });
 
-        const rawRows = XLSX.utils.sheet_to_json(worksheet) as any[];
+        const rawRows = XLSX.utils.sheet_to_json(worksheet) as Record<string, unknown>[];
 
         if (rawRows.length === 0) {
           error("الملف فارغ أو لا يحتوي على صفوف بيانات صالحة");
@@ -149,7 +165,79 @@ export function TruthRegistryImport() {
             .trim();
         };
 
-        // دالة للبحث عن المفتاح المناسب للمعمود بغض النظر عن تنسيقه
+        const toAsciiDigits = (value: string) =>
+          value.replace(/[٠-٩۰-۹]/g, (ch) => {
+            const ar = "٠١٢٣٤٥٦٧٨٩";
+            const fa = "۰۱۲۳۴۵۶۷۸۹";
+            const idxAr = ar.indexOf(ch);
+            if (idxAr >= 0) return String(idxAr);
+            const idxFa = fa.indexOf(ch);
+            if (idxFa >= 0) return String(idxFa);
+            return ch;
+          });
+
+        const parseBirthDateValue = (rawDate: unknown): string | null => {
+          if (rawDate == null || rawDate === "") return null;
+
+          // تاريخ جاهز ككائن Date
+          if (rawDate instanceof Date) {
+            const y = rawDate.getUTCFullYear();
+            const m = String(rawDate.getUTCMonth() + 1).padStart(2, "0");
+            const d = String(rawDate.getUTCDate()).padStart(2, "0");
+            if (y >= 1850 && y <= 2100) return `${y}-${m}-${d}`;
+            return null;
+          }
+
+          // Excel serial number
+          if (typeof rawDate === "number") {
+            if (rawDate > 1 && rawDate < 150000) {
+              const date = new Date(Math.round((rawDate - 25569) * 86400 * 1000));
+              const y = date.getUTCFullYear();
+              if (y >= 1850 && y <= 2100) {
+                const m = String(date.getUTCMonth() + 1).padStart(2, "0");
+                const d = String(date.getUTCDate()).padStart(2, "0");
+                return `${y}-${m}-${d}`;
+              }
+            }
+            return null;
+          }
+
+          // String parsing (يدعم: dd/mm/yyyy, dd-mm-yyyy, yyyy/mm/dd, yyyy-mm-dd, dd.mm.yyyy)
+          const str = toAsciiDigits(String(rawDate))
+            .replace(/[^\d/.\-]/g, "")
+            .trim();
+          if (!str) return null;
+
+          const ymd = str.match(/^(\d{4})[\/.\-](\d{1,2})[\/.\-](\d{1,2})$/);
+          if (ymd) {
+            const y = Number(ymd[1]);
+            const m = Number(ymd[2]);
+            const d = Number(ymd[3]);
+            if (y >= 1850 && y <= 2100 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+              const check = new Date(Date.UTC(y, m - 1, d));
+              if (check.getUTCFullYear() === y && check.getUTCMonth() + 1 === m && check.getUTCDate() === d) {
+                return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+              }
+            }
+          }
+
+          const dmy = str.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})$/);
+          if (dmy) {
+            const d = Number(dmy[1]);
+            const m = Number(dmy[2]);
+            const y = Number(dmy[3]);
+            if (y >= 1850 && y <= 2100 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+              const check = new Date(Date.UTC(y, m - 1, d));
+              if (check.getUTCFullYear() === y && check.getUTCMonth() + 1 === m && check.getUTCDate() === d) {
+                return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+              }
+            }
+          }
+
+          return null;
+        };
+
+        // دالة للبحث عن المفتاح المناسب للعمود بغض النظر عن تنسيقه
         const findKey = (keys: string[]) => {
           const firstRow = rawRows[0];
           return Object.keys(firstRow).find(k => 
@@ -260,10 +348,48 @@ export function TruthRegistryImport() {
         };
 
         const nameKey = findNameKey();
-        const birthDateKey = findKey(["تاريخ", "تاريخ الميلاد", "Birth", "ميلاد", "DOB"]);
+        const birthDateCandidates = [
+          "تاريخ الميلاد",
+          "الميلاد",
+          "المواليد",
+          "مواليد",
+          "مولد",
+          "DOB",
+          "Birth",
+          "Birth Date",
+          "Date of Birth"
+        ];
+        let birthDateKey = findKey(birthDateCandidates) || "";
+
+        // إذا لم يُكتشف بالعنوان، نحاول اكتشافه بالمحتوى (عمود فيه نسبة عالية من تواريخ صالحة)
+        if (!birthDateKey) {
+          let bestKey = "";
+          let bestScore = -1;
+          for (const key of allKeys) {
+            if (key === cardKey || key === nameKey) continue;
+            const sample = rawRows.slice(0, 50);
+            let nonEmpty = 0;
+            let validDates = 0;
+            for (const row of sample) {
+              const v = row[key];
+              if (v == null || v === "") continue;
+              nonEmpty++;
+              if (parseBirthDateValue(v)) validDates++;
+            }
+            if (nonEmpty < 2) continue;
+            const ratio = validDates / nonEmpty;
+            const score = ratio * 100 + validDates;
+            if (ratio >= 0.45 && score > bestScore) {
+              bestScore = score;
+              bestKey = key;
+            }
+          }
+          birthDateKey = bestKey;
+        }
 
         setDetectedCardKey(cardKey || "");
         setDetectedNameKey(nameKey || "");
+        setDetectedBirthKey(birthDateKey || "");
 
         if (!cardKey) {
           error("تعذر العثور على عمود يحتوي على (رقم البطاقة / الباركود) في ملف الإكسيل!");
@@ -291,51 +417,14 @@ export function TruthRegistryImport() {
           // استخراج رقم البطاقة
           const cardNumRaw = String(row[cardKey] || "").trim();
           const cardUpper = cardNumRaw.toUpperCase();
+          const canonicalCard = canonicalizeCardNumber(cardUpper);
 
           // استخراج الاسم (اختياري)
           const nameVal = nameKey ? String(row[nameKey] || "").trim() : "";
 
           // استخراج تاريخ الميلاد (اختياري)
-          let bDate = null;
           const rawDate = birthDateKey ? row[birthDateKey] : null;
-          
-          if (rawDate) {
-            if (rawDate instanceof Date) {
-              const y = rawDate.getFullYear();
-              if (y >= 1850 && y <= 2100) {
-                const m = String(rawDate.getMonth() + 1).padStart(2, '0');
-                const d = String(rawDate.getDate()).padStart(2, '0');
-                bDate = `${y}-${m}-${d}`;
-              }
-            } else if (typeof rawDate === "number") {
-              // فقط نقبل الأرقام المنطقية لتواريخ إكسيل (لتجنب تفسير الرقم الوظيفي أو الباركود كأعوام مفرطة)
-              if (rawDate > 1 && rawDate < 150000) {
-                const date = new Date(Math.round((rawDate - 25569) * 86400 * 1000));
-                const y = date.getUTCFullYear();
-                if (y >= 1850 && y <= 2100) {
-                  const m = String(date.getUTCMonth() + 1).padStart(2, '0');
-                  const d = String(date.getUTCDate()).padStart(2, '0');
-                  bDate = `${y}-${m}-${d}`;
-                }
-              }
-            } else {
-              // إزالة الأحرف غير المرئية
-              let strDate = String(rawDate || "").replace(/[^\d\/\-]/g, "").trim();
-              if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}$/.test(strDate)) {
-                 const parts = strDate.split(/[\/\-]/);
-                 const y = parseInt(parts[2]);
-                 if (y >= 1850 && y <= 2100) {
-                   bDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-                 }
-              } else if (/^\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}$/.test(strDate)) {
-                 const parts = strDate.split(/[\/\-]/);
-                 const y = parseInt(parts[0]);
-                 if (y >= 1850 && y <= 2100) {
-                   bDate = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
-                 }
-              }
-            }
-          }
+          const bDate = parseBirthDateValue(rawDate);
 
           let status: "READY" | "DUPLICATE_FILE" | "ERROR" = "READY";
           let errorMsg = "";
@@ -346,16 +435,17 @@ export function TruthRegistryImport() {
           } else if (!cardUpper.startsWith("WAB")) {
             status = "ERROR";
             errorMsg = "رقم بطاقة غير صالح (يجب أن يبدأ بـ WAB2025)";
-          } else if (seenInFile.has(cardUpper)) {
+          } else if (seenInFile.has(canonicalCard)) {
             status = "DUPLICATE_FILE";
             errorMsg = "سجل مكرر داخل نفس ملف الإكسيل";
           } else {
-            seenInFile.add(cardUpper);
+            seenInFile.add(canonicalCard);
           }
 
           return {
             card_number: cardNumRaw,
             card_number_upper: cardUpper,
+            canonical_card: canonicalCard,
             name: nameVal,
             birth_date: bDate,
             status,
@@ -368,17 +458,31 @@ export function TruthRegistryImport() {
         const readyItems = mappedItems.filter(item => item.status === "READY");
 
         if (readyItems.length > 0) {
-          const validateRes = await validateTruthRegistryAction(
+          const validateRes = (await validateTruthRegistryAction(
             readyItems.map(item => ({ card_number: item.card_number }))
-          );
+          )) as RegistryValidationResult;
 
-          if (validateRes.success && validateRes.existing) {
-            const existingMap = new Map(validateRes.existing);
+          if (validateRes.success) {
+            const existingTruthMap = new Map<string, RegistryValidationInfo>(
+              validateRes.existing_truth ?? validateRes.existing ?? []
+            );
+            const existingSystemMap = new Map<string, RegistryValidationInfo>(
+              validateRes.existing_system ?? []
+            );
             mappedItems.forEach(item => {
-              if (item.status === "READY" && existingMap.has(item.card_number_upper)) {
+              if (item.status !== "READY") return;
+
+              if (existingTruthMap.has(item.canonical_card)) {
                 item.status = "DUPLICATE_SYSTEM";
-                const dbInfo = existingMap.get(item.card_number_upper) as any;
-                item.error_message = `مسجلة بالنظام مسبقاً (${dbInfo.city} — دفعة: ${dbInfo.batch || "غير محدد"})`;
+                const dbInfo = existingTruthMap.get(item.canonical_card);
+                item.error_message = `مسجلة مسبقاً بجدول الحقيقة (${dbInfo?.city || "غير محدد"} — دفعة: ${dbInfo?.batch || "غير محدد"})`;
+                return;
+              }
+
+              if (existingSystemMap.has(item.canonical_card)) {
+                item.status = "IN_SYSTEM";
+                const sysInfo = existingSystemMap.get(item.canonical_card);
+                item.error_message = `موجود في النظام (${sysInfo?.city || "غير محدد"}${sysInfo?.batch ? ` — دفعة: ${sysInfo.batch}` : ""})`;
               }
             });
           }
@@ -427,7 +531,19 @@ export function TruthRegistryImport() {
         return;
       }
 
-      const res = await importTruthRegistryAction(finalData, { overwriteExisting });
+      let res: { success?: boolean; added?: number; updated?: number; skipped?: number; error?: string };
+      if (importMode === "clean") {
+        const confirmed = window.confirm(
+          "تنبيه هام جداً: هل أنت متأكد من إجراء استيراد نظيف تام؟ سيتم حذف كافة السجلات الحالية في جدول الحقيقة بالكامل قبل البدء بالاستيراد الجديد!"
+        );
+        if (!confirmed) {
+          setIsSaving(false);
+          return;
+        }
+        res = await cleanImportTruthRegistryAction(finalData);
+      } else {
+        res = await importTruthRegistryAction(finalData, { overwriteExisting: importMode === "update" });
+      }
       
       if (res.error) {
         error(res.error);
@@ -479,21 +595,28 @@ export function TruthRegistryImport() {
             />
           </div>
           <div className="space-y-2">
-            <label className="text-xs font-black uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500 mr-1 block">طريقة معالجة السجلات المكررة بالنظام</label>
+            <label className="text-xs font-black uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500 mr-1 block">طريقة معالجة السجلات الموجودة مسبقاً بجدول الحقيقة</label>
             <div className="flex bg-slate-100 dark:bg-slate-950 p-1 rounded-xl h-11 items-center gap-1">
               <button
                 type="button"
-                onClick={() => setOverwriteExisting(true)}
-                className={`flex-1 h-9 rounded-lg text-xs font-black transition-all ${overwriteExisting ? "bg-white dark:bg-slate-800 text-slate-950 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                onClick={() => setImportMode("update")}
+                className={`flex-1 h-9 rounded-lg text-xs font-black transition-all ${importMode === "update" ? "bg-white dark:bg-slate-800 text-slate-950 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
               >
                 تحديث البيانات
               </button>
               <button
                 type="button"
-                onClick={() => setOverwriteExisting(false)}
-                className={`flex-1 h-9 rounded-lg text-xs font-black transition-all ${!overwriteExisting ? "bg-white dark:bg-slate-800 text-slate-950 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                onClick={() => setImportMode("skip")}
+                className={`flex-1 h-9 rounded-lg text-xs font-black transition-all ${importMode === "skip" ? "bg-white dark:bg-slate-800 text-slate-950 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
               >
                 تخطي وتجاهل
+              </button>
+              <button
+                type="button"
+                onClick={() => setImportMode("clean")}
+                className={`flex-1 h-9 rounded-lg text-xs font-black transition-all ${importMode === "clean" ? "bg-rose-600 text-white shadow-sm" : "text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/20"}`}
+              >
+                استيراد نظيف تام
               </button>
             </div>
           </div>
@@ -584,13 +707,18 @@ export function TruthRegistryImport() {
                 <span className="text-slate-400">العمود المكتشف للأسماء:</span>
                 <span className="px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 font-black font-mono border border-emerald-100/30">{detectedNameKey || "غير محدد"}</span>
               </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                <span className="text-slate-400">العمود المكتشف للميلاد:</span>
+                <span className="px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 font-black font-mono border border-amber-100/30">{detectedBirthKey || "غير محدد"}</span>
+              </div>
               <div className="text-[10px] text-slate-400 font-medium">
                 * يتعرف النظام ذكياً على الأعمدة ويستبعد ترويسات صلات القرابة والرموز المفردة.
               </div>
             </div>
 
             {/* ملخص الإحصائيات الفورية */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
               <button 
                 type="button"
                 onClick={() => { setStatusFilter("ALL"); setCurrentPage(1); }}
@@ -614,8 +742,17 @@ export function TruthRegistryImport() {
                 onClick={() => { setStatusFilter("DUPLICATE_SYSTEM"); setCurrentPage(1); }}
                 className={`p-3 rounded-xl border text-right transition-all flex flex-col justify-between h-20 ${statusFilter === "DUPLICATE_SYSTEM" ? "border-blue-600 bg-blue-600 text-white" : "border-blue-100/40 dark:border-blue-500/10 bg-blue-50/20 dark:bg-blue-500/5 text-blue-700 dark:text-blue-400 hover:bg-blue-50/40"}`}
               >
-                <span className="text-[10px] font-black uppercase opacity-70">مكرر بالنظام</span>
+                <span className="text-[10px] font-black uppercase opacity-70">موجود بجدول الحقيقة</span>
                 <span className="text-2xl font-black">{stats.duplicateSystem}</span>
+              </button>
+
+              <button 
+                type="button"
+                onClick={() => { setStatusFilter("IN_SYSTEM"); setCurrentPage(1); }}
+                className={`p-3 rounded-xl border text-right transition-all flex flex-col justify-between h-20 ${statusFilter === "IN_SYSTEM" ? "border-cyan-600 bg-cyan-600 text-white" : "border-cyan-100/40 dark:border-cyan-500/10 bg-cyan-50/20 dark:bg-cyan-500/5 text-cyan-700 dark:text-cyan-400 hover:bg-cyan-50/40"}`}
+              >
+                <span className="text-[10px] font-black uppercase opacity-70">موجود في النظام</span>
+                <span className="text-2xl font-black">{stats.inSystem}</span>
               </button>
 
               <button 
@@ -661,7 +798,7 @@ export function TruthRegistryImport() {
                 </Button>
                 <Button
                   onClick={handleImport}
-                  disabled={isSaving || (stats.ready === 0 && !overwriteExisting)}
+                  disabled={isSaving || importableCount === 0}
                   className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-5 h-10 shadow-lg shadow-emerald-600/10 rounded-xl"
                 >
                   {isSaving ? (
@@ -672,7 +809,7 @@ export function TruthRegistryImport() {
                   ) : (
                     <>
                       <Upload className="ml-2 h-4 w-4" />
-                      اعتماد واستيراد {overwriteExisting ? stats.ready + stats.duplicateSystem : stats.ready} سجل
+                      اعتماد واستيراد {importableCount} سجل
                     </>
                   )}
                 </Button>
@@ -717,7 +854,12 @@ export function TruthRegistryImport() {
                             )}
                             {item.status === "DUPLICATE_SYSTEM" && (
                               <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-black bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400">
-                                مكرر بالنظام
+                                موجود بجدول الحقيقة
+                              </span>
+                            )}
+                            {item.status === "IN_SYSTEM" && (
+                              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-black bg-cyan-50 text-cyan-700 dark:bg-cyan-500/10 dark:text-cyan-400">
+                                موجود في النظام
                               </span>
                             )}
                             {item.status === "DUPLICATE_FILE" && (
@@ -732,10 +874,14 @@ export function TruthRegistryImport() {
                             )}
                           </td>
                           <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">
-                            {item.status === "DUPLICATE_SYSTEM" && !overwriteExisting ? (
-                              <span className="text-amber-600 font-bold">⚠️ سيتم تخطي هذا السجل بناءً على خيارك الحالي</span>
-                            ) : item.status === "DUPLICATE_SYSTEM" && overwriteExisting ? (
-                              <span className="text-blue-500 font-bold">🔄 سيتم دمج وتحديث الاسم والميلاد لهذا السجل</span>
+                            {item.status === "DUPLICATE_SYSTEM" && importMode === "clean" ? (
+                              <span className="text-rose-600 font-bold">🧹 سيتم مسح جدول الحقيقة واستيراد هذا السجل كجديد</span>
+                            ) : item.status === "DUPLICATE_SYSTEM" && importMode === "skip" ? (
+                              <span className="text-amber-600 font-bold">⚠️ السجل موجود مسبقاً بجدول الحقيقة وسيتم تخطيه حسب خيارك</span>
+                            ) : item.status === "DUPLICATE_SYSTEM" && importMode === "update" ? (
+                              <span className="text-blue-500 font-bold">🔄 سيتم تحديث السجل الموجود مسبقاً في جدول الحقيقة</span>
+                            ) : item.status === "IN_SYSTEM" ? (
+                              <span className="text-cyan-600 font-bold">✅ موجود في النظام وسيتم استيراده إلى جدول الحقيقة بدون تكرار</span>
                             ) : item.status === "DUPLICATE_FILE" ? (
                               <span className="text-slate-400">سيتم استيراد النسخة الأولى فقط من البطاقة</span>
                             ) : item.error_message ? (
@@ -792,8 +938,8 @@ export function TruthRegistryImport() {
             <ul className="list-decimal list-inside space-y-1 text-[11px] leading-relaxed">
               <li>يقوم النظام بـ **البحث التلقائي الذكي** عن أعمدة رقم البطاقة والاسم والميلاد، ويدعم كافة التسميات الشائعة.</li>
               <li>**الاسم وتاريخ الميلاد اختيارية تماماً**: إذا لم تتواجد الأعمدة أو كانت بعض الحقول فارغة، سيتم استيراد ببساطة رقم البطاقة والاحتفاظ بالبيانات القديمة إذا كانت موجودة مسبقاً بالنظام.</li>
-              <li>يقوم النظام بمطابقة وتدقيق أرقام البطاقات لمنع تكرارها في نفس الملف أو مع سجلات مضافة مسبقاً بقاعدة البيانات.</li>
-              <li>**خيار دمج وتحديث البيانات:** عند تفعيله، سيتم تحديث الأسماء والمواليد للسجلات المكررة في النظام بأحدث البيانات الموجودة بملفك.</li>
+              <li>يقوم النظام بمطابقة وتدقيق أرقام البطاقات لمنع أي تكرار داخل جدول الحقيقة (اعتماداً على الرقم الموحّد canonical).</li>
+              <li>**خيار دمج وتحديث البيانات:** عند تفعيله، سيتم تحديث الأسماء والمواليد للسجلات الموجودة مسبقاً في جدول الحقيقة بأحدث بيانات الملف.</li>
             </ul>
           </div>
         </div>

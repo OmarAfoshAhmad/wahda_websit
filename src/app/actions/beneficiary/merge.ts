@@ -376,6 +376,8 @@ export async function mergeDuplicateGroupByCanonicalAction(formData: FormData) {
 
   const canonicalCard = utils.canonicalizeCardNumber(canonicalCardRaw);
   const strategy = String(formData.get("strategy") ?? "ZERO_PRIORITY") as utils.MergeStrategy;
+  // اختيار المستخدم الصريح للبطاقة المراد الإبقاء عليها (preferred_id)
+  const preferredId = String(formData.get("preferred_id") ?? "").trim() || null;
 
   const session = await requireActiveFacilitySession();
   if (!session || !session.is_admin) {
@@ -401,7 +403,10 @@ export async function mergeDuplicateGroupByCanonicalAction(formData: FormData) {
       return { error: "لا توجد مجموعة مكررة قابلة للدمج" };
     }
 
-    const picked = utils.pickKeepByStrategy(
+    // إذا حدد المستخدم preferred_id صراحةً وهو موجود ضمن المرشحين، استخدمه مباشرة
+    const forcedKeep = preferredId ? matched.find((m) => m.id === preferredId) : null;
+
+    const picked = forcedKeep ?? utils.pickKeepByStrategy(
       matched.map((m) => ({
         id: m.id,
         card_number: m.card_number,
@@ -422,6 +427,7 @@ export async function mergeDuplicateGroupByCanonicalAction(formData: FormData) {
     return { error: "تعذر تنفيذ دمج مجموعة التكرار" };
   }
 }
+
 
 export async function mergeDuplicateManualSelectionAction(formData: FormData) {
   const session = await requireActiveFacilitySession();

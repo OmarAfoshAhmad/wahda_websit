@@ -3,7 +3,6 @@ import { Tajawal } from "next/font/google";
 import { ToastProvider } from "@/components/toast";
 import { ThemeProvider } from "@/components/theme-provider";
 import { validateEnv } from "@/lib/env";
-import Script from "next/script";
 import "./globals.css";
 
 validateEnv();
@@ -35,16 +34,16 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ar" dir="rtl" data-scroll-behavior="smooth" suppressHydrationWarning>
-      <head suppressHydrationWarning />
-      <body className={`${tajawal.variable} ${tajawal.className}`} suppressHydrationWarning>
+      <head suppressHydrationWarning>
         {/* إزالة attribute bis_skin_checked الذي تضيفه إضافات المتصفح ويسبب hydration mismatch — لا يحتوي على مدخلات مستخدم */}
-        <Script 
+        <script
           id="pre-hydration-strip"
-          strategy="beforeInteractive"
           dangerouslySetInnerHTML={{
             __html: `(function(){const a='bis_skin_checked',r=n=>{n&&(n.hasAttribute&&n.hasAttribute(a)&&n.removeAttribute(a),n.querySelectorAll&&n.querySelectorAll('['+a+']').forEach(e=>e.removeAttribute(a)))};r(document.documentElement);const o=new MutationObserver(m=>{m.forEach(m=>{m.type==='attributes'&&r(m.target),m.addedNodes&&m.addedNodes.forEach(r)})});o.observe(document.documentElement,{attributes:!0,subtree:!0,childList:!0,attributeFilter:[a]}),window.addEventListener('DOMContentLoaded',()=>r(document))})();`
           }}
         />
+      </head>
+      <body className={`${tajawal.variable} ${tajawal.className}`} suppressHydrationWarning>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <ToastProvider>
             {children}

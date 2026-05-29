@@ -562,6 +562,10 @@ export async function permanentDeleteBeneficiary(id: string) {
           metadata: { beneficiary_name: beneficiary.name, beneficiary_id: id, card_number: beneficiary.card_number },
         },
       });
+      // حذف التوابع أولاً لتفادي قيود FK من نوع RESTRICT
+      await tx.walletConsumption.deleteMany({ where: { beneficiary_id: id } });
+      await tx.claim.deleteMany({ where: { beneficiary_id: id } });
+      await tx.notification.deleteMany({ where: { beneficiary_id: id } });
       await tx.beneficiary.delete({ where: { id } });
     });
 

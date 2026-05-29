@@ -511,6 +511,14 @@ async function ensureTableExists() {
     CREATE INDEX IF NOT EXISTS "CardIssuanceRegistryAll_batch_number_idx"
     ON "CardIssuanceRegistryAll" ("batch_number")
   `);
+
+  await prisma.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "CardIssuanceRegistryAll_norm_name_birth_date_idx"
+    ON "CardIssuanceRegistryAll" (
+      UPPER(REGEXP_REPLACE(BTRIM(COALESCE(beneficiary_name, '')), '\\\\s+', ' ', 'g')),
+      CAST(birth_date AS date)
+    ) WHERE birth_date IS NOT NULL
+  `);
 }
 
 async function replaceRegistryRows(rows) {

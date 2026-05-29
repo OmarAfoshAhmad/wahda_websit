@@ -11,9 +11,10 @@ import {
 import { hasPermission, type Session } from "@/lib/permissions";
 
 describe("permission-catalog", () => {
-  it("returns stable defaults for manager and employee", () => {
+  it("returns stable defaults for manager, employee, and facility", () => {
     const managerDefaults = getDefaultPermissionsForRole("MANAGER");
     const employeeDefaults = getDefaultPermissionsForRole("EMPLOYEE");
+    const facilityDefaults = getDefaultPermissionsForRole("FACILITY");
 
     expect(managerDefaults.view_beneficiaries).toBe(true);
     expect(managerDefaults.deduct_balance).toBe(true);
@@ -29,6 +30,13 @@ describe("permission-catalog", () => {
     expect(employeeDefaults.view_transactions).toBe(true);
     expect(employeeDefaults.view_dental_beneficiaries).toBe(true);
     expect(employeeDefaults.deduct_balance).toBe(false);
+
+    expect(facilityDefaults.view_dashboard).toBe(true);
+    expect(facilityDefaults.view_transactions).toBe(true);
+    expect(facilityDefaults.view_beneficiaries).toBe(false);
+    expect(facilityDefaults.deduct_balance).toBe(true);
+    expect(facilityDefaults.dental_services).toBe(true);
+    expect(facilityDefaults.view_dental_beneficiaries).toBe(false);
   });
 
   it("normalizes string/number permission values and applies fallback", () => {

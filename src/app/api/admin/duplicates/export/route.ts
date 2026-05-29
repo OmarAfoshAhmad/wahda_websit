@@ -38,17 +38,41 @@ export async function GET(request: Request) {
     remaining_balance: remainingById.get(row.id) ?? 0,
   }));
 
-  const { zeroVariantGroups, sameNameGroups } = buildDuplicateGroups(enrichedRows, q);
+  const { zeroVariantGroups, sameNameGroups: rawSameNameGroups, needsReviewZeroVariants } = buildDuplicateGroups(enrichedRows, q);
+
+  // مطابقة منطق صفحة إدارة التكرارات: استبعاد مجموعات "نفس الاسم"
+  // التي تم تجاهلها يدويًا عبر IGNORE_DUPLICATE_PAIR.
+  const ignoreLogs = await prisma.auditLog.findMany({
+    where: { action: "IGNORE_DUPLICATE_PAIR" },
+    select: { metadata: true },
+  });
+  const ignoredPairKeys = new Set<string>();
+  for (const log of ignoreLogs) {
+    const meta = (log.metadata ?? {}) as Record<string, unknown>;
+    const ignoreIds = Array.isArray(meta.ignore_ids)
+      ? meta.ignore_ids.filter((id): id is string => typeof id === "string")
+      : [];
+    if (ignoreIds.length > 0) {
+      const sortedIds = [...ignoreIds].sort();
+      ignoredPairKeys.add(sortedIds.join("-"));
+    }
+  }
+  const sameNameGroups = rawSameNameGroups.filter((g) => {
+    if (g.members.length < 2) return true;
+    const ids = g.members.map((m) => m.id).sort();
+    return !ignoredPairKeys.has(ids.join("-"));
+  });
 
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "WAAD";
   workbook.created = new Date();
 
-  const zeroSheet = workbook.addWorksheet("Zero Variants");
-  zeroSheet.columns = [
+  const readySheet = workbook.addWorksheet("جاهزة للدمج");
+  readySheet.columns = [
     { header: "Canonical Card", key: "canonical", width: 26 },
     { header: "Beneficiary Name", key: "name", width: 28 },
     { header: "Card Number", key: "card_number", width: 26 },
+    { header: "Birth Date", key: "birth_date", width: 14 },
     { header: "Keep", key: "keep", width: 10 },
     { header: "Status", key: "status", width: 18 },
     { header: "Transactions", key: "transactions", width: 14 },
@@ -57,10 +81,11 @@ export async function GET(request: Request) {
 
   for (const group of zeroVariantGroups) {
     for (const member of group.members) {
-      zeroSheet.addRow({
+      readySheet.addRow({
         canonical: group.canonical,
         name: member.name,
         card_number: member.card_number,
+        birth_date: member.birth_date ? member.birth_date.toISOString().slice(0, 10) : "",
         keep: member.id === group.preferredId ? "YES" : "NO",
         status: member.status,
         transactions: member._count?.transactions ?? 0,
@@ -69,11 +94,43 @@ export async function GET(request: Request) {
     }
   }
 
-  const sameNameSheet = workbook.addWorksheet("Same Name Multi Cards");
+  const auditZeroSheet = workbook.addWorksheet("تدقيق-اختلاف الأصفار");
+  auditZeroSheet.columns = [
+    { header: "Canonical Card", key: "canonical", width: 26 },
+    { header: "Beneficiary Name", key: "name", width: 28 },
+    { header: "Card Number", key: "card_number", width: 26 },
+    { header: "Birth Date", key: "birth_date", width: 14 },
+    { header: "Keep", key: "keep", width: 10 },
+    { header: "Status", key: "status", width: 18 },
+    { header: "Transactions", key: "transactions", width: 14 },
+    { header: "Remaining Balance", key: "balance", width: 18 },
+    { header: "Audit Type", key: "audit_type", width: 26 },
+  ];
+
+  for (const group of needsReviewZeroVariants) {
+    for (const member of group.members) {
+      auditZeroSheet.addRow({
+        canonical: group.canonical,
+        name: member.name,
+        card_number: member.card_number,
+        birth_date: member.birth_date ? member.birth_date.toISOString().slice(0, 10) : "",
+        keep: member.id === group.preferredId ? "YES" : "NO",
+        status: member.status,
+        transactions: member._count?.transactions ?? 0,
+        balance: Number(member.remaining_balance),
+        audit_type: "ZERO_VARIANT_NAME_MISMATCH",
+      });
+    }
+  }
+
+  const sameNameSheet = workbook.addWorksheet("تدقيق-نفس الاسم");
   sameNameSheet.columns = [
     { header: "Normalized Name", key: "name_key", width: 30 },
     { header: "Displayed Name", key: "name", width: 28 },
     { header: "Card Number", key: "card_number", width: 26 },
+    { header: "Birth Date", key: "birth_date", width: 14 },
+    { header: "Birth Date Conflict", key: "birth_conflict", width: 20 },
+    { header: "Keep", key: "keep", width: 10 },
     { header: "Status", key: "status", width: 18 },
     { header: "Transactions", key: "transactions", width: 14 },
     { header: "Remaining Balance", key: "balance", width: 18 },
@@ -85,22 +142,15 @@ export async function GET(request: Request) {
         name_key: group.nameKey,
         name: member.name,
         card_number: member.card_number,
+        birth_date: member.birth_date ? member.birth_date.toISOString().slice(0, 10) : "",
+        birth_conflict: group.hasBirthDateConflict ? "YES" : "NO",
+        keep: member.id === group.preferredId ? "YES" : "NO",
         status: member.status,
         transactions: member._count?.transactions ?? 0,
         balance: Number(member.remaining_balance),
       });
     }
   }
-
-  const summarySheet = workbook.addWorksheet("Summary");
-  summarySheet.columns = [
-    { header: "Metric", key: "metric", width: 36 },
-    { header: "Value", key: "value", width: 16 },
-  ];
-  summarySheet.addRow({ metric: "Search Query", value: q || "(none)" });
-  summarySheet.addRow({ metric: "Zero Variant Groups", value: zeroVariantGroups.length });
-  summarySheet.addRow({ metric: "Same Name Multi Card Groups", value: sameNameGroups.length });
-  summarySheet.addRow({ metric: "Generated At", value: new Date().toISOString() });
 
   const buffer = await workbook.xlsx.writeBuffer();
   const fileDate = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");

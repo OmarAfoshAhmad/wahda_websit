@@ -989,6 +989,7 @@ export default async function DuplicatesAdminPage({
                         </div>
                         <form action={mergeGroupAction}>
                           <input type="hidden" name="canonical_card" value={group.canonical} />
+                          <input type="hidden" name="preferred_id" value={group.preferredId} />
                           <input type="hidden" name="strategy" value="ZERO_PRIORITY" />
                           <input type="hidden" name="q" value={q ?? ""} />
                           <input type="hidden" name="pz" value={String(zeroPage.page)} />

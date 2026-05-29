@@ -74,6 +74,7 @@ model Beneficiary {
   status            BeneficiaryStatus @default(ACTIVE)
   created_at        DateTime          @default(now())
   birth_date        DateTime?
+  birth_date_synced_from_truth Boolean @default(false)
   phone_number      String?           
   city              String?           
   batch_number      String?           

@@ -6,6 +6,7 @@ import { AlertTriangle, Loader2 } from "lucide-react";
 import { BeneficiaryEditModal } from "@/components/beneficiary-edit-modal";
 import { useToast } from "@/components/toast";
 import { formatCurrency } from "@/lib/money";
+import { canonicalizeCardNumber, extractBaseCard } from "@/lib/normalize";
 
 type Member = {
   id: string;
@@ -77,18 +78,23 @@ export function DuplicateManualMergeForm({
 }) {
   const [actions, setActions] = useState<Record<string, string>>(() => {
     const map: Record<string, string> = {};
-    const getBase = (n: string) => n.replace(/[^A-Za-z0-9]/g, "").replace(/[A-Za-z]+$/, "").toUpperCase();
-    
     const prefMember = members.find(m => m.id === preferredId);
-    const prefBaseCard = prefMember ? getBase(prefMember.card_number) : "";
+    // استخدام canonicalizeCardNumber لتوحيد اختلافات الأصفار
+    // واستخدام extractBaseCard لتوحيد اختلافات اللاحقة العائلية (S1, D1, W1...)
+    const prefCanonical = prefMember ? canonicalizeCardNumber(prefMember.card_number) : "";
+    const prefBase = prefMember ? extractBaseCard(prefMember.card_number) : "";
 
     members.forEach(m => {
-      // Default to merge if base cards perfectly match, otherwise keep independent
-      if (prefBaseCard && getBase(m.card_number) === prefBaseCard && members.length > 1) {
-        map[m.id] = preferredId;
-      } else {
-        map[m.id] = m.id;
-      }
+      const mCanonical = canonicalizeCardNumber(m.card_number);
+      const mBase = extractBaseCard(m.card_number);
+      // يُدمج إذا:
+      // 1. تطابق الرقم الكنسي (نفس الرقم مع/بدون أصفار)
+      // 2. أو تطابق البطاقة الأساسية (نفس رقم الأسرة مع لاحقة مختلفة)
+      const shouldMerge = members.length > 1 && prefCanonical && (
+        mCanonical === prefCanonical ||
+        (prefBase && mBase === prefBase)
+      );
+      map[m.id] = shouldMerge ? preferredId : m.id;
     });
     return map;
   });

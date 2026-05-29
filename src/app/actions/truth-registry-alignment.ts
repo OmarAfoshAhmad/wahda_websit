@@ -215,3 +215,35 @@ export async function alignAllCardNumbersAction() {
     return { error: "فشل إجراء التوحيد الجماعي للبطاقات" };
   }
 }
+
+/**
+ * مواءمة وتوحيد كافة تواريخ الميلاد من جدول الحقيقة إلى المنظومة دفعة واحدة
+ */
+export async function alignAllBirthDatesAction() {
+  const session = await getSessionWithFreshPermissions();
+  if (!session || !session.is_admin) {
+    return { error: "غير مصرح لك بالعملية" };
+  }
+
+  try {
+    const updatedCount = await prisma.$executeRawUnsafe(`
+      UPDATE "Beneficiary" b
+      SET 
+        birth_date = r.birth_date,
+        birth_date_synced_from_truth = true
+      FROM "CardIssuanceRegistry" r
+      WHERE b.deleted_at IS NULL
+        AND r.birth_date IS NOT NULL
+        AND REGEXP_REPLACE(UPPER(BTRIM(b.card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') = r.canonical_card
+        AND (b.birth_date IS NULL OR b.birth_date <> r.birth_date OR b.birth_date_synced_from_truth = false)
+    `);
+
+    revalidatePath("/admin/truth-registry");
+    revalidatePath("/beneficiaries");
+    return { success: true, updatedCount };
+  } catch (error) {
+    console.error("Bulk birth dates alignment error:", error);
+    return { error: "فشل إجراء التوحيد الجماعي لتواريخ الميلاد" };
+  }
+}
+

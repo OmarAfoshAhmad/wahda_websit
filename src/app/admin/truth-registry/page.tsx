@@ -4,9 +4,10 @@ import { getSessionWithFreshPermissions } from "@/lib/session-guard";
 import { Shell } from "@/components/shell";
 import { Card, Button, Input } from "@/components/ui";
 import prisma from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { TruthRegistryImport } from "@/components/admin/truth-registry-import";
 import { TruthRegistryTable } from "@/components/admin/truth-registry-table";
-import { Import } from "lucide-react";
+import { Import, Download } from "lucide-react";
 
 type RegistryRow = {
   id: string;
@@ -47,27 +48,66 @@ export default async function TruthRegistryPage({
     in_system_not_in_registry?: string;
     legacy_has_batch?: string;
     legacy_no_batch?: string;
+    sort?: string;
+    family_numbering_mismatch?: string;
+    multi_person_cards?: string;
+    demographic_mismatch?: string;
+    filter_type?: string;
   }>;
 }) {
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
   if (!session.is_admin) redirect("/dashboard");
 
-  const { q, city, batch, multi, page, not_in_system, in_system_not_in_registry, legacy_has_batch, legacy_no_batch } = await searchParams;
+  const {
+    q,
+    city,
+    batch,
+    multi,
+    page,
+    not_in_system,
+    in_system_not_in_registry,
+    legacy_has_batch,
+    legacy_no_batch,
+    sort,
+    family_numbering_mismatch,
+    multi_person_cards,
+    demographic_mismatch,
+    filter_type,
+  } = await searchParams;
 
   const query = (q ?? "").trim().slice(0, 100);
   const cityFilter = (city ?? "").trim().slice(0, 80);
   const batchFilter = (batch ?? "").trim().slice(0, 80);
   const isNoBatchFilter = batchFilter === NO_BATCH_FILTER_VALUE;
-  const onlyMultiBatch = multi === "1";
-  const onlyMissingInSystem = not_in_system === "1";
-  const onlyInSystemNotInRegistry = in_system_not_in_registry === "1";
-  const onlyLegacyHasBatch = legacy_has_batch === "1";
-  const onlyLegacyNoBatch = legacy_no_batch === "1";
+  const filterType = (filter_type ?? "").trim();
+  const onlyMultiBatch = filterType === "multi" || multi === "1";
+  const onlyMissingInSystem = filterType === "not_in_system" || not_in_system === "1";
+  const onlyInSystemNotInRegistry = filterType === "in_system_not_in_registry" || in_system_not_in_registry === "1";
+  const onlyLegacyHasBatch = filterType === "legacy_has_batch" || legacy_has_batch === "1";
+  const onlyLegacyNoBatch = filterType === "legacy_no_batch" || legacy_no_batch === "1";
+  const onlyFamilyNumberingMismatch = filterType === "family_numbering_mismatch" || family_numbering_mismatch === "1";
+  const onlyMultiPersonCards = filterType === "multi_person_cards" || multi_person_cards === "1";
+  const onlyDemographicMismatch = filterType === "demographic_mismatch" || demographic_mismatch === "1";
   const pageNumber = Math.max(1, Number.parseInt(page ?? "1", 10) || 1);
   const pageSize = 100;
 
-  const rowsSql = (onlyInSystemNotInRegistry || onlyLegacyNoBatch)
+  const sortFilter = (sort ?? "").trim();
+  let orderSql1 = Prisma.sql`ORDER BY city ASC, batch_number ASC NULLS LAST, card_number_upper ASC`;
+  if (sortFilter === "birth_asc") {
+    orderSql1 = Prisma.sql`ORDER BY birth_date ASC NULLS LAST, city ASC, batch_number ASC NULLS LAST, card_number_upper ASC`;
+  } else if (sortFilter === "birth_desc") {
+    orderSql1 = Prisma.sql`ORDER BY birth_date DESC NULLS LAST, city ASC, batch_number ASC NULLS LAST, card_number_upper ASC`;
+  }
+
+  let orderSql2 = Prisma.sql`ORDER BY f.city ASC, f.batch_number ASC NULLS LAST, f.card_number_upper ASC, f.source_file ASC NULLS LAST, f.source_row ASC NULLS LAST`;
+  if (sortFilter === "birth_asc") {
+    orderSql2 = Prisma.sql`ORDER BY f.birth_date ASC NULLS LAST, f.city ASC, f.batch_number ASC NULLS LAST, f.card_number_upper ASC, f.source_file ASC NULLS LAST, f.source_row ASC NULLS LAST`;
+  } else if (sortFilter === "birth_desc") {
+    orderSql2 = Prisma.sql`ORDER BY f.birth_date DESC NULLS LAST, f.city ASC, f.batch_number ASC NULLS LAST, f.card_number_upper ASC, f.source_file ASC NULLS LAST, f.source_row ASC NULLS LAST`;
+  }
+
+  const rowsSql = (onlyInSystemNotInRegistry || onlyLegacyNoBatch || onlyFamilyNumberingMismatch)
     ? prisma.$queryRaw<RegistryRow[]>`
         WITH filtered AS (
           SELECT
@@ -84,33 +124,52 @@ export default async function TruthRegistryPage({
             created_at AS updated_at
           FROM "Beneficiary"
           WHERE deleted_at IS NULL
-            AND (
-              ${query} = ''
-              OR card_number ILIKE ${`%${query}%`}
-              OR name ILIKE ${`%${query}%`}
-            )
-            AND (
-              ${onlyInSystemNotInRegistry} = false
-              OR REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') NOT IN (
-                SELECT REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
-                FROM "CardIssuanceRegistryAll"
-                WHERE card_number_upper IS NOT NULL
-              )
-            )
-            AND (
-              ${onlyLegacyNoBatch} = false
-              OR (
-                is_legacy_card = true
+            ${query ? Prisma.sql`AND (card_number ILIKE ${'%' + query + '%'} OR name ILIKE ${'%' + query + '%'})` : Prisma.empty}
+            ${onlyInSystemNotInRegistry ? Prisma.sql`AND (NOT EXISTS (
+                  SELECT 1
+                  FROM "CardIssuanceRegistryAll" __t_insys
+                  WHERE __t_insys.canonical_card =
+                        REGEXP_REPLACE(UPPER(BTRIM("Beneficiary".card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
+                )
+                AND (
+                  "Beneficiary".birth_date IS NULL
+                  OR NOT EXISTS (
+                    SELECT 1
+                    FROM "CardIssuanceRegistryAll" t2
+                    WHERE t2.birth_date IS NOT NULL
+                      AND t2.birth_date::date = "Beneficiary".birth_date::date
+                      AND UPPER(REGEXP_REPLACE(BTRIM(COALESCE(t2.beneficiary_name, '')), '\\s+', ' ', 'g')) =
+                          UPPER(REGEXP_REPLACE(BTRIM("Beneficiary".name), '\\s+', ' ', 'g'))
+                  )
+                )
+              )` : Prisma.empty}
+            ${onlyLegacyNoBatch ? Prisma.sql`AND (is_legacy_card = true
                 AND (batch_number IS NULL OR BTRIM(batch_number) = '')
-              )
-            )
-            AND (
-              ${onlyLegacyHasBatch} = false
-              OR (
+              )` : Prisma.empty}
+            ${onlyLegacyHasBatch ? Prisma.sql`AND ((
                 is_legacy_card = true
                 AND batch_number IS NOT NULL AND BTRIM(batch_number) <> ''
-              )
-            )
+              ))` : Prisma.empty}
+            ${onlyFamilyNumberingMismatch ? Prisma.sql`AND (EXISTS (
+                SELECT 1
+                FROM "CardIssuanceRegistryAll" t
+                WHERE UPPER(REGEXP_REPLACE(BTRIM(COALESCE(t.beneficiary_name, '')), '\\s+', ' ', 'g')) =
+                      UPPER(REGEXP_REPLACE(BTRIM("Beneficiary".name), '\\s+', ' ', 'g'))
+                  AND (
+                    ("Beneficiary".birth_date IS NOT NULL AND t.birth_date IS NOT NULL AND t.birth_date::date = "Beneficiary".birth_date::date)
+                    OR
+                    ("Beneficiary".birth_date IS NULL)
+                  )
+                  AND COALESCE(
+                    SUBSTRING(t.canonical_card FROM '^(WAB2025[0-9]+)'),
+                    t.canonical_card
+                  ) = COALESCE(
+                    SUBSTRING(REGEXP_REPLACE(UPPER(BTRIM("Beneficiary".card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') FROM '^(WAB2025[0-9]+)'),
+                    REGEXP_REPLACE(UPPER(BTRIM("Beneficiary".card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
+                  )
+                  AND t.canonical_card <>
+                      REGEXP_REPLACE(UPPER(BTRIM("Beneficiary".card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
+              ))` : Prisma.empty}
         )
         SELECT
           id,
@@ -125,69 +184,119 @@ export default async function TruthRegistryPage({
           source_row,
           updated_at,
           0::int AS batches_count,
-          CAST(NULL AS varchar) AS batches_list
+          CAST(NULL AS varchar) AS batches_list,
+          CAST(NULL AS varchar) AS similar_truth_card,
+          CAST(NULL AS varchar) AS similar_truth_name,
+          CAST(NULL AS varchar) AS similar_truth_batch,
+          CAST(NULL AS timestamp) AS similar_truth_birth,
+          CAST(NULL AS varchar) AS similar_reason
         FROM filtered
-        ORDER BY city ASC, batch_number ASC NULLS LAST, card_number_upper ASC
+        ${orderSql1}
         LIMIT ${pageSize}
         OFFSET ${(pageNumber - 1) * pageSize}
       `
-    : (query
+        : (query
         ? prisma.$queryRaw<RegistryRow[]>`
             WITH filtered AS (
               SELECT
-                id,
-                card_number,
-                card_number_upper,
-                beneficiary_name,
-                birth_date,
-                city,
-                batch_number,
-                source_file,
-                source_sheet,
-                source_row,
-                updated_at
-              FROM "CardIssuanceRegistryAll"
-              WHERE (${cityFilter} = '' OR city = ${cityFilter})
+                f.id,
+                f.card_number,
+                f.card_number_upper,
+                f.beneficiary_name,
+                f.birth_date,
+                f.city,
+                f.batch_number,
+                f.source_file,
+                f.source_sheet,
+                f.source_row,
+                f.updated_at,
+                b.card_number AS similar_truth_card,
+                b.name AS similar_truth_name,
+                b.batch_number AS similar_truth_batch,
+                b.birth_date AS similar_truth_birth,
+                CASE
+                  WHEN b.id IS NOT NULL AND (
+                    UPPER(REGEXP_REPLACE(BTRIM(b.name), '\\s+', ' ', 'g')) <>
+                    UPPER(REGEXP_REPLACE(BTRIM(COALESCE(f.beneficiary_name, '')), '\\s+', ' ', 'g'))
+                    OR (b.birth_date IS NOT NULL AND f.birth_date IS NOT NULL AND b.birth_date::date <> f.birth_date::date)
+                    OR (b.birth_date IS NULL AND f.birth_date IS NOT NULL)
+                    OR (b.birth_date IS NOT NULL AND f.birth_date IS NULL)
+                  ) THEN 'تضارب ديموغرافي (المنظومة)'
+                  ELSE CAST(NULL AS varchar)
+                END AS similar_reason
+              FROM "CardIssuanceRegistryAll" f
+              LEFT JOIN "Beneficiary" b ON b.deleted_at IS NULL
+                AND REGEXP_REPLACE(UPPER(BTRIM(b.card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') =
+                    f.canonical_card
+              WHERE 1=1 ${cityFilter ? Prisma.sql`AND f.city = ${cityFilter}` : Prisma.empty}
+                ${isNoBatchFilter ? Prisma.sql`AND (f.batch_number IS NULL OR BTRIM(f.batch_number) = '')` : (batchFilter ? Prisma.sql`AND f.batch_number = ${batchFilter}` : Prisma.empty)}
                 AND (
-                  (${batchFilter} = '')
-                  OR (${isNoBatchFilter} = true AND (batch_number IS NULL OR BTRIM(batch_number) = ''))
-                  OR (${isNoBatchFilter} = false AND batch_number = ${batchFilter})
+                  f.card_number ILIKE ${`%${query}%`}
+                  OR COALESCE(f.beneficiary_name, '') ILIKE ${`%${query}%`}
+                  OR COALESCE(f.source_file, '') ILIKE ${`%${query}%`}
                 )
-                AND (
-                  card_number ILIKE ${`%${query}%`}
-                  OR COALESCE(beneficiary_name, '') ILIKE ${`%${query}%`}
-                  OR COALESCE(source_file, '') ILIKE ${`%${query}%`}
-                )
-                AND (
-                  ${onlyMissingInSystem} = false
-                  OR REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') NOT IN (
-                    SELECT REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
-                    FROM "Beneficiary"
-                    WHERE deleted_at IS NULL
+                ${onlyMissingInSystem ? Prisma.sql`AND (NOT EXISTS (
+                    SELECT 1
+                    FROM "Beneficiary" __b_missing
+                    WHERE __b_missing.deleted_at IS NULL
+                      AND REGEXP_REPLACE(UPPER(BTRIM(__b_missing.card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') =
+                          f.canonical_card
                   )
-                )
-                AND (
-                  ${onlyLegacyHasBatch} = false
-                  OR (
-                    (batch_number IS NOT NULL AND BTRIM(batch_number) <> '')
-                    AND REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') IN (
+                    AND (
+                      f.birth_date IS NULL
+                      OR NOT EXISTS (
+                        SELECT 1
+                        FROM "Beneficiary" b2
+                        WHERE b2.deleted_at IS NULL
+                          AND b2.birth_date IS NOT NULL
+                          AND b2.birth_date::date = f.birth_date::date
+                          AND UPPER(REGEXP_REPLACE(BTRIM(b2.name), '\\s+', ' ', 'g')) =
+                              UPPER(REGEXP_REPLACE(BTRIM(COALESCE(f.beneficiary_name, '')), '\\s+', ' ', 'g'))
+                      )
+                    )
+                  )` : Prisma.empty}
+                ${onlyDemographicMismatch ? Prisma.sql`AND (EXISTS (
+                    SELECT 1
+                    FROM "Beneficiary" b
+                    WHERE b.deleted_at IS NULL
+                      AND REGEXP_REPLACE(UPPER(BTRIM(b.card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') =
+                          f.canonical_card
+                      AND (
+                        UPPER(REGEXP_REPLACE(BTRIM(b.name), '\\s+', ' ', 'g')) <>
+                        UPPER(REGEXP_REPLACE(BTRIM(COALESCE(f.beneficiary_name, '')), '\\s+', ' ', 'g'))
+                        OR (b.birth_date IS NOT NULL AND f.birth_date IS NOT NULL AND b.birth_date::date <> f.birth_date::date)
+                        OR (b.birth_date IS NULL AND f.birth_date IS NOT NULL)
+                        OR (b.birth_date IS NOT NULL AND f.birth_date IS NULL)
+                      )
+                  ))` : Prisma.empty}
+                ${onlyLegacyHasBatch ? Prisma.sql`AND ((
+                    (f.batch_number IS NOT NULL AND BTRIM(f.batch_number) <> '')
+                    AND f.canonical_card IN (
                       SELECT REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
                       FROM "Beneficiary"
                       WHERE deleted_at IS NULL AND is_legacy_card = true
                     )
-                  )
-                )
-                AND (
-                  ${onlyLegacyNoBatch} = false
-                  OR (
-                    (batch_number IS NULL OR BTRIM(batch_number) = '')
-                    AND REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') IN (
+                  ))` : Prisma.empty}
+                ${onlyLegacyNoBatch ? Prisma.sql`AND ((f.batch_number IS NULL OR BTRIM(f.batch_number) = '')
+                    AND f.canonical_card IN (
                       SELECT REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
                       FROM "Beneficiary"
                       WHERE deleted_at IS NULL AND is_legacy_card = true
                     )
-                  )
-                )
+                  ))` : Prisma.empty}
+                ${onlyMultiPersonCards ? Prisma.sql`AND ((
+                    f.birth_date IS NOT NULL
+                    AND UPPER(REGEXP_REPLACE(BTRIM(COALESCE(f.beneficiary_name, '')), '\\s+', ' ', 'g')) || '::' || f.birth_date::date::text IN (
+                      SELECT
+                        UPPER(REGEXP_REPLACE(BTRIM(COALESCE(t2.beneficiary_name, '')), '\\s+', ' ', 'g')) || '::' || t2.birth_date::date::text
+                      FROM "CardIssuanceRegistryAll" t2
+                      WHERE t2.birth_date IS NOT NULL
+                      GROUP BY
+                        UPPER(REGEXP_REPLACE(BTRIM(COALESCE(t2.beneficiary_name, '')), '\\s+', ' ', 'g')),
+                        t2.birth_date::date
+                      HAVING COUNT(DISTINCT t2.canonical_card) > 1
+                    )
+                  ))` : Prisma.empty}
             ),
             stats AS (
               SELECT
@@ -210,65 +319,114 @@ export default async function TruthRegistryPage({
               f.source_row,
               f.updated_at,
               s.batches_count,
-              s.batches_list
+              s.batches_list,
+              f.similar_truth_card,
+              f.similar_truth_name,
+              f.similar_truth_batch,
+              f.similar_truth_birth,
+              f.similar_reason
             FROM filtered f
             JOIN stats s ON s.card_number_upper = f.card_number_upper
             WHERE (${onlyMultiBatch} = false OR s.batches_count > 1)
-            ORDER BY f.city ASC, f.batch_number ASC NULLS LAST, f.card_number_upper ASC, f.source_file ASC NULLS LAST, f.source_row ASC NULLS LAST
+            ${orderSql2}
             LIMIT ${pageSize}
-            OFFSET ${(pageNumber - 1) * pageSize}
-          `
+            `
         : prisma.$queryRaw<RegistryRow[]>`
             WITH filtered AS (
               SELECT
-                id,
-                card_number,
-                card_number_upper,
-                beneficiary_name,
-                birth_date,
-                city,
-                batch_number,
-                source_file,
-                source_sheet,
-                source_row,
-                updated_at
-              FROM "CardIssuanceRegistryAll"
-              WHERE (${cityFilter} = '' OR city = ${cityFilter})
-                AND (
-                  (${batchFilter} = '')
-                  OR (${isNoBatchFilter} = true AND (batch_number IS NULL OR BTRIM(batch_number) = ''))
-                  OR (${isNoBatchFilter} = false AND batch_number = ${batchFilter})
-                )
-                AND (
-                  ${onlyMissingInSystem} = false
-                  OR REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') NOT IN (
-                    SELECT REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
-                    FROM "Beneficiary"
-                    WHERE deleted_at IS NULL
+                f.id,
+                f.card_number,
+                f.card_number_upper,
+                f.beneficiary_name,
+                f.birth_date,
+                f.city,
+                f.batch_number,
+                f.source_file,
+                f.source_sheet,
+                f.source_row,
+                f.updated_at,
+                b.card_number AS similar_truth_card,
+                b.name AS similar_truth_name,
+                b.batch_number AS similar_truth_batch,
+                b.birth_date AS similar_truth_birth,
+                CASE
+                  WHEN b.id IS NOT NULL AND (
+                    UPPER(REGEXP_REPLACE(BTRIM(b.name), '\\s+', ' ', 'g')) <>
+                    UPPER(REGEXP_REPLACE(BTRIM(COALESCE(f.beneficiary_name, '')), '\\s+', ' ', 'g'))
+                    OR (b.birth_date IS NOT NULL AND f.birth_date IS NOT NULL AND b.birth_date::date <> f.birth_date::date)
+                    OR (b.birth_date IS NULL AND f.birth_date IS NOT NULL)
+                    OR (b.birth_date IS NOT NULL AND f.birth_date IS NULL)
+                  ) THEN 'تضارب ديموغرافي (المنظومة)'
+                  ELSE CAST(NULL AS varchar)
+                END AS similar_reason
+              FROM "CardIssuanceRegistryAll" f
+              LEFT JOIN "Beneficiary" b ON b.deleted_at IS NULL
+                AND REGEXP_REPLACE(UPPER(BTRIM(b.card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') =
+                    f.canonical_card
+              WHERE 1=1 ${cityFilter ? Prisma.sql`AND f.city = ${cityFilter}` : Prisma.empty}
+                ${isNoBatchFilter ? Prisma.sql`AND (f.batch_number IS NULL OR BTRIM(f.batch_number) = '')` : (batchFilter ? Prisma.sql`AND f.batch_number = ${batchFilter}` : Prisma.empty)}
+                ${onlyMissingInSystem ? Prisma.sql`AND (NOT EXISTS (
+                    SELECT 1
+                    FROM "Beneficiary" __b_missing
+                    WHERE __b_missing.deleted_at IS NULL
+                      AND REGEXP_REPLACE(UPPER(BTRIM(__b_missing.card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') =
+                          f.canonical_card
                   )
-                )
-                AND (
-                  ${onlyLegacyHasBatch} = false
-                  OR (
-                    (batch_number IS NOT NULL AND BTRIM(batch_number) <> '')
-                    AND REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') IN (
+                    AND (
+                      f.birth_date IS NULL
+                      OR NOT EXISTS (
+                        SELECT 1
+                        FROM "Beneficiary" b2
+                        WHERE b2.deleted_at IS NULL
+                          AND b2.birth_date IS NOT NULL
+                          AND b2.birth_date::date = f.birth_date::date
+                          AND UPPER(REGEXP_REPLACE(BTRIM(b2.name), '\\s+', ' ', 'g')) =
+                              UPPER(REGEXP_REPLACE(BTRIM(COALESCE(f.beneficiary_name, '')), '\\s+', ' ', 'g'))
+                      )
+                    )
+                  )` : Prisma.empty}
+                ${onlyDemographicMismatch ? Prisma.sql`AND (EXISTS (
+                    SELECT 1
+                    FROM "Beneficiary" b
+                    WHERE b.deleted_at IS NULL
+                      AND REGEXP_REPLACE(UPPER(BTRIM(b.card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') =
+                          f.canonical_card
+                      AND (
+                        UPPER(REGEXP_REPLACE(BTRIM(b.name), '\\s+', ' ', 'g')) <>
+                        UPPER(REGEXP_REPLACE(BTRIM(COALESCE(f.beneficiary_name, '')), '\\s+', ' ', 'g'))
+                        OR (b.birth_date IS NOT NULL AND f.birth_date IS NOT NULL AND b.birth_date::date <> f.birth_date::date)
+                        OR (b.birth_date IS NULL AND f.birth_date IS NOT NULL)
+                        OR (b.birth_date IS NOT NULL AND f.birth_date IS NULL)
+                      )
+                  ))` : Prisma.empty}
+                ${onlyLegacyHasBatch ? Prisma.sql`AND ((
+                    (f.batch_number IS NOT NULL AND BTRIM(f.batch_number) <> '')
+                    AND f.canonical_card IN (
                       SELECT REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
                       FROM "Beneficiary"
                       WHERE deleted_at IS NULL AND is_legacy_card = true
                     )
-                  )
-                )
-                AND (
-                  ${onlyLegacyNoBatch} = false
-                  OR (
-                    (batch_number IS NULL OR BTRIM(batch_number) = '')
-                    AND REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') IN (
+                  ))` : Prisma.empty}
+                ${onlyLegacyNoBatch ? Prisma.sql`AND ((f.batch_number IS NULL OR BTRIM(f.batch_number) = '')
+                    AND f.canonical_card IN (
                       SELECT REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
                       FROM "Beneficiary"
                       WHERE deleted_at IS NULL AND is_legacy_card = true
                     )
-                  )
-                )
+                  )` : Prisma.empty}
+                ${onlyMultiPersonCards ? Prisma.sql`AND ((
+                    f.birth_date IS NOT NULL
+                    AND UPPER(REGEXP_REPLACE(BTRIM(COALESCE(f.beneficiary_name, '')), '\\s+', ' ', 'g')) || '::' || f.birth_date::date::text IN (
+                      SELECT
+                        UPPER(REGEXP_REPLACE(BTRIM(COALESCE(t2.beneficiary_name, '')), '\\s+', ' ', 'g')) || '::' || t2.birth_date::date::text
+                      FROM "CardIssuanceRegistryAll" t2
+                      WHERE t2.birth_date IS NOT NULL
+                      GROUP BY
+                        UPPER(REGEXP_REPLACE(BTRIM(COALESCE(t2.beneficiary_name, '')), '\\s+', ' ', 'g')),
+                        t2.birth_date::date
+                      HAVING COUNT(DISTINCT t2.canonical_card) > 1
+                    )
+                  ))` : Prisma.empty}
             ),
             stats AS (
               SELECT
@@ -291,154 +449,227 @@ export default async function TruthRegistryPage({
               f.source_row,
               f.updated_at,
               s.batches_count,
-              s.batches_list
+              s.batches_list,
+              f.similar_truth_card,
+              f.similar_truth_name,
+              f.similar_truth_batch,
+              f.similar_truth_birth,
+              f.similar_reason
             FROM filtered f
             JOIN stats s ON s.card_number_upper = f.card_number_upper
             WHERE (${onlyMultiBatch} = false OR s.batches_count > 1)
-            ORDER BY f.city ASC, f.batch_number ASC NULLS LAST, f.card_number_upper ASC, f.source_file ASC NULLS LAST, f.source_row ASC NULLS LAST
+            ${orderSql2}
             LIMIT ${pageSize}
             OFFSET ${(pageNumber - 1) * pageSize}
           `);
 
-  const countSql = (onlyInSystemNotInRegistry || onlyLegacyNoBatch)
+  const countSql = (onlyInSystemNotInRegistry || onlyLegacyNoBatch || onlyFamilyNumberingMismatch)
     ? prisma.$queryRaw<CountRow[]>`
         SELECT COUNT(*)::bigint AS count
         FROM "Beneficiary"
         WHERE deleted_at IS NULL
-          AND (
-            ${query} = ''
-            OR card_number ILIKE ${`%${query}%`}
-            OR name ILIKE ${`%${query}%`}
-          )
-          AND (
-            ${onlyInSystemNotInRegistry} = false
-            OR REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') NOT IN (
-              SELECT REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
-              FROM "CardIssuanceRegistryAll"
-              WHERE card_number_upper IS NOT NULL
-            )
-          )
-          AND (
-            ${onlyLegacyNoBatch} = false
-            OR (
-              is_legacy_card = true
+          ${query ? Prisma.sql`AND (card_number ILIKE ${'%' + query + '%'} OR name ILIKE ${'%' + query + '%'})` : Prisma.empty}
+          ${onlyInSystemNotInRegistry ? Prisma.sql`AND (NOT EXISTS (
+                  SELECT 1
+                  FROM "CardIssuanceRegistryAll" __t_insys
+                  WHERE __t_insys.canonical_card =
+                        REGEXP_REPLACE(UPPER(BTRIM("Beneficiary".card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
+                )
+              AND (
+                "Beneficiary".birth_date IS NULL
+                OR NOT EXISTS (
+                  SELECT 1
+                  FROM "CardIssuanceRegistryAll" t2
+                  WHERE t2.birth_date IS NOT NULL
+                    AND t2.birth_date::date = "Beneficiary".birth_date::date
+                    AND UPPER(REGEXP_REPLACE(BTRIM(COALESCE(t2.beneficiary_name, '')), '\\s+', ' ', 'g')) =
+                        UPPER(REGEXP_REPLACE(BTRIM("Beneficiary".name), '\\s+', ' ', 'g'))
+                )
+              )
+            )` : Prisma.empty}
+          ${onlyLegacyNoBatch ? Prisma.sql`AND (is_legacy_card = true
               AND (batch_number IS NULL OR BTRIM(batch_number) = '')
-            )
-          )
-          AND (
-            ${onlyLegacyHasBatch} = false
-            OR (
+            )` : Prisma.empty}
+          ${onlyLegacyHasBatch ? Prisma.sql`AND ((
               is_legacy_card = true
               AND batch_number IS NOT NULL AND BTRIM(batch_number) <> ''
-            )
-          )
+            ))` : Prisma.empty}
+          ${onlyFamilyNumberingMismatch ? Prisma.sql`AND (EXISTS (
+              SELECT 1
+              FROM "CardIssuanceRegistryAll" t
+              WHERE UPPER(REGEXP_REPLACE(BTRIM(COALESCE(t.beneficiary_name, '')), '\\s+', ' ', 'g')) =
+                    UPPER(REGEXP_REPLACE(BTRIM("Beneficiary".name), '\\s+', ' ', 'g'))
+                AND (
+                  ("Beneficiary".birth_date IS NOT NULL AND t.birth_date IS NOT NULL AND t.birth_date::date = "Beneficiary".birth_date::date)
+                  OR
+                  ("Beneficiary".birth_date IS NULL)
+                )
+                AND COALESCE(
+                  SUBSTRING(t.canonical_card FROM '^(WAB2025[0-9]+)'),
+                  t.canonical_card
+                ) = COALESCE(
+                  SUBSTRING(REGEXP_REPLACE(UPPER(BTRIM("Beneficiary".card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') FROM '^(WAB2025[0-9]+)'),
+                  REGEXP_REPLACE(UPPER(BTRIM("Beneficiary".card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
+                )
+                AND t.canonical_card <>
+                    REGEXP_REPLACE(UPPER(BTRIM("Beneficiary".card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
+            ))` : Prisma.empty}
       `
     : (query
         ? prisma.$queryRaw<CountRow[]>`
             SELECT COUNT(*)::bigint AS count
             FROM "CardIssuanceRegistryAll"
-            WHERE (${cityFilter} = '' OR city = ${cityFilter})
-              AND (
-                (${batchFilter} = '')
-                OR (${isNoBatchFilter} = true AND (batch_number IS NULL OR BTRIM(batch_number) = ''))
-                OR (${isNoBatchFilter} = false AND batch_number = ${batchFilter})
-              )
+            WHERE 1=1 ${cityFilter ? Prisma.sql`AND city = ${cityFilter}` : Prisma.empty}
+              ${isNoBatchFilter ? Prisma.sql`AND (batch_number IS NULL OR BTRIM(batch_number) = '')` : (batchFilter ? Prisma.sql`AND batch_number = ${batchFilter}` : Prisma.empty)}
               AND (
                 card_number ILIKE ${`%${query}%`}
                 OR COALESCE(beneficiary_name, '') ILIKE ${`%${query}%`}
                 OR COALESCE(source_file, '') ILIKE ${`%${query}%`}
               )
-              AND (
-                ${onlyMissingInSystem} = false
-                OR REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') NOT IN (
-                  SELECT REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
-                  FROM "Beneficiary"
-                  WHERE deleted_at IS NULL
-                )
-              )
-              AND (
-                ${onlyLegacyHasBatch} = false
-                OR (
+              ${onlyMissingInSystem ? Prisma.sql`AND (NOT EXISTS (
+                    SELECT 1
+                    FROM "Beneficiary" __b_missing
+                    WHERE __b_missing.deleted_at IS NULL
+                      AND REGEXP_REPLACE(UPPER(BTRIM(__b_missing.card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') =
+                          canonical_card
+                  )
+                  AND (
+                    birth_date IS NULL
+                    OR NOT EXISTS (
+                      SELECT 1
+                      FROM "Beneficiary" b2
+                      WHERE b2.deleted_at IS NULL
+                        AND b2.birth_date IS NOT NULL
+                        AND b2.birth_date::date = birth_date::date
+                        AND UPPER(REGEXP_REPLACE(BTRIM(b2.name), '\\s+', ' ', 'g')) =
+                            UPPER(REGEXP_REPLACE(BTRIM(COALESCE(beneficiary_name, '')), '\\s+', ' ', 'g'))
+                    )
+                  )
+                )` : Prisma.empty}
+              ${onlyDemographicMismatch ? Prisma.sql`AND (EXISTS (
+                  SELECT 1
+                  FROM "Beneficiary" b
+                  WHERE b.deleted_at IS NULL
+                    AND REGEXP_REPLACE(UPPER(BTRIM(b.card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') =
+                        canonical_card
+                    AND (
+                      UPPER(REGEXP_REPLACE(BTRIM(b.name), '\\s+', ' ', 'g')) <>
+                      UPPER(REGEXP_REPLACE(BTRIM(COALESCE(beneficiary_name, '')), '\\s+', ' ', 'g'))
+                      OR (b.birth_date IS NOT NULL AND birth_date IS NOT NULL AND b.birth_date::date <> birth_date::date)
+                      OR (b.birth_date IS NULL AND birth_date IS NOT NULL)
+                      OR (b.birth_date IS NOT NULL AND birth_date IS NULL)
+                    )
+                ))` : Prisma.empty}
+              ${onlyLegacyHasBatch ? Prisma.sql`AND ((
                   (batch_number IS NOT NULL AND BTRIM(batch_number) <> '')
-                  AND REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') IN (
+                  AND canonical_card IN (
                     SELECT REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
                     FROM "Beneficiary"
                     WHERE deleted_at IS NULL AND is_legacy_card = true
                   )
-                )
-              )
-              AND (
-                ${onlyLegacyNoBatch} = false
-                OR (
-                  (batch_number IS NULL OR BTRIM(batch_number) = '')
-                  AND REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') IN (
+                ))` : Prisma.empty}
+              ${onlyLegacyNoBatch ? Prisma.sql`AND ((batch_number IS NULL OR BTRIM(batch_number) = '')
+                  AND canonical_card IN (
                     SELECT REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
                     FROM "Beneficiary"
                     WHERE deleted_at IS NULL AND is_legacy_card = true
                   )
-                )
-              )
-              AND (
-                ${onlyMultiBatch} = false
-                OR card_number_upper IN (
+                ))` : Prisma.empty}
+              ${onlyMultiBatch ? Prisma.sql`AND (card_number_upper IN (
                   SELECT card_number_upper
                   FROM "CardIssuanceRegistryAll"
                   GROUP BY card_number_upper
                   HAVING COUNT(DISTINCT COALESCE(NULLIF(BTRIM(batch_number), ''), '__NO_BATCH__')) > 1
-                )
-              )
+                ))` : Prisma.empty}
+              ${onlyMultiPersonCards ? Prisma.sql`AND ((
+                  birth_date IS NOT NULL
+                  AND UPPER(REGEXP_REPLACE(BTRIM(COALESCE(beneficiary_name, '')), '\\s+', ' ', 'g')) || '::' || birth_date::date::text IN (
+                    SELECT
+                      UPPER(REGEXP_REPLACE(BTRIM(COALESCE(t2.beneficiary_name, '')), '\\s+', ' ', 'g')) || '::' || t2.birth_date::date::text
+                    FROM "CardIssuanceRegistryAll" t2
+                    WHERE t2.birth_date IS NOT NULL
+                    GROUP BY
+                      UPPER(REGEXP_REPLACE(BTRIM(COALESCE(t2.beneficiary_name, '')), '\\s+', ' ', 'g')),
+                      t2.birth_date::date
+                    HAVING COUNT(DISTINCT t2.canonical_card) > 1
+                  )
+                ))` : Prisma.empty}
           `
         : prisma.$queryRaw<CountRow[]>`
             SELECT COUNT(*)::bigint AS count
             FROM "CardIssuanceRegistryAll"
-            WHERE (${cityFilter} = '' OR city = ${cityFilter})
-              AND (
-                (${batchFilter} = '')
-                OR (${isNoBatchFilter} = true AND (batch_number IS NULL OR BTRIM(batch_number) = ''))
-                OR (${isNoBatchFilter} = false AND batch_number = ${batchFilter})
-              )
-              AND (
-                ${onlyMissingInSystem} = false
-                OR REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') NOT IN (
-                  SELECT REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
-                  FROM "Beneficiary"
-                  WHERE deleted_at IS NULL
-                )
-              )
-              AND (
-                ${onlyLegacyHasBatch} = false
-                OR (
+            WHERE 1=1 ${cityFilter ? Prisma.sql`AND city = ${cityFilter}` : Prisma.empty}
+              ${isNoBatchFilter ? Prisma.sql`AND (batch_number IS NULL OR BTRIM(batch_number) = '')` : (batchFilter ? Prisma.sql`AND batch_number = ${batchFilter}` : Prisma.empty)}
+              ${onlyMissingInSystem ? Prisma.sql`AND (NOT EXISTS (
+                    SELECT 1
+                    FROM "Beneficiary" __b_missing
+                    WHERE __b_missing.deleted_at IS NULL
+                      AND REGEXP_REPLACE(UPPER(BTRIM(__b_missing.card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') =
+                          canonical_card
+                  )
+                  AND (
+                    birth_date IS NULL
+                    OR NOT EXISTS (
+                      SELECT 1
+                      FROM "Beneficiary" b2
+                      WHERE b2.deleted_at IS NULL
+                        AND b2.birth_date IS NOT NULL
+                        AND b2.birth_date::date = birth_date::date
+                        AND UPPER(REGEXP_REPLACE(BTRIM(b2.name), '\\s+', ' ', 'g')) =
+                            UPPER(REGEXP_REPLACE(BTRIM(COALESCE(beneficiary_name, '')), '\\s+', ' ', 'g'))
+                    )
+                  )
+                )` : Prisma.empty}
+              ${onlyDemographicMismatch ? Prisma.sql`AND (EXISTS (
+                  SELECT 1
+                  FROM "Beneficiary" b
+                  WHERE b.deleted_at IS NULL
+                    AND REGEXP_REPLACE(UPPER(BTRIM(b.card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') =
+                        canonical_card
+                    AND (
+                      UPPER(REGEXP_REPLACE(BTRIM(b.name), '\\s+', ' ', 'g')) <>
+                      UPPER(REGEXP_REPLACE(BTRIM(COALESCE(beneficiary_name, '')), '\\s+', ' ', 'g'))
+                      OR (b.birth_date IS NOT NULL AND birth_date IS NOT NULL AND b.birth_date::date <> birth_date::date)
+                      OR (b.birth_date IS NULL AND birth_date IS NOT NULL)
+                      OR (b.birth_date IS NOT NULL AND birth_date IS NULL)
+                    )
+                ))` : Prisma.empty}
+              ${onlyLegacyHasBatch ? Prisma.sql`AND ((
                   (batch_number IS NOT NULL AND BTRIM(batch_number) <> '')
-                  AND REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') IN (
+                  AND canonical_card IN (
                     SELECT REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
                     FROM "Beneficiary"
                     WHERE deleted_at IS NULL AND is_legacy_card = true
                   )
-                )
-              )
-              AND (
-                ${onlyLegacyNoBatch} = false
-                OR (
-                  (batch_number IS NULL OR BTRIM(batch_number) = '')
-                  AND REGEXP_REPLACE(card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') IN (
+                ))` : Prisma.empty}
+              ${onlyLegacyNoBatch ? Prisma.sql`AND ((batch_number IS NULL OR BTRIM(batch_number) = '')
+                  AND canonical_card IN (
                     SELECT REGEXP_REPLACE(UPPER(BTRIM(card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
                     FROM "Beneficiary"
                     WHERE deleted_at IS NULL AND is_legacy_card = true
                   )
-                )
-              )
-              AND (
-                ${onlyMultiBatch} = false
-                OR card_number_upper IN (
+                )` : Prisma.empty}
+              ${onlyMultiBatch ? Prisma.sql`AND (card_number_upper IN (
                   SELECT card_number_upper
                   FROM "CardIssuanceRegistryAll"
                   GROUP BY card_number_upper
                   HAVING COUNT(DISTINCT COALESCE(NULLIF(BTRIM(batch_number), ''), '__NO_BATCH__')) > 1
-                )
-              )
+                ))` : Prisma.empty}
+              ${onlyMultiPersonCards ? Prisma.sql`AND ((
+                  birth_date IS NOT NULL
+                  AND UPPER(REGEXP_REPLACE(BTRIM(COALESCE(beneficiary_name, '')), '\\s+', ' ', 'g')) || '::' || birth_date::date::text IN (
+                    SELECT
+                      UPPER(REGEXP_REPLACE(BTRIM(COALESCE(t2.beneficiary_name, '')), '\\s+', ' ', 'g')) || '::' || t2.birth_date::date::text
+                    FROM "CardIssuanceRegistryAll" t2
+                    WHERE t2.birth_date IS NOT NULL
+                    GROUP BY
+                      UPPER(REGEXP_REPLACE(BTRIM(COALESCE(t2.beneficiary_name, '')), '\\s+', ' ', 'g')),
+                      t2.birth_date::date
+                    HAVING COUNT(DISTINCT t2.canonical_card) > 1
+                  )
+                ))` : Prisma.empty}
           `);
-
-  const [rows, countRows, cityRows, batchRows] = await Promise.all([
+  const [rows, countRows, cityRows, batchRows] = await prisma.$transaction([
     rowsSql,
     countSql,
     prisma.$queryRaw<CityRow[]>`
@@ -452,7 +683,7 @@ export default async function TruthRegistryPage({
         batch_number,
         COUNT(*)::bigint AS count
       FROM "CardIssuanceRegistryAll"
-      WHERE (${cityFilter} = '' OR city = ${cityFilter})
+      WHERE 1=1 ${cityFilter ? Prisma.sql`AND city = ${cityFilter}` : Prisma.empty}
       GROUP BY batch_number
     `,
   ]);
@@ -488,9 +719,26 @@ export default async function TruthRegistryPage({
     if (onlyInSystemNotInRegistry) params.set("in_system_not_in_registry", "1");
     if (onlyLegacyHasBatch) params.set("legacy_has_batch", "1");
     if (onlyLegacyNoBatch) params.set("legacy_no_batch", "1");
+    if (onlyFamilyNumberingMismatch) params.set("family_numbering_mismatch", "1");
+    if (onlyMultiPersonCards) params.set("multi_person_cards", "1");
+    if (sortFilter) params.set("sort", sortFilter);
     params.set("page", String(nextPage));
     return `/admin/truth-registry?${params.toString()}`;
   };
+
+  const exportParams = new URLSearchParams();
+  if (query) exportParams.set("q", query);
+  if (cityFilter) exportParams.set("city", cityFilter);
+  if (batchFilter) exportParams.set("batch", batchFilter);
+  if (onlyMultiBatch) exportParams.set("multi", "1");
+  if (onlyMissingInSystem) exportParams.set("not_in_system", "1");
+  if (onlyInSystemNotInRegistry) exportParams.set("in_system_not_in_registry", "1");
+  if (onlyLegacyHasBatch) exportParams.set("legacy_has_batch", "1");
+  if (onlyLegacyNoBatch) exportParams.set("legacy_no_batch", "1");
+  if (onlyFamilyNumberingMismatch) exportParams.set("family_numbering_mismatch", "1");
+  if (onlyMultiPersonCards) exportParams.set("multi_person_cards", "1");
+  if (sortFilter) exportParams.set("sort", sortFilter);
+  const exportHref = `/api/admin/truth-registry/export?${exportParams.toString()}`;
 
   return (
     <Shell facilityName={session.name} session={session}>
@@ -503,6 +751,12 @@ export default async function TruthRegistryPage({
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <a href={exportHref} className="inline-flex">
+              <Button type="button" variant="outline" className="h-10 text-xs gap-2 border-emerald-600/30 text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/20">
+                <Download className="h-4 w-4" />
+                تصدير إكسل
+              </Button>
+            </a>
             <Link href="/admin/duplicates" className="inline-flex">
               <Button type="button" variant="outline" className="h-10 text-xs">العودة لإدارة المشاكل</Button>
             </Link>
@@ -563,33 +817,126 @@ export default async function TruthRegistryPage({
               })}
             </select>
 
-            <label className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-900 cursor-pointer">
-              <input type="checkbox" name="multi" value="1" defaultChecked={onlyMultiBatch} />
-              موجود بأكثر من دفعة
-            </label>
+            <select
+              name="sort"
+              defaultValue={sortFilter}
+              className="h-10 rounded-md border border-slate-300 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-900 font-medium"
+            >
+              <option value="">الترتيب الافتراضي</option>
+              <option value="birth_asc">المواليد (الأقدم للأحدث)</option>
+              <option value="birth_desc">المواليد (الأحدث للأقدم)</option>
+            </select>
 
-            <label className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-900 cursor-pointer">
-              <input type="checkbox" name="not_in_system" value="1" defaultChecked={onlyMissingInSystem} />
-              البطاقات غير المدخلة بالمنظومة
-            </label>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full mt-4 border-t border-slate-200 dark:border-slate-800 pt-4">
+              {/* المجموعة الأولى: فلاتر جدول الحقيقة */}
+              <div className="space-y-3 border-l border-slate-200 dark:border-slate-800 pl-4 last:border-0 last:pl-0">
+                <h3 className="text-xs font-black text-blue-600 dark:text-blue-400 flex items-center gap-1.5 mb-2">
+                  <span>📋</span> فلاتر جدول الحقيقة
+                </h3>
+                <div className="flex flex-col gap-2">
+                  <label className="flex items-center gap-2 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900/40 cursor-pointer transition-colors text-xs font-semibold">
+                    <input
+                      type="radio"
+                      name="filter_type"
+                      value=""
+                      defaultChecked={
+                        !onlyMultiBatch &&
+                        !onlyMissingInSystem &&
+                        !onlyInSystemNotInRegistry &&
+                        !onlyLegacyHasBatch &&
+                        !onlyLegacyNoBatch &&
+                        !onlyFamilyNumberingMismatch &&
+                        !onlyMultiPersonCards &&
+                        !onlyDemographicMismatch
+                      }
+                    />
+                    عرض كافة السجلات الافتراضية
+                  </label>
+                  <label className="flex items-center gap-2 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900/40 cursor-pointer transition-colors text-xs font-semibold">
+                    <input type="radio" name="filter_type" value="multi" defaultChecked={onlyMultiBatch} />
+                    موجود بأكثر من دفعة في جدول الحقيقة
+                  </label>
+                  <label className="flex items-center gap-2 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900/40 cursor-pointer transition-colors text-xs font-semibold">
+                    <input
+                      type="radio"
+                      name="filter_type"
+                      value="multi_person_cards"
+                      defaultChecked={onlyMultiPersonCards}
+                    />
+                    تباين الترميز لنفس المستفيد (تعدد الأرقام)
+                  </label>
+                  <label className="flex items-center gap-2 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900/40 cursor-pointer transition-colors text-xs font-semibold">
+                    <input
+                      type="radio"
+                      name="filter_type"
+                      value="demographic_mismatch"
+                      defaultChecked={onlyDemographicMismatch}
+                    />
+                    تضارب البيانات الديموغرافية (الاسم/الميلاد)
+                  </label>
+                </div>
+              </div>
 
-            <label className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-900 cursor-pointer">
-              <input type="checkbox" name="in_system_not_in_registry" value="1" defaultChecked={onlyInSystemNotInRegistry} />
-              موجودين بالمنظومة وغير موجودين بجدول الحقيقة
-            </label>
+              {/* المجموعة الثانية: فلاتر مطابقة الجدولين */}
+              <div className="space-y-3 border-l border-slate-200 dark:border-slate-800 pl-4 last:border-0 last:pl-0">
+                <h3 className="text-xs font-black text-purple-600 dark:text-purple-400 flex items-center gap-1.5 mb-2">
+                  <span>🔄</span> فلاتر مطابقة الجدولين
+                </h3>
+                <div className="flex flex-col gap-2">
+                  <label className="flex items-center gap-2 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900/40 cursor-pointer transition-colors text-xs font-semibold">
+                    <input type="radio" name="filter_type" value="not_in_system" defaultChecked={onlyMissingInSystem} />
+                    موجود في الحقيقة وغير مدرج بالمنظومة
+                  </label>
+                  <label className="flex items-center gap-2 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900/40 cursor-pointer transition-colors text-xs font-semibold">
+                    <input
+                      type="radio"
+                      name="filter_type"
+                      value="in_system_not_in_registry"
+                      defaultChecked={onlyInSystemNotInRegistry}
+                    />
+                    موجود بالمنظومة وغير مدرج بجدول الحقيقة
+                  </label>
+                </div>
+              </div>
 
-            <label className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-900 cursor-pointer">
-              <input type="checkbox" name="legacy_has_batch" value="1" defaultChecked={onlyLegacyHasBatch} />
-              البطاقات القديمة التي لها دفعة
-            </label>
+              {/* المجموعة الثالثة: فلاتر تنظيف وتصحيح المنظومة */}
+              <div className="space-y-3">
+                <h3 className="text-xs font-black text-amber-600 dark:text-amber-400 flex items-center gap-1.5 mb-2">
+                  <span>🧹</span> فلاتر تنظيف وتصحيح المنظومة
+                </h3>
+                <div className="flex flex-col gap-2">
+                  <label className="flex items-center gap-2 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900/40 cursor-pointer transition-colors text-xs font-semibold">
+                    <input type="radio" name="filter_type" value="legacy_no_batch" defaultChecked={onlyLegacyNoBatch} />
+                    بطاقات قديمة بالمنظومة بدون دفعة (208 بطاقة)
+                  </label>
+                  <label className="flex items-center gap-2 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900/40 cursor-pointer transition-colors text-xs font-semibold">
+                    <input
+                      type="radio"
+                      name="filter_type"
+                      value="legacy_has_batch"
+                      defaultChecked={onlyLegacyHasBatch}
+                    />
+                    بطاقات قديمة بالمنظومة ولها دفعة (111 بطاقة)
+                  </label>
+                  <label className="flex items-center gap-2 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900/40 cursor-pointer transition-colors text-xs font-semibold">
+                    <input
+                      type="radio"
+                      name="filter_type"
+                      value="family_numbering_mismatch"
+                      defaultChecked={onlyFamilyNumberingMismatch}
+                    />
+                    تباين الترميز العائلي (أرقام بطاقات غير مطابقة)
+                  </label>
+                </div>
+              </div>
+            </div>
 
-            <label className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-900 cursor-pointer">
-              <input type="checkbox" name="legacy_no_batch" value="1" defaultChecked={onlyLegacyNoBatch} />
-              البطاقات القديمة ليس لها دفعة
-            </label>
-
-            <input type="hidden" name="page" value="1" />
-            <Button type="submit" variant="outline" className="h-10">تطبيق</Button>
+            <div className="w-full flex justify-end gap-2 mt-4 border-t border-slate-200 dark:border-slate-800 pt-4">
+              <input type="hidden" name="page" value="1" />
+              <Button type="submit" className="h-10 text-xs font-bold px-6">
+                تطبيق التصفية المحددة
+              </Button>
+            </div>
           </form>
         </Card>
 
@@ -608,7 +955,10 @@ export default async function TruthRegistryPage({
               not_in_system: onlyMissingInSystem,
               in_system_not_in_registry: onlyInSystemNotInRegistry,
               legacy_has_batch: onlyLegacyHasBatch,
-              legacy_no_batch: onlyLegacyNoBatch
+              legacy_no_batch: onlyLegacyNoBatch,
+              family_numbering_mismatch: onlyFamilyNumberingMismatch,
+              multi_person_cards: onlyMultiPersonCards,
+              sort: sortFilter
             }}
           />
 

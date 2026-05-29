@@ -46,7 +46,7 @@ const NO_BATCH_FILTER_VALUE = "__NO_BATCH__";
 export default async function BeneficiariesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; page?: string; pageSize?: string; view?: string; sort?: string; order?: string; status?: string; completed_via?: string; balance_range?: string; card_age?: string; issuance_city?: string; issuance_batch?: string; focus_beneficiary?: string; bulk_msg?: string; bulk_type?: string }>;
+  searchParams: Promise<{ q?: string; page?: string; pageSize?: string; view?: string; sort?: string; order?: string; status?: string; completed_via?: string; balance_range?: string; card_age?: string; issuance_city?: string; issuance_batch?: string; focus_beneficiary?: string; bulk_msg?: string; bulk_type?: string; truth_birth?: string }>;
 }) {
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
@@ -54,7 +54,8 @@ export default async function BeneficiariesPage({
     redirect("/dashboard");
   }
 
-  const { q, page: pageParam, pageSize: pageSizeParam, view, sort, order, status, completed_via: completedViaParam, balance_range: balanceRangeParam, card_age: cardAgeParam, issuance_city: issuanceCityParam, issuance_batch: issuanceBatchParam, focus_beneficiary, bulk_msg: bulkMsgParam, bulk_type: bulkTypeParam } = await searchParams;
+  const { q, page: pageParam, pageSize: pageSizeParam, view, sort, order, status, completed_via: completedViaParam, balance_range: balanceRangeParam, card_age: cardAgeParam, issuance_city: issuanceCityParam, issuance_batch: issuanceBatchParam, focus_beneficiary, bulk_msg: bulkMsgParam, bulk_type: bulkTypeParam, truth_birth: truthBirthParam } = await searchParams;
+  const isTruthBirthSynced = truthBirthParam === "1";
   const query = (q?.trim() ?? "").slice(0, 100);
   const issuanceCityFilter = (issuanceCityParam?.trim() ?? "").slice(0, 120);
   const issuanceBatchFilter = (issuanceBatchParam?.trim() ?? "").slice(0, 120);
@@ -95,6 +96,7 @@ export default async function BeneficiariesPage({
     if (statusFilter !== "all" && !isStrictOldCardView) p.set("status", statusFilter);
     if (completedViaFilter !== "all" && !isStrictOldCardView) p.set("completed_via", completedViaFilter);
     if (balanceRangeFilter !== "all" && !isDeletedView && !isStrictOldCardView) p.set("balance_range", balanceRangeFilter);
+    if (isTruthBirthSynced && !isDeletedView) p.set("truth_birth", "1");
     if (issuanceCityFilter && !isDeletedView) p.set("issuance_city", issuanceCityFilter);
     if (issuanceBatchFilter && !isDeletedView) p.set("issuance_batch", issuanceBatchFilter);
     p.set("pageSize", String(PAGE_SIZE));
@@ -121,6 +123,10 @@ export default async function BeneficiariesPage({
     ? { deleted_at: { not: null } }
     : { deleted_at: null };
 
+  if (isTruthBirthSynced && !isDeletedView) {
+    baseFilter.birth_date_synced_from_truth = true;
+  }
+
   if (statusFilter !== "all" && !isDeletedView && !isStrictOldCardView) {
     baseFilter.status = statusFilter;
   }
@@ -138,47 +144,60 @@ export default async function BeneficiariesPage({
   }
 
   if (!isDeletedView && (issuanceCityFilter || issuanceBatchFilter)) {
-    type IssuanceCardRow = { card_number_upper: string };
-
     if (isNoBatchFilter && !issuanceCityFilter) {
       // بدون دفعة وبدون تحديد مدينة: نريد كل المستفيدين الذين ليس لديهم دفعة في السجل (سواء ليس لديهم سجل إطلاقا أو سجلهم بدون دفعة)
-      const matchedCardsWithBatch = await prisma.$queryRaw<IssuanceCardRow[]>`
-        SELECT DISTINCT card_number_upper
-        FROM "CardIssuanceRegistry"
-        WHERE batch_number IS NOT NULL AND BTRIM(batch_number) <> ''
+      const matchedIdsWithBatch = await prisma.$queryRaw<Array<{ id: string }>>`
+        SELECT b.id
+        FROM "Beneficiary" b
+        INNER JOIN "CardIssuanceRegistry" r
+          ON REGEXP_REPLACE(UPPER(BTRIM(b.card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') = 
+             REGEXP_REPLACE(r.card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
+        WHERE r.batch_number IS NOT NULL AND BTRIM(r.batch_number) <> ''
+          AND b.deleted_at IS NULL
       `;
-      const cardsWithBatch = matchedCardsWithBatch.map((r) => r.card_number_upper).filter((v) => Boolean(v));
-      baseFilter.card_number = { notIn: cardsWithBatch.length > 0 ? cardsWithBatch : ["__DUMMY__"] };
+      const idsWithBatch = matchedIdsWithBatch.map((r) => r.id).filter((v) => Boolean(v));
+      baseFilter.id = { notIn: idsWithBatch.length > 0 ? idsWithBatch : ["__DUMMY__"] };
     } else {
-      let matchedCards: IssuanceCardRow[] = [];
+      let matchedBeneficiaries: Array<{ id: string }> = [];
 
       if (issuanceCityFilter && issuanceBatchFilter) {
-        matchedCards = await prisma.$queryRaw<IssuanceCardRow[]>`
-          SELECT DISTINCT card_number_upper
-          FROM "CardIssuanceRegistry"
-          WHERE city = ${issuanceCityFilter}
+        matchedBeneficiaries = await prisma.$queryRaw<Array<{ id: string }>>`
+          SELECT b.id
+          FROM "Beneficiary" b
+          INNER JOIN "CardIssuanceRegistry" r
+            ON REGEXP_REPLACE(UPPER(BTRIM(b.card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') = 
+               REGEXP_REPLACE(r.card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
+          WHERE r.city = ${issuanceCityFilter}
             AND (
-              (${isNoBatchFilter} = true AND (batch_number IS NULL OR BTRIM(batch_number) = ''))
-              OR (${isNoBatchFilter} = false AND batch_number = ${issuanceBatchFilter})
+              (${isNoBatchFilter} = true AND (r.batch_number IS NULL OR BTRIM(r.batch_number) = ''))
+              OR (${isNoBatchFilter} = false AND r.batch_number = ${issuanceBatchFilter})
             )
+            AND b.deleted_at IS NULL
         `;
       } else if (issuanceCityFilter) {
-        matchedCards = await prisma.$queryRaw<IssuanceCardRow[]>`
-          SELECT DISTINCT card_number_upper
-          FROM "CardIssuanceRegistry"
-          WHERE city = ${issuanceCityFilter}
+        matchedBeneficiaries = await prisma.$queryRaw<Array<{ id: string }>>`
+          SELECT b.id
+          FROM "Beneficiary" b
+          INNER JOIN "CardIssuanceRegistry" r
+            ON REGEXP_REPLACE(UPPER(BTRIM(b.card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') = 
+               REGEXP_REPLACE(r.card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
+          WHERE r.city = ${issuanceCityFilter}
+            AND b.deleted_at IS NULL
         `;
       } else if (issuanceBatchFilter) {
-        // هنا isNoBatchFilter كاذبة بالتأكيد لأننا عالجنا الحالة الصادقة في الشرط الأول
-        matchedCards = await prisma.$queryRaw<IssuanceCardRow[]>`
-          SELECT DISTINCT card_number_upper
-          FROM "CardIssuanceRegistry"
-          WHERE batch_number = ${issuanceBatchFilter}
+        matchedBeneficiaries = await prisma.$queryRaw<Array<{ id: string }>>`
+          SELECT b.id
+          FROM "Beneficiary" b
+          INNER JOIN "CardIssuanceRegistry" r
+            ON REGEXP_REPLACE(UPPER(BTRIM(b.card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') = 
+               REGEXP_REPLACE(r.card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
+          WHERE r.batch_number = ${issuanceBatchFilter}
+            AND b.deleted_at IS NULL
         `;
       }
 
-      const cards = matchedCards.map((r) => r.card_number_upper).filter((v) => Boolean(v));
-      baseFilter.card_number = { in: cards.length > 0 ? cards : ["__NO_MATCH__"] };
+      const ids = matchedBeneficiaries.map((r) => r.id).filter((v) => Boolean(v));
+      baseFilter.id = { in: ids.length > 0 ? ids : ["__NO_MATCH__"] };
     }
   }
 
@@ -233,7 +252,8 @@ export default async function BeneficiariesPage({
           SELECT r.batch_number, COUNT(*)::int AS total
           FROM "CardIssuanceRegistry" r
           INNER JOIN "Beneficiary" b
-            ON UPPER(BTRIM(b.card_number)) = r.card_number_upper
+            ON REGEXP_REPLACE(UPPER(BTRIM(b.card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') = 
+               REGEXP_REPLACE(r.card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
           WHERE r.batch_number IS NOT NULL
             AND BTRIM(r.batch_number) <> ''
             AND r.city = ${issuanceCityFilter}
@@ -247,7 +267,8 @@ export default async function BeneficiariesPage({
           SELECT r.batch_number, COUNT(*)::int AS total
           FROM "CardIssuanceRegistry" r
           INNER JOIN "Beneficiary" b
-            ON UPPER(BTRIM(b.card_number)) = r.card_number_upper
+            ON REGEXP_REPLACE(UPPER(BTRIM(b.card_number)), '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1') = 
+               REGEXP_REPLACE(r.card_number_upper, '^WAB20250*([1-9][0-9]*|0)', 'WAB2025\\1')
           WHERE r.batch_number IS NOT NULL
             AND BTRIM(r.batch_number) <> ''
             AND b.deleted_at IS NULL
@@ -276,6 +297,7 @@ export default async function BeneficiariesPage({
     remaining_balance: remainingById.get(b.id) ?? 0,
     completed_via: (b as unknown as Record<string, unknown>).completed_via as string | null,
     in_import_file: Boolean((b as unknown as Record<string, unknown>).is_legacy_card),
+    birth_date_synced_from_truth: Boolean((b as any).birth_date_synced_from_truth),
   }));
 
   const issuanceMeta = await getBeneficiariesIssuanceMeta(process.cwd(), beneficiaries.map((b) => b.card_number));
@@ -323,6 +345,7 @@ export default async function BeneficiariesPage({
   if (!isDeletedView && cardAgeFilter !== "all") exportParams.set("card_age", cardAgeFilter);
   if (!isDeletedView && issuanceCityFilter) exportParams.set("issuance_city", issuanceCityFilter);
   if (!isDeletedView && issuanceBatchFilter) exportParams.set("issuance_batch", issuanceBatchFilter);
+  if (!isDeletedView && isTruthBirthSynced) exportParams.set("truth_birth", "1");
 
   const exportHref = `/api/export/beneficiaries?${exportParams.toString()}`;
 
@@ -491,8 +514,18 @@ export default async function BeneficiariesPage({
                 رصيد 0-10 د.ل
               </Link>
 
-
-
+              <Link
+                href={buildBeneficiaryParams({
+                  truth_birth: isTruthBirthSynced ? undefined : "1",
+                  page: "1",
+                })}
+                className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-sm font-bold transition-colors ${isTruthBirthSynced
+                  ? "border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400"
+                  : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700"
+                  }`}
+              >
+                مواليد مرحلة من جدول الحقيقة
+              </Link>
 
               <form className="flex flex-wrap items-center gap-2">
                 {!isStrictOldCardView && <input type="hidden" name="q" value={query} />}
@@ -503,6 +536,7 @@ export default async function BeneficiariesPage({
                 {statusFilter !== "all" && !isStrictOldCardView && <input type="hidden" name="status" value={statusFilter} />}
                 {completedViaFilter !== "all" && !isStrictOldCardView && <input type="hidden" name="completed_via" value={completedViaFilter} />}
                 {balanceRangeFilter !== "all" && !isStrictOldCardView && <input type="hidden" name="balance_range" value={balanceRangeFilter} />}
+                {isTruthBirthSynced && !isStrictOldCardView && <input type="hidden" name="truth_birth" value="1" />}
 
 
                 <select
@@ -592,7 +626,14 @@ export default async function BeneficiariesPage({
                           <span>رقم الدفعة: {beneficiary.issue_batch_number ?? "—"}</span>
                         </div>
                         {beneficiary.birth_date && (
-                          <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">{formatDateTripoli(beneficiary.birth_date, "en-GB")}</p>
+                          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500">
+                            <span>{formatDateTripoli(beneficiary.birth_date, "en-GB")}</span>
+                            {beneficiary.birth_date_synced_from_truth && (
+                              <Badge className="bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-[10px] px-1.5 py-0 border border-emerald-200 dark:border-emerald-800">
+                                جدول الحقيقة
+                              </Badge>
+                            )}
+                          </div>
                         )}
                         {!isDeletedView && (
                           <div className="mt-1.5 flex gap-3 text-xs font-bold">
@@ -737,10 +778,19 @@ export default async function BeneficiariesPage({
                         </td>
                         <td className="px-6 py-4 text-sm text-slate-700 dark:text-slate-300">{beneficiary.card_number}</td>
                         <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-400">
-                          <span className="inline-flex items-center gap-2">
-                            <CalendarDays className="h-4 w-4 text-slate-400 dark:text-slate-500" />
-                            {beneficiary.birth_date ? formatDateTripoli(beneficiary.birth_date, "en-GB") : "غير مسجل"}
-                          </span>
+                          <div className="flex flex-col gap-0.5">
+                            <span className="inline-flex items-center gap-2">
+                              <CalendarDays className="h-4 w-4 text-slate-400 dark:text-slate-500" />
+                              {beneficiary.birth_date ? formatDateTripoli(beneficiary.birth_date, "en-GB") : "غير مسجل"}
+                            </span>
+                            {beneficiary.birth_date_synced_from_truth && (
+                              <div className="pr-6 mt-0.5">
+                                <Badge className="bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-[10px] px-1.5 py-0 border border-emerald-200 dark:border-emerald-800">
+                                  جدول الحقيقة
+                                </Badge>
+                              </div>
+                            )}
+                          </div>
                         </td>
                         <td className="px-6 py-4 text-sm text-slate-700 dark:text-slate-300">{beneficiary.issue_city ?? "—"}</td>
                         <td className="px-6 py-4 text-sm text-slate-700 dark:text-slate-300">{beneficiary.issue_batch_number ?? "—"}</td>

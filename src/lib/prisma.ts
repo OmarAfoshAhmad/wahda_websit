@@ -1,12 +1,21 @@
 import { PrismaClient } from "@prisma/client";
 import os from "os";
 
+function parsePositiveInt(value: string | undefined): number | null {
+  const n = Number.parseInt(String(value ?? "").trim(), 10);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+
 // ─── حساب حجم Connection Pool الأمثل تلقائياً ───────────────────────────────
 // قاعدة ذهبية: PostgreSQL الافتراضية تسمح بـ 100 اتصال كحد أقصى.
 // عدد نسخ التطبيق يعتمد على عدد CPU (cluster mode).
 // على سيرفر 4 CPU: يتم توزيع 80 اتصالاً على 4 نسخ = 20 اتصالاً لكل نسخة.
 function computePoolSize(): number {
-  if (process.env.NODE_ENV !== "production") return 3; // بيئة تطوير: اتصالات قليلة
+  const configured = parsePositiveInt(process.env.PRISMA_POOL_SIZE);
+  if (configured) return configured;
+
+  if (process.env.NODE_ENV !== "production") return 10; // dev: نسمح بهامش أعلى لتعدد استعلامات الواجهة
   const cpus = os.cpus().length || 1;
   // تخصيص 80 اتصالاً كحد أقصى وتوزيعها على عدد الأنوية لضمان عدم تجاوز سعة قاعدة البيانات
   const calculated = Math.floor(80 / cpus);
@@ -15,7 +24,7 @@ function computePoolSize(): number {
 }
 
 const POOL_SIZE = computePoolSize();
-const POOL_TIMEOUT = 30; // ثواني — وقت انتظار اتصال حر من المجمع
+const POOL_TIMEOUT = parsePositiveInt(process.env.PRISMA_POOL_TIMEOUT) ?? 60; // ثواني — وقت انتظار اتصال حر من المجمع
 const SLOW_QUERY_MS = process.env.NODE_ENV === "production" ? 300 : 150;
 
 const prismaClientSingleton = () => {
@@ -61,10 +70,19 @@ function appendPoolParams(url: string): string {
     const isPgBouncer = u.searchParams.get("pgbouncer") === "true";
 
     if (!isPgBouncer) {
-      if (!u.searchParams.has("connection_limit")) {
+      const forcedPoolSize = parsePositiveInt(process.env.PRISMA_POOL_SIZE);
+      const forcedPoolTimeout = parsePositiveInt(process.env.PRISMA_POOL_TIMEOUT);
+      const forceInDev = process.env.NODE_ENV !== "production";
+
+      if (forceInDev || forcedPoolSize) {
+        u.searchParams.set("connection_limit", String(forcedPoolSize ?? POOL_SIZE));
+      } else if (!u.searchParams.has("connection_limit")) {
         u.searchParams.set("connection_limit", String(POOL_SIZE));
       }
-      if (!u.searchParams.has("pool_timeout")) {
+
+      if (forceInDev || forcedPoolTimeout) {
+        u.searchParams.set("pool_timeout", String(forcedPoolTimeout ?? POOL_TIMEOUT));
+      } else if (!u.searchParams.has("pool_timeout")) {
         u.searchParams.set("pool_timeout", String(POOL_TIMEOUT));
       }
     }
@@ -89,7 +107,7 @@ declare global {
   var prismaVersion: undefined | string;
 }
 
-const PRISMA_CLIENT_VERSION = "v2-no-audit-chain";
+const PRISMA_CLIENT_VERSION = "v3-pool-tuning";
 
 let prisma: ReturnType<typeof prismaClientSingleton>;
 const cachedPrisma = globalThis.prisma;
@@ -110,4 +128,3 @@ if (process.env.NODE_ENV !== "production") {
   globalThis.prisma = prisma;
   globalThis.prismaVersion = PRISMA_CLIENT_VERSION;
 }
-

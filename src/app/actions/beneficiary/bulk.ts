@@ -340,6 +340,10 @@ export async function bulkPermanentDeleteBeneficiaries(formData: FormData) {
     }
 
     await prisma.$transaction(async (tx) => {
+      // حذف التوابع أولاً لتفادي قيود FK من نوع RESTRICT
+      await tx.walletConsumption.deleteMany({ where: { beneficiary_id: { in: deletableIds } } });
+      await tx.claim.deleteMany({ where: { beneficiary_id: { in: deletableIds } } });
+      await tx.notification.deleteMany({ where: { beneficiary_id: { in: deletableIds } } });
       await tx.beneficiary.deleteMany({ where: { id: { in: deletableIds } } });
 
       const details = beneficiaries.map((b) => {
@@ -779,4 +783,3 @@ export async function bulkUpdateBeneficiaryBatch(data: {
     return { error: "تعذر تحديث دفعة المستفيدين" };
   }
 }
-

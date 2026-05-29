@@ -46,6 +46,9 @@ export async function GET(request: NextRequest) {
 
   const cardAgeFilter = cardAgeParam === "old" ? "old" : "all";
 
+  const truthBirthParam = searchParams.get("truth_birth");
+  const isTruthBirthSynced = truthBirthParam === "1";
+
   const selectedIds = Array.from(
     new Set(
       [
@@ -80,6 +83,7 @@ export async function GET(request: NextRequest) {
             ...(!isDeletedView && statusFilter ? { status: statusFilter } : {}),
             ...(!isDeletedView && completedViaFilter ? { completed_via: completedViaFilter } : {}),
             ...(!isDeletedView && cardAgeFilter === "old" ? { is_legacy_card: true } : {}),
+            ...(!isDeletedView && isTruthBirthSynced ? { birth_date_synced_from_truth: true } : {}),
             ...(q
               ? {
                   OR: getArabicSearchTerms(q).flatMap(t => [
@@ -115,6 +119,7 @@ export async function GET(request: NextRequest) {
       { header: "الاسم", key: "name", width: 30 },
       { header: "رقم البطاقة", key: "card_number", width: 20 },
       { header: "تاريخ الميلاد", key: "birth_date", width: 16 },
+      { header: "مرحل من جدول الحقيقة", key: "birth_date_synced_from_truth", width: 22 },
       { header: "الحالة", key: "status", width: 14 },
       { header: "الرصيد الكلي", key: "total_balance", width: 16 },
       { header: "الرصيد المتبقي", key: "remaining_balance", width: 16 },
@@ -139,6 +144,7 @@ export async function GET(request: NextRequest) {
         name: b.name,
         card_number: b.card_number,
         birth_date: b.birth_date ? formatDateTripoli(b.birth_date, "en-GB") : "",
+        birth_date_synced_from_truth: (b as any).birth_date_synced_from_truth ? "نعم" : "لا",
         status: statusLabel(b.status),
         total_balance: Number(b.total_balance),
         remaining_balance: remainingById.get(b.id) ?? Number(b.remaining_balance),
