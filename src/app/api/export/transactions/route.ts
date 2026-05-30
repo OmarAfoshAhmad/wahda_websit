@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
   if (!session) {
     return new NextResponse("Unauthorized", { status: 401 });
   }
-  const canExport = !session.is_manager || hasPermission(session, "export_data");
+  const canExport = session.is_admin || hasPermission(session, "export_data");
   if (!canExport) {
     return new NextResponse("Forbidden", { status: 403 });
   }
@@ -38,6 +38,9 @@ export async function GET(request: NextRequest) {
   const sort = searchParams.get("sort") ?? "created_at";
   const order = searchParams.get("order") === "asc" ? "asc" : "desc";
   const source = searchParams.get("source") ?? "all";
+  const statusFilter = searchParams.get("status") ?? "active";
+  const txTypeFilter = searchParams.get("tx_type") ?? "all";
+  const companyFilterId = (searchParams.get("company_id") ?? "").trim();
 
   const facilities = session.is_admin
     ? await prisma.facility.findMany({
@@ -54,18 +57,37 @@ export async function GET(request: NextRequest) {
     ? (resolvedFacilityId ? { facility_id: resolvedFacilityId } : {})
     : { facility_id: session.id };
 
-  // في التقرير: نظهر الحركات العادية المنفذة فقط ونستبعد الملغاة وحركة التصحيح.
-  where.type = { not: "CANCELLATION" };
-  where.is_cancelled = false;
   if (session.is_employee) {
-    // الموظف: تصدير حركات الكاش فقط (المولدة من مسار cash-claim).
+    // الموظف: يرى فقط حركات الكاش التي نفذها حسابه، بدون الملغاة أو حركات التصحيح.
+    where.type = { notIn: ["CANCELLATION", "SETTLEMENT"] };
+    where.is_cancelled = false;
     where.idempotency_key = { startsWith: "cash-claim:" };
+  } else {
+    // بناءً على حالة statusFilter
+    if (statusFilter === "active") {
+      where.is_cancelled = false;
+    } else if (statusFilter === "deleted") {
+      where.is_cancelled = true;
+    }
   }
 
+  const canViewSettlement = session.is_admin || session.is_manager;
+  if (!canViewSettlement) {
+    const existingAnd = Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : [];
+    where.AND = [...existingAnd, { type: { not: "SETTLEMENT" } }];
+  }
+
+  // المصدر (يدوي / استيراد)
   if (session.is_admin && source === "import") {
-    where.type = "IMPORT";
+    if (where.type) {
+      where.AND = [...(Array.isArray(where.AND) ? where.AND : []), { type: "IMPORT" }];
+    } else {
+      where.type = "IMPORT";
+    }
   } else if (session.is_admin && source === "manual") {
-    where.type = { in: ["MEDICINE", "SUPPLIES"] };
+    if (!where.type) {
+      where.type = { in: ["MEDICINE", "SUPPLIES", "SETTLEMENT"] };
+    }
   }
 
   const existingAndBase = Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : [];
@@ -80,15 +102,27 @@ export async function GET(request: NextRequest) {
     }
   ];
 
+  if (txTypeFilter === "supplies") {
+    where.AND.push({ type: "SUPPLIES" });
+  } else if (txTypeFilter === "medicine") {
+    where.AND.push({ type: { in: ["MEDICINE", "IMPORT"] } });
+  }
+
+  if (companyFilterId) {
+    where.AND.push({ company_id: companyFilterId });
+  }
+
   if (batch_number) {
     where.beneficiary = { ...where.beneficiary as object, batch_number };
   }
 
   if (q && q.trim() !== "") {
-    where.OR = getArabicSearchTerms(q.trim()).flatMap(t => [
-      { beneficiary: { name: { contains: t, mode: "insensitive" as const } } },
-      { beneficiary: { card_number: { contains: t, mode: "insensitive" as const } } },
-    ]);
+    where.AND.push({
+      OR: getArabicSearchTerms(q.trim()).flatMap(t => [
+        { beneficiary: { name: { contains: t, mode: "insensitive" as const } } },
+        { beneficiary: { card_number: { contains: t, mode: "insensitive" as const } } },
+      ])
+    });
   }
 
   const TX_SORT_COLS = ["created_at", "amount", "beneficiary_name", "facility_name", "remaining_balance"] as const;
@@ -115,25 +149,24 @@ export async function GET(request: NextRequest) {
     where.id = { in: txIds };
   }
 
-  // نفس السلوك في صفحة الحركات: آخر 30 يوم افتراضيا عند غياب التاريخ.
+  // فلترة بالتاريخ (نفس منطق صفحة الحركات)
   const hasDateFilter = !!(start_date || end_date);
-  where.created_at = {};
-  if (start_date) {
-    const start = getStartOfDayTripoli(start_date);
-    if (!isNaN(start.getTime())) {
-      where.created_at.gte = start;
+  if (hasDateFilter) {
+    where.created_at = {};
+    if (start_date) {
+      const start = getStartOfDayTripoli(start_date);
+      if (!isNaN(start.getTime())) {
+        where.created_at.gte = start;
+      }
     }
-  } else if (!hasDateFilter) {
-    const nowTripoli = new Date(new Date().toLocaleString("en-US", { timeZone: "Africa/Tripoli" }));
-    nowTripoli.setDate(nowTripoli.getDate() - 30);
-    nowTripoli.setHours(0, 0, 0, 0);
-    const dateStr = nowTripoli.toISOString().split('T')[0];
-    where.created_at.gte = getStartOfDayTripoli(dateStr);
-  }
-  if (end_date) {
-    const end = getEndOfDayTripoli(end_date);
-    if (!isNaN(end.getTime())) {
-      where.created_at.lte = end;
+    if (end_date) {
+      const end = getEndOfDayTripoli(end_date);
+      if (!isNaN(end.getTime())) {
+        where.created_at.lte = end;
+      }
+    }
+    if (Object.keys(where.created_at).length === 0) {
+      delete where.created_at;
     }
   }
 
@@ -193,20 +226,17 @@ export async function GET(request: NextRequest) {
 
     // حساب الإجماليات
     const totalAmount = orderedTransactions.reduce((sum, tx) => sum + Number(tx.amount), 0);
-    const totalRemaining = Math.max(0, 600 - totalAmount);
 
     // ملخص في النهاية
     worksheet.addRow([]);
     const totalRow = worksheet.addRow({
       beneficiary_name: "الإجمالي",
       amount: totalAmount,
-      remaining_balance: totalRemaining,
     });
     totalRow.font = { bold: true };
     
     // تنسيق صف الإجمالي
     totalRow.getCell("amount").numFmt = "#,##0.00";
-    totalRow.getCell("remaining_balance").numFmt = "#,##0.00";
 
     const buffer = await workbook.xlsx.writeBuffer();
 

@@ -119,7 +119,7 @@ export function Shell({
           <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between" suppressHydrationWarning>
             <div className="flex items-center justify-between gap-4" suppressHydrationWarning>
               <div className="flex items-center gap-3" suppressHydrationWarning>
-                <Image src="/logo.png" alt="Waha Health Care" width={38} height={38} priority unoptimized className="object-contain dark:brightness-110" />
+                <Image src="/logo.png" alt="Waha Health Care" width={38} height={38} priority className="object-contain dark:brightness-110" />
                 <div suppressHydrationWarning>
                   <h1 className="text-sm font-black leading-tight text-slate-900 dark:text-white">شركة الواحة</h1>
                   <h2 className="text-sm font-black leading-tight text-slate-900 dark:text-slate-300">Waha Health Care</h2>

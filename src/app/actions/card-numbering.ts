@@ -223,10 +223,6 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
       } else if (isAppendix) {
         exclusionReason = "ملحق";
       } 
-      
-      if (isMissingBirthDate && !exclusionReason) {
-        errorMsg = "⚠️ تاريخ الميلاد مفقود";
-      }
 
       let status: CardNumberingStatus = "READY";
 
@@ -402,7 +398,6 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
           name,
           employee_number: empNum,
           relationship: rel || null,
-          birth_date: bDate,
           original_date: item.original_date || null,
           original_city: item.city || null,
           city: manualCity || autoCity || null,
@@ -419,7 +414,6 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
           name,
           employee_number: empNum,
           relationship: rel || null,
-          birth_date: bDate,
           original_date: item.original_date || null,
           original_city: item.city || null,
           city: manualCity || autoCity || null,
@@ -495,7 +489,6 @@ export async function migrateCardNumberingAction(ids: string[]) {
             where: { id: existingByCard.id },
             data: {
               name: item.name,
-              birth_date: item.birth_date || existingByCard.birth_date,
               city: item.city || existingByCard.city,           // ترحيل المدينة
               batch_number: item.batch_number || existingByCard.batch_number, // ترحيل رقم الدفعة
               company_id: companyId || existingByCard.company_id, // ربط الشركة
@@ -536,7 +529,6 @@ export async function migrateCardNumberingAction(ids: string[]) {
             where: { id: existingByEmp.id },
             data: {
               card_number: item.card_number,
-              birth_date: item.birth_date || existingByEmp.birth_date,
               city: item.city || existingByEmp.city,           // ترحيل المدينة
               batch_number: item.batch_number || existingByEmp.batch_number, // ترحيل رقم الدفعة
               company_id: companyId || existingByEmp.company_id, // ربط الشركة
@@ -557,7 +549,6 @@ export async function migrateCardNumberingAction(ids: string[]) {
             data: {
               name: item.name,
               card_number: item.card_number,
-              birth_date: item.birth_date,
               city: item.city,           // ترحيل المدينة للجديد
               batch_number: item.batch_number, // ترحيل رقم الدفعة للجديد
               company_id: companyId,     // ربط المستفيد الجديد بالشركة المكتشفة تلقائياً

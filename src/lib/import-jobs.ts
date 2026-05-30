@@ -245,8 +245,10 @@ function normalizeImportRow(row: unknown): { data?: NormalizedImportRow; error?:
     return { error: "excluded_deceased_appendix" };
   }
 
-  const birthDateValue = extractBirthDate(parsed.data);
-  const birthDate = parseBirthDate(birthDateValue);
+  // تم الغاء حقن تاريخ الميلاد من الاستيرادات العامة بناء على طلب المستخدم
+  // const birthDateValue = extractBirthDate(parsed.data);
+  // const birthDate = parseBirthDate(birthDateValue);
+  const birthDate = null;
 
   return {
     data: {
