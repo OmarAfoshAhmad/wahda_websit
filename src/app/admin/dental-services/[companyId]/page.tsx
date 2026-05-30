@@ -283,8 +283,7 @@ export default async function DentalCompanyPage({
     const endDate = new Date(fiscalYear, 11, 31, 23, 59, 59);
 
     const spentDentalRows = benIds.length > 0
-      ? await prisma.transaction.groupBy({
-          by: ["beneficiary_id"],
+      ? await prisma.transaction.findMany({
           where: {
             beneficiary_id: { in: benIds },
             company_id: companyId,
@@ -292,27 +291,48 @@ export default async function DentalCompanyPage({
             is_cancelled: false,
             created_at: { gte: startDate, lte: endDate },
           },
-          _sum: {
+          select: {
+            beneficiary_id: true,
             ceiling_consumed: true,
-          },
+            actual_company_share: true,
+            amount: true,
+          }
         })
       : [];
 
-    const spentDentalMap = new Map(
-      spentDentalRows.map((row) => [row.beneficiary_id, Number(row._sum.ceiling_consumed ?? 0)])
-    );
+    const spentDentalMap = new Map();
+    for (const tx of spentDentalRows) {
+      const benId = tx.beneficiary_id;
+      const consumed = tx.ceiling_consumed !== null
+        ? Number(tx.ceiling_consumed)
+        : Number(tx.actual_company_share ?? tx.amount);
+      const deducted = tx.actual_company_share !== null
+        ? Number(tx.actual_company_share)
+        : Number(tx.amount);
+
+      const existing = spentDentalMap.get(benId) ?? { consumed: 0, deducted: 0 };
+      spentDentalMap.set(benId, {
+        consumed: existing.consumed + consumed,
+        deducted: existing.deducted + deducted,
+      });
+    }
 
     const dentalCeiling = ceiling;
 
     companyBeneficiaries = benList.map((b) => {
-      const consumed = spentDentalMap.get(b.id) ?? 0;
-      const remaining = dentalCeiling === null ? 999999999 : Math.max(0, dentalCeiling - consumed);
+      const stats = spentDentalMap.get(b.id) ?? { consumed: 0, deducted: 0 };
+      const consumed = stats.consumed;
+      const deducted = stats.deducted;
+
+      const remaining = dentalCeiling === null ? consumed : Math.max(0, dentalCeiling - consumed);
+      const total = dentalCeiling === null ? deducted : dentalCeiling;
+
       const dynamicStatus = b.status === "SUSPENDED"
         ? "SUSPENDED"
-        : (dentalCeiling !== null && remaining <= 0 ? "FINISHED" : "ACTIVE");
+        : (dentalCeiling !== null && Math.max(0, dentalCeiling - consumed) <= 0 ? "FINISHED" : "ACTIVE");
       return {
         ...b,
-        total_balance: dentalCeiling ?? 999999999,
+        total_balance: total,
         remaining_balance: remaining,
         status: dynamicStatus,
         in_import_file: Boolean(b.is_legacy_card),
@@ -645,7 +665,7 @@ export default async function DentalCompanyPage({
                            {dentalCeiling === null ? "الرصيد المستهلك" : "الرصيد المتبقي"}
                         </th>
                         <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400">التاريخ</th>
-                        {(session.is_admin || canCorrect || canCancel || canEditTransaction) && (
+                        {(session.is_admin || canEditTransaction) && (
                           <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">إجراءات</th>
                         )}
                       </tr>
@@ -653,7 +673,7 @@ export default async function DentalCompanyPage({
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                       {recentTransactions.length === 0 ? (
                         <tr>
-                          <td colSpan={8 + ((session.is_admin || canCorrect || canCancel || canEditTransaction) ? 1 : 0)} className="px-4 py-12 text-center text-slate-500 dark:text-slate-400 font-bold">
+                          <td colSpan={8 + ((session.is_admin || canEditTransaction) ? 1 : 0)} className="px-4 py-12 text-center text-slate-500 dark:text-slate-400 font-bold">
                             لا توجد حركات مطابقة للبحث أو معايير الفلترة المحددة.
                           </td>
                         </tr>
@@ -702,31 +722,22 @@ export default async function DentalCompanyPage({
                               <td className="px-4 py-3.5 text-xs">
                                 <span className="font-bold text-slate-700 dark:text-slate-300">{formatDateTripoli(tx.created_at)}</span>
                               </td>
-                              {(session.is_admin || canCorrect || canCancel || canEditTransaction) && (
+                              {(session.is_admin || canEditTransaction) && (
                                 <td className="px-4 py-3.5 text-center">
                                   <div className="flex items-center justify-center gap-2">
-                                    {canSingleAction && (
-                                      <TransactionCancelButton
-                                        transactionId={tx.id}
-                                        isCancelled={tx.is_cancelled}
-                                        type={tx.type}
-                                      />
-                                    )}
-                                    {(session.is_admin || canEditTransaction) && (
-                                      <TransactionEditModal
-                                        transaction={{
-                                          id: tx.id,
-                                          amount: Number(tx.amount),
-                                          type: tx.type,
-                                          created_at: tx.created_at.toISOString(),
-                                          facility_id: tx.facility.id,
-                                          facility_name: tx.facility.name,
-                                          is_cancelled: tx.is_cancelled,
-                                        }}
-                                        facilities={facilities}
-                                        datalistId={globalDatalistId}
-                                      />
-                                    )}
+                                    <TransactionEditModal
+                                      transaction={{
+                                        id: tx.id,
+                                        amount: Number(tx.amount),
+                                        type: tx.type,
+                                        created_at: tx.created_at.toISOString(),
+                                        facility_id: tx.facility.id,
+                                        facility_name: tx.facility.name,
+                                        is_cancelled: tx.is_cancelled,
+                                      }}
+                                      facilities={facilities}
+                                      datalistId={globalDatalistId}
+                                    />
                                   </div>
                                 </td>
                               )}
@@ -907,9 +918,19 @@ export default async function DentalCompanyPage({
                             )}
                             {!isDeletedView && (
                               <div className="mt-1.5 flex gap-3 text-xs font-bold">
-                                <span className="text-sky-700 dark:text-sky-300">{Number(beneficiary.remaining_balance).toLocaleString("ar-LY")} د.ل</span>
-                                <span className="text-slate-400">|</span>
-                                <span className="text-emerald-700 dark:text-emerald-300">إجمالي: {Number(beneficiary.total_balance).toLocaleString("ar-LY")} د.ل</span>
+                                {dentalCeiling === null ? (
+                                  <>
+                                    <span className="text-sky-700 dark:text-sky-300">مخصوم: {Number(beneficiary.total_balance).toLocaleString("ar-LY")} د.ل</span>
+                                    <span className="text-slate-400">|</span>
+                                    <span className="text-emerald-700 dark:text-emerald-300">مستهلك: {Number(beneficiary.remaining_balance).toLocaleString("ar-LY")} د.ل</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <span className="text-sky-700 dark:text-sky-300">{Number(beneficiary.remaining_balance).toLocaleString("ar-LY")} د.ل</span>
+                                    <span className="text-slate-400">|</span>
+                                    <span className="text-emerald-700 dark:text-emerald-300">إجمالي: {Number(beneficiary.total_balance).toLocaleString("ar-LY")} د.ل</span>
+                                  </>
+                                )}
                               </div>
                             )}
                             {isDeletedView && beneficiary.deleted_at && (
@@ -982,8 +1003,12 @@ export default async function DentalCompanyPage({
                         <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">تاريخ الميلاد</th>
                         {!isDeletedView && (
                           <>
-                            <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-sky-600 dark:text-sky-400">الرصيد المتبقي الحالي</th>
-                            <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-emerald-600 dark:text-emerald-400">الرصيد الكلي الابتدائي</th>
+                            <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-sky-600 dark:text-sky-400">
+                              {dentalCeiling === null ? "القيمة المخصومة" : "الرصيد المتبقي الحالي"}
+                            </th>
+                            <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-emerald-600 dark:text-emerald-400">
+                              {dentalCeiling === null ? "الرصيد المستهلك" : "الرصيد الكلي الابتدائي"}
+                            </th>
                           </>
                         )}
                         <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">الحالة</th>
@@ -1035,8 +1060,12 @@ export default async function DentalCompanyPage({
                             </td>
                             {!isDeletedView && (
                               <>
-                                <td className="px-6 py-4 text-sm font-bold text-sky-700 dark:text-sky-300">{Number(beneficiary.remaining_balance).toLocaleString("ar-LY")} د.ل</td>
-                                <td className="px-6 py-4 text-sm font-bold text-emerald-700 dark:text-emerald-300">{Number(beneficiary.total_balance).toLocaleString("ar-LY")} د.ل</td>
+                                <td className="px-6 py-4 text-sm font-bold text-sky-700 dark:text-sky-300">
+                                  {Number(dentalCeiling === null ? beneficiary.total_balance : beneficiary.remaining_balance).toLocaleString("ar-LY")} د.ل
+                                </td>
+                                <td className="px-6 py-4 text-sm font-bold text-emerald-700 dark:text-emerald-300">
+                                  {Number(dentalCeiling === null ? beneficiary.remaining_balance : beneficiary.total_balance).toLocaleString("ar-LY")} د.ل
+                                </td>
                               </>
                             )}
                             <td className="px-6 py-4">
