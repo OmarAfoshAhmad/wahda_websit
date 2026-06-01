@@ -176,7 +176,9 @@ async function main() {
   facilityMapping.set("فينسيا", { systemName: "مركز فينيسيا - اسنان", systemId: "cmn78k17t0035nz1n3t9j6iey" });
 
   const wbMap = new ExcelJS.Workbook();
-  const mapPath = "c:/Users/Omar/waad_temp_website/خصومات الاسنان - مطابقة المرافق.xlsx";
+  const mapPath = fs.existsSync("خصومات الاسنان - مطابقة المرافق.xlsx")
+    ? "خصومات الاسنان - مطابقة المرافق.xlsx"
+    : "c:/Users/Omar/waad_temp_website/خصومات الاسنان - مطابقة المرافق.xlsx";
   if (!fs.existsSync(mapPath)) {
     throw new Error(`Mapping file not found at ${mapPath}`);
   }
@@ -200,7 +202,9 @@ async function main() {
   console.log(`Loaded ${dbFacilities.length} system facilities.`);
 
   // 5. Read the main dental deductions Excel
-  const sourcePath = "c:/Users/Omar/waad_temp_website/خصومات الاسنان - Copy.xlsx";
+  const sourcePath = fs.existsSync("خصومات الاسنان - Copy.xlsx")
+    ? "خصومات الاسنان - Copy.xlsx"
+    : "c:/Users/Omar/waad_temp_website/خصومات الاسنان - Copy.xlsx";
   if (!fs.existsSync(sourcePath)) {
     throw new Error(`Deductions file not found at ${sourcePath}`);
   }

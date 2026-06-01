@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
-import { requireActiveFacilitySession } from "@/lib/session-guard";
+import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 import { checkRateLimit } from "@/lib/rate-limit";
 import prisma from "@/lib/prisma";
 import { logger } from "@/lib/logger";
@@ -15,7 +15,8 @@ export async function GET(request: NextRequest) {
   if (!session) {
     return new NextResponse("Unauthorized", { status: 401 });
   }
-  if (!session.is_admin) {
+  const canExport = session.is_admin || hasPermission(session, "export_data");
+  if (!canExport) {
     return new NextResponse("Forbidden", { status: 403 });
   }
 
@@ -33,6 +34,8 @@ export async function GET(request: NextRequest) {
   const idsParam = (searchParams.get("ids") ?? "").trim();
   const idParams = searchParams.getAll("id");
   const isDeletedView = view === "deleted";
+  const companyIdParam = searchParams.get("company_id")?.trim() ?? "";
+  const isDental = searchParams.get("is_dental") === "1";
 
   const ALLOWED_STATUS = ["ACTIVE", "SUSPENDED", "FINISHED"] as const;
   const statusFilter = ALLOWED_STATUS.includes((statusParam ?? "") as (typeof ALLOWED_STATUS)[number])
@@ -62,22 +65,23 @@ export async function GET(request: NextRequest) {
 
   const hasExplicitSelection = selectedIds.length > 0;
 
-  const where: any = hasExplicitSelection
-    ? {
-        id: { in: selectedIds },
+  const companyCondition = companyIdParam
+    ? { company_id: companyIdParam }
+    : {
         OR: [
           { company_id: "cmp7ha2km0000u9v8jse4ib5x" },
           { company_id: null }
         ]
+      };
+
+  const where: any = hasExplicitSelection
+    ? {
+        id: { in: selectedIds },
+        ...companyCondition
       }
     : {
         AND: [
-          {
-            OR: [
-              { company_id: "cmp7ha2km0000u9v8jse4ib5x" },
-              { company_id: null }
-            ]
-          },
+          companyCondition,
           {
             ...(isDeletedView ? { deleted_at: { not: null } } : { deleted_at: null }),
             ...(!isDeletedView && statusFilter ? { status: statusFilter } : {}),
@@ -103,17 +107,93 @@ export async function GET(request: NextRequest) {
       orderBy: { created_at: "desc" },
       take: EXPORT_LIMIT,
       include: {
-        _count: { select: { transactions: true } },
+        _count: {
+          select: {
+            transactions: {
+              where: isDental
+                ? { company_id: companyIdParam, type: "DENTAL", is_cancelled: false }
+                : { is_cancelled: false }
+            }
+          }
+        },
       },
     });
 
     const beneficiaryIds = beneficiaries.map((b) => b.id);
-    const remainingById = await getLedgerRemainingByBeneficiaryIds(beneficiaryIds);
+    
+    // Ledger balances for TPA/General beneficiaries
+    const remainingById = isDental ? new Map<string, number>() : await getLedgerRemainingByBeneficiaryIds(beneficiaryIds);
+
+    // Calculate spent dental ceiling per beneficiary in the current fiscal year
+    let dentalCeiling: number | null = null;
+    const spentDentalMap = new Map();
+
+    if (isDental && companyIdParam) {
+      const company = await prisma.insuranceCompany.findUnique({
+        where: { id: companyIdParam },
+        select: { dental_ceiling: true }
+      });
+      if (company) {
+        dentalCeiling = company.dental_ceiling ? Number(company.dental_ceiling) : null;
+      }
+
+      const fiscalYear = new Date().getFullYear();
+      const startDate = new Date(fiscalYear, 0, 1);
+      const endDate = new Date(fiscalYear, 11, 31, 23, 59, 59);
+
+      const spentDentalRows = beneficiaryIds.length > 0
+        ? await prisma.transaction.findMany({
+            where: {
+              beneficiary_id: { in: beneficiaryIds },
+              company_id: companyIdParam,
+              type: "DENTAL",
+              is_cancelled: false,
+              created_at: { gte: startDate, lte: endDate },
+            },
+            select: {
+              beneficiary_id: true,
+              ceiling_consumed: true,
+              actual_company_share: true,
+              amount: true,
+            }
+          })
+        : [];
+
+      for (const tx of spentDentalRows) {
+        const benId = tx.beneficiary_id;
+        const consumed = tx.ceiling_consumed !== null
+          ? Number(tx.ceiling_consumed)
+          : Number(tx.actual_company_share ?? tx.amount);
+        const deducted = tx.actual_company_share !== null
+          ? Number(tx.actual_company_share)
+          : Number(tx.amount);
+
+        const existing = spentDentalMap.get(benId) ?? { consumed: 0, deducted: 0 };
+        spentDentalMap.set(benId, {
+          consumed: existing.consumed + consumed,
+          deducted: existing.deducted + deducted,
+        });
+      }
+    }
 
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet("Beneficiaries");
     worksheet.views = [{ rightToLeft: true }];
 
+    let totalColHeader = "الرصيد الكلي";
+    let remainingColHeader = "الرصيد المتبقي";
+
+    if (isDental) {
+      if (dentalCeiling === null) {
+        totalColHeader = "القيمة المخصومة";
+        remainingColHeader = "الرصيد المستهلك";
+      } else {
+        totalColHeader = "الرصيد الكلي الابتدائي";
+        remainingColHeader = "الرصيد المتبقي الحالي";
+      }
+    }
+
+    // Set columns in Excel, swapping order for dental as requested by the user
     worksheet.columns = [
       { header: "#", key: "index", width: 8 },
       { header: "الاسم", key: "name", width: 30 },
@@ -121,8 +201,16 @@ export async function GET(request: NextRequest) {
       { header: "تاريخ الميلاد", key: "birth_date", width: 16 },
       { header: "مرحل من جدول الحقيقة", key: "birth_date_synced_from_truth", width: 22 },
       { header: "الحالة", key: "status", width: 14 },
-      { header: "الرصيد الكلي", key: "total_balance", width: 16 },
-      { header: "الرصيد المتبقي", key: "remaining_balance", width: 16 },
+      ...(isDental
+        ? [
+            { header: remainingColHeader, key: "col1_balance", width: 20 },
+            { header: totalColHeader, key: "col2_balance", width: 20 }
+          ]
+        : [
+            { header: "الرصيد الكلي", key: "total_balance", width: 16 },
+            { header: "الرصيد المتبقي", key: "remaining_balance", width: 16 }
+          ]
+      ),
       { header: "عدد الحركات", key: "transactions", width: 14 },
       { header: "تاريخ الإنشاء", key: "created_at", width: 16 },
       { header: "تاريخ الحذف", key: "deleted_at", width: 16 },
@@ -139,28 +227,70 @@ export async function GET(request: NextRequest) {
     };
 
     beneficiaries.forEach((b, idx) => {
-      worksheet.addRow({
+      let totalBalance = Number(b.total_balance);
+      let remainingBalance = remainingById.get(b.id) ?? Number(b.remaining_balance);
+      let statusText = statusLabel(b.status);
+
+      let col1Value: any = remainingBalance;
+      let col2Value: any = totalBalance;
+
+      if (isDental) {
+        const stats = spentDentalMap.get(b.id) ?? { consumed: 0, deducted: 0 };
+        const consumed = stats.consumed;
+        const deducted = stats.deducted;
+
+        remainingBalance = dentalCeiling === null ? consumed : Math.max(0, dentalCeiling - consumed);
+        totalBalance = dentalCeiling === null ? deducted : dentalCeiling;
+
+        const dynamicStatus = b.status === "SUSPENDED"
+          ? "SUSPENDED"
+          : (dentalCeiling !== null && Math.max(0, dentalCeiling - consumed) <= 0 ? "FINISHED" : "ACTIVE");
+        
+        statusText = statusLabel(dynamicStatus);
+
+        // Swap balance values order to match swapped headers in Excel
+        col1Value = dentalCeiling === null ? totalBalance : remainingBalance;
+        col2Value = dentalCeiling === null ? remainingBalance : totalBalance;
+      }
+
+      const rowData: any = {
         index: idx + 1,
         name: b.name,
         card_number: b.card_number,
         birth_date: b.birth_date ? formatDateTripoli(b.birth_date, "en-GB") : "",
         birth_date_synced_from_truth: (b as any).birth_date_synced_from_truth ? "نعم" : "لا",
-        status: statusLabel(b.status),
-        total_balance: Number(b.total_balance),
-        remaining_balance: remainingById.get(b.id) ?? Number(b.remaining_balance),
+        status: statusText,
         transactions: b._count.transactions,
         created_at: formatDateTripoli(b.created_at, "en-GB"),
         deleted_at: b.deleted_at ? formatDateTripoli(b.deleted_at, "en-GB") : "",
-      });
+      };
+
+      if (isDental) {
+        rowData.col1_balance = col1Value;
+        rowData.col2_balance = col2Value;
+      } else {
+        rowData.total_balance = totalBalance;
+        rowData.remaining_balance = remainingBalance;
+      }
+
+      worksheet.addRow(rowData);
     });
 
     const buffer = await workbook.xlsx.writeBuffer();
+
+    const company = companyIdParam && isDental
+      ? await prisma.insuranceCompany.findUnique({ where: { id: companyIdParam }, select: { name: true } })
+      : null;
+    const companyNameLabel = company?.name ? `_${company.name}` : "";
+    const filename = isDental
+      ? `مستفيدي_أسنان${companyNameLabel}_${isDeletedView ? "محذوفين" : "نشطين"}.xlsx`
+      : `beneficiaries-${isDeletedView ? "deleted" : "active"}.xlsx`;
 
     return new NextResponse(Buffer.from(buffer as ArrayBuffer), {
       status: 200,
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition": `attachment; filename="beneficiaries-${isDeletedView ? "deleted" : "active"}.xlsx"`,
+        "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
         "Cache-Control": "no-store",
       },
     });

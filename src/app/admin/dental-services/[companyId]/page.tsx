@@ -5,7 +5,7 @@ import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-gua
 import { Shell } from "@/components/shell";
 import { Card, Badge } from "@/components/ui";
 import Link from "next/link";
-import { ArrowRight, Building2, Users, ShieldCheck, History, Printer, Search, ChevronLeft, ChevronRight, CalendarDays, RotateCcw, FileSpreadsheet } from "lucide-react";
+import { ArrowRight, Building2, Users, ShieldCheck, History, Printer, Search, ChevronLeft, ChevronRight, CalendarDays, RotateCcw, FileSpreadsheet, Download } from "lucide-react";
 import { DentalDeductForm } from "@/components/dental-deduct-form";
 import { DentalAddTransactionButton } from "@/components/dental-add-transaction-button";
 import { formatDateTripoli } from "@/lib/datetime";
@@ -115,6 +115,7 @@ export default async function DentalCompanyPage({
   const canDeleteBen = hasPermission(session, "delete_beneficiary");
   const canAddBen = session.is_admin || hasPermission(session, "add_beneficiary");
   const canManageRecycleBin = hasPermission(session, "manage_recycle_bin");
+  const canExport = session.is_admin || hasPermission(session, "export_data");
 
   // جلب الحركات المصفاة والمرقمنة وإحصائياتها
   const [totalCount, recentTransactions, stats] = await Promise.all([
@@ -613,6 +614,17 @@ export default async function DentalCompanyPage({
                     <span>طباعة الكشف المصفى</span>
                   </Link>
 
+                  {canExport && (
+                    <a
+                      href={`/api/dental-export?company=${companyId}&q=${encodeURIComponent(searchQuery)}&from=${encodeURIComponent(fromDate)}&to=${encodeURIComponent(toDate)}`}
+                      target="_blank"
+                      className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 text-xs font-black text-emerald-700 dark:text-emerald-400 hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-slate-350 transition-colors shadow-sm"
+                    >
+                      <Download className="h-4 w-4 text-emerald-600" />
+                      <span>تصدير Excel</span>
+                    </a>
+                  )}
+
                   {hasDentalFullAccess && (
                     <DentalAddTransactionButton
                       companyId={companyId}
@@ -664,6 +676,7 @@ export default async function DentalCompanyPage({
                         <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">
                            {dentalCeiling === null ? "الرصيد المستهلك" : "الرصيد المتبقي"}
                         </th>
+                        <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400">المرفق</th>
                         <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400">التاريخ</th>
                         {(session.is_admin || canEditTransaction) && (
                           <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">إجراءات</th>
@@ -673,7 +686,7 @@ export default async function DentalCompanyPage({
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                       {recentTransactions.length === 0 ? (
                         <tr>
-                          <td colSpan={8 + ((session.is_admin || canEditTransaction) ? 1 : 0)} className="px-4 py-12 text-center text-slate-500 dark:text-slate-400 font-bold">
+                          <td colSpan={9 + ((session.is_admin || canEditTransaction) ? 1 : 0)} className="px-4 py-12 text-center text-slate-500 dark:text-slate-400 font-bold">
                             لا توجد حركات مطابقة للبحث أو معايير الفلترة المحددة.
                           </td>
                         </tr>
@@ -718,6 +731,9 @@ export default async function DentalCompanyPage({
                                   ) : (
                                     `${consumedAccumulated.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل`
                                   )}
+                              </td>
+                              <td className="px-4 py-3.5 font-bold text-slate-600 dark:text-slate-450 text-xs">
+                                {tx.facility?.name ?? "—"}
                               </td>
                               <td className="px-4 py-3.5 text-xs">
                                 <span className="font-bold text-slate-700 dark:text-slate-300">{formatDateTripoli(tx.created_at)}</span>
@@ -876,6 +892,16 @@ export default async function DentalCompanyPage({
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     {!isDeletedView && canAddBen && <BeneficiaryCreateModal companyId={companyId} />}
+                    {canExport && (
+                      <a
+                        href={`/api/export/beneficiaries?company_id=${companyId}&is_dental=1${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}${isDeletedView ? `&view=deleted` : ""}`}
+                        target="_blank"
+                        className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 text-xs font-black text-emerald-700 dark:text-emerald-400 hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-slate-350 transition-colors shadow-sm"
+                      >
+                        <Download className="h-4 w-4 text-emerald-600" />
+                        <span>تصدير Excel</span>
+                      </a>
+                    )}
                     {showBeneficiariesBulkRow && (
                       <>
                         <BeneficiariesBulkActionButton formId="beneficiaries-bulk-form" mode={isDeletedView ? "permanent" : "soft"} />

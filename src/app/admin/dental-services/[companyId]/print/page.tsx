@@ -69,7 +69,7 @@ export default async function DentalCompanyPrintPage({
   }
 
   // جلب جميع حركات الأسنان غير الملغاة المطابقة للشروط بدون قيد عدد
-  const transactions = await prisma.transaction.findMany({
+  const transactions = (await prisma.transaction.findMany({
     where,
     include: {
       beneficiary: {
@@ -79,20 +79,26 @@ export default async function DentalCompanyPrintPage({
           remaining_balance: true,
         },
       },
+      facility: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
     },
     orderBy: {
       created_at: "asc",
     },
-  });
+  })) as any;
 
   // حساب الإجماليات الكلية
   const totalCount = transactions.length;
-  const totalAmount = transactions.reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
-  const totalCompanyShare = transactions.reduce((sum, tx) => sum + Number(tx.actual_company_share || 0), 0);
-  const totalPatientShare = transactions.reduce((sum, tx) => sum + Number(tx.actual_patient_share || 0), 0);
+  const totalAmount = transactions.reduce((sum: number, tx: any) => sum + Number(tx.amount || 0), 0);
+  const totalCompanyShare = transactions.reduce((sum: number, tx: any) => sum + Number(tx.actual_company_share || 0), 0);
+  const totalPatientShare = transactions.reduce((sum: number, tx: any) => sum + Number(tx.actual_patient_share || 0), 0);
 
   // ─── حساب الأرصدة المتبقية ديناميكياً ───
-  const uniqueBenIdsForTxs = Array.from(new Set(transactions.map((tx) => tx.beneficiary_id)));
+  const uniqueBenIdsForTxs = Array.from(new Set(transactions.map((tx: any) => tx.beneficiary_id))) as string[];
   const allBenDentalTxs = uniqueBenIdsForTxs.length > 0
     ? await prisma.transaction.findMany({
         where: {
@@ -220,18 +226,19 @@ export default async function DentalCompanyPrintPage({
                     <th className="border border-slate-400 px-2 py-2 text-center font-black">
                        {dentalCeiling === null ? "الرصيد المستهلك" : "الرصيد المتبقي"}
                      </th>
+                    <th className="border border-slate-400 px-2 py-2 font-black">المرفق</th>
                     <th className="border border-slate-400 px-2 py-2 font-black">التاريخ</th>
                   </tr>
                 </thead>
                 <tbody>
                   {pageTxs.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="border border-slate-400 px-3 py-8 text-center text-slate-500 font-bold">
+                      <td colSpan={9} className="border border-slate-400 px-3 py-8 text-center text-slate-500 font-bold">
                         لا توجد حركات أسنان مسجلة.
                       </td>
                     </tr>
                   ) : (
-                    pageTxs.map((tx, idx) => {
+                    pageTxs.map((tx: any, idx: number) => {
                       const amount = Number(tx.amount || 0);
                       const companyShare = tx.actual_company_share !== null ? Number(tx.actual_company_share) : 0;
                       const patientShare = tx.actual_patient_share !== null ? Number(tx.actual_patient_share) : 0;
@@ -255,6 +262,7 @@ export default async function DentalCompanyPrintPage({
                               `${consumedAccumulated.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل`
                             )}
                           </td>
+                          <td className="border border-slate-300 px-2 py-1.5 font-bold text-slate-700">{tx.facility?.name || "—"}</td>
                           <td className="border border-slate-300 px-2 py-1.5 font-bold text-slate-700">
                             {formatDateTripoli(tx.created_at)}
                           </td>
