@@ -6,6 +6,8 @@ import { Shell } from "@/components/shell";
 import { Card } from "@/components/ui";
 import Link from "next/link";
 import { DentalImportUploader } from "@/components/dental-import-uploader";
+import { DentalExportButton } from "@/components/dental-export-button";
+import { DentalBeneficiariesExportButton } from "@/components/dental-beneficiaries-export-button";
 
 export default async function DentalServicesPage({
   searchParams,
@@ -74,38 +76,48 @@ export default async function DentalServicesPage({
                 <h1 className="text-2xl font-black text-slate-900 dark:text-white">خدمات الأسنان</h1>
               </div>
 
-              <div className="mr-1 flex gap-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-1 w-fit">
-                <Link
-                  href="/admin/dental-services?tab=companies"
-                  className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${
-                    activeTab === "companies"
-                      ? "bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-sm border border-slate-200 dark:border-slate-700"
-                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <Building2 className="h-4 w-4" />
-                    شركات التأمين
-                    <span className="text-[10px] font-black bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400 px-1.5 py-0.5 rounded-full">
-                      {dentalCompanies.length}
-                    </span>
+              <div className="flex flex-wrap items-center gap-2">
+                {/* أزرار التصدير لخدمات الأسنان */}
+                {(session.is_admin || hasPermission(session, "export_data")) && (
+                  <div className="flex gap-2 ml-2">
+                    <DentalBeneficiariesExportButton />
+                    <DentalExportButton />
                   </div>
-                </Link>
-                {canImport && (
+                )}
+                
+                <div className="flex gap-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-1 w-fit">
                   <Link
-                    href="/admin/dental-services?tab=import"
+                    href="/admin/dental-services?tab=companies"
                     className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${
-                      activeTab === "import"
+                      activeTab === "companies"
                         ? "bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-sm border border-slate-200 dark:border-slate-700"
                         : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
                     }`}
                   >
                     <div className="flex items-center gap-2">
-                      <Upload className="h-4 w-4" />
-                      استيراد المستفيدين
+                      <Building2 className="h-4 w-4" />
+                      شركات التأمين
+                      <span className="text-[10px] font-black bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400 px-1.5 py-0.5 rounded-full">
+                        {dentalCompanies.length}
+                      </span>
                     </div>
                   </Link>
-                )}
+                  {canImport && (
+                    <Link
+                      href="/admin/dental-services?tab=import"
+                      className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${
+                        activeTab === "import"
+                          ? "bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-sm border border-slate-200 dark:border-slate-700"
+                          : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Upload className="h-4 w-4" />
+                        استيراد المستفيدين
+                      </div>
+                    </Link>
+                  )}
+                </div>
               </div>
             </div>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
