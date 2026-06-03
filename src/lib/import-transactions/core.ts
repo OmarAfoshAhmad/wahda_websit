@@ -36,6 +36,23 @@ import {
   setFamilyBalance
 } from "./migration";
 import { findCompanyByCardNumber } from "@/lib/insurance/company-matcher";
+import { getCurrentInitialBalance } from "@/lib/initial-balance";
+
+/**
+ * يحول رقم البطاقة الخام إلى صيغة WAB2025XXXX الكاملة لإنشاء مستفيد جديد.
+ */
+function resolveToFullCardNumber(rawCard: string): string | null {
+  const cleaned = rawCard.trim();
+  if (!cleaned) return null;
+  if (cleaned.startsWith("WAB2025")) {
+    const numPart = cleaned.slice(7);
+    if (/^\d+$/.test(numPart)) return cleaned;
+    return null;
+  }
+  const num = parseInt(cleaned, 10);
+  if (isNaN(num) || num <= 0) return null;
+  return `WAB2025${num}`;
+}
 
 export async function estimateTransactionImportPurgePreview(
   fileBuffer: Buffer,
@@ -103,6 +120,15 @@ export async function processTransactionImport(
     purgeMissingFamilies?: boolean;
     cleanupOldSettlements?: boolean;
     sourceFileName?: string;
+    /**
+     * الخصم الشخصي: يطبق الخصم على صاحب البطاقة فقط دون توزيعه على أفراد الأسرة.
+     * مناسب لاستيراد حركات خدمات الأسنان حيث الخصم شخصي.
+     */
+    personalDeduction?: boolean;
+    /**
+     * إنشاء المستفيد تلقائياً إذا لم يكن موجوداً في النظام وتطبيق الحركة عليه.
+     */
+    autoCreateMissing?: boolean;
     onProgress?: (progress: TransactionImportProgress) => void | Promise<void>;
   },
 ): Promise<{ result?: TransactionImportResult; error?: string }> {
@@ -172,6 +198,9 @@ export async function processTransactionImport(
     const replaceOldImports = options?.replaceOldImports !== false;
     const purgeMissingFamiliesEnabled = replaceOldImports && options?.purgeMissingFamilies === true;
     const cleanupOldSettlementsEnabled = replaceOldImports && options?.cleanupOldSettlements !== false;
+    const personalDeduction = options?.personalDeduction === true;
+    const autoCreateMissing = options?.autoCreateMissing === true;
+    const initialBalance = autoCreateMissing ? await getCurrentInitialBalance() : 0;
 
     // 2. Build lookup
     const lookup = await buildCardLookup();
@@ -182,6 +211,46 @@ export async function processTransactionImport(
     const toSuspend: Array<{ row: ParsedRow; baseCard: string }> = [];
     const toSetBalance: Array<{ row: ParsedRow; baseCard: string }> = [];
     const archiveByBaseCard = new Map<string, ParsedRow>();
+    let autoCreatedBeneficiariesCount = 0;
+
+    /**
+     * ينشئ مستفيداً جديداً تلقائياً إذا لم يكن موجوداً ويعيد رقم بطاقته الكامل.
+     */
+    const autoCreateBeneficiary = async (row: ParsedRow): Promise<string | null> => {
+      const fullCard = resolveToFullCardNumber(row.cardNumber);
+      if (!fullCard) return null;
+
+      // تحقق إذا كان موجوداً بالفعل (race-condition guard)
+      const existing = await prisma.beneficiary.findFirst({
+        where: { card_number: { equals: fullCard, mode: "insensitive" }, deleted_at: null },
+        select: { card_number: true },
+      });
+      if (existing) {
+        const rawNum = String(parseInt(fullCard.slice(7), 10));
+        lookup.set(rawNum, fullCard);
+        lookup.set(fullCard, fullCard);
+        return fullCard;
+      }
+
+      // إنشاء المستفيد الجديد
+      const matchedCompany = await findCompanyByCardNumber(fullCard);
+      const balance = row.totalBalance > 0 ? row.totalBalance : initialBalance;
+      await prisma.beneficiary.create({
+        data: {
+          card_number: fullCard,
+          name: row.name || fullCard,
+          total_balance: balance,
+          remaining_balance: balance,
+          status: "ACTIVE",
+          ...(matchedCompany?.id ? { company_id: matchedCompany.id } : {}),
+        },
+      });
+      const rawNum = String(parseInt(fullCard.slice(7), 10));
+      lookup.set(rawNum, fullCard);
+      lookup.set(fullCard, fullCard);
+      autoCreatedBeneficiariesCount++;
+      return fullCard;
+    };
 
     for (const row of deduplicatedRows) {
       if (row.totalBalance === 0 && row.usedBalance === 0) {
@@ -205,14 +274,17 @@ export async function processTransactionImport(
       if (row.totalBalance > 0 && row.usedBalance <= 0) {
         const baseCard = resolveCardNumber(row.cardNumber, lookup);
         if (!baseCard) {
-          notFoundRows.push({
-            rowNumber: row.rowNumber,
-            cardNumber: row.cardNumber,
-            name: row.name,
-            familyCount: row.familyCount,
-            totalBalance: row.totalBalance,
-            usedBalance: row.usedBalance,
-          });
+          if (autoCreateMissing) {
+            const newCard = await autoCreateBeneficiary(row);
+            if (newCard) {
+              toSetBalance.push({ row, baseCard: newCard });
+              archiveByBaseCard.set(newCard, row);
+            } else {
+              notFoundRows.push({ rowNumber: row.rowNumber, cardNumber: row.cardNumber, name: row.name, familyCount: row.familyCount, totalBalance: row.totalBalance, usedBalance: row.usedBalance });
+            }
+          } else {
+            notFoundRows.push({ rowNumber: row.rowNumber, cardNumber: row.cardNumber, name: row.name, familyCount: row.familyCount, totalBalance: row.totalBalance, usedBalance: row.usedBalance });
+          }
         } else {
           toSetBalance.push({ row, baseCard });
           archiveByBaseCard.set(baseCard, row);
@@ -222,14 +294,17 @@ export async function processTransactionImport(
 
       const baseCard = resolveCardNumber(row.cardNumber, lookup);
       if (!baseCard) {
-        notFoundRows.push({
-          rowNumber: row.rowNumber,
-          cardNumber: row.cardNumber,
-          name: row.name,
-          familyCount: row.familyCount,
-          totalBalance: row.totalBalance,
-          usedBalance: row.usedBalance,
-        });
+        if (autoCreateMissing) {
+          const newCard = await autoCreateBeneficiary(row);
+          if (newCard) {
+            toImport.push({ row, baseCard: newCard });
+            archiveByBaseCard.set(newCard, row);
+          } else {
+            notFoundRows.push({ rowNumber: row.rowNumber, cardNumber: row.cardNumber, name: row.name, familyCount: row.familyCount, totalBalance: row.totalBalance, usedBalance: row.usedBalance });
+          }
+        } else {
+          notFoundRows.push({ rowNumber: row.rowNumber, cardNumber: row.cardNumber, name: row.name, familyCount: row.familyCount, totalBalance: row.totalBalance, usedBalance: row.usedBalance });
+        }
         continue;
       }
 
@@ -389,6 +464,7 @@ export async function processTransactionImport(
         row.familyCount,
         replaceOldImports,
         companyMatch?.id,
+        personalDeduction, // الخصم الشخصي: لا يوزع على الأسرة
       );
       appliedRows.push(...familyResult.appliedRows);
 
@@ -494,6 +570,7 @@ export async function processTransactionImport(
           preImportBalanceAdjustedFamilies,
           preImportBalanceAlreadyCorrect,
           skippedNotFound: notFoundRows.length,
+          autoCreatedBeneficiaries: autoCreatedBeneficiariesCount,
           skippedAlreadyImported,
           updatedFamilies,
           updatedTransactions,
@@ -536,6 +613,7 @@ export async function processTransactionImport(
         preImportBalanceAdjustedFamilies,
         preImportBalanceAlreadyCorrect,
         skippedNotFound: notFoundRows.length,
+        autoCreatedBeneficiaries: autoCreatedBeneficiariesCount,
         skippedAlreadyImported,
         autoDebtAffectedDebtors,
         autoDebtSettledDebtors,

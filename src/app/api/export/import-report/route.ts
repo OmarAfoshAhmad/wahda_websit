@@ -38,6 +38,7 @@ const REASON_LABELS: Record<string, string> = {
   duplicate_in_file: "مكرر في نفس الملف",
   already_exists: "موجود مسبقاً في النظام",
   duplicate_person: "شخص مكرر (الاسم والميلاد)",
+  invalid_company_pattern: "لا يطابق الشركة المحددة",
 };
 
 export async function GET(request: NextRequest) {

@@ -125,6 +125,7 @@ export default async function BeneficiariesPage({
 
   if (isTruthBirthSynced && !isDeletedView) {
     baseFilter.birth_date_synced_from_truth = true;
+    baseFilter.birth_date = { not: null };
   }
 
   if (statusFilter !== "all" && !isDeletedView && !isStrictOldCardView) {
@@ -783,7 +784,7 @@ export default async function BeneficiariesPage({
                               <CalendarDays className="h-4 w-4 text-slate-400 dark:text-slate-500" />
                               {beneficiary.birth_date ? formatDateTripoli(beneficiary.birth_date, "en-GB") : "غير مسجل"}
                             </span>
-                            {beneficiary.birth_date_synced_from_truth && (
+                            {beneficiary.birth_date && beneficiary.birth_date_synced_from_truth && (
                               <div className="pr-6 mt-0.5">
                                 <Badge className="bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-[10px] px-1.5 py-0 border border-emerald-200 dark:border-emerald-800">
                                   جدول الحقيقة

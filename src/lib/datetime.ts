@@ -7,7 +7,12 @@ function toDate(value: DateLike): Date {
 }
 
 export function formatDateTripoli(value: DateLike, locale: string = "en-GB"): string {
-  return toDate(value).toLocaleDateString(locale, { timeZone: TRIPOLI_TIMEZONE });
+  return toDate(value).toLocaleDateString(locale, {
+    timeZone: TRIPOLI_TIMEZONE,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
 }
 
 export function formatTimeTripoli(value: DateLike, locale: string = "en-GB"): string {

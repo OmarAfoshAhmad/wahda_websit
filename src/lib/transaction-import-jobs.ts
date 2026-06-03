@@ -12,6 +12,8 @@ type TransactionImportPayload = {
   replaceOldImports: boolean;
   purgeMissingFamilies: boolean;
   cleanupOldSettlements: boolean;
+  personalDeduction: boolean;
+  autoCreateMissing: boolean;
 };
 
 export type TransactionImportPurgePreview = {
@@ -38,6 +40,7 @@ export type TransactionImportSummary = {
   suspendedFamilies: number;
   balanceSetFamilies: number;
   skippedNotFound: number;
+  autoCreatedBeneficiaries: number;
   cleanupDeletedImportTransactions: number;
   cleanupCancelledImportTransactions: number;
   cleanupDeletedSettlementTransactions: number;
@@ -81,6 +84,8 @@ function parsePayload(payload: Prisma.JsonValue | null): TransactionImportPayloa
     replaceOldImports: obj.replaceOldImports !== false,
     purgeMissingFamilies: obj.purgeMissingFamilies === true,
     cleanupOldSettlements: obj.cleanupOldSettlements === true,
+    personalDeduction: obj.personalDeduction === true,
+    autoCreateMissing: obj.autoCreateMissing === true,
   };
 }
 
@@ -101,6 +106,7 @@ function summarizeResult(result: TransactionImportResult): TransactionImportSumm
     suspendedFamilies: result.suspendedFamilies,
     balanceSetFamilies: result.balanceSetFamilies,
     skippedNotFound: result.skippedNotFound,
+    autoCreatedBeneficiaries: result.autoCreatedBeneficiaries,
     cleanupDeletedImportTransactions: result.cleanupDeletedImportTransactions,
     cleanupCancelledImportTransactions: result.cleanupCancelledImportTransactions,
     cleanupDeletedSettlementTransactions: result.cleanupDeletedSettlementTransactions,
@@ -151,6 +157,7 @@ function toSnapshot(job: {
           suspendedFamilies: Number(r.suspendedFamilies) || 0,
           balanceSetFamilies: Number(r.balanceSetFamilies) || 0,
           skippedNotFound: Number(r.skippedNotFound) || 0,
+          autoCreatedBeneficiaries: Number(r.autoCreatedBeneficiaries) || 0,
           cleanupDeletedImportTransactions: Number(r.cleanupDeletedImportTransactions) || 0,
           cleanupCancelledImportTransactions: Number(r.cleanupCancelledImportTransactions) || 0,
           cleanupDeletedSettlementTransactions: Number(r.cleanupDeletedSettlementTransactions) || 0,
@@ -209,6 +216,8 @@ export async function createTransactionImportJob(input: {
   replaceOldImports: boolean;
   purgeMissingFamilies: boolean;
   cleanupOldSettlements: boolean;
+  personalDeduction?: boolean;
+  autoCreateMissing?: boolean;
 }) {
   const estimatedRows = await estimateRowsFromWorkbook(input.fileBuffer);
   const payload: TransactionImportPayload = {
@@ -220,6 +229,8 @@ export async function createTransactionImportJob(input: {
     replaceOldImports: input.replaceOldImports,
     purgeMissingFamilies: input.purgeMissingFamilies,
     cleanupOldSettlements: input.cleanupOldSettlements,
+    personalDeduction: input.personalDeduction === true,
+    autoCreateMissing: input.autoCreateMissing === true,
   };
 
   const job = await prisma.importJob.create({
@@ -348,6 +359,8 @@ export async function processTransactionImportJob(jobId: string, username: strin
       replaceOldImports: parsedPayload.replaceOldImports,
       purgeMissingFamilies: parsedPayload.purgeMissingFamilies,
       cleanupOldSettlements: parsedPayload.cleanupOldSettlements,
+      personalDeduction: parsedPayload.personalDeduction,
+      autoCreateMissing: parsedPayload.autoCreateMissing,
       onProgress,
     });
 

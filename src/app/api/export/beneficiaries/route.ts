@@ -87,7 +87,7 @@ export async function GET(request: NextRequest) {
             ...(!isDeletedView && statusFilter ? { status: statusFilter } : {}),
             ...(!isDeletedView && completedViaFilter ? { completed_via: completedViaFilter } : {}),
             ...(!isDeletedView && cardAgeFilter === "old" ? { is_legacy_card: true } : {}),
-            ...(!isDeletedView && isTruthBirthSynced ? { birth_date_synced_from_truth: true } : {}),
+            ...(!isDeletedView && isTruthBirthSynced ? { birth_date_synced_from_truth: true, birth_date: { not: null } } : {}),
             ...(q
               ? {
                   OR: getArabicSearchTerms(q).flatMap(t => [

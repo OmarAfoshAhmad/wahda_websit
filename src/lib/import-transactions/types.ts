@@ -26,6 +26,7 @@ export type TransactionImportResult = {
   preImportBalanceAlreadyCorrect: number;
   skippedNotFound: number;
   skippedAlreadyImported: number;
+  autoCreatedBeneficiaries: number;
   autoDebtAffectedDebtors: number;
   autoDebtSettledDebtors: number;
   autoDebtUnresolvedDebtors: number;

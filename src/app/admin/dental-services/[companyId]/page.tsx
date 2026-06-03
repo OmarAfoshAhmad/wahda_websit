@@ -585,13 +585,21 @@ export default async function DentalCompanyPage({
                 <div className="flex items-center gap-2.5">
                   <h2 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
                     <History className="h-5 w-5 text-teal-600" />
-                    سجل حركات الأسنان لهذه الشركة في هذا المرفق
+                    سجل الحركات
                   </h2>
                   <span className="text-[10px] font-black text-slate-400 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full px-2.5 py-1">
                     صفحة {page} من {totalPages || 1}
                   </span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {(session.is_admin || canCancel) && (
+                    <TransactionsBulkActionButton
+                      formId="transactions-bulk-form"
+                      op="cancel_or_rededuct"
+                      label="إلغاء المحدد"
+                      variant="warning"
+                    />
+                  )}
                   {(session.is_admin || canDelete) && (
                     <TransactionsBulkActionButton
                       formId="transactions-bulk-form"
@@ -641,24 +649,6 @@ export default async function DentalCompanyPage({
               </div>
 
               <form id="transactions-bulk-form" className="space-y-4">
-                {(session.is_admin || canCancel) && (
-                  <div className="flex items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/40 px-4 py-3 sm:px-6 rounded-lg">
-                    <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
-                      يمكنك تحديد حركات متعددة لإلغائها بشكل جماعي.
-                    </p>
-                    <div className="flex items-center gap-2">
-                      {(session.is_admin || canCancel) && (
-                        <TransactionsBulkActionButton
-                          formId="transactions-bulk-form"
-                          op="cancel_or_rededuct"
-                          label="إلغاء المحدد"
-                          variant="warning"
-                        />
-                      )}
-                    </div>
-                  </div>
-                )}
-
                 <div className="overflow-x-auto">
                   <table className="w-full text-right border-collapse text-sm">
                     <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">

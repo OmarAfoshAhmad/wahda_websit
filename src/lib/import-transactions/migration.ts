@@ -56,13 +56,14 @@ export async function importFamilyTransactions(
   expectedFamilyCount?: number,
   replaceOldImports = true,
   companyId?: string | null,
+  personalOnly = false, // عندما يكون true يطبق الخصم فقط على صاحب البطاقة المحددة دون أفراد الأسرة
 ): Promise<{ count: number; mode: "created" | "updated"; appliedRows: ImportAppliedRow[] }> {
   let transactionCount = 0;
   const appliedRows: ImportAppliedRow[] = [];
   let hasExistingImport = false;
 
   await prisma.$transaction(async (tx) => {
-    const familyMembers = await tx.$queryRaw<Array<{ id: string; name: string; card_number: string; remaining_balance: number; total_balance: number; status: string }>>`
+    const allFamilyMembers = await tx.$queryRaw<Array<{ id: string; name: string; card_number: string; remaining_balance: number; total_balance: number; status: string }>>`
       SELECT id, name, card_number, remaining_balance, total_balance, status
       FROM "Beneficiary"
       WHERE (
@@ -73,6 +74,11 @@ export async function importFamilyTransactions(
       ORDER BY card_number ASC
       FOR UPDATE
     `;
+
+    // الخصم الشخصي: نطبق فقط على صاحب البطاقة بالضبط دون أفراد الأسرة
+    const familyMembers = personalOnly
+      ? allFamilyMembers.filter((m) => m.card_number === baseCard)
+      : allFamilyMembers;
 
     if (familyMembers.length === 0) {
       return;

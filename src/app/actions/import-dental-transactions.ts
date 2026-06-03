@@ -149,7 +149,8 @@ export async function importDentalTransactionsAction(
   fileBase64: string,
   purgeOld: boolean,
   dryRun: boolean,
-  companyId?: string
+  companyId?: string,
+  autoCreateMissing: boolean = true
 ): Promise<ImportResult> {
   const session = await requireActiveFacilitySession();
   if (!session || !session.is_admin) {
@@ -279,7 +280,18 @@ export async function importDentalTransactionsAction(
       });
 
       if (baseCandidates.length > 0) {
-        if (baseCandidates.length === 1) return baseCandidates[0];
+        // If there's only one base candidate, we only match if:
+        // 1. The card number matches exactly (case-insensitive)
+        // 2. OR the name similarity score is high (>= 0.4)
+        if (baseCandidates.length === 1) {
+          const candidate = baseCandidates[0];
+          const dbNorm = candidate.card_number.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+          const score = nameMatch(candidate.name, cleanExcelName);
+          if (normExcelCard === dbNorm || score >= 0.4) {
+            return candidate;
+          }
+          return null; // Return null so we can auto-create the correct dependent card
+        }
 
         let bestCandidate = null;
         let highestScore = 0;
@@ -290,10 +302,10 @@ export async function importDentalTransactionsAction(
             bestCandidate = candidate;
           }
         }
-        if (bestCandidate && highestScore > 0) {
+        if (bestCandidate && highestScore >= 0.4) {
           return bestCandidate;
         }
-        return baseCandidates[0];
+        return null;
       }
 
       // 3. Fallback name match if unique
@@ -399,7 +411,7 @@ export async function importDentalTransactionsAction(
       let beneficiary = r.card ? resolveBeneficiary(r.card, r.name) : null;
 
       // ── إنشاء المستفيد تلقائياً إذا لم يكن موجوداً وكانت الشركة معروفة ──
-      if (!beneficiary && r.card && companyId && targetCompany) {
+      if (!beneficiary && r.card && companyId && targetCompany && autoCreateMissing) {
         if (dryRun) {
           // في وضع المعاينة: نُعامله كـ "سيُنشأ" ونضيفه للذاكرة المؤقتة
           const tempBen = {

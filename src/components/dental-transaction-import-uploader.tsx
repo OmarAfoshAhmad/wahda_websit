@@ -21,6 +21,7 @@ export function DentalTransactionImportUploader({
   const [selectedCompanyId, setSelectedCompanyId] = useState(initialCompanyId || "");
   const [file, setFile] = useState<File | null>(null);
   const [purgeOld, setPurgeOld] = useState(false);
+  const [autoCreateMissing, setAutoCreateMissing] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
   const [importing, setImporting] = useState(false);
 
@@ -88,7 +89,7 @@ export function DentalTransactionImportUploader({
         setFileBase64(base64);
 
         // Run dry-run scan
-        const res = await importDentalTransactionsAction(base64, false, true, selectedCompanyId);
+        const res = await importDentalTransactionsAction(base64, false, true, selectedCompanyId, autoCreateMissing);
         setAnalysis(res);
         setAnalyzing(false);
       };
@@ -130,7 +131,7 @@ export function DentalTransactionImportUploader({
     setResult(null);
 
     try {
-      const res = await importDentalTransactionsAction(fileBase64, purgeOld, false, selectedCompanyId);
+      const res = await importDentalTransactionsAction(fileBase64, purgeOld, false, selectedCompanyId, autoCreateMissing);
       setResult(res);
       setImporting(false);
     } catch (err: any) {
@@ -153,6 +154,7 @@ export function DentalTransactionImportUploader({
     setResult(null);
     setFileBase64(null);
     setPurgeOld(false);
+    setAutoCreateMissing(true);
   };
 
   return (
@@ -218,6 +220,28 @@ export function DentalTransactionImportUploader({
                 </span>
               </div>
             </div>
+
+            {/* Auto Create Missing Option */}
+            <Card className="p-4 border-teal-200 bg-teal-50/20 dark:border-teal-900/30">
+              <div className="flex items-start gap-3">
+                <input
+                  id="autoCreateMissing"
+                  type="checkbox"
+                  checked={autoCreateMissing}
+                  onChange={(e) => setAutoCreateMissing(e.target.checked)}
+                  disabled={analyzing}
+                  className="mt-1 h-4.5 w-4.5 text-teal-600 focus:ring-teal-500 border-slate-300 rounded"
+                />
+                <div className="space-y-1">
+                  <label htmlFor="autoCreateMissing" className="text-sm font-black text-slate-800 dark:text-white cursor-pointer select-none">
+                    إنشاء المستفيدين الجدد غير المسجلين تلقائياً
+                  </label>
+                  <p className="text-xs text-slate-500">
+                    إذا تم تفعيل هذا الخيار (موصى به)، سيقوم النظام بإنشاء بطاقة تابعة جديدة تلقائياً إذا كانت البطاقة بالملف غير مسجلة بالنظام (مثل بطاقات الزوجة W أو الأبناء S).
+                  </p>
+                </div>
+              </div>
+            </Card>
 
             {/* Purge Old Option */}
             <Card className="p-4 border-amber-200 bg-amber-50/20 dark:border-amber-900/30">

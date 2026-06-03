@@ -43,7 +43,7 @@ type PreparedImportRow = {
   rowNumber: number | null;
 };
 
-type SkippedImportReason = "invalid_row" | "missing_required_fields" | "duplicate_in_file" | "already_exists" | "duplicate_person" | "excluded_deceased_appendix";
+type SkippedImportReason = "invalid_row" | "missing_required_fields" | "duplicate_in_file" | "already_exists" | "duplicate_person" | "excluded_deceased_appendix" | "invalid_company_pattern";
 
 type SkippedImportRowReport = {
   rowNumber: number | null;
@@ -116,6 +116,8 @@ function getSkippedReasonLabel(reason: SkippedImportReason) {
       return "المستفيد نفسه (الاسم وتاريخ الميلاد) موجود مسبقاً";
     case "excluded_deceased_appendix":
       return "تم الاستبعاد (ملحق أو متوفي)";
+    case "invalid_company_pattern":
+      return "رقم البطاقة لا يطابق الشركة المحددة";
     default:
       return "غير معروف";
   }
@@ -488,6 +490,21 @@ export async function processImportJob(jobId: string, username: string) {
           rawRow,
         }));
         continue;
+      }
+
+      if (opts.company_id) {
+        const selectedCompany = activeCompanies.find(c => c.id === opts.company_id);
+        if (selectedCompany && matchCompanyForCard(normalized.data.card_number, [selectedCompany]) === null) {
+          failedRows += 1;
+          processedRows += 1;
+          skippedRows.push(createSkippedRowReport({
+            reason: "invalid_company_pattern",
+            rowNumber,
+            rawRow,
+            normalized: normalized.data,
+          }));
+          continue;
+        }
       }
 
       if (seenCards.has(normalized.data.card_number)) {
