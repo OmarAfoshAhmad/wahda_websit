@@ -73,31 +73,52 @@ export function Shell({
   const permsHash = useMemo(() => JSON.stringify(session.manager_permissions), [session.manager_permissions]);
 
   const allNav = useMemo(() => {
-    const filteredBaseNav = filterNavByPermission(BASE_NAV, session);
-    const filteredManagerNav = MANAGER_NAV.filter(item => hasPermission(session, item.perm));
+    const appMode = process.env.NEXT_PUBLIC_APP_MODE || "BOTH";
+
+    // 1. Base Nav (Dashboard/Transactions OR Dental as main)
+    const currentBaseNav = appMode === "DENTAL" 
+      ? [{ ...DENTAL_NAV, perm: "dental_services" as keyof ManagerPermissions }] 
+      : BASE_NAV;
+    const filteredBaseNav = filterNavByPermission(currentBaseNav as typeof BASE_NAV, session);
+
+    // 2. Manager Nav (Hide global Beneficiaries in DENTAL mode)
+    const currentManagerNav = appMode === "DENTAL"
+      ? MANAGER_NAV.filter(item => item.name !== "المستفيدون")
+      : MANAGER_NAV;
+    const filteredManagerNav = currentManagerNav.filter(item => hasPermission(session, item.perm));
+
     const filteredSuperAdminNav = SUPER_ADMIN_NAV.filter(item => hasPermission(session, item.perm));
-    const showDental = hasPermission(session, "dental_services");
+    
+    // 3. Extra Tabs
+    const showDentalTab = appMode === "BOTH" && hasPermission(session, "dental_services");
+    const showCashClaim = appMode !== "DENTAL" && canUseCashClaim;
 
     if (isAdmin) {
-      return [...filteredBaseNav, ...filteredManagerNav, ...(canUseCashClaim ? [CASH_CLAIM_NAV] : []), ...filteredSuperAdminNav, ...(showDental ? [DENTAL_NAV] : [])];
+      return [
+        ...filteredBaseNav, 
+        ...filteredManagerNav, 
+        ...(showCashClaim ? [CASH_CLAIM_NAV] : []), 
+        ...filteredSuperAdminNav, 
+        ...(showDentalTab ? [DENTAL_NAV] : [])
+      ];
     }
 
     if (isManager || isEmployee) {
       return [
-        ...(isEmployee && canUseCashClaim
+        ...(isEmployee && showCashClaim
           ? [EMPLOYEE_HOME_NAV, ...filteredBaseNav.filter((item) => item.href === "/transactions")]
           : filteredBaseNav),
         ...filteredManagerNav,
-        ...(isManager && canUseCashClaim ? [CASH_CLAIM_NAV] : []),
+        ...(isManager && showCashClaim ? [CASH_CLAIM_NAV] : []),
         ...filteredSuperAdminNav,
-        ...(showDental ? [DENTAL_NAV] : []),
+        ...(showDentalTab ? [DENTAL_NAV] : []),
       ];
     }
 
     return [
       ...filteredBaseNav,
-      ...(canUseCashClaim ? [CASH_CLAIM_NAV] : []),
-      ...(showDental ? [DENTAL_NAV] : []),
+      ...(showCashClaim ? [CASH_CLAIM_NAV] : []),
+      ...(showDentalTab ? [DENTAL_NAV] : []),
     ];
   }, [isAdmin, isManager, isEmployee, canUseCashClaim, permsHash, session]);
 
