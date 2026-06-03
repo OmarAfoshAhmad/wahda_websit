@@ -5,7 +5,7 @@ export default async function Home() {
   const session = await getSession();
   
   if (session) {
-    if (process.env.NEXT_PUBLIC_APP_MODE === "DENTAL") {
+    if (process.env.NEXT_PUBLIC_APP_MODE?.replace(/["']/g, '').toUpperCase() === "DENTAL") {
       redirect("/admin/dental-services");
     } else {
       redirect(session.is_employee ? "/cash-claim" : "/dashboard");

@@ -73,7 +73,8 @@ export function Shell({
   const permsHash = useMemo(() => JSON.stringify(session.manager_permissions), [session.manager_permissions]);
 
   const allNav = useMemo(() => {
-    const appMode = process.env.NEXT_PUBLIC_APP_MODE || "BOTH";
+    const rawMode = process.env.NEXT_PUBLIC_APP_MODE || "BOTH";
+    const appMode = rawMode.replace(/["']/g, '').toUpperCase();
 
     // 1. Base Nav (Dashboard/Transactions OR Dental as main)
     const currentBaseNav = appMode === "DENTAL" 

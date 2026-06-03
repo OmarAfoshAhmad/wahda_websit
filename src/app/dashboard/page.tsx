@@ -71,7 +71,7 @@ export default async function Dashboard() {
     redirect("/login");
   }
 
-  if (process.env.NEXT_PUBLIC_APP_MODE === "DENTAL") {
+  if (process.env.NEXT_PUBLIC_APP_MODE?.replace(/["']/g, '').toUpperCase() === "DENTAL") {
     redirect("/admin/dental-services");
   }
 
