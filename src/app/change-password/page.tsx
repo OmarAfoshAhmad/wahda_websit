@@ -12,12 +12,13 @@ export default function ChangePasswordPage() {
   const [showNew, setShowNew] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
 
-  // عند نجاح تغيير كلمة المرور نوجّه المستخدم من جهة العميل
+  // عند نجاح تغيير كلمة المرور نوجّه المستخدم بتحديث كامل للصفحة (Hard Redirect)
+  // لضمان إرسال الكوكيز الجديدة (التي لا تحتوي على must_change_password) للميدل وير
   useEffect(() => {
     if (state && (state as any).success && (state as any).redirectTo) {
-      router.push((state as any).redirectTo);
+      window.location.href = (state as any).redirectTo;
     }
-  }, [state, router]);
+  }, [state]);
 
   return (
     <div className="flex min-h-screen items-center justify-center px-4 py-10 sm:px-6">
