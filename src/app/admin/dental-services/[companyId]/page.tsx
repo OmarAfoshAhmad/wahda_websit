@@ -469,18 +469,6 @@ export default async function DentalCompanyPage({
               </Link>
             )}
 
-            <Link
-              href={`/admin/dental-services/${companyId}/print?${new URLSearchParams({
-                q: searchQuery,
-                from: fromDate,
-                to: toDate,
-              }).toString()}`}
-              target="_blank"
-              className="flex items-center gap-1.5 rounded-lg border border-teal-650 dark:border-teal-500 bg-teal-650 dark:bg-teal-950 text-white dark:text-teal-350 hover:bg-teal-700 dark:hover:bg-teal-900 px-3 py-1.5 text-xs font-black transition-all shadow-sm hover:scale-[1.01] active:scale-[0.99] mr-1"
-            >
-              <Printer className="h-3.5 w-3.5" />
-              <span>طباعة الكشف</span>
-            </Link>
           </div>
         </div>
 
