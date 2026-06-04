@@ -422,6 +422,7 @@ export default async function TransactionsPage({
   const canCorrect = !isReadOnlyEmployee && hasPermission(session, "correct_transactions");
   const canEditTransaction = !isReadOnlyEmployee && hasPermission(session, "edit_transaction");
   const canDelete = !isReadOnlyEmployee && hasPermission(session, "delete_transaction");
+  const canAddManual = session.role !== "FACILITY" && (session.is_admin || hasPermission(session, "add_manual_transaction"));
   const canSingleAction = session.is_admin || canCancel || canCorrect;
   const canExport = !session.is_manager || hasPermission(session, "export_data");
   const canImport = !isReadOnlyEmployee && (session.is_admin || ((session.manager_permissions as Partial<Record<string, boolean>> | null)?.import_transactions === true));
@@ -489,7 +490,7 @@ export default async function TransactionsPage({
             </div>
             {/* أزرار الرأس — أيقونات فقط على الجوال، نص كامل على الشاشات الكبيرة */}
             <div className="no-print flex shrink-0 items-center gap-1.5 sm:gap-2">
-              {!isReadOnlyEmployee && (
+              {canAddManual && (
                 <Link
                   href="/add-transaction"
                   title="إضافة حركة يدوية"

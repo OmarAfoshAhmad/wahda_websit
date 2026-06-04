@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getSessionWithFreshPermissions, canAccessAdmin } from "@/lib/session-guard";
+import { getSessionWithFreshPermissions, canAccessAdmin, hasPermission } from "@/lib/session-guard";
 import { Shell } from "@/components/shell";
 import { AddTransactionForm } from "@/components/add-transaction-form";
 import prisma from "@/lib/prisma";
@@ -8,6 +8,9 @@ export default async function AddTransactionPage() {
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
   if (!canAccessAdmin(session)) redirect("/dashboard");
+  if (!session.is_admin && !hasPermission(session, "add_manual_transaction")) {
+    redirect("/dashboard");
+  }
 
   const facilities = await prisma.facility.findMany({
     where: { deleted_at: null },

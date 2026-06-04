@@ -72,6 +72,7 @@ export default async function DentalCompanyPage({
   // بناء شروط الاستعلام لحركات الأسنان
   // من يملك صلاحية dental_services يرى جميع حركات الشركة (مثل المشرف في سياق الأسنان)
   const hasDentalFullAccess = session.is_admin || hasPermission(session, "dental_services");
+  const canAddManualTransaction = session.role !== "FACILITY" && (session.is_admin || hasPermission(session, "add_manual_transaction"));
   const PAGE_SIZE = 10;
   const where: any = {
     company_id: companyId,
@@ -621,7 +622,7 @@ export default async function DentalCompanyPage({
                     </a>
                   )}
 
-                  {hasDentalFullAccess && (
+                  {canAddManualTransaction && (
                     <DentalAddTransactionButton
                       companyId={companyId}
                       companyName={company.name}

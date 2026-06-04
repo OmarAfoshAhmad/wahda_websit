@@ -38,6 +38,7 @@ export const PERMISSION_DEFINITIONS: ReadonlyArray<PermissionDefinition> = [
   { key: "correct_transactions", label: "إعادة خصم الرصيد / تصحيح حركات", group: "transactions" },
   { key: "edit_transaction", label: "تعديل الحركات المالية", group: "transactions" },
   { key: "delete_transaction", label: "حذف الحركات المالية (نهائياً أو مؤقتاً)", group: "transactions" },
+  { key: "add_manual_transaction", label: "إضافة حركات يدوية", group: "transactions" },
 
   { key: "view_beneficiaries", label: "عرض قائمة المستفيدين", group: "reports" },
   { key: "view_dental_beneficiaries", label: "عرض مستفيدي خدمات الأسنان", group: "dental" },
