@@ -2,7 +2,7 @@
 
 import React, { useActionState, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { changePassword } from "@/app/actions/auth";
+import { changePassword, checkMustChangePasswordStatus } from "@/app/actions/auth";
 import { Button, Input, Card } from "@/components/ui";
 import { KeyRound, Loader2, ShieldCheck, Eye, EyeOff } from "lucide-react";
 
@@ -11,6 +11,21 @@ export default function ChangePasswordPage() {
   const [state, action, isPending] = useActionState(changePassword, undefined);
   const [showNew, setShowNew] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+
+  // فحص ذكي عند تحميل الصفحة للتحقق مما إذا تم تغيير كلمة المرور من جهاز/متصفح آخر
+  useEffect(() => {
+    async function checkStatus() {
+      try {
+        const res = await checkMustChangePasswordStatus();
+        if (res.changed && res.redirectTo) {
+          window.location.href = res.redirectTo;
+        }
+      } catch (err) {
+        console.error("Failed to check password change status:", err);
+      }
+    }
+    checkStatus();
+  }, []);
 
   // عند نجاح تغيير كلمة المرور نوجّه المستخدم بتحديث كامل للصفحة (Hard Redirect)
   // لضمان إرسال الكوكيز الجديدة (التي لا تحتوي على must_change_password) للميدل وير

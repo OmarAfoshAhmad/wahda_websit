@@ -250,3 +250,36 @@ export async function logout() {
   await authLogout();
   redirect("/login");
 }
+
+export async function checkMustChangePasswordStatus() {
+  const session = await getSession();
+  if (!session) {
+    return { changed: false };
+  }
+
+  const facility = await prisma.facility.findUnique({
+    where: { id: session.id },
+    select: { must_change_password: true, role: true, is_employee: true },
+  });
+
+  if (facility && !facility.must_change_password) {
+    // تحديث الجلسة لإزالة علامة إجبار تغيير كلمة المرور للمتصفح الحالي
+    await login({
+      id: session.id,
+      name: session.name,
+      username: session.username,
+      role: session.role,
+      is_admin: session.is_admin,
+      is_manager: session.is_manager,
+      is_employee: Boolean(facility.is_employee),
+      manager_permissions: session.manager_permissions,
+      must_change_password: false,
+      facility_type: session.facility_type,
+    });
+
+    const redirectTo = facility.is_employee ? "/cash-claim" : "/dashboard";
+    return { changed: true, redirectTo };
+  }
+
+  return { changed: false };
+}
