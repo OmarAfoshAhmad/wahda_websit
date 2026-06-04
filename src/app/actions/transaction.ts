@@ -13,6 +13,7 @@ import {
   MAX_DEDUCTION_AMOUNT,
   MAX_AMOUNT_POLICY_ERROR,
 } from "@/lib/validation";
+import { InsuranceEngine } from "@/lib/insurance/engine";
 
 export type AddTransactionState = {
   success?: string;
@@ -127,6 +128,107 @@ export async function addTransactionFromForm(
   };
 }
 
+async function recalculateDentalTransactionsForBeneficiary(
+  tx: Omit<typeof prisma, "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends">,
+  beneficiaryId: string,
+  year: number
+) {
+  const beneficiary = await tx.beneficiary.findUnique({
+    where: { id: beneficiaryId },
+    select: {
+      id: true,
+      company_id: true,
+    }
+  });
+
+  if (!beneficiary || !beneficiary.company_id) {
+    return;
+  }
+
+  const company = await tx.insuranceCompany.findUnique({
+    where: { id: beneficiary.company_id }
+  });
+
+  if (!company || !company.is_active) {
+    return;
+  }
+
+  const startDate = new Date(year, 0, 1);
+  const endDate = new Date(year, 11, 31, 23, 59, 59, 999);
+
+  // Fetch all dental transactions chronologically
+  const txs = await tx.transaction.findMany({
+    where: {
+      beneficiary_id: beneficiaryId,
+      type: "DENTAL",
+      is_cancelled: false,
+      created_at: { gte: startDate, lte: endDate },
+    },
+    orderBy: [
+      { created_at: "asc" },
+      { id: "asc" }
+    ]
+  });
+
+  let runningConsumed = 0;
+  const policy = {
+    service_type: "DENTAL",
+    annual_ceiling: company.dental_ceiling === null ? null : Number(company.dental_ceiling),
+    copay_percentage: Math.max(0, 100 - Number(company.dental_coverage)),
+    allow_partial_coverage: true,
+  };
+
+  for (const t of txs) {
+    const subCategory = t.service_category || "DENTAL";
+    const settings = company.dental_settings ? (company.dental_settings as any) : null;
+    let categoryCoverage = Math.max(0, Number(company.dental_coverage)); // default coverage
+
+    if (subCategory === "DENTAL_ORTHO" && settings?.ortho?.enabled) {
+      categoryCoverage = Number(settings.ortho.coverage);
+    } else if (subCategory === "DENTAL_IMPLANT" && settings?.implant?.enabled) {
+      categoryCoverage = Number(settings.implant.coverage);
+    } else if (subCategory === "DENTAL_PROSTHETICS" && settings?.prosthetics?.enabled) {
+      categoryCoverage = Number(settings.prosthetics.coverage);
+    }
+
+    const copayPercentage = Math.max(0, 100 - categoryCoverage);
+
+    const calcResult = InsuranceEngine.calculate({
+      amount: Number(t.amount),
+      consumedThisYear: runningConsumed,
+      policy: {
+        serviceType: "DENTAL",
+        annualCeiling: policy.annual_ceiling,
+        copayPercentage: copayPercentage,
+        allowPartialCoverage: true
+      }
+    });
+
+    await tx.transaction.update({
+      where: { id: t.id },
+      data: {
+        original_company_share: calcResult.originalCompanyShare,
+        original_patient_share: calcResult.originalPatientShare,
+        actual_company_share: calcResult.actualCompanyShare,
+        actual_patient_share: calcResult.actualPatientShare,
+        remaining_ceiling_before: calcResult.remainingCeilingBefore,
+        ceiling_consumed: calcResult.ceilingConsumed,
+        remaining_ceiling_after: calcResult.remainingCeilingAfter,
+        consumed_before: calcResult.consumedBefore,
+        consumed_after: calcResult.consumedAfter,
+        policy_snapshot: JSON.parse(JSON.stringify(policy)),
+        calc_metadata: {
+          ...(t.calc_metadata as any || {}),
+          engineVersion: calcResult.metadata.engineVersion,
+          timestamp: calcResult.metadata.timestamp,
+        }
+      }
+    });
+
+    runningConsumed += calcResult.ceilingConsumed;
+  }
+}
+
 export async function updateTransactionEntry(input: EditTransactionInput): Promise<{ success?: string; error?: string }> {
   const session = await requireActiveFacilitySession();
   if (!session || !hasPermission(session, "edit_transaction")) {
@@ -141,12 +243,19 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
     return { error: "قيمة المبلغ غير صالحة" };
   }
 
-  if (input.amount > MAX_DEDUCTION_AMOUNT) {
-    return { error: MAX_AMOUNT_POLICY_ERROR };
-  }
+  if (input.type !== "DENTAL") {
+    if (input.amount > MAX_DEDUCTION_AMOUNT) {
+      return { error: MAX_AMOUNT_POLICY_ERROR };
+    }
 
-  if (!isAllowedDeductionAmount(input.amount)) {
-    return { error: AMOUNT_POLICY_ERROR };
+    if (!isAllowedDeductionAmount(input.amount)) {
+      return { error: AMOUNT_POLICY_ERROR };
+    }
+  } else {
+    const rounded = roundCurrency(input.amount);
+    if (Math.abs(input.amount - rounded) > 1e-9) {
+      return { error: "الحد الأقصى لكسور المبلغ هو قرشان (رقمين عشريين)" };
+    }
   }
 
   const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(input.transactionDate);
@@ -183,6 +292,8 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
           type: true,
           created_at: true,
           facility_id: true,
+          company_id: true,
+          service_category: true,
           beneficiary: {
             select: {
               name: true,
@@ -228,79 +339,121 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
         throw new Error("غير مصرح لك بتغيير مرفق الحركة");
       }
 
-      const locked = await tx.$queryRaw<Array<{ id: string; remaining_balance: number; status: string }>>`
-        SELECT id, remaining_balance, status FROM "Beneficiary"
-        WHERE id = ${transaction.beneficiary_id}
-        FOR UPDATE
-      `;
-
-      if (locked.length === 0) {
-        throw new Error("المستفيد غير موجود");
-      }
-
+      const isDental = transaction.type === "DENTAL";
       const oldAmount = Number(transaction.amount);
-      const currentBalance = Number(locked[0].remaining_balance);
-      const lockedStatus = locked[0].status;
-      const balanceBeforeThisTransaction = roundCurrency(currentBalance + oldAmount);
 
-      if (input.amount > balanceBeforeThisTransaction) {
-        throw new Error(`المبلغ أكبر من الرصيد المتاح قبل الحركة (${formatCurrency(balanceBeforeThisTransaction)} د.ل)`);
-      }
-
-      const newBalance = roundCurrency(balanceBeforeThisTransaction - input.amount);
-      // FIX: احترام حالة الإيقاف — لا نغير SUSPENDED إلى ACTIVE أو FINISHED
-      const newStatus = lockedStatus === "SUSPENDED" ? "SUSPENDED" : (newBalance <= 0 ? "FINISHED" : "ACTIVE");
-
-      await tx.beneficiary.update({
-        where: { id: transaction.beneficiary_id },
-        data: {
-          remaining_balance: newBalance,
-          status: newStatus,
-        },
-      });
-
-      await tx.transaction.update({
-        where: { id: transaction.id },
-        data: {
-          amount: input.amount,
-          type: input.type,
-          created_at: parsedDate,
-          facility_id: facility.id,
-        },
-      });
-
-      await tx.auditLog.create({
-        data: {
-          facility_id: facility.id,
-          user: session.username,
-          action: "EDIT_TRANSACTION",
-          metadata: {
-            transaction_id: transaction.id,
-            beneficiary_name: transaction.beneficiary.name,
-            card_number: transaction.beneficiary.card_number,
-            old_amount: oldAmount,
-            new_amount: input.amount,
-            // تفاصيل الحركة قبل/بعد التعديل لعرض واضح في سجل المراقبة
-            old_balance_before_deduction: balanceBeforeThisTransaction,
-            old_deducted_amount: oldAmount,
-            old_remaining_after_deduction: currentBalance,
-            new_balance_before_deduction: balanceBeforeThisTransaction,
-            new_deducted_amount: input.amount,
-            new_remaining_after_deduction: newBalance,
-            // SEC-FIX: حفظ جميع القيم القديمة والجديدة لإمكانية التراجع
-            old_type: transaction.type,
-            new_type: input.type,
-            old_date: transaction.created_at?.toISOString?.() ?? null,
-            new_date: parsedDate.toISOString(),
-            old_facility_id: transaction.facility_id ?? null,
-            new_facility_id: facility.id,
-            balance_before: currentBalance,
-            balance_after: newBalance,
+      if (isDental) {
+        // 1. Update the transaction basic data
+        await tx.transaction.update({
+          where: { id: transaction.id },
+          data: {
+            amount: input.amount,
+            created_at: parsedDate,
+            facility_id: facility.id,
           },
-        },
-      });
+        });
 
-      await assertBeneficiaryBalanceInvariant(tx, transaction.beneficiary_id, "updateTransactionEntry");
+        // 2. Recalculate dental transactions for the beneficiary
+        const oldYear = transaction.created_at.getFullYear();
+        const newYear = parsedDate.getFullYear();
+        await recalculateDentalTransactionsForBeneficiary(tx, transaction.beneficiary_id, oldYear);
+        if (oldYear !== newYear) {
+          await recalculateDentalTransactionsForBeneficiary(tx, transaction.beneficiary_id, newYear);
+        }
+
+        // 3. Create Audit Log
+        await tx.auditLog.create({
+          data: {
+            facility_id: facility.id,
+            user: session.username,
+            action: "EDIT_TRANSACTION",
+            metadata: {
+              transaction_id: transaction.id,
+              beneficiary_name: transaction.beneficiary.name,
+              card_number: transaction.beneficiary.card_number,
+              old_amount: oldAmount,
+              new_amount: input.amount,
+              old_type: transaction.type,
+              new_type: input.type,
+              old_date: transaction.created_at?.toISOString?.() ?? null,
+              new_date: parsedDate.toISOString(),
+              old_facility_id: transaction.facility_id ?? null,
+              new_facility_id: facility.id,
+              is_dental: true,
+            },
+          },
+        });
+      } else {
+        const locked = await tx.$queryRaw<Array<{ id: string; remaining_balance: number; status: string }>>`
+          SELECT id, remaining_balance, status FROM "Beneficiary"
+          WHERE id = ${transaction.beneficiary_id}
+          FOR UPDATE
+        `;
+
+        if (locked.length === 0) {
+          throw new Error("المستفيد غير موجود");
+        }
+
+        const currentBalance = Number(locked[0].remaining_balance);
+        const lockedStatus = locked[0].status;
+        const balanceBeforeThisTransaction = roundCurrency(currentBalance + oldAmount);
+
+        if (input.amount > balanceBeforeThisTransaction) {
+          throw new Error(`المبلغ أكبر من الرصيد المتاح قبل الحركة (${formatCurrency(balanceBeforeThisTransaction)} د.ل)`);
+        }
+
+        const newBalance = roundCurrency(balanceBeforeThisTransaction - input.amount);
+        const newStatus = lockedStatus === "SUSPENDED" ? "SUSPENDED" : (newBalance <= 0 ? "FINISHED" : "ACTIVE");
+
+        await tx.beneficiary.update({
+          where: { id: transaction.beneficiary_id },
+          data: {
+            remaining_balance: newBalance,
+            status: newStatus,
+          },
+        });
+
+        await tx.transaction.update({
+          where: { id: transaction.id },
+          data: {
+            amount: input.amount,
+            type: input.type,
+            created_at: parsedDate,
+            facility_id: facility.id,
+          },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            facility_id: facility.id,
+            user: session.username,
+            action: "EDIT_TRANSACTION",
+            metadata: {
+              transaction_id: transaction.id,
+              beneficiary_name: transaction.beneficiary.name,
+              card_number: transaction.beneficiary.card_number,
+              old_amount: oldAmount,
+              new_amount: input.amount,
+              old_type: transaction.type,
+              new_type: input.type,
+              old_date: transaction.created_at?.toISOString?.() ?? null,
+              new_date: parsedDate.toISOString(),
+              old_facility_id: transaction.facility_id ?? null,
+              new_facility_id: facility.id,
+              old_balance_before_deduction: balanceBeforeThisTransaction,
+              old_deducted_amount: oldAmount,
+              old_remaining_after_deduction: currentBalance,
+              new_balance_before_deduction: balanceBeforeThisTransaction,
+              new_deducted_amount: input.amount,
+              new_remaining_after_deduction: newBalance,
+              balance_before: currentBalance,
+              balance_after: newBalance,
+            },
+          },
+        });
+
+        await assertBeneficiaryBalanceInvariant(tx, transaction.beneficiary_id, "updateTransactionEntry");
+      }
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     revalidatePath("/transactions");
