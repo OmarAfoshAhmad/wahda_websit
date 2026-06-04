@@ -6,8 +6,6 @@ import { Shell } from "@/components/shell";
 import { Card } from "@/components/ui";
 import Link from "next/link";
 import { DentalImportUploader } from "@/components/dental-import-uploader";
-import { DentalExportButton } from "@/components/dental-export-button";
-import { DentalBeneficiariesExportButton } from "@/components/dental-beneficiaries-export-button";
 
 export default async function DentalServicesPage({
   searchParams,
@@ -76,16 +74,7 @@ export default async function DentalServicesPage({
                 <h1 className="text-2xl font-black text-slate-900 dark:text-white">خدمات الأسنان</h1>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
-                {/* أزرار التصدير لخدمات الأسنان */}
-                {(session.is_admin || hasPermission(session, "export_data")) && (
-                  <div className="flex gap-2 ml-2">
-                    <DentalBeneficiariesExportButton />
-                    <DentalExportButton />
-                  </div>
-                )}
-                
-                <div className="flex gap-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-1 w-fit">
+              <div className="mr-1 flex gap-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-1 w-fit">
                   <Link
                     href="/admin/dental-services?tab=companies"
                     className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${
@@ -118,7 +107,6 @@ export default async function DentalServicesPage({
                     </Link>
                   )}
                 </div>
-              </div>
             </div>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
               إدارة مستفيدي شركات التأمين لخدمات الأسنان وتطبيق الاقتطاع المالي.
