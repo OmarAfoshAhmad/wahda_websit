@@ -138,6 +138,17 @@ export async function changePassword(prevState: unknown, formData: FormData) {
     return { error: "غير مصرح" };
   }
 
+  const facilityExists = await prisma.facility.findUnique({
+    where: { id: session.id },
+    select: { id: true },
+  });
+
+  if (!facilityExists) {
+    // إذا كان المرفق غير موجود في قاعدة البيانات (جلسة قديمة/خاطئة) -> تسجيل الخروج فوراً
+    await authLogout();
+    return { success: true, redirectTo: "/login" };
+  }
+
   const data = {
     newPassword: formData.get("newPassword") as string,
     confirmPassword: formData.get("confirmPassword") as string,
@@ -262,7 +273,13 @@ export async function checkMustChangePasswordStatus() {
     select: { must_change_password: true, role: true, is_employee: true },
   });
 
-  if (facility && !facility.must_change_password) {
+  if (!facility) {
+    // إذا كان المرفق غير موجود في قاعدة البيانات (جلسة قديمة من سيرفر آخر) -> مسح الجلسة فوراً لتسجيل الدخول من جديد
+    await authLogout();
+    return { logout: true, redirectTo: "/login" };
+  }
+
+  if (!facility.must_change_password) {
     // تحديث الجلسة لإزالة علامة إجبار تغيير كلمة المرور للمتصفح الحالي
     await login({
       id: session.id,

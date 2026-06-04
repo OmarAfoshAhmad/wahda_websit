@@ -17,6 +17,10 @@ export default function ChangePasswordPage() {
     async function checkStatus() {
       try {
         const res = await checkMustChangePasswordStatus();
+        if ((res as any).logout && res.redirectTo) {
+          window.location.href = res.redirectTo;
+          return;
+        }
         if (res.changed && res.redirectTo) {
           window.location.href = res.redirectTo;
         }
