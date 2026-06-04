@@ -40,6 +40,12 @@ const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
   serverExternalPackages: [],
+  // رفع حد Server Actions لمنع أخطاء 502 على الطلبات الكبيرة
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "4mb",
+    },
+  },
   compiler: {
     removeConsole: isProduction ? {
       exclude: ["error"], // نحتفظ بالأخطاء فقط لأغراض التتبع إذا حدثت مشكلة حرجة
