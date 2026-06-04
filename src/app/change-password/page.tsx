@@ -1,14 +1,23 @@
 "use client";
 
-import React, { useActionState, useState } from "react";
+import React, { useActionState, useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { changePassword } from "@/app/actions/auth";
 import { Button, Input, Card } from "@/components/ui";
 import { KeyRound, Loader2, ShieldCheck, Eye, EyeOff } from "lucide-react";
 
 export default function ChangePasswordPage() {
+  const router = useRouter();
   const [state, action, isPending] = useActionState(changePassword, undefined);
   const [showNew, setShowNew] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+
+  // عند نجاح تغيير كلمة المرور نوجّه المستخدم من جهة العميل
+  useEffect(() => {
+    if (state && (state as any).success && (state as any).redirectTo) {
+      router.push((state as any).redirectTo);
+    }
+  }, [state, router]);
 
   return (
     <div className="flex min-h-screen items-center justify-center px-4 py-10 sm:px-6">
@@ -75,13 +84,26 @@ export default function ChangePasswordPage() {
               </div>
             </div>
 
-            {state?.error && (
+            {(state as any)?.error && (
               <div className="rounded-md border border-red-200 bg-red-50 p-3">
-                <p className="text-center text-sm font-bold text-red-600">{state.error}</p>
+                <p className="text-center text-sm font-bold text-red-600">{(state as any).error}</p>
               </div>
             )}
 
-            <Button type="submit" className="h-12 w-full text-base" disabled={isPending}>
+            {(state as any)?.success && (
+              <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3">
+                <p className="text-center text-sm font-bold text-emerald-700 flex items-center justify-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  تم تغيير كلمة المرور، جارٍ التحويل...
+                </p>
+              </div>
+            )}
+
+            <Button
+              type="submit"
+              className="h-12 w-full text-base"
+              disabled={isPending || (state as any)?.success}
+            >
               {isPending ? <Loader2 className="ml-2 h-5 w-5 animate-spin" /> : null}
               {isPending ? "جارٍ الحفظ..." : "حفظ كلمة المرور"}
             </Button>

@@ -181,7 +181,9 @@ export async function changePassword(prevState: unknown, formData: FormData) {
     facility_type: session.facility_type,
   });
 
-  redirect(session.is_employee ? "/cash-claim" : "/dashboard");
+  // نعيد success بدل redirect() لأن redirect() داخل useActionState يسبب خطأ
+  const redirectTo = session.role === "EMPLOYEE" ? "/cash-claim" : "/dashboard";
+  return { success: true, redirectTo };
 }
 
 export async function voluntaryChangePassword(prevState: unknown, formData: FormData) {
