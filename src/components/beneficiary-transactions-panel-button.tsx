@@ -21,6 +21,8 @@ type TxItem = {
   original_transaction_id: string | null;
   idempotency_key: string | null;
   import_source_file_name: string | null;
+  actual_company_share: number | null;
+  actual_patient_share: number | null;
 };
 
 type Payload = {
@@ -268,7 +270,9 @@ export function BeneficiaryTransactionsPanelButton({ beneficiaryId, beneficiaryN
                     <thead>
                       <tr className="border-b bg-slate-50 text-right dark:border-slate-700 dark:bg-slate-800/60">
                         <th className="p-2">النوع</th>
-                        <th className="p-2">المبلغ</th>
+                        <th className="p-2">إجمالي الفاتورة</th>
+                        <th className="p-2">حصة الشركة</th>
+                        <th className="p-2">حصة المريض</th>
                         <th className="p-2">ملف الاستيراد</th>
                         <th className="p-2">المرفق</th>
                         <th className="p-2">الحالة</th>
@@ -279,13 +283,19 @@ export function BeneficiaryTransactionsPanelButton({ beneficiaryId, beneficiaryN
                     <tbody>
                       {data.transactions.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className="p-3 text-center text-slate-500 dark:text-slate-400">لا توجد حركات لهذا المستفيد</td>
+                          <td colSpan={9} className="p-3 text-center text-slate-500 dark:text-slate-400">لا توجد حركات لهذا المستفيد</td>
                         </tr>
                       ) : (
                         data.transactions.map((tx) => (
                           <tr key={tx.id} className="border-b dark:border-slate-800">
                             <td className="p-2">{typeLabel(tx.type, tx.idempotency_key)}</td>
                             <td className="p-2">{tx.amount.toLocaleString("ar-LY")} د.ل</td>
+                            <td className="p-2 text-sky-700 dark:text-sky-300 font-bold">
+                              {tx.actual_company_share !== null ? `${tx.actual_company_share.toLocaleString("ar-LY")} د.ل` : "—"}
+                            </td>
+                            <td className="p-2 text-amber-700 dark:text-amber-300">
+                              {tx.actual_patient_share !== null ? `${tx.actual_patient_share.toLocaleString("ar-LY")} د.ل` : "—"}
+                            </td>
                             <td className="p-2" title={tx.import_source_file_name ?? "—"}>{tx.import_source_file_name ?? "—"}</td>
                             <td className="p-2">{tx.facility_name}</td>
                             <td className="p-2">
