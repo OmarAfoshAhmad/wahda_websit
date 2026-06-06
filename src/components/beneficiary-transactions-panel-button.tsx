@@ -8,6 +8,7 @@ type Props = {
   beneficiaryId: string;
   beneficiaryName: string;
   hasTransactions: boolean;
+  overrideTotalBalance?: number;
 };
 
 type TxItem = {
@@ -87,7 +88,7 @@ function typeLabel(type: string, idempotencyKey?: string | null) {
   return type;
 }
 
-export function BeneficiaryTransactionsPanelButton({ beneficiaryId, beneficiaryName, hasTransactions }: Props) {
+export function BeneficiaryTransactionsPanelButton({ beneficiaryId, beneficiaryName, hasTransactions, overrideTotalBalance }: Props) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -176,13 +177,13 @@ export function BeneficiaryTransactionsPanelButton({ beneficiaryId, beneficiaryN
                   <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-3 dark:border-emerald-900 dark:bg-emerald-900/30">
                     <p className="text-xs font-bold text-emerald-700 dark:text-emerald-300">الرصيد المتبقي الحالي</p>
                     <p className="mt-1 text-xl font-black text-emerald-800 dark:text-emerald-200">
-                      {Math.max(0, Number(data.beneficiary.total_balance) - Number(data.summary.total_used)).toLocaleString("ar-LY")} د.ل
+                      {Math.max(0, Number(overrideTotalBalance ?? data.beneficiary.total_balance) - Number(data.summary.total_used)).toLocaleString("ar-LY")} د.ل
                     </p>
                   </div>
                   <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-700 dark:bg-slate-800/40">
                     <p className="text-xs font-bold text-slate-500 dark:text-slate-400">الرصيد الكلي</p>
                     <p className="mt-1 text-base font-black text-slate-900 dark:text-slate-100">
-                      {Number(data.beneficiary.total_balance).toLocaleString("ar-LY")} د.ل
+                      {Number(overrideTotalBalance ?? data.beneficiary.total_balance).toLocaleString("ar-LY")} د.ل
                     </p>
                   </div>
                   <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-700 dark:bg-slate-800/40">

@@ -959,6 +959,7 @@ export default async function DentalCompanyPage({
                                   beneficiaryId={beneficiary.id}
                                   beneficiaryName={beneficiary.name}
                                   hasTransactions={beneficiary._count.transactions > 0}
+                                  overrideTotalBalance={Number(beneficiary.total_balance)}
                                 />
 
                                 {canEditBen && (
@@ -1102,6 +1103,7 @@ export default async function DentalCompanyPage({
                                         beneficiaryId={beneficiary.id}
                                         beneficiaryName={beneficiary.name}
                                         hasTransactions={beneficiary._count.transactions > 0}
+                                        overrideTotalBalance={Number(beneficiary.total_balance)}
                                       />
 
                                       {canEditBen && (
