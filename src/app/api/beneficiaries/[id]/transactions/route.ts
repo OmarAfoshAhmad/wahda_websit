@@ -173,9 +173,15 @@ export async function GET(
   };
 
   const activeTx = transactions.filter((t) => !t.is_cancelled);
-  const totalUsed = activeTx
-    .filter((t) => t.type !== "CANCELLATION")
+  const totalUsedGeneral = activeTx
+    .filter((t) => t.type !== "CANCELLATION" && t.type !== "DENTAL")
+    .reduce((sum, t) => sum + Number(t.amount), 0);
+
+  const totalUsedDental = activeTx
+    .filter((t) => t.type !== "CANCELLATION" && t.type === "DENTAL")
     .reduce((sum, t) => sum + (t.actual_company_share !== null ? Number(t.actual_company_share) : Number(t.amount)), 0);
+
+  const totalUsed = totalUsedGeneral + totalUsedDental;
 
   const familyTotalBalanceSystem = roundCurrency(
     familyMembers.reduce((sum, member) => sum + Number(member.total_balance || 0), 0),
@@ -239,6 +245,8 @@ export async function GET(
         active_transactions_count: activeTx.length,
         cancelled_transactions_count: transactions.length - activeTx.length,
         total_used: roundCurrency(totalUsed),
+        total_used_general: roundCurrency(totalUsedGeneral),
+        total_used_dental: roundCurrency(totalUsedDental),
       },
       transactions: transactions.map((t) => ({
         id: t.id,
