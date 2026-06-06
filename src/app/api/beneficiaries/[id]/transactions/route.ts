@@ -175,7 +175,7 @@ export async function GET(
   const activeTx = transactions.filter((t) => !t.is_cancelled);
   const totalUsed = activeTx
     .filter((t) => t.type !== "CANCELLATION")
-    .reduce((sum, t) => sum + Number(t.amount), 0);
+    .reduce((sum, t) => sum + (t.actual_company_share !== null ? Number(t.actual_company_share) : Number(t.amount)), 0);
 
   const familyTotalBalanceSystem = roundCurrency(
     familyMembers.reduce((sum, member) => sum + Number(member.total_balance || 0), 0),

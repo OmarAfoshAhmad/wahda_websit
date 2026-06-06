@@ -1011,10 +1011,10 @@ export default async function DentalCompanyPage({
                         {!isDeletedView && (
                           <>
                             <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-sky-600 dark:text-sky-400">
-                              {dentalCeiling === null ? "القيمة المخصومة" : "الرصيد المتبقي الحالي"}
+                              الرصيد المتبقي الحالي
                             </th>
                             <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-emerald-600 dark:text-emerald-400">
-                              {dentalCeiling === null ? "الرصيد المستهلك" : "الرصيد الكلي الابتدائي"}
+                              إجمالي المستهلك للشركة
                             </th>
                           </>
                         )}
