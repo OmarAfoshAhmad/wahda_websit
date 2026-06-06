@@ -8,7 +8,7 @@ export async function GET(request: Request) {
   const session = await requireActiveFacilitySession();
   if (!session) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
 
-  const canExport = session.is_admin || (session.is_manager && hasPermission(session, "export_data"));
+  const canExport = session.is_admin || hasPermission(session, "export_data");
   if (!canExport) {
     return NextResponse.json({ error: "ممنوع" }, { status: 403 });
   }

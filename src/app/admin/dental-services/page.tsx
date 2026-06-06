@@ -31,6 +31,13 @@ export default async function DentalServicesPage({
     activeTab = "companies";
   }
 
+  // تحديد شروط الحركات بناءً على نوع المستخدم (المرفق يرى حركاته فقط)
+  const isFacility = session.role === "FACILITY" || (!session.is_admin && !session.is_manager && !session.is_employee);
+  const transactionFilter: any = { is_cancelled: false, service_category: "DENTAL" };
+  if (isFacility) {
+    transactionFilter.facility_id = session.id;
+  }
+
   // جلب شركات التأمين مع إحصائيات المستفيدين
   const companies = await prisma.insuranceCompany.findMany({
     where: { deleted_at: null, is_active: true },
@@ -40,6 +47,9 @@ export default async function DentalServicesPage({
         select: {
           beneficiaries: {
             where: { deleted_at: null, status: "ACTIVE" },
+          },
+          transactions: {
+            where: transactionFilter,
           },
         },
       },
@@ -134,6 +144,7 @@ export default async function DentalServicesPage({
                   const ceiling = company.dental_ceiling ? Number(company.dental_ceiling) : null;
                   const copay = Math.max(0, 100 - Number(company.dental_coverage));
                   const beneficiaryCount = company._count.beneficiaries;
+                  const transactionCount = company._count.transactions;
 
                   return (
                     <Link
@@ -188,10 +199,13 @@ export default async function DentalServicesPage({
                         )}
                       </div>
 
-                      <div className="mt-4 pt-3 border-t border-slate-200/60 dark:border-slate-700">
+                      <div className="mt-4 pt-3 border-t border-slate-200/60 dark:border-slate-700 flex items-center justify-between">
                         <p className="text-xs font-bold text-teal-600 dark:text-teal-400 group-hover:text-teal-700">
                           انقر للبحث والاقتطاع ←
                         </p>
+                        <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-full">
+                          {transactionCount.toLocaleString("ar-LY")} حركة مسجلة
+                        </span>
                       </div>
                     </Link>
                   );

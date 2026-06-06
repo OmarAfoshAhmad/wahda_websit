@@ -69,16 +69,18 @@ export default async function DentalCompanyPage({
   const copay = Math.max(0, 100 - Number(company.dental_coverage));
   const dentalPolicy = true;
 
+  // تحديد نوع المستخدم وهل هو مرفق
+  const isFacility = session.role === "FACILITY" || (!session.is_admin && !session.is_manager && !session.is_employee);
+
   // بناء شروط الاستعلام لحركات الأسنان
-  // من يملك صلاحية dental_services يرى جميع حركات الشركة (مثل المشرف في سياق الأسنان)
-  const hasDentalFullAccess = session.is_admin || hasPermission(session, "dental_services");
-  const canAddManualTransaction = session.role !== "FACILITY" && (session.is_admin || hasPermission(session, "add_manual_transaction"));
+  // المرفق يرى حركاته فقط، والمشرف/المدير يرى جميع الحركات
+  const canAddManualTransaction = !isFacility && (session.is_admin || hasPermission(session, "add_manual_transaction"));
   const PAGE_SIZE = 10;
   const where: any = {
     company_id: companyId,
     type: "DENTAL",
     is_cancelled: false,
-    ...(hasDentalFullAccess ? {} : { facility_id: session.id }),
+    ...(isFacility ? { facility_id: session.id } : {}),
   };
 
   if (searchQuery) {
@@ -100,8 +102,8 @@ export default async function DentalCompanyPage({
   }
 
   // جلب المرافق والتحقق من الصلاحيات
-  // من يملك dental_services يحتاج قائمة المرافق الكاملة للاقتطاع
-  const facilities: Array<{ id: string; name: string }> = hasDentalFullAccess
+  // الإدارة والمشرف يحتاج قائمة المرافق الكاملة للاقتطاع
+  const facilities: Array<{ id: string; name: string }> = !isFacility
     ? await prisma.facility.findMany({ where: { deleted_at: null }, select: { id: true, name: true }, orderBy: { name: "asc" } })
     : [{ id: session.id, name: session.name }];
 
@@ -628,7 +630,7 @@ export default async function DentalCompanyPage({
                       companyName={company.name}
                       facilities={facilities}
                       defaultFacilityId={session.id}
-                      canChooseFacility={hasDentalFullAccess}
+                      canChooseFacility={!isFacility}
                       copayPercentage={copay}
                       annualCeiling={ceiling}
                       dentalSettings={company.dental_settings}

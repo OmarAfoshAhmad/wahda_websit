@@ -43,12 +43,12 @@ export default async function DentalCompanyPrintPage({
   const dentalCeiling = ceiling;
 
   // بناء شروط الاستعلام
-  const hasDentalFullAccess = session.role === "ADMIN" || hasPermission(session, "dental_services");
+  const isFacility = session.role === "FACILITY" || (!session.is_admin && !session.is_manager && !session.is_employee);
   const where: any = {
     company_id: companyId,
     type: "DENTAL",
     is_cancelled: false,
-    ...(hasDentalFullAccess ? {} : { facility_id: session.id }),
+    ...(isFacility ? { facility_id: session.id } : {}),
   };
 
   if (searchQuery) {

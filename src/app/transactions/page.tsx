@@ -424,7 +424,7 @@ export default async function TransactionsPage({
   const canDelete = !isReadOnlyEmployee && hasPermission(session, "delete_transaction");
   const canAddManual = session.role !== "FACILITY" && (session.is_admin || hasPermission(session, "add_manual_transaction"));
   const canSingleAction = session.is_admin || canCancel || canCorrect;
-  const canExport = !session.is_manager || hasPermission(session, "export_data");
+  const canExport = session.is_admin || hasPermission(session, "export_data");
   const canImport = !isReadOnlyEmployee && (session.is_admin || ((session.manager_permissions as Partial<Record<string, boolean>> | null)?.import_transactions === true));
   const tableColSpan =
     5 + // 3 original + 2 new TPA columns (removed #, status, patient share, invoice amount, and company name)
