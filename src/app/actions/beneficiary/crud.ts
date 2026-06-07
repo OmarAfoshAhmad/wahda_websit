@@ -119,15 +119,19 @@ export async function createBeneficiary(data: {
       }
 
       let beneficiaryCompanyId: string | undefined = undefined;
+      let effectiveBalance = initialBalance;
       if (requestedCompanyId) {
         const targetCompany = await tx.insuranceCompany.findFirst({
           where: { id: requestedCompanyId, deleted_at: null, is_active: true },
-          select: { id: true },
+          select: { id: true, general_ceiling: true },
         });
         if (!targetCompany) {
           throw new Error("COMPANY_NOT_FOUND");
         }
         beneficiaryCompanyId = targetCompany.id;
+        if (targetCompany.general_ceiling !== null) {
+          effectiveBalance = Number(targetCompany.general_ceiling);
+        }
       }
 
       const beneficiary = await tx.beneficiary.create({
@@ -136,15 +140,9 @@ export async function createBeneficiary(data: {
           card_number: normalizedCardNumber,
           birth_date: parsedBirthDate,
           ...(beneficiaryCompanyId ? { company_id: beneficiaryCompanyId } : {}),
-          total_balance: initialBalance,
-          remaining_balance: initialBalance,
+          total_balance: effectiveBalance,
+          remaining_balance: effectiveBalance,
           status: "ACTIVE",
-        },
-      });
-
-      const familyBaseCard = utils.extractFamilyBaseCard(normalizedCardNumber);
-      const archiveRows = await tx.$queryRaw<Array<{
-        family_count_from_file: number;
         total_balance_from_file: number;
         used_balance_from_file: number;
         last_imported_at: Date;

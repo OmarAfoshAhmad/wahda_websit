@@ -4,6 +4,7 @@ import prisma from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 import { clearAllCaches } from "@/lib/insurance/company-matcher";
+import { getCurrentInitialBalance } from "@/lib/initial-balance";
 
 export async function createCompany(data: {
   name: string;
@@ -88,6 +89,11 @@ export async function updateCompany(id: string, data: {
   }
 
   try {
+    const oldCompany = await prisma.insuranceCompany.findUnique({
+      where: { id },
+      select: { general_ceiling: true }
+    });
+
     await prisma.insuranceCompany.update({
       where: { id },
       data: {
@@ -105,7 +111,24 @@ export async function updateCompany(id: string, data: {
         ...(data.code ? { code: data.code.toUpperCase() } : {}),
       },
     });
+
+    if (
+      data.general_ceiling !== undefined &&
+      oldCompany &&
+      data.general_ceiling !== (oldCompany.general_ceiling !== null ? Number(oldCompany.general_ceiling) : null)
+    ) {
+      const newCeiling = data.general_ceiling !== null ? data.general_ceiling : await getCurrentInitialBalance();
+      await prisma.$executeRaw`
+        UPDATE "Beneficiary"
+        SET 
+          remaining_balance = remaining_balance + (${newCeiling} - total_balance),
+          total_balance = ${newCeiling}
+        WHERE company_id = ${id} AND deleted_at IS NULL
+      `;
+    }
+
     revalidatePath("/admin/companies");
+    revalidatePath("/beneficiaries");
     clearAllCaches(); // TPA-04: إعادة تحميل كاش الشركات فوراً
     return { success: true };
   } catch (error) {
