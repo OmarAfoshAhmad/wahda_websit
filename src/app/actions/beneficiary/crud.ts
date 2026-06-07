@@ -143,6 +143,12 @@ export async function createBeneficiary(data: {
           total_balance: effectiveBalance,
           remaining_balance: effectiveBalance,
           status: "ACTIVE",
+        },
+      });
+
+      const familyBaseCard = utils.extractFamilyBaseCard(normalizedCardNumber);
+      const archiveRows = await tx.$queryRaw<Array<{
+        family_count_from_file: number;
         total_balance_from_file: number;
         used_balance_from_file: number;
         last_imported_at: Date;
