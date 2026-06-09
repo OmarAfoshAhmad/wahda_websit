@@ -133,68 +133,70 @@ export async function authenticate(prevState: unknown, formData: FormData) {
 }
 
 export async function changePassword(prevState: unknown, formData: FormData) {
-  const session = await getSession();
-  if (!session) {
-    return { error: "غير مصرح" };
+  try {
+    const session = await getSession();
+    if (!session) {
+      return { error: "غير مصرح" };
+    }
+
+    const facilityExists = await prisma.facility.findUnique({
+      where: { id: session.id },
+      select: { id: true },
+    });
+
+    if (!facilityExists) {
+      await authLogout();
+      return { success: true, redirectTo: "/login" };
+    }
+
+    const data = {
+      newPassword: formData.get("newPassword") as string,
+      confirmPassword: formData.get("confirmPassword") as string,
+    };
+
+    const validated = changePasswordSchema.safeParse(data);
+    if (!validated.success) {
+      return { error: validated.error.issues[0].message };
+    }
+
+    const { newPassword } = validated.data;
+
+    const password_hash = await bcrypt.hash(newPassword, 10);
+
+    await prisma.facility.update({
+      where: { id: session.id },
+      data: { password_hash, must_change_password: false },
+    });
+
+    const changeIp = await getClientIp();
+    await prisma.auditLog.create({
+      data: {
+        facility_id: session.id,
+        user: session.username,
+        action: "CHANGE_PASSWORD",
+        ip_address: changeIp,
+      },
+    });
+
+    await login({
+      id: session.id,
+      name: session.name,
+      username: session.username,
+      role: session.role,
+      is_admin: session.is_admin,
+      is_manager: session.is_manager,
+      is_employee: Boolean(session.is_employee),
+      manager_permissions: session.manager_permissions,
+      must_change_password: false,
+      facility_type: session.facility_type,
+    });
+
+    const redirectTo = session.role === "EMPLOYEE" ? "/cash-claim" : "/dashboard";
+    return { success: true, redirectTo };
+  } catch (error: any) {
+    console.error("CHANGE_PASSWORD_ERROR", error);
+    return { error: "حدث خطأ غير متوقع: " + (error.message || String(error)) };
   }
-
-  const facilityExists = await prisma.facility.findUnique({
-    where: { id: session.id },
-    select: { id: true },
-  });
-
-  if (!facilityExists) {
-    // إذا كان المرفق غير موجود في قاعدة البيانات (جلسة قديمة/خاطئة) -> تسجيل الخروج فوراً
-    await authLogout();
-    return { success: true, redirectTo: "/login" };
-  }
-
-  const data = {
-    newPassword: formData.get("newPassword") as string,
-    confirmPassword: formData.get("confirmPassword") as string,
-  };
-
-  const validated = changePasswordSchema.safeParse(data);
-  if (!validated.success) {
-    return { error: validated.error.issues[0].message };
-  }
-
-  const { newPassword } = validated.data;
-
-  const password_hash = await bcrypt.hash(newPassword, 10);
-
-  await prisma.facility.update({
-    where: { id: session.id },
-    data: { password_hash, must_change_password: false },
-  });
-
-  const changeIp = await getClientIp();
-  await prisma.auditLog.create({
-    data: {
-      facility_id: session.id,
-      user: session.username,
-      action: "CHANGE_PASSWORD",
-      ip_address: changeIp,
-    },
-  });
-
-  // تحديث الجلسة لإزالة علامة إجبار تغيير كلمة المرور
-  await login({
-    id: session.id,
-    name: session.name,
-    username: session.username,
-    role: session.role,
-    is_admin: session.is_admin,
-    is_manager: session.is_manager,
-    is_employee: Boolean(session.is_employee),
-    manager_permissions: session.manager_permissions,
-    must_change_password: false,
-    facility_type: session.facility_type,
-  });
-
-  // نعيد success بدل redirect() لأن redirect() داخل useActionState يسبب خطأ
-  const redirectTo = session.role === "EMPLOYEE" ? "/cash-claim" : "/dashboard";
-  return { success: true, redirectTo };
 }
 
 export async function voluntaryChangePassword(prevState: unknown, formData: FormData) {
