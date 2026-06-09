@@ -96,7 +96,7 @@ export default function LegacyCardsClient({ initialData }: { initialData: Legacy
             </div>
             {data.withNewCards.length > 0 && (
               <Button 
-                variant="destructive" 
+                variant="danger" 
                 size="sm"
                 disabled={isDeletingAllWith}
                 onClick={handleDeleteAllWithNewCards}
