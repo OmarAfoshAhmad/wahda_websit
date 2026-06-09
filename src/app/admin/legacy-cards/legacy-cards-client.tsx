@@ -158,7 +158,7 @@ export default function LegacyCardsClient({ initialData }: { initialData: Legacy
                       </td>
                       <td className="px-4 py-3">
                         <Button 
-                          variant="destructive" 
+                          variant="danger" 
                           size="sm"
                           disabled={loadingId === item.legacy_id}
                           onClick={() => handleDelete(item.legacy_id, 'with')}
