@@ -100,9 +100,9 @@ export async function authenticate(prevState: unknown, formData: FormData) {
       is_admin: facility.is_admin,
       is_manager: facility.is_manager,
       is_employee: facility.is_employee,
-      manager_permissions: facility.manager_permissions as ManagerPermissions | null,
       must_change_password: facility.must_change_password,
       facility_type: (facility.facility_type as any) || null,
+      // manager_permissions removed to keep JWT cookie small
     });
   } catch (error) {
     const err = error as {
@@ -186,7 +186,6 @@ export async function changePassword(prevState: unknown, formData: FormData) {
       is_admin: session.is_admin,
       is_manager: session.is_manager,
       is_employee: Boolean(session.is_employee),
-      manager_permissions: session.manager_permissions,
       must_change_password: false,
       facility_type: session.facility_type,
     });
@@ -291,7 +290,6 @@ export async function checkMustChangePasswordStatus() {
       is_admin: session.is_admin,
       is_manager: session.is_manager,
       is_employee: Boolean(facility.is_employee),
-      manager_permissions: session.manager_permissions,
       must_change_password: false,
       facility_type: session.facility_type,
     });

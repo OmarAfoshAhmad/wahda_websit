@@ -38,7 +38,6 @@ export async function login(user: {
   is_admin: boolean;
   is_manager: boolean;
   is_employee: boolean;
-  manager_permissions: ManagerPermissions | null;
   must_change_password: boolean;
   facility_type?: "HOSPITAL" | "PHARMACY" | "DENTAL" | "OPTICS";
 }) {
