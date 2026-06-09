@@ -134,21 +134,30 @@ export async function proxy(req: NextRequest) {
   // نمنعها في طلبات POST (Server Actions) لأن تعديل الكوكيز في الميدل وير وتعديلها في الأكشن في نفس الوقت
   // يسبب خطأ "An unexpected response was received from the server."
   if (cookie && session && req.method !== "POST") {
-    const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
-    // نمرر session فقط بدون كائن Date حتى لا يتسبب بخطأ في التشفير
-    const refreshed = await encrypt({ ...session });
-    
-    const res = NextResponse.next();
-    res.cookies.set({
-      name: "session",
-      value: refreshed,
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      path: "/",
-      expires,
-    });
-    return res;
+    try {
+      const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      
+      // إزالة حقول JWT القياسية من الجلسة القديمة لتجنب تعارضها مع دالة التشفير التي تعيد تعيينها
+      const { exp, iat, jti, nbf, ...cleanSession } = session as any;
+      
+      const refreshed = await encrypt(cleanSession);
+      
+      const res = NextResponse.next();
+      res.cookies.set({
+        name: "session",
+        value: refreshed,
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        path: "/",
+        expires,
+      });
+      return res;
+    } catch (err) {
+      console.error("PROXY_SESSION_REFRESH_ERROR", err);
+      // إذا فشل التجديد، نمرر الطلب بدلاً من انهيار الميدل وير
+      return NextResponse.next();
+    }
   }
 
   return NextResponse.next();
