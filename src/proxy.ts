@@ -137,8 +137,8 @@ export async function proxy(req: NextRequest) {
     try {
       const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
       
-      // إزالة حقول JWT القياسية من الجلسة القديمة لتجنب تعارضها مع دالة التشفير التي تعيد تعيينها
-      const { exp, iat, jti, nbf, ...cleanSession } = session as any;
+      // إزالة حقول JWT القياسية من الجلسة القديمة، وكذلك إزالة manager_permissions لتقليص حجم الكوكي للمستخدمين القدامى (يمنع خطأ 502)
+      const { exp, iat, jti, nbf, manager_permissions, ...cleanSession } = session as any;
       
       const refreshed = await encrypt(cleanSession);
       

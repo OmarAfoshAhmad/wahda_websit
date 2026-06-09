@@ -1,17 +1,13 @@
 import type { Metadata, Viewport } from "next";
-import { Tajawal } from "next/font/google";
+// استيراد الخط من Google Fonts عبر ملف CSS بدلاً من next/font لتجنب فشل البناء إذا كان الاتصال ضعيفاً
+// import { Tajawal } from "next/font/google";
+// const tajawal = Tajawal({ ... });
 import { ToastProvider } from "@/components/toast";
 import { ThemeProvider } from "@/components/theme-provider";
 import { validateEnv } from "@/lib/env";
 import "./globals.css";
 
 validateEnv();
-
-const tajawal = Tajawal({
-  subsets: ["arabic", "latin"],
-  weight: ["300", "400", "500", "700", "800"],
-  variable: "--font-tajawal",
-});
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -44,7 +40,7 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className={`${tajawal.variable} ${tajawal.className}`} suppressHydrationWarning>
+      <body className="font-sans" suppressHydrationWarning>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <ToastProvider>
             {children}
