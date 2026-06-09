@@ -131,7 +131,9 @@ export async function proxy(req: NextRequest) {
   // منع /admin هنا اعتماداً على JWT فقط قد يحجب المديرين بسبب بيانات جلسة قديمة (stale JWT).
 
   // تجديد الجلسة (sliding window) مع الحفاظ على جميع حقول الجلسة
-  if (cookie && session) {
+  // نمنعها في طلبات POST (Server Actions) لأن تعديل الكوكيز في الميدل وير وتعديلها في الأكشن في نفس الوقت
+  // يسبب خطأ "An unexpected response was received from the server."
+  if (cookie && session && req.method !== "POST") {
     const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
     const refreshed = await encrypt({ ...session, expires });
     
