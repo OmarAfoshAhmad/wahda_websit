@@ -186,7 +186,7 @@ export default function LegacyCardsClient({ initialData }: { initialData: Legacy
             </div>
             {data.withoutNewCards.length > 0 && (
               <Button 
-                variant="destructive" 
+                variant="danger" 
                 size="sm"
                 disabled={isDeletingAll}
                 onClick={handleDeleteAllUnused}
@@ -226,7 +226,7 @@ export default function LegacyCardsClient({ initialData }: { initialData: Legacy
                       <td className="px-4 py-3">
                         <Button 
                           variant="ghost" 
-                          size="icon"
+                          size="sm"
                           disabled={loadingId === item.legacy_id || isDeletingAll}
                           onClick={() => handleDelete(item.legacy_id, 'without')}
                           className="h-8 w-8 text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-900/30"
