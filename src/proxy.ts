@@ -135,7 +135,8 @@ export async function proxy(req: NextRequest) {
   // يسبب خطأ "An unexpected response was received from the server."
   if (cookie && session && req.method !== "POST") {
     const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
-    const refreshed = await encrypt({ ...session, expires });
+    // نمرر session فقط بدون كائن Date حتى لا يتسبب بخطأ في التشفير
+    const refreshed = await encrypt({ ...session });
     
     const res = NextResponse.next();
     res.cookies.set({
