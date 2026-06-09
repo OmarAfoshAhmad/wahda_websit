@@ -10,7 +10,8 @@ import {
   Banknote, 
   Home,
   Activity,
-  Stethoscope
+  Stethoscope,
+  Archive
 } from "lucide-react";
 import type { ManagerPermissions } from "./permissions";
 
@@ -35,6 +36,7 @@ export const MAINTENANCE_NAV = [
   { name: "إدارة المشاكل", href: "/admin/duplicates", icon: TriangleAlert, perms: [] },
   { name: "جدول الحقيقة", href: "/admin/truth-registry", icon: ClipboardList, perms: [] },
   { name: "شركات التأمين", href: "/admin/companies", icon: Building2, perms: ["manage_companies"] as Array<keyof ManagerPermissions> },
+  { name: "البطاقات القديمة", href: "/admin/legacy-cards", icon: Archive, perms: [] },
 ];
 
 /** تبويب "خدمات الأسنان" — يظهر في الشريط الرئيسي للمشرف والمدير */

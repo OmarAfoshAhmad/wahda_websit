@@ -146,14 +146,20 @@ export function CardNumberingClient({
           const values = Object.values(row).map(v => String(v || "").trim());
           
           const findKey = (keywords: string[]) => 
-            keys.find(k => keywords.some(kw => String(k).includes(kw)));
+            keys.find(k => {
+              const strK = String(k).trim();
+              return keywords.some(kw => {
+                if (kw === "رقم") return strK === "رقم";
+                return strK.includes(kw);
+              });
+            });
 
           const nameKey = findKey(["الأسم", "الاسم", "الإسم", "اسم المستفيد", "اسم الموظف", "اسم العضو", "Full Name", "Name"]);
           const relKey = findKey(["صلة", "القرابة", "Relationship", "النوع", "الصلة", "Rel", "الصفة", "المستفيد", "العلاقة", "صفة"]);
           const bDateKey = findKey(["تاريخ الملاد", "الملاد", "ميلاد", "المواليد", "تاريخ الميلاد", "Birth", "BDate", "DOB", "تاريخ"]);
           const statusKey = findKey(["الحالة", "Status", "الوضع"]);
           const notesKey = findKey(["ملاحظات", "Notes", "البيان", "ملاحظة"]);
-          const empNumKey = findKey(["الرقم الوظيفي", "رقم الموظف", "رقم العضو", "رقم التامين", "رقم التأمين", "Emp", "ID", "الرقم التسلسلي", "رقم"]);
+          const empNumKey = findKey(["الرقم الوظيفي", "رقم الوظيفي", "وظيفي", "رقم الموظف", "رقم العضو", "رقم التامين", "رقم التأمين", "Emp", "ID", "رقم"]);
 
           // استخراج القيم الأساسية
           let name = nameKey ? row[nameKey] : "";
@@ -189,7 +195,7 @@ export function CardNumberingClient({
             }
           }
 
-          const relKeywords = ["زوجة", "زوج", "ابن", "ابنة", "ابنه", "ابنته", "ام", "أم", "والدة", "اب", "أب", "والد", "موظف", "موظفة", "رب الأسرة", "صاحب البطاقة", "بنت", "ولد"];
+          const relKeywords = ["زوجة", "زوج", "ابن", "ابنة", "ابنه", "ابنته", "ابه", "ام", "أم", "والدة", "اب", "أب", "والد", "موظف", "موظفة", "رب الأسرة", "صاحب البطاقة", "بنت", "ولد"];
           if (!rel || rel.length < 2) {
             const foundRel = values.find(v => relKeywords.includes(v));
             if (foundRel) rel = foundRel;
@@ -402,7 +408,7 @@ export function CardNumberingClient({
         return "تاريخ الميلاد مفقود";
       }
       if (item.status === "DUPLICATE") {
-        if (item.error_message?.includes("[SYSTEM]")) return "مكرر بالمنظومة";
+        if (item.error_message?.includes("[SYSTEM]")) return null; // لا يتم استبعاده بناءً على طلب المستخدم
         if (item.error_message?.includes("[FILE]")) return "مكرر بالملف";
         if (item.error_message?.includes("[ARCHIVE]")) return "مكرر بالأرشيف";
         return "مكرر";
@@ -426,7 +432,14 @@ export function CardNumberingClient({
     };
 
     const empOrder = new Map();
-    rawData.forEach((item, index) => {
+    // ترتيب مبدئي تصاعدي حسب المعرف (CUID) لضمان الترتيب الأصلي الدقيق للملف
+    const chronologicalData = [...rawData].sort((a, b) => {
+      if (a.id < b.id) return -1;
+      if (a.id > b.id) return 1;
+      return 0;
+    });
+
+    chronologicalData.forEach((item, index) => {
       const empNum = String(item.employee_number || "");
       if (!empOrder.has(empNum)) {
         empOrder.set(empNum, index);

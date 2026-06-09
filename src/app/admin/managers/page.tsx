@@ -7,6 +7,7 @@ import { Shell } from "@/components/shell";
 import { ManagerCreateForm } from "@/components/manager-create-form";
 import { ManagerPermissionsModal } from "@/components/manager-permissions-modal";
 import { ManagerDeleteButton } from "@/components/manager-delete-button";
+import { ManagerResetPasswordButton } from "@/components/manager-reset-password-button";
 import { ManagerRecycleActions } from "@/components/manager-recycle-actions";
 import { ManagerEditNameModal } from "@/components/manager-edit-name-modal";
 import type { ManagerPermissions } from "@/lib/permissions";
@@ -157,6 +158,9 @@ export default async function ManagersPage({
                               permissions={fullPerms}
                               accountRole={managerRole}
                             />
+                          )}
+                          {!isDeletedView && managerRole !== "ADMIN" && (
+                            <ManagerResetPasswordButton id={mgr.id} name={mgr.name} />
                           )}
                           {!isDeletedView && mgr.id !== session.id && managerRole !== "ADMIN" && (
                             <ManagerDeleteButton id={mgr.id} name={mgr.name} />

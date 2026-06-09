@@ -186,6 +186,7 @@ type WeirdCardRow = {
   import_transactions_count: number;
   total_transactions_count: number;
   anomaly_type: string;
+  company_name: string | null;
 };
 
 type LegacyCardStatusRow = {
@@ -350,15 +351,17 @@ export async function DataHealthContent({
             WHEN b.card_number ~ '\\s' THEN 'يحتوي مسافات'
             WHEN b.card_number !~ '^WAB2025[0-9]+([WHSDMFV][0-9]*)?$' THEN 'نمط غير قياسي'
             ELSE 'أخرى'
-          END AS anomaly_type
+          END AS anomaly_type,
+          c.name AS company_name
         FROM "Beneficiary" b
         LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id AND t.is_cancelled = false
+        LEFT JOIN "InsuranceCompany" c ON c.id = b.company_id
         WHERE b.deleted_at IS NULL
           AND (
             b.card_number ~ '\\s'
             OR b.card_number !~ '^WAB2025[0-9]+([WHSDMFV][0-9]*)?$'
           )
-        GROUP BY b.id, b.name, b.card_number, b.status, b.is_legacy_card, b.total_balance, b.remaining_balance
+        GROUP BY b.id, b.name, b.card_number, b.status, b.is_legacy_card, b.total_balance, b.remaining_balance, c.name
         ORDER BY b.card_number ASC
         LIMIT 500
       `,
@@ -1051,6 +1054,7 @@ export async function DataHealthContent({
                 <tr className="border-b bg-slate-50 text-right dark:border-slate-700 dark:bg-slate-800/60">
                   <th className="p-2">الاسم</th>
                   <th className="p-2">رقم البطاقة</th>
+                  <th className="p-2">الشركة</th>
                   <th className="p-2">نوع الخلل</th>
                   <th className="p-2">الوضعية</th>
                   <th className="p-2">الحركات اليدوية</th>
@@ -1063,6 +1067,7 @@ export async function DataHealthContent({
                   <tr key={row.id} className="border-b dark:border-slate-800">
                     <td className="p-2">{row.name}</td>
                     <td className="p-2 font-mono text-xs">{row.card_number}</td>
+                    <td className="p-2 text-xs">{row.company_name || <span className="text-slate-400">غير محدد</span>}</td>
                     <td className="p-2 text-xs text-amber-700 dark:text-amber-300">{row.anomaly_type}</td>
                     <td className="p-2">
                       {row.is_legacy_card ? (

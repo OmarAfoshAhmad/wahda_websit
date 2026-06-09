@@ -95,6 +95,7 @@ export default async function DuplicatesAdminPage({
     ? await prisma.beneficiary.findMany({
         where: {
           deleted_at: null,
+          card_number: { startsWith: 'WAB', mode: 'insensitive' },
           ...(shouldFilterBeneficiaryTabs ? {
             OR: [
               { name: { contains: searchQuery, mode: "insensitive" } },

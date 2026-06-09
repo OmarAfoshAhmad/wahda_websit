@@ -22,7 +22,7 @@ export type CardNumberingItem = {
 // رموز اللاحقة للعائلة
 const RELATIONSHIP_CODE_MAP: Record<string, string> = {
   "زوجة": "W", "زوج": "H",
-  "ابن": "S", "ابنة": "D", "ابنه": "D", "ابنته": "D", "ولد": "S", "بنت": "D",
+  "ابن": "S", "ابنة": "D", "ابنه": "D", "ابه": "D", "ابنته": "D", "ولد": "S", "بنت": "D",
   "أم": "M", "ام": "M", "والدة": "M",
   "أب": "F", "اب": "F", "والد": "F",
   "W": "W", "S": "S", "D": "D", "M": "M", "F": "F", "H": "H"
@@ -99,8 +99,7 @@ export async function getCardNumberingArchive(showDeleted: boolean = false) {
         deleted_at: showDeleted ? { not: null } : null
       },
       orderBy: [
-        { employee_number: "asc" },
-        { card_number: "asc" }
+        { created_at: "desc" }
       ],
     });
     return {
@@ -155,7 +154,6 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
       }
       return 0;
     });
-
     const report = { total: data.length, ready: 0, duplicate: 0, error: 0, excluded: 0, excludedItems: [] as CardNumberingItem[] };
     const countsPerEmp = new Map<string, number>();
     const seenInBatch = new Set<string>();
@@ -185,22 +183,33 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
         OR: employeeNumbers.map(emp => ({
           card_number: { contains: emp }
         })),
-        company_id: targetCompany ? targetCompany.id : undefined,
+        AND: targetCompany ? [
+          {
+            OR: [
+              { company_id: targetCompany.id },
+              { card_number: { startsWith: prefixFilter, mode: "insensitive" } }
+            ]
+          }
+        ] : [],
         deleted_at: null
       },
-      select: { card_number: true, name: true }
+      select: { card_number: true, name: true, is_legacy_card: true }
     });
 
     // البحث في الأرشيف (مع تقييد البحث ببادئة الشركة المستهدفة فقط)
     const existingArchiveItems = await prisma.cardNumberingArchive.findMany({
       where: {
         employee_number: { in: employeeNumbers },
-        card_number: { startsWith: prefixFilter }
+        card_number: { startsWith: prefixFilter },
+        deleted_at: null
       },
       select: { card_number: true, name: true, status: true, employee_number: true }
     });
 
+    const baseTime = Date.now();
+    let loopIndex = 0;
     for (const item of data) {
+      loopIndex++;
       const empNumRaw = String(item.employee_number || "").trim();
       const empNum = empNumRaw.replace(/^0+/, "");
       const name = String(item.name || "").trim();
@@ -211,30 +220,36 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
       const fullTextSearch = `${statusVal} ${name} ${relVal} ${notesVal}`.toLowerCase();
       const isDeceased = fullTextSearch.includes("متوفي") || fullTextSearch.includes("متوفى") || fullTextSearch.includes("وفاة");
       const isAppendix = fullTextSearch.includes("ملحق");
+      const existingInSystemFast = existingSystemBens.find(b => 
+        b.card_number.toLowerCase().replace(/[wsdmfh]\d*$/i, "").endsWith(empNum.toLowerCase()) &&
+        normalizeArabicText(b.name) === normalizeArabicText(name)
+      );
+      const hasOldCard = existingInSystemFast?.is_legacy_card || false;
 
       const birthDateVal = String(item.birth_date || "").trim();
       const isMissingBirthDate = !birthDateVal;
 
-      let exclusionReason = null;
+      let status: CardNumberingStatus = "READY";
       let errorMsg: string | null = null;
 
-      if (isDeceased) {
-        exclusionReason = "متوفي";
-      } else if (isAppendix) {
-        exclusionReason = "ملحق";
-      } 
+      if (hasOldCard) {
+        errorMsg = "ملاحظة: يحمل بطاقة قديمة";
+      }
 
-      let status: CardNumberingStatus = "READY";
-
-      if (exclusionReason) {
+      if (!empNum || !name) {
         status = "ERROR";
-        errorMsg = exclusionReason;
-        report.excluded++;
-        report.excludedItems.push({ ...item, error_message: exclusionReason } as CardNumberingItem);
-      } else if (!empNum || !name) {
-        status = "ERROR";
-        errorMsg = "الاسم والرقم الوظيفي مطلوبان";
+        errorMsg = "الاسم والرقم الوظيفي مطلوبان" + (hasOldCard ? " - يحمل بطاقة قديمة" : "");
         report.error++;
+      } else if (isDeceased) {
+        status = "ERROR";
+        errorMsg = "متوفي" + (hasOldCard ? " - يحمل بطاقة قديمة" : "");
+        report.excluded++;
+        report.excludedItems.push({ ...item, error_message: errorMsg } as CardNumberingItem);
+      } else if (isAppendix) {
+        status = "ERROR";
+        errorMsg = "ملحق" + (hasOldCard ? " - يحمل بطاقة قديمة" : "");
+        report.excluded++;
+        report.excludedItems.push({ ...item, error_message: errorMsg } as CardNumberingItem);
       }
 
       const baseCard = prefix + (padding > 0 ? empNum.padStart(padding, "0") : empNum);
@@ -243,18 +258,23 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
 
       let finalCardNumber = baseCard;
 
-      if (!exclusionReason && empNum && name) {
+      if (empNum && name) {
         // العثور على البادئة (رقم بطاقة الموظف الرئيسي) الموجودة بالفعل في المنظومة أو الأرشيف
         let matchedBaseCard = baseCard;
+        const expectedUnpadded = (prefix + empNum).toLowerCase();
+        const expectedPadded = baseCard.toLowerCase();
+        
         const existingMainSystem = existingSystemBens.find(b => {
           const cardLower = b.card_number.toLowerCase();
-          return cardLower.includes(empNum.toLowerCase()) && !/[wsdmfh]/i.test(cardLower.substring(cardLower.indexOf(empNum.toLowerCase())));
+          const stripped = cardLower.replace(/[wsdmfh]\d*$/i, "");
+          return (stripped === expectedUnpadded || stripped === expectedPadded) && stripped === cardLower;
         });
         const existingMainArchive = existingArchiveItems.find(a => {
           const cardLower = a.card_number.toLowerCase();
-          return cardLower.includes(empNum.toLowerCase()) && !/[wsdmfh]/i.test(cardLower.substring(cardLower.indexOf(empNum.toLowerCase())));
+          const stripped = cardLower.replace(/[wsdmfh]\d*$/i, "");
+          return (stripped === expectedUnpadded || stripped === expectedPadded) && stripped === cardLower;
         });
-        if (existingMainSystem) {
+        if (existingMainSystem && !existingMainSystem.is_legacy_card) {
           matchedBaseCard = existingMainSystem.card_number;
         } else if (existingMainArchive) {
           matchedBaseCard = existingMainArchive.card_number;
@@ -265,16 +285,17 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
         } else {
           // البحث عن هذا التابع بالاسم والرقم الوظيفي في المنظومة أو الأرشيف لإعادة استخدام نفس بطاقته
           const systemMatch = existingSystemBens.find(b => 
-            b.card_number.toLowerCase().includes(empNum.toLowerCase()) &&
+            b.card_number.toLowerCase().replace(/[wsdmfh]\d*$/i, "").endsWith(empNum.toLowerCase()) &&
             normalizeArabicText(b.name) === normalizeArabicText(name)
           );
 
           const archiveMatch = existingArchiveItems.find(a => 
             a.employee_number.toLowerCase() === empNum.toLowerCase() &&
-            normalizeArabicText(a.name) === normalizeArabicText(name)
+            normalizeArabicText(a.name) === normalizeArabicText(name) &&
+            a.card_number.toLowerCase().startsWith(baseCard.toLowerCase())
           );
 
-          if (systemMatch) {
+          if (systemMatch && !systemMatch.is_legacy_card) {
             finalCardNumber = systemMatch.card_number;
           } else if (archiveMatch) {
             finalCardNumber = archiveMatch.card_number;
@@ -326,20 +347,26 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
         // 1. التحقق من التكرار داخل الملف
         if (seenInBatch.has(rowKey)) {
           status = "DUPLICATE";
-          errorMsg = "[FILE] مكرر في نفس الملف";
+          errorMsg = "[FILE] مكرر في نفس الملف" + (hasOldCard ? " - يحمل بطاقة قديمة" : "");
           report.duplicate++;
         }
         // 2. التحقق من التكرار بالمنظومة
         else {
           const existingInSystem = existingSystemBens.find(b => 
             b.card_number.toLowerCase() === finalCardNumber.toLowerCase() ||
-            (b.card_number.toLowerCase().includes(empNum.toLowerCase()) && normalizeArabicText(b.name) === normalizeArabicText(name))
+            (b.card_number.toLowerCase().replace(/[wsdmfh]\d*$/i, "").endsWith(empNum.toLowerCase()) && normalizeArabicText(b.name) === normalizeArabicText(name))
           );
 
           if (existingInSystem) {
-            status = "DUPLICATE";
-            errorMsg = "[SYSTEM] موجود مسبقاً في المنظومة الرئيسية";
-            report.duplicate++;
+            if (existingInSystem.is_legacy_card) {
+              status = "READY";
+              errorMsg = "جاهز للتحديث برقم جديد (يحمل بطاقة قديمة)";
+              report.ready++;
+            } else {
+              status = "DUPLICATE";
+              errorMsg = "[SYSTEM] موجود مسبقاً في المنظومة الرئيسية";
+              report.duplicate++;
+            }
           }
           // 3. التحقق من التكرار في الأرشيف
           else {
@@ -352,7 +379,7 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
               const isMigrated = existingInArchive.status === "MIGRATED";
               if (isMigrated) {
                 status = "DUPLICATE";
-                errorMsg = "[ARCHIVE] هذا المستفيد تم ترحيله مسبقاً";
+                errorMsg = "[ARCHIVE] هذا المستفيد تم ترحيله مسبقاً" + (hasOldCard ? " - يحمل بطاقة قديمة" : "");
                 report.duplicate++;
               } else {
                 status = "READY";
@@ -398,10 +425,11 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
           name,
           employee_number: empNum,
           relationship: rel || null,
+          birth_date: item.birth_date ? new Date(item.birth_date) : null,
           original_date: item.original_date || null,
           original_city: item.city || null,
           city: manualCity || autoCity || null,
-          batch_number: manualBatch || autoBatch || null,
+          batch_number: (manualBatch && manualBatch.trim() !== "") ? manualBatch : (autoBatch || null),
           status,
           error_message: errorMsg,
           source_file: sourceFile,
@@ -414,16 +442,18 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
           name,
           employee_number: empNum,
           relationship: rel || null,
+          birth_date: item.birth_date ? new Date(item.birth_date) : null,
           original_date: item.original_date || null,
           original_city: item.city || null,
           city: manualCity || autoCity || null,
-          batch_number: manualBatch || autoBatch || null,
+          batch_number: (manualBatch && manualBatch.trim() !== "") ? manualBatch : (autoBatch || null),
           status,
           error_message: errorMsg,
           source_file: sourceFile,
           match_percentage: matchPercentage,
           mismatch_reasons: mismatches.length > 0 ? JSON.stringify(mismatches) : null,
-          deleted_at: null
+          deleted_at: null,
+          created_at: new Date(baseTime - loopIndex)
         },
       });
     }

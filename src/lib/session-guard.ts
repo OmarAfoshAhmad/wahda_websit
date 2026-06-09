@@ -1,5 +1,6 @@
 import prisma from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { redirect } from "next/navigation";
 import { type Session, type ManagerPermissions, type UserRole, hasPermission, canAccessAdmin } from "./permissions";
 import { normalizeManagerPermissionsForRole, resolvePermissionRole } from "./permission-catalog";
 
@@ -23,11 +24,16 @@ export async function requireActiveFacilitySession(): Promise<Session | null> {
       role: true,
       facility_type: true,
       manager_permissions: true,
+      must_change_password: true,
       name: true
     },
   });
 
   if (!dbRecord) return null;
+
+  if (dbRecord.must_change_password) {
+    redirect("/change-password");
+  }
 
   const role = resolvePermissionRole({
     role: dbRecord.role,
@@ -72,6 +78,7 @@ export async function getSessionWithFreshPermissions(): Promise<Session | null> 
       role: true,
       facility_type: true,
       manager_permissions: true,
+      must_change_password: true,
       name: true,
       deleted_at: true
     },
@@ -79,6 +86,10 @@ export async function getSessionWithFreshPermissions(): Promise<Session | null> 
 
   if (!dbRecord || dbRecord.deleted_at !== null) {
     return null;
+  }
+
+  if (dbRecord.must_change_password) {
+    redirect("/change-password");
   }
 
   const role = resolvePermissionRole({

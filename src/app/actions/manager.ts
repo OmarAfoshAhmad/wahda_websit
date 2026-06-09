@@ -93,6 +93,47 @@ export async function createManager(prevState: unknown, formData: FormData) {
   return { success: true, tempPassword };
 }
 
+// ── إعادة تعيين كلمة مرور المدير (المبرمج والمدراء الذين لديهم صلاحية) ──────────────────────────────
+export async function resetManagerPassword(managerId: string): Promise<{ error?: string; success?: boolean; tempPassword?: string }> {
+  const session = await requireActiveFacilitySession();
+  if (!session || !hasPermission(session, "manage_users")) {
+    return { error: "غير مصرح بهذه العملية" };
+  }
+
+  const target = await prisma.facility.findUnique({
+    where: { id: managerId },
+    select: { id: true, is_admin: true, username: true, role: true },
+  });
+
+  if (!target) {
+    return { error: "الحساب غير موجود" };
+  }
+
+  if (target.is_admin || target.role === "ADMIN") {
+    return { error: "لا يمكن إعادة تعيين كلمة مرور المبرمج الرئيسي" };
+  }
+
+  const tempPassword = "123456";
+  const password_hash = await bcrypt.hash(tempPassword, 10);
+
+  await prisma.facility.update({
+    where: { id: managerId },
+    data: { password_hash, must_change_password: true },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      facility_id: session.id,
+      user: session.username,
+      action: "RESET_MANAGER_PASSWORD",
+      metadata: { target_username: target.username },
+    },
+  });
+
+  revalidatePath("/admin/managers");
+  return { success: true, tempPassword };
+}
+
 // ── تحديث صلاحيات مدير (المبرمج فقط) ───────────────────────────────
 export async function updateManagerPermissions(
   managerId: string,
