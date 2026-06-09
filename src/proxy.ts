@@ -122,10 +122,10 @@ export async function proxy(req: NextRequest) {
     return NextResponse.redirect(new URL("/change-password", req.nextUrl));
   }
 
-  // لا يُسمح بالوصول لصفحة تغيير كلمة المرور إذا لم تكن مطلوبة
-  if (path === "/change-password" && session && !session.must_change_password) {
-    return NextResponse.redirect(new URL("/dashboard", req.nextUrl));
-  }
+  // ملاحظة: تم إزالة المنع من الوصول لصفحة /change-password في الميدل وير
+  // لأن الـ JWT قد يكون قديماً (stale) بينما قاعدة البيانات تطلب تغيير الكلمة،
+  // مما يسبب دوامة إعادة توجيه (Infinite Redirect Loop).
+  // صفحة /change-password نفسها ستتحقق من قاعدة البيانات وتوجه المستخدم.
 
   // ملاحظة: صلاحيات /admin تُفحَص داخل الصفحات نفسها عبر getSessionWithFreshPermissions.
   // منع /admin هنا اعتماداً على JWT فقط قد يحجب المديرين بسبب بيانات جلسة قديمة (stale JWT).
