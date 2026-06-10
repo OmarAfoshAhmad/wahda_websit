@@ -5,9 +5,9 @@ import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-gua
 import { Shell } from "@/components/shell";
 import { Card } from "@/components/ui";
 import Link from "next/link";
-import { DentalImportUploader } from "@/components/dental-import-uploader";
+import { OpticsImportUploader } from "@/components/optics-import-uploader";
 
-export default async function DentalServicesPage({
+export default async function OpticsServicesPage({
   searchParams,
 }: {
   searchParams: Promise<{ tab?: string }>;
@@ -15,9 +15,9 @@ export default async function DentalServicesPage({
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
   
-  const canAccess = hasPermission(session, "dental_services");
+  const canAccess = hasPermission(session, "optics_services");
   if (!canAccess) {
-    if (process.env.NEXT_PUBLIC_APP_MODE?.replace(/["']/g, '').toUpperCase() === "DENTAL") {
+    if (process.env.NEXT_PUBLIC_APP_MODE?.replace(/["']/g, '').toUpperCase() === "OPTICS") {
       return (
         <Shell facilityName={session.name} session={session}>
           <div className="flex items-center justify-center min-h-[50vh]">
@@ -25,7 +25,7 @@ export default async function DentalServicesPage({
               <ShieldCheck className="h-12 w-12 text-red-500 mx-auto mb-4" />
               <h2 className="text-xl font-bold text-red-700 dark:text-red-400 mb-2">صلاحية غير كافية</h2>
               <p className="text-red-600 dark:text-red-500 text-sm">
-                حسابك لا يملك صلاحية الدخول لخدمات الأسنان. يرجى مراجعة مبرمج النظام لتفعيل صلاحية (dental_services).
+                حسابك لا يملك صلاحية الدخول لخدمات البصريات. يرجى مراجعة مبرمج النظام لتفعيل صلاحية (optics_services).
               </p>
             </Card>
           </div>
@@ -43,7 +43,7 @@ export default async function DentalServicesPage({
 
   // تحديد شروط الحركات بناءً على نوع المستخدم (المرفق يرى حركاته فقط)
   const isFacility = session.role === "FACILITY" || (!session.is_admin && !session.is_manager && !session.is_employee);
-  const transactionFilter: any = { is_cancelled: false, service_category: "DENTAL" };
+  const transactionFilter: any = { is_cancelled: false, service_category: "OPTICS" };
   if (isFacility) {
     transactionFilter.facility_id = session.id;
   }
@@ -64,18 +64,18 @@ export default async function DentalServicesPage({
         },
       },
       service_policies: {
-        where: { service_type: { code: 'DENTAL' } },
+        where: { service_type: { code: 'OPTICS' } },
         select: { ceiling_amount: true, coverage_percent: true }
       }
     },
   });
 
-  // جميع الشركات النشطة تدعم خدمات الأسنان
-  const dentalCompanies = companies;
+  // جميع الشركات النشطة تدعم خدمات البصريات
+  const opticsCompanies = companies;
   // جميع الشركات (للاستيراد)
   const allCompaniesForImport = companies.map(c => ({ id: c.id, name: c.name, code: c.code }));
 
-  const DENTAL_COLORS = [
+  const OPTICS_COLORS = [
     { bg: "from-teal-50 to-teal-100/50", border: "border-teal-200", icon: "bg-teal-100 text-teal-700", badge: "bg-teal-100 text-teal-700" },
     { bg: "from-sky-50 to-sky-100/50", border: "border-sky-200", icon: "bg-sky-100 text-sky-700", badge: "bg-sky-100 text-sky-700" },
     { bg: "from-violet-50 to-violet-100/50", border: "border-violet-200", icon: "bg-violet-100 text-violet-700", badge: "bg-violet-100 text-violet-700" },
@@ -95,12 +95,12 @@ export default async function DentalServicesPage({
                 <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400">
                   <Stethoscope className="h-5 w-5" />
                 </div>
-                <h1 className="text-2xl font-black text-slate-900 dark:text-white">خدمات الأسنان</h1>
+                <h1 className="text-2xl font-black text-slate-900 dark:text-white">خدمات البصريات</h1>
               </div>
 
               <div className="mr-1 flex gap-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-1 w-fit">
                   <Link
-                    href="/admin/dental-services?tab=companies"
+                    href="/admin/optics-services?tab=companies"
                     className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${
                       activeTab === "companies"
                         ? "bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-sm border border-slate-200 dark:border-slate-700"
@@ -111,13 +111,13 @@ export default async function DentalServicesPage({
                       <Building2 className="h-4 w-4" />
                       شركات التأمين
                       <span className="text-[10px] font-black bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400 px-1.5 py-0.5 rounded-full">
-                        {dentalCompanies.length}
+                        {opticsCompanies.length}
                       </span>
                     </div>
                   </Link>
                   {canImport && (
                     <Link
-                      href="/admin/dental-services?tab=import"
+                      href="/admin/optics-services?tab=import"
                       className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${
                         activeTab === "import"
                           ? "bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-sm border border-slate-200 dark:border-slate-700"
@@ -133,7 +133,7 @@ export default async function DentalServicesPage({
                 </div>
             </div>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              إدارة مستفيدي شركات التأمين لخدمات الأسنان وتطبيق الاقتطاع المالي.
+              إدارة مستفيدي شركات التأمين لخدمات البصريات وتطبيق الاقتطاع المالي.
             </p>
           </div>
         </div>
@@ -141,20 +141,20 @@ export default async function DentalServicesPage({
         {/* محتوى التبويب: الشركات */}
         {activeTab === "companies" && (
           <div>
-            {dentalCompanies.length === 0 ? (
+            {opticsCompanies.length === 0 ? (
               <Card className="p-12 text-center border-dashed border-2 border-slate-200 dark:border-slate-700">
                 <div className="flex h-16 w-16 items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800 mx-auto mb-4">
                   <Stethoscope className="h-8 w-8 text-slate-400" />
                 </div>
-                <h3 className="text-lg font-black text-slate-700 dark:text-slate-300">لا توجد شركات بسياسة أسنان</h3>
+                <h3 className="text-lg font-black text-slate-700 dark:text-slate-300">لا توجد شركات بسياسة بصريات</h3>
                 <p className="mt-2 text-sm text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
-                  يرجى إضافة شركات التأمين وتعريف سياسات الأسنان (DENTAL) لها من قسم الصيانة.
+                  يرجى إضافة شركات التأمين وتعريف سياسات البصريات (OPTICS) لها من قسم الصيانة.
                 </p>
               </Card>
             ) : (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {dentalCompanies.map((company: any, idx) => {
-                  const colors = DENTAL_COLORS[idx % DENTAL_COLORS.length];
+                {opticsCompanies.map((company: any, idx) => {
+                  const colors = OPTICS_COLORS[idx % OPTICS_COLORS.length];
                   const policy = company.service_policies?.[0];
                   const ceiling = policy && policy.ceiling_amount !== null ? Number(policy.ceiling_amount) : null;
                   const copay = Math.max(0, 100 - (policy ? Number(policy.coverage_percent) : 100));
@@ -164,7 +164,7 @@ export default async function DentalServicesPage({
                   return (
                     <Link
                       key={company.id}
-                      href={`/admin/dental-services/${company.id}`}
+                      href={`/admin/optics-services/${company.id}`}
                       className={`group block rounded-xl border ${colors.border} bg-gradient-to-br ${colors.bg} p-5 transition-all duration-200 hover:shadow-md hover:scale-[1.01] dark:bg-none dark:bg-slate-800/50 dark:border-slate-700`}
                     >
                       <div className="flex items-center justify-between mb-4 gap-4">
@@ -244,7 +244,7 @@ export default async function DentalServicesPage({
                     📋 تعليمات الاستيراد: اختر شركة التأمين المستهدفة، ثم ارفع ملف Excel يحتوي على أعمدة <code className="bg-teal-100 dark:bg-teal-800 px-1 rounded">card_number</code> و <code className="bg-teal-100 dark:bg-teal-800 px-1 rounded">name</code>. سيتم ربط المستفيدين تلقائياً بالشركة المختارة.
                   </p>
                 </div>
-                <DentalImportUploader companies={allCompaniesForImport} />
+                <OpticsImportUploader companies={allCompaniesForImport} />
               </div>
             )}
           </div>

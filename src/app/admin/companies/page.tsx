@@ -26,6 +26,10 @@ export default async function CompaniesPage() {
           beneficiaries: true,  // total (active + deleted)
         }
       },
+      service_policies: {
+        where: { service_type: { code: 'DENTAL' } },
+        select: { ceiling_amount: true, coverage_percent: true }
+      }
     }
   });
 
@@ -44,10 +48,12 @@ export default async function CompaniesPage() {
   const activeMap = new Map(activeCounts.map(r => [r.company_id, r._count._all]));
   const deletedMap = new Map(deletedCounts.map(r => [r.company_id, r._count._all]));
 
-  const companiesWithStats = companies.map((c: any) => ({
-    ...c,
-    dental_ceiling: c.dental_ceiling ? Number(c.dental_ceiling) : null,
-    dental_coverage: c.dental_coverage ? Number(c.dental_coverage) : 100,
+  const companiesWithStats = companies.map((c: any) => {
+    const dentalPolicy = c.service_policies?.[0];
+    return {
+      ...c,
+      dental_ceiling: dentalPolicy && dentalPolicy.ceiling_amount !== null ? Number(dentalPolicy.ceiling_amount) : null,
+      dental_coverage: dentalPolicy ? Number(dentalPolicy.coverage_percent) : 100,
     general_ceiling: c.general_ceiling ? Number(c.general_ceiling) : null,
     general_coverage: c.general_coverage ? Number(c.general_coverage) : 80,
     medicine_ceiling: c.medicine_ceiling ? Number(c.medicine_ceiling) : null,
@@ -61,7 +67,8 @@ export default async function CompaniesPage() {
       active: activeMap.get(c.id) ?? 0,
       deleted: deletedMap.get(c.id) ?? 0,
     }
-  }));
+  };
+  });
 
   return (
     <Shell facilityName={session.name} session={session}>

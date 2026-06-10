@@ -293,7 +293,8 @@ export async function executeCashClaim(input: {
           const consumedThisYear = Number(consumption._sum.ceiling_consumed || 0);
 
           const company = await tx.insuranceCompany.findUnique({
-            where: { id: ben.company_id }
+            where: { id: ben.company_id },
+            include: { service_policies: { include: { service_type: true } } }
           });
 
           if (company && !company.is_active) {
@@ -313,9 +314,10 @@ export async function executeCashClaim(input: {
             let isConfigured = false;
 
             if (policyServiceType === "DENTAL") {
-              annual_ceiling = company.dental_ceiling === null ? null : Number(company.dental_ceiling);
-              copay_percentage = Math.max(0, 100 - Number(company.dental_coverage));
-              isConfigured = true;
+              const dentalPolicy = (company as any).service_policies?.find((p: any) => p.service_type?.code === "DENTAL");
+              annual_ceiling = dentalPolicy && dentalPolicy.ceiling_amount !== null ? Number(dentalPolicy.ceiling_amount) : null;
+              copay_percentage = Math.max(0, 100 - (dentalPolicy ? Number(dentalPolicy.coverage_percent) : 100));
+              isConfigured = !!dentalPolicy;
             } else if (policyServiceType === "GENERAL") {
               annual_ceiling = company.general_ceiling === null ? null : Number(company.general_ceiling);
               copay_percentage = Math.max(0, 100 - Number(company.general_coverage));

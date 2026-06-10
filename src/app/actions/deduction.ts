@@ -204,7 +204,12 @@ export async function deductBalance(formData: {
 
       // [TPA] Fetch Company (Policy consolidated on InsuranceCompany)
       const company = companyId ? await tx.insuranceCompany.findUnique({
-        where: { id: companyId }
+        where: { id: companyId },
+        include: {
+          service_policies: {
+            include: { service_type: true }
+          }
+        }
       }) : null;
 
       // رفض الخصم إذا كانت الشركة غير فعالة
@@ -225,9 +230,11 @@ export async function deductBalance(formData: {
         let isConfigured = false;
 
         if (policyServiceType === "DENTAL") {
-          annual_ceiling = company.dental_ceiling === null ? null : Number(company.dental_ceiling);
+          const dentalPolicy = company.service_policies?.find((p: any) => p.service_type?.code === "DENTAL");
+          annual_ceiling = dentalPolicy && dentalPolicy.ceiling_amount !== null ? Number(dentalPolicy.ceiling_amount) : null;
+          
           const settings = (company as any).dental_settings ? ((company as any).dental_settings as any) : null;
-          let categoryCoverage = Math.max(0, Number(company.dental_coverage)); // default coverage
+          let categoryCoverage = dentalPolicy ? Number(dentalPolicy.coverage_percent) : 100;
 
           if (dentalSubCategory === "DENTAL_ORTHO" && settings?.ortho?.enabled) {
             categoryCoverage = Number(settings.ortho.coverage);
@@ -238,7 +245,7 @@ export async function deductBalance(formData: {
           }
           
           copay_percentage = Math.max(0, 100 - categoryCoverage);
-          isConfigured = true;
+          isConfigured = !!dentalPolicy;
         } else if (policyServiceType === "GENERAL") {
           annual_ceiling = company.general_ceiling === null ? null : Number(company.general_ceiling);
           copay_percentage = Math.max(0, 100 - Number(company.general_coverage));
@@ -547,9 +554,6 @@ export async function getAvailableServiceTypes(beneficiaryId: string) {
       where: { id: companyId },
       select: {
         service_type_mappings: true,
-        dental_ceiling: true,
-        general_ceiling: true,
-        medicine_ceiling: true,
       }
     });
     if (!company) return { serviceTypes: [] };
@@ -601,7 +605,12 @@ export async function getPolicyInfo(beneficiaryId: string, serviceType: string, 
     if (!companyId) return { isTpa: false };
 
     const policyServiceType = await getServiceTypeMapping(companyId, serviceType);
-    const company = (beneficiary.company_id && beneficiary.company) ? beneficiary.company : await prisma.insuranceCompany.findUnique({ where: { id: companyId } });
+    const company = (beneficiary.company_id && beneficiary.company) 
+      ? beneficiary.company 
+      : await prisma.insuranceCompany.findUnique({ 
+          where: { id: companyId },
+          include: { service_policies: { include: { service_type: true } } }
+        });
     if (!company || !company.is_active || company.deleted_at !== null) return { isTpa: false };
 
     let ceiling: number | null = null;
@@ -609,7 +618,9 @@ export async function getPolicyInfo(beneficiaryId: string, serviceType: string, 
     let isConfigured = false;
 
     if (policyServiceType === "DENTAL") {
-      ceiling = company.dental_ceiling === null ? null : Number(company.dental_ceiling);
+      const dentalPolicy = (company as any).service_policies?.find((p: any) => p.service_type?.code === "DENTAL");
+      ceiling = dentalPolicy && dentalPolicy.ceiling_amount !== null ? Number(dentalPolicy.ceiling_amount) : null;
+      
       const isJulian = company.code.toUpperCase() === "JULI" ||
                        company.code.toUpperCase() === "JULIANA" ||
                        company.name.includes("جوليانة") ||
@@ -619,9 +630,9 @@ export async function getPolicyInfo(beneficiaryId: string, serviceType: string, 
       if (isJulian && isSpecialSubCategory) {
         copayPercentage = 50;
       } else {
-        copayPercentage = Math.max(0, 100 - Number(company.dental_coverage));
+        copayPercentage = Math.max(0, 100 - (dentalPolicy ? Number(dentalPolicy.coverage_percent) : 100));
       }
-      isConfigured = true;
+      isConfigured = !!dentalPolicy;
     } else if (policyServiceType === "GENERAL") {
       ceiling = company.general_ceiling === null ? null : Number(company.general_ceiling);
       copayPercentage = Math.max(0, 100 - Number(company.general_coverage));
@@ -707,7 +718,10 @@ export async function simulateDeduction(data: {
 
     const company = beneficiary.company_id === companyId && beneficiary.company 
       ? beneficiary.company 
-      : await prisma.insuranceCompany.findUnique({ where: { id: companyId } });
+      : await prisma.insuranceCompany.findUnique({ 
+          where: { id: companyId },
+          include: { service_policies: { include: { service_type: true } } }
+        });
     if (!company || !company.is_active || company.deleted_at !== null) {
       return { isLegacy: true, remainingBalance: Number(beneficiary.remaining_balance) };
     }
@@ -717,7 +731,9 @@ export async function simulateDeduction(data: {
     let isConfigured = false;
 
     if (policyServiceType === "DENTAL") {
-      ceiling = company.dental_ceiling === null ? null : Number(company.dental_ceiling);
+      const dentalPolicy = (company as any).service_policies?.find((p: any) => p.service_type?.code === "DENTAL");
+      ceiling = dentalPolicy && dentalPolicy.ceiling_amount !== null ? Number(dentalPolicy.ceiling_amount) : null;
+      
       const isJulian = company.code.toUpperCase() === "JULI" ||
                        company.code.toUpperCase() === "JULIANA" ||
                        company.name.includes("جوليانة") ||
@@ -727,9 +743,9 @@ export async function simulateDeduction(data: {
       if (isJulian && isSpecialSubCategory) {
         copayPercentage = 50;
       } else {
-        copayPercentage = Math.max(0, 100 - Number(company.dental_coverage));
+        copayPercentage = Math.max(0, 100 - (dentalPolicy ? Number(dentalPolicy.coverage_percent) : 100));
       }
-      isConfigured = true;
+      isConfigured = !!dentalPolicy;
     } else if (policyServiceType === "GENERAL") {
       ceiling = company.general_ceiling === null ? null : Number(company.general_ceiling);
       copayPercentage = Math.max(0, 100 - Number(company.general_coverage));

@@ -10,7 +10,7 @@ const ROWS_PER_PRINT_PAGE = 30;
 // حد أقصى للحركات في صفحة الطباعة لتجنب تعطل الخادم
 const MAX_PRINT_ROWS = 2000;
 
-export default async function DentalCompanyPrintPage({
+export default async function OpticsCompanyPrintPage({
   params,
   searchParams,
 }: {
@@ -23,7 +23,7 @@ export default async function DentalCompanyPrintPage({
 }) {
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
-  const canAccess = hasPermission(session, "dental_services");
+  const canAccess = hasPermission(session, "optics_services");
   if (!canAccess) redirect("/dashboard");
 
   const { companyId } = await params;
@@ -37,7 +37,7 @@ export default async function DentalCompanyPrintPage({
     where: { id: companyId, deleted_at: null, is_active: true },
     include: {
       service_policies: {
-        where: { service_type: { code: 'DENTAL' } },
+        where: { service_type: { code: 'OPTICS' } },
         select: { ceiling_amount: true, coverage_percent: true }
       }
     }
@@ -45,15 +45,15 @@ export default async function DentalCompanyPrintPage({
 
   if (!company) notFound();
 
-  const dentalPolicy = company.service_policies?.[0];
-  const ceiling = dentalPolicy && dentalPolicy.ceiling_amount !== null ? Number(dentalPolicy.ceiling_amount) : null;
-  const dentalCeiling = ceiling;
+  const opticsPolicy = company.service_policies?.[0];
+  const ceiling = opticsPolicy && opticsPolicy.ceiling_amount !== null ? Number(opticsPolicy.ceiling_amount) : null;
+  const opticsCeiling = ceiling;
 
   // بناء شروط الاستعلام
   const isFacility = session.role === "FACILITY" || (!session.is_admin && !session.is_manager && !session.is_employee);
   const where: any = {
     company_id: companyId,
-    type: "DENTAL",
+    type: "OPTICS",
     is_cancelled: false,
     ...(isFacility ? { facility_id: session.id } : {}),
   };
@@ -106,7 +106,7 @@ export default async function DentalCompanyPrintPage({
             </div>
             <h1 className="text-2xl font-black text-slate-800 mb-2">لا توجد حركات للطباعة</h1>
             <p className="text-slate-500 font-medium">
-              لم يتم العثور على أي حركات أسنان
+              لم يتم العثور على أي حركات بصريات
               {(searchQuery || fromDate || toDate) && " مطابقة للفلاتر المحددة"}
               {" "}لشركة <strong className="text-slate-700">{company.name}</strong>.
             </p>
@@ -130,7 +130,7 @@ export default async function DentalCompanyPrintPage({
   // ─── تحذير إذا كان العدد كبيراً جداً ───
   const isTruncated = totalCount > MAX_PRINT_ROWS;
 
-  // جلب جميع حركات الأسنان غير الملغاة المطابقة للشروط
+  // جلب جميع حركات البصريات غير الملغاة المطابقة للشروط
   const transactions = (await prisma.transaction.findMany({
     where,
     take: MAX_PRINT_ROWS,
@@ -162,12 +162,12 @@ export default async function DentalCompanyPrintPage({
 
   // ─── حساب الأرصدة المتبقية ديناميكياً ───
   const uniqueBenIdsForTxs = Array.from(new Set(transactions.map((tx: any) => tx.beneficiary_id))) as string[];
-  const allBenDentalTxs = uniqueBenIdsForTxs.length > 0
+  const allBenOpticsTxs = uniqueBenIdsForTxs.length > 0
     ? await prisma.transaction.findMany({
         where: {
           beneficiary_id: { in: uniqueBenIdsForTxs },
           company_id: companyId,
-          type: "DENTAL",
+          type: "OPTICS",
           is_cancelled: false,
         },
         orderBy: [
@@ -185,7 +185,7 @@ export default async function DentalCompanyPrintPage({
     : [];
 
   const txsByBenMap = new Map();
-  for (const t of allBenDentalTxs) {
+  for (const t of allBenOpticsTxs) {
     if (!txsByBenMap.has(t.beneficiary_id)) {
       txsByBenMap.set(t.beneficiary_id, []);
     }
@@ -203,7 +203,7 @@ export default async function DentalCompanyPrintPage({
         : Number(t.actual_company_share ?? t.amount);
       accumulatedSpent += consumed;
       accumulatedSpentByTxId.set(t.id, accumulatedSpent);
-      remainingAfterTxId.set(t.id, dentalCeiling === null ? 999999999 : Math.max(0, dentalCeiling - accumulatedSpent));
+      remainingAfterTxId.set(t.id, opticsCeiling === null ? 999999999 : Math.max(0, opticsCeiling - accumulatedSpent));
     }
   }
 
@@ -214,7 +214,7 @@ export default async function DentalCompanyPrintPage({
     pages.push(transactions.slice(i * ROWS_PER_PRINT_PAGE, (i + 1) * ROWS_PER_PRINT_PAGE));
   }
 
-  const copay = Math.max(0, 100 - (dentalPolicy ? Number(dentalPolicy.coverage_percent) : 100));
+  const copay = Math.max(0, 100 - (opticsPolicy ? Number(opticsPolicy.coverage_percent) : 100));
 
   return (
     <div dir="rtl" style={{ backgroundColor: "#fff", color: "#000", margin: "0", padding: "0" }} className="min-h-screen">
@@ -263,10 +263,10 @@ export default async function DentalCompanyPrintPage({
                   <p className="text-[10px] text-slate-500 font-bold">منظومة إدارة مطالبات التأمين الطبي</p>
                 </div>
                 <div className="text-center">
-                  <h2 className="text-lg font-black text-teal-800">كشف حركات الأسنان المخصصة</h2>
+                  <h2 className="text-lg font-black text-teal-800">كشف حركات البصريات المخصصة</h2>
                   <p className="text-xs font-bold text-slate-600 mt-0.5">شركة التأمين: {company.name}</p>
                   {copay > 0 && (
-                    <p className="text-[10px] font-black text-amber-700 mt-0.5">نسبة التحمل: {copay}% | السقف: {dentalCeiling !== null ? `${dentalCeiling.toLocaleString("ar-LY")} د.ل` : "مفتوح"}</p>
+                    <p className="text-[10px] font-black text-amber-700 mt-0.5">نسبة التحمل: {copay}% | السقف: {opticsCeiling !== null ? `${opticsCeiling.toLocaleString("ar-LY")} د.ل` : "مفتوح"}</p>
                   )}
                   {(searchQuery || fromDate || toDate) && (
                     <p className="text-[10px] font-black text-teal-700 mt-0.5">
@@ -294,7 +294,7 @@ export default async function DentalCompanyPrintPage({
                     <th className="border border-slate-400 px-2 py-2 text-center font-black">حصة الشركة</th>
                     <th className="border border-slate-400 px-2 py-2 text-center font-black">حصة المؤمن (كاش)</th>
                     <th className="border border-slate-400 px-2 py-2 text-center font-black">
-                       {dentalCeiling === null ? "الرصيد المستهلك" : "الرصيد المتبقي"}
+                       {opticsCeiling === null ? "الرصيد المستهلك" : "الرصيد المتبقي"}
                      </th>
                     <th className="border border-slate-400 px-2 py-2 font-black">المرفق</th>
                     <th className="border border-slate-400 px-2 py-2 font-black">التاريخ</th>
@@ -305,7 +305,7 @@ export default async function DentalCompanyPrintPage({
                     const amount = Number(tx.amount || 0);
                     const companyShare = tx.actual_company_share !== null ? Number(tx.actual_company_share) : 0;
                     const patientShare = tx.actual_patient_share !== null ? Number(tx.actual_patient_share) : 0;
-                    const remaining = remainingAfterTxId.get(tx.id) ?? (tx.remaining_ceiling_after !== null ? Number(tx.remaining_ceiling_after) : (dentalCeiling !== null ? (dentalCeiling - companyShare) : 999999999));
+                    const remaining = remainingAfterTxId.get(tx.id) ?? (tx.remaining_ceiling_after !== null ? Number(tx.remaining_ceiling_after) : (opticsCeiling !== null ? (opticsCeiling - companyShare) : 999999999));
                     const consumedAccumulated = accumulatedSpentByTxId.get(tx.id) ?? companyShare;
                     const rowNum = globalStart + idx + 1;
                     const isEven = rowNum % 2 === 0;

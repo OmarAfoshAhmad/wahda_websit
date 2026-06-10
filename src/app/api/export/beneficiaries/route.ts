@@ -131,10 +131,11 @@ export async function GET(request: NextRequest) {
     if (isDental && companyIdParam) {
       const company = await prisma.insuranceCompany.findUnique({
         where: { id: companyIdParam },
-        select: { dental_ceiling: true }
+        include: { service_policies: { include: { service_type: true } } }
       });
       if (company) {
-        dentalCeiling = company.dental_ceiling ? Number(company.dental_ceiling) : null;
+        const dentalPolicy = (company as any).service_policies?.find((p: any) => p.service_type?.code === "DENTAL");
+        dentalCeiling = dentalPolicy && dentalPolicy.ceiling_amount !== null ? Number(dentalPolicy.ceiling_amount) : null;
       }
 
       const fiscalYear = new Date().getFullYear();

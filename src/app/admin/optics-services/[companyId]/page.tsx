@@ -6,8 +6,8 @@ import { Shell } from "@/components/shell";
 import { Card, Badge } from "@/components/ui";
 import Link from "next/link";
 import { ArrowRight, Building2, Users, ShieldCheck, History, Printer, Search, ChevronLeft, ChevronRight, CalendarDays, RotateCcw, FileSpreadsheet, Download } from "lucide-react";
-import { DentalDeductForm } from "@/components/dental-deduct-form";
-import { DentalAddTransactionButton } from "@/components/dental-add-transaction-button";
+import { OpticsDeductForm } from "@/components/optics-deduct-form";
+import { OpticsAddTransactionButton } from "@/components/optics-add-transaction-button";
 import { formatDateTripoli } from "@/lib/datetime";
 import { TransactionCancelButton } from "@/components/transaction-cancel-button";
 import { TransactionEditModal } from "@/components/transaction-edit-modal";
@@ -19,7 +19,7 @@ import { BeneficiaryRestoreActions } from "@/components/beneficiary-restore-acti
 import { BeneficiariesBulkActionButton, SelectAllCheckbox, EmptyRecycleBinButton } from "@/components/beneficiaries-bulk-action-button";
 import { TransactionsBulkActionButton, SelectAllTransactionsCheckbox } from "@/components/transactions-bulk-action-button";
 
-export default async function DentalCompanyPage({
+export default async function OpticsCompanyPage({
   params,
   searchParams,
 }: {
@@ -37,11 +37,11 @@ export default async function DentalCompanyPage({
 }) {
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
-  const canAccess = hasPermission(session, "dental_services");
+  const canAccess = hasPermission(session, "optics_services");
   if (!canAccess) redirect("/dashboard");
 
 
-  const canViewBeneficiaries = session.is_admin || hasPermission(session, "view_dental_beneficiaries");
+  const canViewBeneficiaries = session.is_admin || hasPermission(session, "view_optics_beneficiaries");
   const { companyId } = await params;
   const sp = await searchParams;
   let activeTab = sp.tab === "transactions" ? "transactions" : sp.tab === "beneficiaries" ? "beneficiaries" : "deduct";
@@ -61,7 +61,7 @@ export default async function DentalCompanyPage({
         select: { beneficiaries: { where: { deleted_at: null } } },
       },
       service_policies: {
-        where: { service_type: { code: 'DENTAL' } },
+        where: { service_type: { code: 'OPTICS' } },
         select: { ceiling_amount: true, coverage_percent: true }
       }
     },
@@ -72,18 +72,18 @@ export default async function DentalCompanyPage({
   const policy = company.service_policies?.[0];
   const ceiling = policy && policy.ceiling_amount !== null ? Number(policy.ceiling_amount) : null;
   const copay = Math.max(0, 100 - (policy ? Number(policy.coverage_percent) : 100));
-  const dentalPolicy = true;
+  const opticsPolicy = true;
 
   // تحديد نوع المستخدم وهل هو مرفق
   const isFacility = session.role === "FACILITY" || (!session.is_admin && !session.is_manager && !session.is_employee);
 
-  // بناء شروط الاستعلام لحركات الأسنان
+  // بناء شروط الاستعلام لحركات البصريات
   // المرفق يرى حركاته فقط، والمشرف/المدير يرى جميع الحركات
   const canAddManualTransaction = !isFacility && (session.is_admin || hasPermission(session, "add_manual_transaction"));
   const PAGE_SIZE = 10;
   const where: any = {
     company_id: companyId,
-    type: "DENTAL",
+    type: "OPTICS",
     is_cancelled: false,
     ...(isFacility ? { facility_id: session.id } : {}),
   };
@@ -166,14 +166,14 @@ export default async function DentalCompanyPage({
   const totalCompanyShare = Number(stats._sum.actual_company_share ?? 0);
   const totalPatientShare = Number(stats._sum.actual_patient_share ?? 0);
 
-  // ─── حساب الأرصدة المتبقية لحركات الأسنان ديناميكياً لتجنب مشاكل الـ null والـ 600 ───
+  // ─── حساب الأرصدة المتبقية لحركات البصريات ديناميكياً لتجنب مشاكل الـ null والـ 600 ───
   const uniqueBenIdsForTxs = Array.from(new Set(recentTransactions.map((tx) => tx.beneficiary_id)));
-  const allBenDentalTxs = uniqueBenIdsForTxs.length > 0
+  const allBenOpticsTxs = uniqueBenIdsForTxs.length > 0
     ? await prisma.transaction.findMany({
         where: {
           beneficiary_id: { in: uniqueBenIdsForTxs },
           company_id: companyId,
-          type: "DENTAL",
+          type: "OPTICS",
           is_cancelled: false,
         },
         orderBy: [
@@ -191,7 +191,7 @@ export default async function DentalCompanyPage({
     : [];
 
   const txsByBenMap = new Map();
-  for (const t of allBenDentalTxs) {
+  for (const t of allBenOpticsTxs) {
     if (!txsByBenMap.has(t.beneficiary_id)) {
       txsByBenMap.set(t.beneficiary_id, []);
     }
@@ -200,7 +200,7 @@ export default async function DentalCompanyPage({
 
   const remainingAfterTxId = new Map();
   const accumulatedSpentByTxId = new Map();
-  const dentalCeiling = ceiling;
+  const opticsCeiling = ceiling;
 
   for (const [_benId, benTxs] of txsByBenMap.entries()) {
     let accumulatedSpent = 0;
@@ -210,7 +210,7 @@ export default async function DentalCompanyPage({
         : Number(t.actual_company_share ?? t.amount);
       accumulatedSpent += consumed;
       accumulatedSpentByTxId.set(t.id, accumulatedSpent);
-      remainingAfterTxId.set(t.id, dentalCeiling === null ? 999999999 : Math.max(0, dentalCeiling - accumulatedSpent));
+      remainingAfterTxId.set(t.id, opticsCeiling === null ? 999999999 : Math.max(0, opticsCeiling - accumulatedSpent));
     }
   }
 
@@ -286,17 +286,17 @@ export default async function DentalCompanyPage({
 
     const benIds = benList.map((b) => b.id);
     
-    // Calculate spent dental ceiling per beneficiary in the current fiscal year
+    // Calculate spent optics ceiling per beneficiary in the current fiscal year
     const fiscalYear = new Date().getFullYear();
     const startDate = new Date(fiscalYear, 0, 1);
     const endDate = new Date(fiscalYear, 11, 31, 23, 59, 59);
 
-    const spentDentalRows = benIds.length > 0
+    const spentOpticsRows = benIds.length > 0
       ? await prisma.transaction.findMany({
           where: {
             beneficiary_id: { in: benIds },
             company_id: companyId,
-            type: "DENTAL",
+            type: "OPTICS",
             is_cancelled: false,
             created_at: { gte: startDate, lte: endDate },
           },
@@ -309,8 +309,8 @@ export default async function DentalCompanyPage({
         })
       : [];
 
-    const spentDentalMap = new Map();
-    for (const tx of spentDentalRows) {
+    const spentOpticsMap = new Map();
+    for (const tx of spentOpticsRows) {
       const benId = tx.beneficiary_id;
       const consumed = tx.ceiling_consumed !== null
         ? Number(tx.ceiling_consumed)
@@ -319,26 +319,26 @@ export default async function DentalCompanyPage({
         ? Number(tx.actual_company_share)
         : Number(tx.amount);
 
-      const existing = spentDentalMap.get(benId) ?? { consumed: 0, deducted: 0 };
-      spentDentalMap.set(benId, {
+      const existing = spentOpticsMap.get(benId) ?? { consumed: 0, deducted: 0 };
+      spentOpticsMap.set(benId, {
         consumed: existing.consumed + consumed,
         deducted: existing.deducted + deducted,
       });
     }
 
-    const dentalCeiling = ceiling;
+    const opticsCeiling = ceiling;
 
     companyBeneficiaries = benList.map((b) => {
-      const stats = spentDentalMap.get(b.id) ?? { consumed: 0, deducted: 0 };
+      const stats = spentOpticsMap.get(b.id) ?? { consumed: 0, deducted: 0 };
       const consumed = stats.consumed;
       const deducted = stats.deducted;
 
-      const remaining = dentalCeiling === null ? consumed : Math.max(0, dentalCeiling - consumed);
-      const total = dentalCeiling === null ? deducted : dentalCeiling;
+      const remaining = opticsCeiling === null ? consumed : Math.max(0, opticsCeiling - consumed);
+      const total = opticsCeiling === null ? deducted : opticsCeiling;
 
       const dynamicStatus = b.status === "SUSPENDED"
         ? "SUSPENDED"
-        : (dentalCeiling !== null && Math.max(0, dentalCeiling - consumed) <= 0 ? "FINISHED" : "ACTIVE");
+        : (opticsCeiling !== null && Math.max(0, opticsCeiling - consumed) <= 0 ? "FINISHED" : "ACTIVE");
       return {
         ...b,
         total_balance: total,
@@ -360,7 +360,7 @@ export default async function DentalCompanyPage({
     if (toDate && activeTab === "transactions") params.set("to", toDate);
     if (isDeletedView && activeTab === "beneficiaries") params.set("view", "deleted");
     params.set("page", String(pageNumber));
-    return `/admin/dental-services/${companyId}?${params.toString()}`;
+    return `/admin/optics-services/${companyId}?${params.toString()}`;
   };
 
   return (
@@ -373,8 +373,8 @@ export default async function DentalCompanyPage({
             </div>
             <div className="min-w-0 flex-1 space-y-2">
               <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
-                <Link href="/admin/dental-services" className="hover:text-teal-600 dark:hover:text-teal-400 font-bold transition-colors">
-                  خدمات الأسنان
+                <Link href="/admin/optics-services" className="hover:text-teal-600 dark:hover:text-teal-400 font-bold transition-colors">
+                  خدمات البصريات
                 </Link>
                 <ArrowRight className="h-3.5 w-3.5 rotate-180" />
                 <span className="font-medium">{company.name}</span>
@@ -387,10 +387,10 @@ export default async function DentalCompanyPage({
                   </span>
                 </h1>
 
-                {dentalPolicy && (
+                {opticsPolicy && (
                   <div className="mr-1 flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-1 w-fit">
                     <Link
-                      href={`/admin/dental-services/${companyId}?tab=deduct`}
+                      href={`/admin/optics-services/${companyId}?tab=deduct`}
                       className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${
                         activeTab === "deduct"
                           ? "bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-sm border border-slate-200 dark:border-slate-700"
@@ -400,7 +400,7 @@ export default async function DentalCompanyPage({
                       إجراء الخصم
                     </Link>
                     <Link
-                      href={`/admin/dental-services/${companyId}?tab=transactions`}
+                      href={`/admin/optics-services/${companyId}?tab=transactions`}
                       className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${
                         activeTab === "transactions"
                           ? "bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-sm border border-slate-200 dark:border-slate-700"
@@ -416,7 +416,7 @@ export default async function DentalCompanyPage({
                     </Link>
                     {canViewBeneficiaries && (
                       <Link
-                        href={`/admin/dental-services/${companyId}?tab=beneficiaries`}
+                        href={`/admin/optics-services/${companyId}?tab=beneficiaries`}
                         className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${
                           activeTab === "beneficiaries"
                             ? "bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-sm border border-slate-200 dark:border-slate-700"
@@ -469,7 +469,7 @@ export default async function DentalCompanyPage({
 
             {session.is_admin && (
               <Link
-                href={`/admin/dental-transactions/import?companyId=${companyId}`}
+                href={`/admin/optics-transactions/import?companyId=${companyId}`}
                 className="flex items-center gap-1.5 rounded-lg border border-slate-350 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-750 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 px-3 py-1.5 text-xs font-black transition-all shadow-sm hover:scale-[1.01] active:scale-[0.99] mr-1"
               >
                 <FileSpreadsheet className="h-3.5 w-3.5 text-teal-650" />
@@ -489,16 +489,16 @@ export default async function DentalCompanyPage({
           </div>
         )}
 
-        {!dentalPolicy && (
+        {!opticsPolicy && (
           <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/10 p-4">
             <p className="text-sm font-bold text-amber-800 dark:text-amber-300">
-              ⚠️ لا توجد سياسة أسنان نشطة لهذه الشركة. يرجى تعريف سياسة من نوع DENTAL من قسم سياسات الخدمات.
+              ⚠️ لا توجد سياسة بصريات نشطة لهذه الشركة. يرجى تعريف سياسة من نوع OPTICS من قسم سياسات الخدمات.
             </p>
           </div>
         )}
 
-        {dentalPolicy && activeTab === "deduct" && (
-          <DentalDeductForm
+        {opticsPolicy && activeTab === "deduct" && (
+          <OpticsDeductForm
             companyId={companyId}
             companyName={company.name}
             annualCeiling={ceiling}
@@ -506,7 +506,7 @@ export default async function DentalCompanyPage({
           />
         )}
 
-        {dentalPolicy && activeTab === "transactions" && (
+        {opticsPolicy && activeTab === "transactions" && (
           <div className="space-y-4">
             <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
               <Card className="p-4 border-teal-200 dark:border-teal-800 bg-teal-50/50 dark:bg-teal-900/10">
@@ -531,7 +531,7 @@ export default async function DentalCompanyPage({
             </div>
 
             <Card className="p-4">
-              <form method="GET" action={`/admin/dental-services/${companyId}`} className="flex flex-wrap items-center gap-3">
+              <form method="GET" action={`/admin/optics-services/${companyId}`} className="flex flex-wrap items-center gap-3">
                 <input type="hidden" name="tab" value="transactions" />
                 <div className="relative flex-1 min-w-52">
                   <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
@@ -567,7 +567,7 @@ export default async function DentalCompanyPage({
                     تطبيق
                   </button>
                   <Link
-                    href={`/admin/dental-services/${companyId}?tab=transactions`}
+                    href={`/admin/optics-services/${companyId}?tab=transactions`}
                     className="inline-flex h-10 items-center justify-center rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 text-sm font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                   >
                     إعادة تعيين
@@ -606,7 +606,7 @@ export default async function DentalCompanyPage({
                   )}
 
                   <Link
-                    href={`/admin/dental-services/${companyId}/print?${new URLSearchParams({
+                    href={`/admin/optics-services/${companyId}/print?${new URLSearchParams({
                       q: searchQuery,
                       from: fromDate,
                       to: toDate,
@@ -620,7 +620,7 @@ export default async function DentalCompanyPage({
 
                   {canExport && (
                     <a
-                      href={`/api/dental-export?company=${companyId}&q=${encodeURIComponent(searchQuery)}&from=${encodeURIComponent(fromDate)}&to=${encodeURIComponent(toDate)}`}
+                      href={`/api/optics-export?company=${companyId}&q=${encodeURIComponent(searchQuery)}&from=${encodeURIComponent(fromDate)}&to=${encodeURIComponent(toDate)}`}
                       target="_blank"
                       className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 text-xs font-black text-emerald-700 dark:text-emerald-400 hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-slate-350 transition-colors shadow-sm"
                     >
@@ -630,7 +630,7 @@ export default async function DentalCompanyPage({
                   )}
 
                   {canAddManualTransaction && (
-                    <DentalAddTransactionButton
+                    <OpticsAddTransactionButton
                       companyId={companyId}
                       companyName={company.name}
                       facilities={facilities}
@@ -638,7 +638,7 @@ export default async function DentalCompanyPage({
                       canChooseFacility={!isFacility}
                       copayPercentage={copay}
                       annualCeiling={ceiling}
-                      dentalSettings={company.dental_settings}
+                      opticsSettings={company.optics_settings}
                     />
                   )}
                 </div>
@@ -660,7 +660,7 @@ export default async function DentalCompanyPage({
                         <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">حصة الشركة</th>
                         <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">حصة المؤمن</th>
                         <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">
-                           {dentalCeiling === null ? "الرصيد المستهلك" : "الرصيد المتبقي"}
+                           {opticsCeiling === null ? "الرصيد المستهلك" : "الرصيد المتبقي"}
                         </th>
                         <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400">المرفق</th>
                         <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400">التاريخ</th>
@@ -681,7 +681,7 @@ export default async function DentalCompanyPage({
                           const amount = Number(tx.amount);
                           const companyShare = tx.actual_company_share !== null ? Number(tx.actual_company_share) : 0;
                           const patientShare = tx.actual_patient_share !== null ? Number(tx.actual_patient_share) : 0;
-                          const remaining = remainingAfterTxId.get(tx.id) ?? (tx.remaining_ceiling_after !== null ? Number(tx.remaining_ceiling_after) : (dentalCeiling !== null ? (dentalCeiling - companyShare) : 999999999));
+                          const remaining = remainingAfterTxId.get(tx.id) ?? (tx.remaining_ceiling_after !== null ? Number(tx.remaining_ceiling_after) : (opticsCeiling !== null ? (opticsCeiling - companyShare) : 999999999));
                           const consumedAccumulated = accumulatedSpentByTxId.get(tx.id) ?? companyShare;
 
                           return (
@@ -799,10 +799,10 @@ export default async function DentalCompanyPage({
           </div>
         )}
 
-        {dentalPolicy && activeTab === "beneficiaries" && (
+        {opticsPolicy && activeTab === "beneficiaries" && (
           <div className="space-y-4">
             <Card className="p-4">
-              <form method="GET" action={`/admin/dental-services/${companyId}`} className="flex items-center gap-3">
+              <form method="GET" action={`/admin/optics-services/${companyId}`} className="flex items-center gap-3">
                 <input type="hidden" name="tab" value="beneficiaries" />
                 {isDeletedView && <input type="hidden" name="view" value="deleted" />}
                 <div className="relative flex-1 min-w-52">
@@ -823,7 +823,7 @@ export default async function DentalCompanyPage({
                     تطبيق
                   </button>
                   <Link
-                    href={`/admin/dental-services/${companyId}?tab=beneficiaries`}
+                    href={`/admin/optics-services/${companyId}?tab=beneficiaries`}
                     className="inline-flex h-10 items-center justify-center rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 text-sm font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                   >
                     إعادة تعيين
@@ -835,7 +835,7 @@ export default async function DentalCompanyPage({
             {/* تبويب عرض النشطين / المحذوفين */}
             <div className="flex flex-wrap gap-2">
               <Link
-                href={`/admin/dental-services/${companyId}?tab=beneficiaries${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}`}
+                href={`/admin/optics-services/${companyId}?tab=beneficiaries${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}`}
                 className={`inline-flex items-center gap-2 rounded-md border px-3.5 py-2 text-sm font-bold transition-colors ${!isDeletedView
                   ? "border-primary/20 bg-primary-light dark:bg-primary-light/10 text-primary dark:text-blue-400 dark:border-primary/30"
                   : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
@@ -848,7 +848,7 @@ export default async function DentalCompanyPage({
                 </span>
               </Link>
               <Link
-                href={`/admin/dental-services/${companyId}?tab=beneficiaries&view=deleted${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}`}
+                href={`/admin/optics-services/${companyId}?tab=beneficiaries&view=deleted${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}`}
                 className={`inline-flex items-center gap-2 rounded-md border px-3.5 py-2 text-sm font-bold transition-colors ${isDeletedView
                   ? "border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400"
                   : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
@@ -880,7 +880,7 @@ export default async function DentalCompanyPage({
                     {!isDeletedView && canAddBen && <BeneficiaryCreateModal companyId={companyId} />}
                     {canExport && (
                       <a
-                        href={`/api/export/beneficiaries?company_id=${companyId}&is_dental=1${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}${isDeletedView ? `&view=deleted` : ""}`}
+                        href={`/api/export/beneficiaries?company_id=${companyId}&is_optics=1${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}${isDeletedView ? `&view=deleted` : ""}`}
                         target="_blank"
                         className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 text-xs font-black text-emerald-700 dark:text-emerald-400 hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-slate-350 transition-colors shadow-sm"
                       >
@@ -930,7 +930,7 @@ export default async function DentalCompanyPage({
                             )}
                             {!isDeletedView && (
                               <div className="mt-1.5 flex gap-3 text-xs font-bold">
-                                {dentalCeiling === null ? (
+                                {opticsCeiling === null ? (
                                   <>
                                     <span className="text-sky-700 dark:text-sky-300">مخصوم: {Number(beneficiary.total_balance).toLocaleString("ar-LY")} د.ل</span>
                                     <span className="text-slate-400">|</span>
@@ -1074,10 +1074,10 @@ export default async function DentalCompanyPage({
                             {!isDeletedView && (
                               <>
                                 <td className="px-6 py-4 text-sm font-bold text-sky-700 dark:text-sky-300">
-                                  {Number(dentalCeiling === null ? beneficiary.total_balance : beneficiary.remaining_balance).toLocaleString("ar-LY")} د.ل
+                                  {Number(opticsCeiling === null ? beneficiary.total_balance : beneficiary.remaining_balance).toLocaleString("ar-LY")} د.ل
                                 </td>
                                 <td className="px-6 py-4 text-sm font-bold text-emerald-700 dark:text-emerald-300">
-                                  {Number(dentalCeiling === null ? beneficiary.remaining_balance : beneficiary.total_balance).toLocaleString("ar-LY")} د.ل
+                                  {Number(opticsCeiling === null ? beneficiary.remaining_balance : beneficiary.total_balance).toLocaleString("ar-LY")} د.ل
                                 </td>
                               </>
                             )}

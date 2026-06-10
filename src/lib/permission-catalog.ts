@@ -11,7 +11,8 @@ export type PermissionGroupId =
   | "operations"
   | "admin"
   | "companies"
-  | "dental";
+  | "dental"
+  | "optics";
 
 type PermissionDefinition = {
   key: PermissionKey;
@@ -54,6 +55,8 @@ export const PERMISSION_DEFINITIONS: ReadonlyArray<PermissionDefinition> = [
   { key: "manage_users", label: "إدارة الحسابات (إنشاء، تعديل، حذف، صلاحيات)", group: "admin" },
   { key: "manage_companies", label: "إدارة شركات التأمين والسياسات", group: "companies" },
   { key: "dental_services", label: "صلاحية خدمات الأسنان (خصم، حركات، كشف)", group: "dental" },
+  { key: "optics_services", label: "صلاحية خدمات البصريات (خصم، حركات، كشف)", group: "optics" },
+  { key: "view_optics_beneficiaries", label: "عرض مستفيدي خدمات البصريات", group: "optics" },
 ];
 
 export const PERMISSION_KEYS = PERMISSION_DEFINITIONS.map((d) => d.key);
@@ -75,6 +78,7 @@ const PERMISSION_GROUP_LABELS: Record<PermissionGroupId, string> = {
   admin: "إدارة المستخدمين",
   companies: "شركات التأمين",
   dental: "خدمات الأسنان",
+  optics: "خدمات البصريات",
 };
 
 export const PERMISSION_GROUPS = Object.entries(
@@ -106,6 +110,8 @@ const EMPLOYEE_ALLOWED_PERMISSION_KEYS = [
   "view_facilities",
   "cash_claim",
   "dental_services",
+  "optics_services",
+  "view_optics_beneficiaries",
 ] as const satisfies ReadonlyArray<PermissionKey>;
 
 const FACILITY_ALLOWED_PERMISSION_KEYS = [
@@ -115,6 +121,8 @@ const FACILITY_ALLOWED_PERMISSION_KEYS = [
   "view_dental_beneficiaries",
   "deduct_balance",
   "dental_services",
+  "optics_services",
+  "view_optics_beneficiaries",
 ] as const satisfies ReadonlyArray<PermissionKey>;
 
 const ROLE_ALLOWED_PERMISSION_KEYS: Record<PermissionPolicyRole, ReadonlyArray<PermissionKey>> = {
@@ -134,21 +142,28 @@ const ROLE_DEFAULT_ENABLED_PERMISSION_KEYS: Record<
     "view_transactions",
     "view_beneficiaries",
     "view_dental_beneficiaries",
+    "view_optics_beneficiaries",
     "deduct_balance",
+    "dental_services",
+    "optics_services",
   ],
   EMPLOYEE: [
     "view_dashboard",
     "view_transactions",
     "view_beneficiaries",
     "view_dental_beneficiaries",
+    "view_optics_beneficiaries",
     "view_facilities",
     "cash_claim",
+    "dental_services",
+    "optics_services",
   ],
   FACILITY: [
     "view_dashboard",
     "view_transactions",
     "deduct_balance",
     "dental_services",
+    "optics_services",
   ],
 };
 

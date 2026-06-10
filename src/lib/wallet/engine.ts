@@ -42,6 +42,7 @@ export async function fetchPolicyLimit(
 ): Promise<PolicyLimitRow | null> {
   const company = await prisma.insuranceCompany.findUnique({
     where: { id: companyId },
+    include: { service_policies: { include: { service_type: true } } }
   });
   if (!company || !company.is_active || company.deleted_at !== null) return null;
 
@@ -49,8 +50,9 @@ export async function fetchPolicyLimit(
   let copay_percentage = 0;
 
   if (walletType === "DENTAL") {
-    annual_ceiling = company.dental_ceiling === null ? null : Number(company.dental_ceiling);
-    copay_percentage = Math.max(0, 100 - Number(company.dental_coverage));
+    const dentalPolicy = (company as any).service_policies?.find((p: any) => p.service_type?.code === "DENTAL");
+    annual_ceiling = dentalPolicy && dentalPolicy.ceiling_amount !== null ? Number(dentalPolicy.ceiling_amount) : null;
+    copay_percentage = Math.max(0, 100 - (dentalPolicy ? Number(dentalPolicy.coverage_percent) : 100));
   } else if (walletType === "GENERAL") {
     annual_ceiling = company.general_ceiling === null ? null : Number(company.general_ceiling);
     copay_percentage = Math.max(0, 100 - Number(company.general_coverage));

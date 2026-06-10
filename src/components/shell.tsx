@@ -20,7 +20,8 @@ import {
   MAINTENANCE_NAV, 
   CASH_CLAIM_NAV, 
   EMPLOYEE_HOME_NAV,
-  DENTAL_NAV
+  DENTAL_NAV,
+  OPTICS_NAV
 } from "@/lib/navigation";
 import type { ManagerPermissions, Session } from "@/lib/permissions";
 
@@ -76,14 +77,19 @@ export function Shell({
     const rawMode = process.env.NEXT_PUBLIC_APP_MODE || "BOTH";
     const appMode = rawMode.replace(/["']/g, '').toUpperCase();
 
+    const isSpecializedMode = appMode === "DENTAL" || appMode === "DENTAL_OPTICS";
+
     // 1. Base Nav (Dashboard/Transactions OR Dental as main)
-    const currentBaseNav = appMode === "DENTAL" 
-      ? [{ ...DENTAL_NAV, perm: "dental_services" as keyof ManagerPermissions }] 
-      : BASE_NAV;
+    let currentBaseNav = BASE_NAV as ReadonlyArray<any>;
+    if (appMode === "DENTAL") {
+      currentBaseNav = [{ ...DENTAL_NAV, perm: "dental_services" as keyof ManagerPermissions }];
+    } else if (appMode === "DENTAL_OPTICS") {
+      currentBaseNav = [];
+    }
     const filteredBaseNav = filterNavByPermission(currentBaseNav as typeof BASE_NAV, session);
 
-    // 2. Manager Nav (Hide global Beneficiaries in DENTAL mode)
-    const currentManagerNav = appMode === "DENTAL"
+    // 2. Manager Nav (Hide global Beneficiaries in specialized modes)
+    const currentManagerNav = isSpecializedMode
       ? MANAGER_NAV.filter(item => item.name !== "المستفيدون")
       : MANAGER_NAV;
     const filteredManagerNav = currentManagerNav.filter(item => hasPermission(session, item.perm));
@@ -91,8 +97,9 @@ export function Shell({
     const filteredSuperAdminNav = SUPER_ADMIN_NAV.filter(item => hasPermission(session, item.perm));
     
     // 3. Extra Tabs
-    const showDentalTab = appMode === "BOTH" && hasPermission(session, "dental_services");
-    const showCashClaim = appMode !== "DENTAL" && canUseCashClaim;
+    const showDentalTab = (appMode === "BOTH" || appMode === "DENTAL_OPTICS") && hasPermission(session, "dental_services");
+    const showOpticsTab = (appMode === "BOTH" || appMode === "DENTAL_OPTICS") && hasPermission(session, "optics_services");
+    const showCashClaim = !isSpecializedMode && canUseCashClaim;
 
     if (isAdmin) {
       return [
@@ -100,7 +107,8 @@ export function Shell({
         ...filteredManagerNav, 
         ...(showCashClaim ? [CASH_CLAIM_NAV] : []), 
         ...filteredSuperAdminNav, 
-        ...(showDentalTab ? [DENTAL_NAV] : [])
+        ...(showDentalTab ? [DENTAL_NAV] : []),
+        ...(showOpticsTab ? [OPTICS_NAV] : [])
       ];
     }
 
@@ -113,6 +121,7 @@ export function Shell({
         ...(isManager && showCashClaim ? [CASH_CLAIM_NAV] : []),
         ...filteredSuperAdminNav,
         ...(showDentalTab ? [DENTAL_NAV] : []),
+        ...(showOpticsTab ? [OPTICS_NAV] : []),
       ];
     }
 
@@ -120,6 +129,7 @@ export function Shell({
       ...filteredBaseNav,
       ...(showCashClaim ? [CASH_CLAIM_NAV] : []),
       ...(showDentalTab ? [DENTAL_NAV] : []),
+      ...(showOpticsTab ? [OPTICS_NAV] : []),
     ];
   }, [isAdmin, isManager, isEmployee, canUseCashClaim, permsHash, session]);
 

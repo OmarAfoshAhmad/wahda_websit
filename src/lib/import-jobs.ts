@@ -358,7 +358,8 @@ export async function processImportJob(jobId: string, username: string) {
 
   // جلب جميع شركات التأمين النشطة
   const activeCompanies = await prisma.insuranceCompany.findMany({
-    where: { is_active: true, deleted_at: null }
+    where: { is_active: true, deleted_at: null },
+    include: { service_policies: { include: { service_type: true } } }
   });
 
   const matchCompanyForCard = (
@@ -386,8 +387,9 @@ export async function processImportJob(jobId: string, username: string) {
   };
 
   const getPolicyCeiling = (company: typeof activeCompanies[number]) => {
-    if (company.dental_ceiling !== null) {
-      return Number(company.dental_ceiling);
+    const dentalPolicy = (company as any).service_policies?.find((p: any) => p.service_type?.code === "DENTAL");
+    if (dentalPolicy && dentalPolicy.ceiling_amount !== null) {
+      return Number(dentalPolicy.ceiling_amount);
     }
     if (company.general_ceiling !== null) {
       return Number(company.general_ceiling);

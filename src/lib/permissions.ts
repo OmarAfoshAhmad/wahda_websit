@@ -29,6 +29,8 @@ export type ManagerPermissions = {
   manage_users: boolean;
   manage_companies: boolean; // SEC-05 FIX: صلاحية إدارة شركات التأمين وسياساتها
   dental_services: boolean; // صلاحية خدمات الأسنان
+  optics_services: boolean; // صلاحية خدمات البصريات
+  view_optics_beneficiaries: boolean; // عرض مستفيدي البصريات
   add_manual_transaction: boolean; // صلاحية إضافة حركات يدوية
 };
 

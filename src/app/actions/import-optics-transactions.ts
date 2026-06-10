@@ -145,7 +145,7 @@ function parseExcelDate(val: any): Date {
   return new Date();
 }
 
-export async function importDentalTransactionsAction(
+export async function importOpticsTransactionsAction(
   fileBase64: string,
   purgeOld: boolean,
   dryRun: boolean,
@@ -371,13 +371,13 @@ export async function importDentalTransactionsAction(
 
     const policyMap = new Map(
       dbCompanies.map((c) => {
-        const dentalPolicy = (c as any).service_policies?.find((p: any) => p.service_type?.code === "DENTAL");
+        const opticsPolicy = (c as any).service_policies?.find((p: any) => p.service_type?.code === "OPTICS");
         return [
           c.id,
           {
-            service_type: "DENTAL",
-            annual_ceiling: dentalPolicy && dentalPolicy.ceiling_amount !== null ? Number(dentalPolicy.ceiling_amount) : null,
-            copay_percentage: Math.max(0, 100 - (dentalPolicy ? Number(dentalPolicy.coverage_percent) : 100)),
+            service_type: "OPTICS",
+            annual_ceiling: opticsPolicy && opticsPolicy.ceiling_amount !== null ? Number(opticsPolicy.ceiling_amount) : null,
+            copay_percentage: Math.max(0, 100 - (opticsPolicy ? Number(opticsPolicy.coverage_percent) : 100)),
             allow_partial_coverage: true,
           }
         ];
@@ -399,11 +399,11 @@ export async function importDentalTransactionsAction(
     if (!dryRun && purgeOld) {
       await prisma.transaction.deleteMany({
         where: {
-          type: "DENTAL",
+          type: "OPTICS",
           ...(companyId ? { company_id: companyId } : {}),
         }
       });
-      logger.info("Purged previous dental transactions as requested.");
+      logger.info("Purged previous optics transactions as requested.");
     }
 
     // عداد المستفيدين الذين أُنشئوا تلقائياً
@@ -535,7 +535,7 @@ export async function importDentalTransactionsAction(
         const agg = await prisma.transaction.aggregate({
           where: {
             beneficiary_id: beneficiary.id,
-            type: "DENTAL",
+            type: "OPTICS",
             is_cancelled: false,
             created_at: { gte: startDate, lt: r.date },
           },
@@ -556,7 +556,7 @@ export async function importDentalTransactionsAction(
           amount: r.amount,
           consumedThisYear: currentConsumed,
           policy: {
-            serviceType: "DENTAL",
+            serviceType: "OPTICS",
             annualCeiling: effectiveCeiling,
             copayPercentage: Number(policy.copay_percentage),
             allowPartialCoverage: policy.allow_partial_coverage,
@@ -565,7 +565,7 @@ export async function importDentalTransactionsAction(
 
         tpaData = {
           company_id: beneficiary.company_id,
-          service_category: "DENTAL",
+          service_category: "OPTICS",
           original_company_share: calcResult.originalCompanyShare,
           original_patient_share: calcResult.originalPatientShare,
           actual_company_share: calcResult.actualCompanyShare,
@@ -586,7 +586,7 @@ export async function importDentalTransactionsAction(
       } else {
         tpaData = {
           company_id: beneficiary.company_id,
-          service_category: "DENTAL",
+          service_category: "OPTICS",
           calc_metadata: { 
             tpaApplied: false, 
             reason: "no_policy",
@@ -596,7 +596,7 @@ export async function importDentalTransactionsAction(
       }
 
       const dateStr = r.date.toISOString().slice(0, 10);
-      const idempotencyKey = `import-dental-tx:${r.rowNumber}:${r.card}:${r.amount}:${dateStr}`;
+      const idempotencyKey = `import-optics-tx:${r.rowNumber}:${r.card}:${r.amount}:${dateStr}`;
 
       const existing = await prisma.transaction.findUnique({
         where: { idempotency_key: idempotencyKey },
@@ -620,7 +620,7 @@ export async function importDentalTransactionsAction(
           beneficiary_id: beneficiary.id,
           facility_id: facility.id,
           amount: r.amount,
-          type: "DENTAL",
+          type: "OPTICS",
           is_cancelled: false,
           created_at: r.date,
           idempotency_key: idempotencyKey,
@@ -645,7 +645,7 @@ export async function importDentalTransactionsAction(
     });
 
     if (!dryRun) {
-      revalidatePath("/admin/dental-transactions");
+      revalidatePath("/admin/optics-transactions");
     }
 
     if (!dryRun && autoCreatedCount > 0) {
@@ -662,7 +662,7 @@ export async function importDentalTransactionsAction(
       groups,
     };
   } catch (error: any) {
-    logger.error("Dental transactions import action error", { error: String(error) });
+    logger.error("Optics transactions import action error", { error: String(error) });
     return {
       success: false,
       error: error.message || "حدث خطأ غير متوقع أثناء معالجة الاستيراد.",

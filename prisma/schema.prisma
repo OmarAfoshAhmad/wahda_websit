@@ -24,6 +24,7 @@ model InsuranceCompany {
   wallet_consumptions   WalletConsumption[]
   service_mappings      ServiceTypeMapping[]
   claims                Claim[]
+  service_policies      ServicePolicy[]
 
   // Consolidated policy settings (merged from ServicePolicy)
   dental_ceiling    Decimal? @db.Decimal(12, 2)
@@ -129,10 +130,12 @@ model Transaction {
   is_cancelled            Boolean  @default(false)
   original_transaction_id String?
   idempotency_key         String?  @unique
+  service_type_id         String?
 
   beneficiary          Beneficiary       @relation(fields: [beneficiary_id], references: [id])
   facility             Facility          @relation(fields: [facility_id], references: [id])
   company              InsuranceCompany? @relation(fields: [company_id], references: [id])
+  service_type         ServiceType?      @relation(fields: [service_type_id], references: [id])
   original_transaction Transaction?      @relation("TransactionCorrection", fields: [original_transaction_id], references: [id])
   corrections          Transaction[]     @relation("TransactionCorrection")
   claim                Claim?
@@ -144,6 +147,7 @@ model Transaction {
   @@index([beneficiary_id, is_cancelled, type])
   @@index([is_cancelled, type])
   @@index([service_category, created_at])
+  @@index([service_type_id])
 }
 
 model AuditLog {
@@ -235,6 +239,45 @@ model CardIssuanceRegistryAll {
   @@index([canonical_card])
   @@index([city])
   @@index([batch_number])
+}
+
+// -----------------------------------------------------------------------------
+// Enterprise Service Engine Models
+// -----------------------------------------------------------------------------
+
+model ServiceType {
+  id         String   @id @default(cuid())
+  code       String   @unique // e.g., 'OPTICS', 'DENTAL', 'HEARING'
+  name       String // e.g., 'البصريات', 'الأسنان'
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  policies     ServicePolicy[]
+  transactions Transaction[]
+
+  @@index([code])
+}
+
+model ServicePolicy {
+  id              String @id @default(cuid())
+  company_id      String
+  service_type_id String
+
+  ceiling_amount   Decimal? @db.Decimal(12, 2)
+  coverage_percent Decimal  @db.Decimal(5, 2)
+  frequency_months Int? // Number of months the ceiling is valid for (e.g. 12 = 1 year)
+
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  company      InsuranceCompany @relation(fields: [company_id], references: [id])
+  service_type ServiceType      @relation(fields: [service_type_id], references: [id])
+
+  @@unique([company_id, service_type_id])
+  @@index([company_id])
+  @@index([service_type_id])
 }
 
 // ─── Wallet-Based Ceiling System ─────────────────────────────────────────

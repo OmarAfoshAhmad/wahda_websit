@@ -34,6 +34,8 @@ export async function createCompany(data: {
   }
 
   try {
+    const dentalType = await prisma.serviceType.findUnique({ where: { code: "DENTAL" } });
+
     const company = await prisma.insuranceCompany.create({
       data: {
         name: data.name,
@@ -48,6 +50,14 @@ export async function createCompany(data: {
         medicine_ceiling: data.medicine_ceiling !== undefined ? data.medicine_ceiling : null,
         medicine_coverage: data.medicine_coverage !== undefined ? data.medicine_coverage : 80,
         dental_settings: data.dental_settings,
+        service_policies: dentalType ? {
+          create: {
+            service_type_id: dentalType.id,
+            ceiling_amount: data.dental_ceiling !== undefined ? data.dental_ceiling : 3000,
+            coverage_percent: data.dental_coverage !== undefined ? data.dental_coverage : 100,
+            frequency_months: 12,
+          }
+        } : undefined,
       },
     });
     revalidatePath("/admin/companies");
@@ -94,6 +104,8 @@ export async function updateCompany(id: string, data: {
       select: { general_ceiling: true }
     });
 
+    const dentalType = await prisma.serviceType.findUnique({ where: { code: "DENTAL" } });
+
     await prisma.insuranceCompany.update({
       where: { id },
       data: {
@@ -111,6 +123,33 @@ export async function updateCompany(id: string, data: {
         ...(data.code ? { code: data.code.toUpperCase() } : {}),
       },
     });
+
+    // Dual-write: Update the Service Policy for DENTAL if it exists, or create it.
+    if (dentalType && (data.dental_ceiling !== undefined || data.dental_coverage !== undefined)) {
+      const existingPolicy = await prisma.servicePolicy.findUnique({
+        where: { company_id_service_type_id: { company_id: id, service_type_id: dentalType.id } }
+      });
+
+      if (existingPolicy) {
+        await prisma.servicePolicy.update({
+          where: { id: existingPolicy.id },
+          data: {
+            ceiling_amount: data.dental_ceiling !== undefined ? data.dental_ceiling : undefined,
+            coverage_percent: data.dental_coverage !== undefined ? data.dental_coverage : undefined,
+          }
+        });
+      } else {
+        await prisma.servicePolicy.create({
+          data: {
+            company_id: id,
+            service_type_id: dentalType.id,
+            ceiling_amount: data.dental_ceiling !== undefined ? data.dental_ceiling : 3000,
+            coverage_percent: data.dental_coverage !== undefined ? data.dental_coverage : 100,
+            frequency_months: 12,
+          }
+        });
+      }
+    }
 
     if (
       data.general_ceiling !== undefined &&

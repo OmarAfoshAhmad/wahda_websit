@@ -146,7 +146,8 @@ async function recalculateDentalTransactionsForBeneficiary(
   }
 
   const company = await tx.insuranceCompany.findUnique({
-    where: { id: beneficiary.company_id }
+    where: { id: beneficiary.company_id },
+    include: { service_policies: { include: { service_type: true } } }
   });
 
   if (!company || !company.is_active) {
@@ -171,17 +172,18 @@ async function recalculateDentalTransactionsForBeneficiary(
   });
 
   let runningConsumed = 0;
+  const dentalPolicy = (company as any).service_policies?.find((p: any) => p.service_type?.code === "DENTAL");
   const policy = {
     service_type: "DENTAL",
-    annual_ceiling: company.dental_ceiling === null ? null : Number(company.dental_ceiling),
-    copay_percentage: Math.max(0, 100 - Number(company.dental_coverage)),
+    annual_ceiling: dentalPolicy && dentalPolicy.ceiling_amount !== null ? Number(dentalPolicy.ceiling_amount) : null,
+    copay_percentage: Math.max(0, 100 - (dentalPolicy ? Number(dentalPolicy.coverage_percent) : 100)),
     allow_partial_coverage: true,
   };
 
   for (const t of txs) {
     const subCategory = t.service_category || "DENTAL";
     const settings = company.dental_settings ? (company.dental_settings as any) : null;
-    let categoryCoverage = Math.max(0, Number(company.dental_coverage)); // default coverage
+    let categoryCoverage = dentalPolicy ? Number(dentalPolicy.coverage_percent) : 100; // default coverage
 
     if (subCategory === "DENTAL_ORTHO" && settings?.ortho?.enabled) {
       categoryCoverage = Number(settings.ortho.coverage);

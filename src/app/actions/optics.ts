@@ -48,7 +48,7 @@ export async function searchCompanyBeneficiaries(query: string, companyId: strin
         company: {
           select: {
             service_policies: {
-              where: { service_type: { code: "DENTAL" } },
+              where: { service_type: { code: "OPTICS" } },
               select: { ceiling_amount: true, coverage_percent: true, frequency_months: true }
             }
           }
@@ -61,14 +61,14 @@ export async function searchCompanyBeneficiaries(query: string, companyId: strin
     return {
       items: rows.map(r => {
         const policy = r.company?.service_policies?.[0];
-        const dentalCeiling = policy?.ceiling_amount !== null && policy?.ceiling_amount !== undefined ? Number(policy.ceiling_amount) : 3000;
+        const opticsCeiling = policy?.ceiling_amount !== null && policy?.ceiling_amount !== undefined ? Number(policy.ceiling_amount) : 3000;
         return {
           id: r.id,
           name: r.name,
           card_number: r.card_number,
           status: r.status,
-          remaining_balance: dentalCeiling,
-          total_balance: dentalCeiling,
+          remaining_balance: opticsCeiling,
+          total_balance: opticsCeiling,
         };
       })
     };
@@ -78,7 +78,7 @@ export async function searchCompanyBeneficiaries(query: string, companyId: strin
   }
 }
 
-export async function getDentalBeneficiaryDetail(beneficiaryId: string, companyId: string) {
+export async function getOpticsBeneficiaryDetail(beneficiaryId: string, companyId: string) {
   const session = await requireActiveFacilitySession();
   if (!session) {
     return { error: "غير مصرح" };
@@ -106,10 +106,10 @@ export async function getDentalBeneficiaryDetail(beneficiaryId: string, companyI
             code: true,
             logo: true,
             service_policies: {
-              where: { service_type: { code: "DENTAL" } },
+              where: { service_type: { code: "OPTICS" } },
               select: { ceiling_amount: true, coverage_percent: true, frequency_months: true }
             },
-            dental_settings: true
+            optics_settings: true
           } as any
         }
       }
@@ -133,7 +133,7 @@ export async function getDentalBeneficiaryDetail(beneficiaryId: string, companyI
       where: {
         beneficiary_id: beneficiary.id,
         company_id: companyId,
-        type: "DENTAL",
+        type: "OPTICS",
         is_cancelled: false,
         created_at: { gte: startDate, lte: endDate },
       },
@@ -142,11 +142,11 @@ export async function getDentalBeneficiaryDetail(beneficiaryId: string, companyI
 
     const yearlyConsumed = Number(agg._sum.ceiling_consumed ?? 0);
 
-    const dentalCeiling = policy?.ceiling_amount !== null && policy?.ceiling_amount !== undefined
+    const opticsCeiling = policy?.ceiling_amount !== null && policy?.ceiling_amount !== undefined
       ? Number(policy.ceiling_amount)
       : (beneficiary.company ? null : 3000);
 
-    const dynamicRemaining = dentalCeiling === null ? null : Math.max(0, dentalCeiling - yearlyConsumed);
+    const dynamicRemaining = opticsCeiling === null ? null : Math.max(0, opticsCeiling - yearlyConsumed);
     const dynamicStatus = beneficiary.status === "SUSPENDED"
       ? "SUSPENDED"
       : (dynamicRemaining !== null && dynamicRemaining <= 0 ? "FINISHED" : "ACTIVE");
@@ -159,13 +159,13 @@ export async function getDentalBeneficiaryDetail(beneficiaryId: string, companyI
         card_number: beneficiary.card_number,
         status: dynamicStatus,
         remaining_balance: dynamicRemaining,
-        total_balance: dentalCeiling,
+        total_balance: opticsCeiling,
         company: beneficiary.company
       },
       yearlyConsumed
     };
   } catch (error) {
-    logger.error("Get dental beneficiary detail error", { error: String(error) });
+    logger.error("Get optics beneficiary detail error", { error: String(error) });
     return { error: "تعذر جلب تفاصيل المستفيد" };
   }
 }
