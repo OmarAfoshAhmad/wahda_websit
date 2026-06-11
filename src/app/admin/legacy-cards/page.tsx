@@ -10,8 +10,8 @@ export const metadata = {
 export default async function LegacyCardsPage() {
   const session = await getSession();
   
-  if (!session || session.role !== "ADMIN") {
-    redirect("/login");
+  if (!session || !session.is_admin) {
+    redirect("/dashboard");
   }
 
   const result = await getLegacyCardsAnalysisAction();
