@@ -35,8 +35,6 @@ export const MAINTENANCE_NAV = [
   { name: "النسخ الاحتياطي", href: "/admin/backup", icon: DatabaseBackup, perms: [] },
   { name: "إدارة المشاكل", href: "/admin/duplicates", icon: TriangleAlert, perms: [] },
   { name: "جدول الحقيقة", href: "/admin/truth-registry", icon: ClipboardList, perms: [] },
-  { name: "شركات التأمين", href: "/admin/companies", icon: Building2, perms: ["manage_companies"] as Array<keyof ManagerPermissions> },
-  { name: "سياسات الخدمات", href: "/admin/service-policies", icon: ClipboardList, perms: ["manage_companies"] as Array<keyof ManagerPermissions> },
   { name: "البطاقات القديمة", href: "/admin/legacy-cards", icon: Archive, perms: [] },
 ];
 
