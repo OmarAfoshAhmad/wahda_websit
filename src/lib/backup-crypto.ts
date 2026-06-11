@@ -44,11 +44,22 @@ export function encryptBackup(jsonData: string): Buffer {
   return Buffer.concat([salt, iv, authTag, encrypted]);
 }
 
-/**
- * يفك تشفير Buffer → JSON string
- */
 export function decryptBackup(encryptedBuffer: Buffer): string {
-  const password = getEncryptionPassword();
+  const passwordsToTry = [];
+  try {
+    passwordsToTry.push(getEncryptionPassword());
+  } catch (e) {
+    // Ignore if not set, we'll try JWT_SECRET
+  }
+
+  const jwtSecret = process.env.JWT_SECRET;
+  if (jwtSecret) {
+    passwordsToTry.push(jwtSecret);
+  }
+
+  if (passwordsToTry.length === 0) {
+    throw new Error("لا يوجد أي مفتاح تشفير متاح (BACKUP_ENCRYPTION_KEY أو JWT_SECRET)");
+  }
 
   if (encryptedBuffer.length < SALT_LENGTH + IV_LENGTH + TAG_LENGTH + 1) {
     throw new Error("ملف النسخة الاحتياطية تالف أو غير صالح");
@@ -59,14 +70,21 @@ export function decryptBackup(encryptedBuffer: Buffer): string {
   const authTag = encryptedBuffer.subarray(SALT_LENGTH + IV_LENGTH, SALT_LENGTH + IV_LENGTH + TAG_LENGTH);
   const encrypted = encryptedBuffer.subarray(SALT_LENGTH + IV_LENGTH + TAG_LENGTH);
 
-  const key = deriveKey(password, salt);
+  let lastError: Error | null = null;
 
-  const decipher = createDecipheriv(ALGORITHM, key, iv);
-  decipher.setAuthTag(authTag);
+  for (const password of passwordsToTry) {
+    try {
+      const key = deriveKey(password, salt);
+      const decipher = createDecipheriv(ALGORITHM, key, iv);
+      decipher.setAuthTag(authTag);
+      const compressed = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+      const decompressed = gunzipSync(compressed);
+      return decompressed.toString("utf-8");
+    } catch (e) {
+      lastError = e as Error;
+      // Continue to try the next password
+    }
+  }
 
-  const compressed = Buffer.concat([decipher.update(encrypted), decipher.final()]);
-
-  // فك الضغط
-  const decompressed = gunzipSync(compressed);
-  return decompressed.toString("utf-8");
+  throw new Error("تعذر فك تشفير الملف — تأكد أنه نسخة احتياطية صالحة ومن نفس النظام. (خطأ التشفير: " + (lastError?.message || "غير معروف") + ")");
 }

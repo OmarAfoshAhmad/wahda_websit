@@ -1,19 +1,16 @@
-const { Client } = require("pg");
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
 
-async function check() {
-  const client = new Client({
-    connectionString: process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/postgres"
+async function main() {
+  const archive = await prisma.cardNumberingArchive.findMany({
+    where: { employee_number: '11546' }
   });
+  console.log("Archive:", archive.map(a => ({ name: a.name, card: a.card_number, rel: a.relationship })));
 
-  try {
-    await client.connect();
-    // List some tables to see what we have
-    const res = await client.query("SELECT table_name FROM information_schema.tables WHERE table_schema NOT IN ('information_schema', 'pg_catalog') LIMIT 20");
-    console.log("Visible tables:", res.rows.map(r => r.table_name));
-    await client.end();
-  } catch (err) {
-    console.error("Error:", err.message);
-  }
+  const system = await prisma.beneficiary.findMany({
+    where: { card_number: { startsWith: 'WAB202511546' } }
+  });
+  console.log("System:", system.map(b => ({ name: b.name, card: b.card_number })));
 }
 
-check();
+main().catch(console.error).finally(() => prisma.$disconnect());

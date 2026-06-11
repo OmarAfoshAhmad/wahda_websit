@@ -19,25 +19,42 @@ export type CardNumberingItem = {
   error_message?: string; // رسالة الخطأ
 };
 
-// رموز اللاحقة للعائلة
+// رموز اللاحقة للعائلة شاملة الأخطاء الإملائية وال التعريف والهمزات والتاء المربوطة
 const RELATIONSHIP_CODE_MAP: Record<string, string> = {
-  "زوجة": "W", "زوج": "H",
-  "ابن": "S", "ابنة": "D", "ابنه": "D", "ابه": "D", "ابنته": "D", "ولد": "S", "بنت": "D",
-  "أم": "M", "ام": "M", "والدة": "M",
-  "أب": "F", "اب": "F", "والد": "F",
+  // الزوجة
+  "زوجة": "W", "زوجه": "W", "الزوجة": "W", "الزوجه": "W", "حرم": "W", "حرمه": "W", "زوجته": "W",
+  // الزوج
+  "زوج": "H", "الزوج": "H", "زوجهما": "H",
+  // الابن
+  "ابن": "S", "الابن": "S", "إبن": "S", "الإبن": "S", "أبن": "S", "الأبن": "S", "ولد": "S", "الولد": "S", "ولده": "S", "نجل": "S", "النجل": "S", "ابنه": "S", // "ابنه" قد تعني "ابنه الذكر" ولكن تم وضعها للابنة أيضاً، يفضل تركها للابنة إن كانت تنطق "ابنَة"
+  // الابنة
+  "ابنة": "D", "الابنة": "D", "إبنة": "D", "الإبنة": "D", "أبنة": "D", "الأبنة": "D", "ابنته": "D", "بنته": "D", "بنت": "D", "البنت": "D", "كريمة": "D", "الكريمة": "D", "كريمه": "D", "الكريمه": "D", "كريمته": "D", "ابنه": "D", "الابنه": "D", "إبنه": "D", "الإبنه": "D", "أبنه": "D", "الأبنه": "D", "ابه": "D",
+  // الأم
+  "أم": "M", "ام": "M", "الأم": "M", "الام": "M", "والدة": "M", "والده": "M", "الوالدة": "M", "الوالده": "M", "والدته": "M", "أمه": "M", "امه": "M", "الامه": "M",
+  // الأب
+  "أب": "F", "اب": "F", "الأب": "F", "الاب": "F", "والد": "F", "الوالد": "F", "والده": "F", "والدي": "F", "أبيه": "F", "ابيه": "F",
+  // اللغات الأجنبية
   "W": "W", "S": "S", "D": "D", "M": "M", "F": "F", "H": "H"
 };
 
-const MAIN_ACCOUNT_TERMS = ["موظف", "موظفة", "رب الأسرة", "رب العائلة", "رب أسرة", "رب عائلة", "صاحب البطاقة", "رئيسي", "MAIN", "EMPLOYEE", "متوفي", "متوفى", "وفاة", "ملحق", "ملحقة"];
+// المصطلحات التي تدل على أن المستفيد هو الموظف أو الحساب الرئيسي شاملة جميع الاحتمالات
+const MAIN_ACCOUNT_TERMS = [
+  "موظف", "موظفة", "الموظف", "الموظفة", "موظفه", "الموظفه",
+  "رب الأسرة", "رب العائلة", "رب أسرة", "رب عائلة", "رب الاسرة", "رب الاسره", "رب العائله", "الاب", "الأب",
+  "صاحب البطاقة", "رئيسي", "الرئيسي", "الرئيسية", "الرئيسيه",
+  "MAIN", "EMPLOYEE",
+  "متوفي", "متوفى", "وفاة", "حالة وفاة",
+  "ملحق", "ملحقة", "ملحقه", "الملحق", "الملحقة"
+];
 
 const getRelRank = (rel: string) => {
   const r = String(rel || "").trim().toLowerCase();
   if (!r || MAIN_ACCOUNT_TERMS.includes(r) || r === "employee") return 1;
-  if (["أب", "اب", "والد"].includes(r)) return 2;
-  if (["أم", "ام", "والدة"].includes(r)) return 3;
-  if (["زوجة", "زوج"].includes(r)) return 4;
-  if (["ابن", "ولد"].includes(r)) return 5;
-  if (["ابنة", "بنت", "ابنه", "ابنته"].includes(r)) return 6;
+  if (["أب", "اب", "الأب", "الاب", "والد", "الوالد"].includes(r)) return 2;
+  if (["أم", "ام", "الأم", "الام", "والدة", "والده", "الوالدة", "الوالده"].includes(r)) return 3;
+  if (["زوجة", "زوجه", "الزوجة", "الزوجه", "زوج", "الزوج"].includes(r)) return 4;
+  if (["ابن", "الابن", "إبن", "الإبن", "ولد", "الولد"].includes(r)) return 5;
+  if (["ابنة", "الابنة", "ابنه", "الابنه", "بنت", "البنت", "ابنته", "كريمة", "الكريمة"].includes(r)) return 6;
   return 7;
 };
 
@@ -177,6 +194,15 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
     }
     const prefixFilter = targetCompany ? targetCompany.code : prefix.substring(0, 3);
 
+    // Helper functions for matching
+    const cleanName = (n: string) => normalizeArabicText(n || "");
+    const stripSpaces = (n: string) => cleanName(n).replace(/\s+/g, "");
+    const getFirstName = (n: string) => cleanName(n).split(" ")[0] || "";
+    const isSameDate = (d1: any, d2: any) => {
+      if (!d1 || !d2) return false;
+      return new Date(d1).toISOString().split('T')[0] === new Date(d2).toISOString().split('T')[0];
+    };
+
     // البحث في النظام (مع تقييد البحث بالشركة المستهدفة فقط)
     const existingSystemBens = await prisma.beneficiary.findMany({
       where: {
@@ -193,7 +219,7 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
         ] : [],
         deleted_at: null
       },
-      select: { card_number: true, name: true, is_legacy_card: true }
+      select: { card_number: true, name: true, is_legacy_card: true, birth_date: true }
     });
 
     // البحث في الأرشيف (مع تقييد البحث ببادئة الشركة المستهدفة فقط)
@@ -203,7 +229,7 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
         card_number: { startsWith: prefixFilter },
         deleted_at: null
       },
-      select: { card_number: true, name: true, status: true, employee_number: true }
+      select: { card_number: true, name: true, status: true, employee_number: true, birth_date: true }
     });
 
     const baseTime = Date.now();
@@ -261,20 +287,26 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
       if (empNum && name) {
         // العثور على البادئة (رقم بطاقة الموظف الرئيسي) الموجودة بالفعل في المنظومة أو الأرشيف
         let matchedBaseCard = baseCard;
-        const expectedUnpadded = (prefix + empNum).toLowerCase();
-        const expectedPadded = baseCard.toLowerCase();
+        // Use regex to allow any number of zeros for padding
+        const expectedPattern = new RegExp(`^${prefix}0*${empNum}$`, "i");
         
         const existingMainSystem = existingSystemBens.find(b => {
           const cardLower = b.card_number.toLowerCase();
           const stripped = cardLower.replace(/[wsdmfh]\d*$/i, "");
-          return (stripped === expectedUnpadded || stripped === expectedPadded) && stripped === cardLower;
+          return expectedPattern.test(stripped) && stripped === cardLower;
         });
         const existingMainArchive = existingArchiveItems.find(a => {
           const cardLower = a.card_number.toLowerCase();
           const stripped = cardLower.replace(/[wsdmfh]\d*$/i, "");
-          return (stripped === expectedUnpadded || stripped === expectedPadded) && stripped === cardLower;
+          return expectedPattern.test(stripped) && stripped === cardLower;
         });
-        if (existingMainSystem && !existingMainSystem.is_legacy_card) {
+        // Check if the system card is actually a legacy card (either flagged, or completely unpadded)
+        const isLegacySystemCard = existingMainSystem?.is_legacy_card || (
+          existingMainSystem && 
+          !existingMainSystem.card_number.toLowerCase().replace(/[wsdmfh]\d*$/i, "").match(new RegExp(`^${prefix.toLowerCase()}0+`))
+        );
+
+        if (existingMainSystem && !isLegacySystemCard) {
           matchedBaseCard = existingMainSystem.card_number;
         } else if (existingMainArchive) {
           matchedBaseCard = existingMainArchive.card_number;
@@ -283,16 +315,33 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
         if (isMain) {
           finalCardNumber = matchedBaseCard;
         } else {
-          // البحث عن هذا التابع بالاسم والرقم الوظيفي في المنظومة أو الأرشيف لإعادة استخدام نفس بطاقته
+          // الخوارزمية المتقدمة للمطابقة متعددة الطبقات (Multi-Layer Matching)
+          const relCode = RELATIONSHIP_CODE_MAP[rel] || "X";
+
+          const checkMatch = (dbName: string, dbDate: any, dbCard: string) => {
+            // المستوى الأول: التطابق التام
+            if (cleanName(dbName) === cleanName(name)) return true;
+            // المستوى الثاني: التطابق التام بدون مسافات
+            if (stripSpaces(dbName) === stripSpaces(name)) return true;
+            // المستوى الثالث: الاسم الأول وتاريخ الميلاد
+            if (getFirstName(dbName) === getFirstName(name) && isSameDate(dbDate, item.birth_date)) return true;
+            // المستوى الرابع: الاسم الأول وصلة القرابة (باستخدام رقم البطاقة)
+            // هذا ينطبق فقط إذا كانت صلة القرابة المكتوبة في الإكسيل قد تم تحويلها لنفس الحرف في المنظومة (مثل M للام)
+            // ويشترط أن يكون هذا الحرف الوحيد أو المطابق تماماً للاسم الأول
+            if (getFirstName(dbName) === getFirstName(name) && dbCard.toLowerCase().replace(/\d+$/, "").endsWith(relCode.toLowerCase())) return true;
+            
+            return false;
+          };
+
           const systemMatch = existingSystemBens.find(b => 
             b.card_number.toLowerCase().replace(/[wsdmfh]\d*$/i, "").endsWith(empNum.toLowerCase()) &&
-            normalizeArabicText(b.name) === normalizeArabicText(name)
+            checkMatch(b.name, b.birth_date, b.card_number)
           );
 
           const archiveMatch = existingArchiveItems.find(a => 
             a.employee_number.toLowerCase() === empNum.toLowerCase() &&
-            normalizeArabicText(a.name) === normalizeArabicText(name) &&
-            a.card_number.toLowerCase().startsWith(baseCard.toLowerCase())
+            a.card_number.toLowerCase().startsWith(baseCard.toLowerCase()) &&
+            checkMatch(a.name, a.birth_date, a.card_number)
           );
 
           if (systemMatch && !systemMatch.is_legacy_card) {
@@ -354,17 +403,21 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
         else {
           const existingInSystem = existingSystemBens.find(b => 
             b.card_number.toLowerCase() === finalCardNumber.toLowerCase() ||
-            (b.card_number.toLowerCase().replace(/[wsdmfh]\d*$/i, "").endsWith(empNum.toLowerCase()) && normalizeArabicText(b.name) === normalizeArabicText(name))
+            (b.card_number.toLowerCase().replace(/[wsdmfh]\d*$/i, "").endsWith(empNum.toLowerCase()) && stripSpaces(b.name) === stripSpaces(name))
           );
 
           if (existingInSystem) {
-            if (existingInSystem.is_legacy_card) {
+            // تحقق ما إذا كانت البطاقة الموجودة في المنظومة هي بطاقة قديمة (موسومة أو بدون أصفار)
+            const isLegacySystemCard = existingInSystem.is_legacy_card || 
+              !existingInSystem.card_number.toLowerCase().replace(/[wsdmfh]\d*$/i, "").match(new RegExp(`^${prefix.toLowerCase()}0+`));
+
+            if (isLegacySystemCard) {
               status = "READY";
-              errorMsg = "جاهز للتحديث برقم جديد (يحمل بطاقة قديمة)";
+              errorMsg = "جاهز للتحديث برقم جديد (يحمل بطاقة قديمة بدون أصفار أو صيغة قديمة)";
               report.ready++;
             } else {
               status = "DUPLICATE";
-              errorMsg = "[SYSTEM] موجود مسبقاً في المنظومة الرئيسية";
+              errorMsg = "[SYSTEM] موجود مسبقاً في المنظومة الرئيسية بنفس الترقيم الحديث";
               report.duplicate++;
             }
           }
@@ -372,7 +425,7 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
           else {
             const existingInArchive = existingArchiveItems.find(a => 
               a.card_number.toLowerCase() === finalCardNumber.toLowerCase() ||
-              (a.employee_number.toLowerCase() === empNum.toLowerCase() && normalizeArabicText(a.name) === normalizeArabicText(name))
+              (a.employee_number.toLowerCase() === empNum.toLowerCase() && stripSpaces(a.name) === stripSpaces(name))
             );
 
             if (existingInArchive) {

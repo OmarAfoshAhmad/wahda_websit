@@ -353,8 +353,8 @@ export async function processRestoreJob(jobId: string, username: string) {
     let jsonString: string;
     try {
       jsonString = decryptBackup(Buffer.from(currentJob.encrypted_payload));
-    } catch {
-      throw new Error("تعذر فك تشفير الملف — تأكد أنه نسخة احتياطية صالحة ومن نفس النظام");
+    } catch (e) {
+      throw new Error("تعذر فك تشفير الملف: " + (e as Error).message);
     }
 
     let rawData: unknown;
