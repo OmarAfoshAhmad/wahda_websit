@@ -104,11 +104,11 @@ export function Shell({
     if (isAdmin) {
       return [
         ...filteredBaseNav, 
+        ...(showDentalTab ? [DENTAL_NAV] : []),
+        ...(showOpticsTab ? [OPTICS_NAV] : []),
         ...filteredManagerNav, 
         ...(showCashClaim ? [CASH_CLAIM_NAV] : []), 
         ...filteredSuperAdminNav, 
-        ...(showDentalTab ? [DENTAL_NAV] : []),
-        ...(showOpticsTab ? [OPTICS_NAV] : [])
       ];
     }
 
@@ -117,19 +117,19 @@ export function Shell({
         ...(isEmployee && showCashClaim
           ? [EMPLOYEE_HOME_NAV, ...filteredBaseNav.filter((item) => item.href === "/transactions")]
           : filteredBaseNav),
+        ...(showDentalTab ? [DENTAL_NAV] : []),
+        ...(showOpticsTab ? [OPTICS_NAV] : []),
         ...filteredManagerNav,
         ...(isManager && showCashClaim ? [CASH_CLAIM_NAV] : []),
         ...filteredSuperAdminNav,
-        ...(showDentalTab ? [DENTAL_NAV] : []),
-        ...(showOpticsTab ? [OPTICS_NAV] : []),
       ];
     }
 
     return [
       ...filteredBaseNav,
-      ...(showCashClaim ? [CASH_CLAIM_NAV] : []),
       ...(showDentalTab ? [DENTAL_NAV] : []),
       ...(showOpticsTab ? [OPTICS_NAV] : []),
+      ...(showCashClaim ? [CASH_CLAIM_NAV] : []),
     ];
   }, [isAdmin, isManager, isEmployee, canUseCashClaim, permsHash, session]);
 
