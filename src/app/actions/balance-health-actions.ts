@@ -61,7 +61,7 @@ export async function checkBalanceDriftAction(): Promise<DriftCheckResult> {
         SELECT
           (b.remaining_balance - GREATEST(0,
             b.total_balance - COALESCE(
-              SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END),
+              SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN COALESCE(t.actual_company_share, t.amount) ELSE 0 END),
               0
             )
           ))::float8 AS drift
@@ -72,7 +72,7 @@ export async function checkBalanceDriftAction(): Promise<DriftCheckResult> {
         HAVING ABS(
           b.remaining_balance - GREATEST(0,
             b.total_balance - COALESCE(
-              SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END),
+              SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN COALESCE(t.actual_company_share, t.amount) ELSE 0 END),
               0
             )
           )
@@ -258,13 +258,14 @@ export async function recalcBalancesAction(actor?: BackgroundActor): Promise<Rec
         is_cancelled: false,
         type: { not: "CANCELLATION" },
       },
-      select: { beneficiary_id: true, amount: true },
+      select: { beneficiary_id: true, amount: true, actual_company_share: true },
     });
 
     // تجميع المبالغ المصروفة لكل مستفيد
     const spentMap = new Map<string, number>();
     for (const tx of transactions) {
-      spentMap.set(tx.beneficiary_id, (spentMap.get(tx.beneficiary_id) ?? 0) + Number(tx.amount));
+      const share = tx.actual_company_share != null ? Number(tx.actual_company_share) : Number(tx.amount);
+      spentMap.set(tx.beneficiary_id, (spentMap.get(tx.beneficiary_id) ?? 0) + share);
     }
 
     // حساب ما يحتاج تعديل

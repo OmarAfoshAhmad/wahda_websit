@@ -84,6 +84,7 @@ export function CardNumberingClient({
   const [importCity, setImportCity] = useState(""); // حقل المدينة اليدوي
   const [importBatchNumber, setImportBatchNumber] = useState(""); // حقل الدفعة اليدوي
   const [batchFilter, setBatchFilter] = useState(""); // فلتر الدفعة للعرض
+  const [cityFilter, setCityFilter] = useState(""); // فلتر المدينة للعرض
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [pendingData, setPendingData] = useState<{data: any[], fileName: string} | null>(null);
   const [confirmModal, setConfirmModal] = useState<{ open: boolean, title: string, message: string, onConfirm: () => void, variant?: "danger" | "warning" | "info" }>({
@@ -668,6 +669,8 @@ export function CardNumberingClient({
     setCurrentPage(1);
   };
 
+  const allCities = Array.from(new Set(items.map(item => item.city).filter(Boolean))).sort();
+
   const filteredItems = items.filter(item => {
     const matchesSearch = 
       item.name.toLowerCase().includes(activeSearchTerm.toLowerCase()) || 
@@ -675,26 +678,27 @@ export function CardNumberingClient({
       item.card_number.toLowerCase().includes(activeSearchTerm.toLowerCase());
     
     const matchesBatch = !batchFilter || String(item.batch_number || "").includes(batchFilter);
-
+    const matchesCity = !cityFilter || String(item.city || "").includes(cityFilter);
+    
     if (statusFilter !== "ALL") {
       if (statusFilter === "SUSPICIOUS_DATE") {
-        return matchesSearch && matchesBatch && item.birth_date?.endsWith("-12-31");
+        return matchesSearch && matchesBatch && matchesCity && item.birth_date?.endsWith("-12-31");
       }
       if (statusFilter === "MISMATCHED") {
-        return matchesSearch && matchesBatch && item.match_percentage !== null && item.match_percentage < 100;
+        return matchesSearch && matchesBatch && matchesCity && item.match_percentage !== null && item.match_percentage < 100;
       }
       if (statusFilter === "DUPLICATE_FILE") {
-        return matchesSearch && matchesBatch && item.status === "DUPLICATE" && item.error_message?.includes("[FILE]");
+        return matchesSearch && matchesBatch && matchesCity && item.status === "DUPLICATE" && item.error_message?.includes("[FILE]");
       }
       if (statusFilter === "DUPLICATE_SYSTEM") {
-        return matchesSearch && matchesBatch && item.status === "DUPLICATE" && item.error_message?.includes("[SYSTEM]");
+        return matchesSearch && matchesBatch && matchesCity && item.status === "DUPLICATE" && item.error_message?.includes("[SYSTEM]");
       }
       if (statusFilter === "DUPLICATE_ARCHIVE") {
-        return matchesSearch && matchesBatch && item.status === "DUPLICATE" && item.error_message?.includes("[ARCHIVE]");
+        return matchesSearch && matchesBatch && matchesCity && item.status === "DUPLICATE" && item.error_message?.includes("[ARCHIVE]");
       }
-      return matchesSearch && matchesBatch && item.status === statusFilter;
+      return matchesSearch && matchesBatch && matchesCity && item.status === statusFilter;
     }
-    return matchesSearch && matchesBatch;
+    return matchesSearch && matchesBatch && matchesCity;
   });
 
   const paginatedItems = filteredItems.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
@@ -830,7 +834,7 @@ export function CardNumberingClient({
       <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           {/* قسم البحث - يمين (RTL) */}
-          <div className="flex-1 max-w-md flex gap-2">
+          <div className="flex-1 max-w-3xl flex gap-2">
             <div className="relative flex-1">
               <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
               <input
@@ -841,6 +845,21 @@ export function CardNumberingClient({
                 className="w-full pr-10 pl-3 py-2.5 text-sm bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-slate-900 dark:text-white"
                 placeholder="بحث بالاسم أو الرقم الوظيفي..."
               />
+            </div>
+            <div className="w-32">
+              <select
+                value={cityFilter}
+                onChange={(e) => {
+                  setCityFilter(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="w-full px-3 py-2.5 text-sm bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-slate-900 dark:text-white"
+              >
+                <option value="">مدينة...</option>
+                {allCities.map(city => (
+                  <option key={city as string} value={city as string}>{city}</option>
+                ))}
+              </select>
             </div>
             <div className="w-32">
               <input

@@ -15,9 +15,12 @@ import { useDeductContext } from "./DeductContext";
 import { DeductionAction } from "./DeductionAction";
 
 export function BeneficiaryCard() {
-  const { beneficiary, resetSearchState, policyInfo, policyLoading } = useDeductContext();
+  const { beneficiary, resetSearchState, policyInfo, policyLoading, type } = useDeductContext();
 
   if (!beneficiary) return null;
+
+  const isWahda = beneficiary.company?.code === "WAB" || beneficiary.company?.code === "WAAD" || beneficiary.company?.name?.includes("الوحدة");
+  const isNonTpa = isWahda && (type === "GENERAL" || type === "MEDICINE" || type === "SUPPLIES");
 
   const statusLabel =
     beneficiary.status === "ACTIVE"
@@ -57,7 +60,7 @@ export function BeneficiaryCard() {
           <h2 className="text-xl font-black text-slate-900 dark:text-white">{beneficiary.name}</h2>
           <div className="flex flex-wrap items-center gap-2 mt-1">
             <p className="text-xs font-medium text-slate-500 dark:text-slate-400">البطاقة: {beneficiary.card_number}</p>
-            {beneficiary.company && (
+            {beneficiary.company && !isNonTpa && (
               <Badge variant="info" className="text-[10px] py-0 px-2 h-5 flex items-center gap-1 border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
                 {beneficiary.company.logo ? (
                   <img src={beneficiary.company.logo} alt="Company Logo" className="h-3 w-3 object-contain" />
@@ -88,7 +91,7 @@ export function BeneficiaryCard() {
       <div className="mb-4 grid grid-cols-2 gap-3">
         <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
           <p className="mb-1 text-xs font-black uppercase tracking-wider text-slate-400">
-            {!policyLoading && showUnlimited ? "سقف مفتوح" : "السقف"}
+            {!policyLoading && showUnlimited ? "سقف مفتوح" : (policyInfo?.isTpa ? "السقف" : "الرصيد الكلي")}
           </p>
           <p className="text-lg font-black text-slate-700 dark:text-slate-200">
             {policyLoading ? (
@@ -120,7 +123,7 @@ export function BeneficiaryCard() {
                 : "border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50"
             )}>
               <p className="mb-1 text-xs font-black uppercase tracking-wider text-slate-400">
-                {!policyLoading && showUnlimited ? "الرصيد المستهلك" : "المتبقي"}
+                {!policyLoading && showUnlimited ? "الرصيد المستهلك" : (policyInfo?.isTpa ? "المتبقي" : "الرصيد المتبقي")}
               </p>
               <p className={cn(
                 "text-xl font-black",

@@ -11,8 +11,6 @@ export function OpticsDeductionAction() {
     beneficiary,
     amount,
     setAmount,
-    subCategory,
-    setSubCategory,
     showConfirm,
     setShowConfirm,
     deducting,
@@ -36,20 +34,8 @@ export function OpticsDeductionAction() {
   const hasAmount = amountNum > 0;
 
   // حساب فوري للحصص
-  const settings = beneficiary?.company?.optics_settings ? (beneficiary.company.optics_settings as any) : null;
-  const hasCustomPolicies = !!(
-    settings?.ortho?.enabled ||
-    settings?.implant?.enabled ||
-    settings?.prosthetics?.enabled
-  );
   let categoryCoverage = 100 - copayPercentage; // default coverage
-  if (subCategory === "OPTICS_ORTHO" && settings?.ortho?.enabled) {
-    categoryCoverage = Number(settings.ortho.coverage);
-  } else if (subCategory === "OPTICS_IMPLANT" && settings?.implant?.enabled) {
-    categoryCoverage = Number(settings.implant.coverage);
-  } else if (subCategory === "OPTICS_PROSTHETICS" && settings?.prosthetics?.enabled) {
-    categoryCoverage = Number(settings.prosthetics.coverage);
-  }
+
   const effectiveCopayPercentage = 100 - categoryCoverage;
   const copayFactor = effectiveCopayPercentage / 100;
   const originalCompanyShare = amountNum * (1 - copayFactor);
@@ -92,35 +78,7 @@ export function OpticsDeductionAction() {
         <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">تطبيق خصم مالي مباشر وحساب نسب التحمل</p>
       </div>
 
-      {/* اختيار نوع الخدمة إذا كان هناك سياسات مخصصة */}
-      {hasCustomPolicies && (
-        <div className="space-y-1.5">
-          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-slate-550">
-            تصنيف خدمة البصريات
-          </label>
-          <select
-            id="optics-subcategory-select"
-            className="flex h-11 w-full rounded-md border border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 px-3 py-2 text-sm font-bold text-slate-900 focus-visible:outline-none focus-visible:border-teal-500 focus-visible:ring-2 focus-visible:ring-teal-500/30 disabled:cursor-not-allowed disabled:opacity-50"
-            value={subCategory}
-            onChange={(e) => {
-              setSubCategory(e.target.value);
-              setShowConfirm(false);
-            }}
-            disabled={deducting}
-          >
-            <option value="OPTICS">خدمات بصريات عامة ({100 - copayPercentage}% تغطية)</option>
-            {settings?.ortho?.enabled && (
-              <option value="OPTICS_ORTHO">تقويم البصريات ({settings.ortho.coverage}% تغطية)</option>
-            )}
-            {settings?.implant?.enabled && (
-              <option value="OPTICS_IMPLANT">زراعة البصريات ({settings.implant.coverage}% تغطية)</option>
-            )}
-            {settings?.prosthetics?.enabled && (
-              <option value="OPTICS_PROSTHETICS">تركيبات البصريات ({settings.prosthetics.coverage}% تغطية)</option>
-            )}
-          </select>
-        </div>
-      )}
+
 
       {/* حقل القيمة */}
       <div className="space-y-1.5">
@@ -237,9 +195,7 @@ export function OpticsDeductionAction() {
 
                 <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-white dark:bg-slate-800 px-3 py-1 text-[10px] font-bold text-slate-500 border border-slate-200 dark:border-slate-750">
                   <span className="h-1.5 w-1.5 rounded-full bg-teal-500" />
-                  {subCategory === "OPTICS_ORTHO" ? "تقويم البصريات" :
-                   subCategory === "OPTICS_IMPLANT" ? "زراعة البصريات" :
-                   subCategory === "OPTICS_PROSTHETICS" ? "تركيبات البصريات" : "بصريات عامة"} • {beneficiary.name}
+                  بصريات عامة • {beneficiary.name}
                 </div>
               </div>
               <div className="flex gap-2">

@@ -567,8 +567,8 @@ export async function DataHealthContent({
     deletedFacilities = deletedFacilitiesRes;
     authStateRows = authStateRowsRes;
 
-    // Group 3: balance drift and status anomaly (3 queries)
-    const [balanceDriftRowsRes, statusAnomalyRowsRes, totalBalanceDriftRowsRes] = await Promise.all([
+    // Group 3: balance drift and status anomaly (2 queries)
+    const [balanceDriftRowsRes, statusAnomalyRowsRes] = await Promise.all([
       prisma.$queryRaw<BalanceDriftRow[]>`
         SELECT
           b.id,
@@ -579,13 +579,13 @@ export async function DataHealthContent({
           b.remaining_balance::float8 AS stored_remaining,
           GREATEST(0,
             b.total_balance - COALESCE(
-              SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END),
+              SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN COALESCE(t.actual_company_share, t.amount) ELSE 0 END),
               0
             )
           )::float8 AS computed_remaining,
           (b.remaining_balance - GREATEST(0,
             b.total_balance - COALESCE(
-              SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END),
+              SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN COALESCE(t.actual_company_share, t.amount) ELSE 0 END),
               0
             )
           ))::float8 AS drift
@@ -596,7 +596,7 @@ export async function DataHealthContent({
         HAVING ABS(
           b.remaining_balance - GREATEST(0,
             b.total_balance - COALESCE(
-              SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END),
+              SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN COALESCE(t.actual_company_share, t.amount) ELSE 0 END),
               0
             )
           )
@@ -658,7 +658,6 @@ export async function DataHealthContent({
     ]);
     balanceDriftRows = balanceDriftRowsRes;
     statusAnomalyRows = statusAnomalyRowsRes;
-    totalBalanceDriftRows = totalBalanceDriftRowsRes;
 
     // Group 4: orphaned notifications and hygiene counters (4 queries)
     const [
@@ -915,13 +914,6 @@ export async function DataHealthContent({
   const motherPlainCount = parentCardPatternRows.filter((row) => /M$/i.test(row.card_number)).length;
   const fatherPlainCount = parentCardPatternRows.filter((row) => /F$/i.test(row.card_number)).length;
 
-  const filteredTotalBalanceDriftRows = hasSearchQuery
-    ? totalBalanceDriftRows.filter(
-      (row) =>
-        row.name.toLowerCase().includes(normalizedSearchQuery) ||
-        row.card_number.toLowerCase().includes(normalizedSearchQuery)
-    )
-    : totalBalanceDriftRows;
   const hygieneCandidates =
     orphanedNotificationRows.length + oldReadNotifications + oldLoginAuditLogs + oldImportJobs + oldRestoreJobs;
   const filteredLegacyFractionalImportRows = hasSearchQuery
@@ -1492,51 +1484,6 @@ export async function DataHealthContent({
             </tbody>
           </table>
         </div>
-      </Section>
-      )}
-
-      {showGeneralSections && (
-      <Section title="انجراف الرصيد الكلي (total_balance < remaining + المصروف)" count={filteredTotalBalanceDriftRows.length}>
-        <p className="text-xs text-slate-600 dark:text-slate-300">
-          هذه الحالات فيها <code>total_balance</code> أقل من <code>remaining_balance + مجموع الحركات</code>، مما يُسبب فشل عمليات الخصم برسالة &quot;تعذر تنفيذ عملية الخصم&quot;. الإصلاح يضبط <code>total_balance = remaining + مصروف</code> لكل حالة.
-        </p>
-        <div className="mb-2">
-          <FixTotalBalancesButton />
-        </div>
-        {filteredTotalBalanceDriftRows.length === 0 ? (
-          <p className="text-sm font-medium text-emerald-600">✓ لا يوجد انجراف في الرصيد الكلي</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
-              <thead>
-                <tr className="border-b bg-slate-50 text-right dark:border-slate-700 dark:bg-slate-800/60">
-                  <th className="p-2">المستفيد</th>
-                  <th className="p-2">البطاقة</th>
-                  <th className="p-2">الحالة</th>
-                  <th className="p-2">total_balance المخزون</th>
-                  <th className="p-2">remaining</th>
-                  <th className="p-2">مجموع المصروف</th>
-                  <th className="p-2 text-amber-600">total_balance الصحيح</th>
-                  <th className="p-2 text-red-600">الفرق</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredTotalBalanceDriftRows.map((row) => (
-                  <tr key={row.id} className="border-b bg-amber-50/40 dark:border-slate-800 dark:bg-amber-950/20">
-                    <td className="p-2">{row.name}</td>
-                    <td className="p-2 font-mono text-xs">{row.card_number}</td>
-                    <td className="p-2 text-xs">{row.status}</td>
-                    <td className="p-2 text-left ltr"><Num value={row.stored_total} /></td>
-                    <td className="p-2 text-left ltr"><Num value={row.remaining} /></td>
-                    <td className="p-2 text-left ltr"><Num value={row.sum_spent} /></td>
-                    <td className="p-2 text-left ltr font-medium text-amber-700 dark:text-amber-400"><Num value={row.correct_total} /></td>
-                    <td className="p-2 text-left ltr font-bold text-red-700 dark:text-red-400">+{row.diff.toFixed(2)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
       </Section>
       )}
 

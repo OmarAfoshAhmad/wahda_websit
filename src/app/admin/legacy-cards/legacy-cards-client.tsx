@@ -17,6 +17,15 @@ export default function LegacyCardsClient({ initialData }: { initialData: Legacy
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [isDeletingAll, setIsDeletingAll] = useState(false);
   const [isDeletingAllWith, setIsDeletingAllWith] = useState(false);
+  const [selectedCity, setSelectedCity] = useState<string>("all");
+
+  const allCities = Array.from(new Set([
+    ...data.withNewCards.map(c => c.city),
+    ...data.withoutNewCards.map(c => c.city)
+  ])).filter(Boolean).sort();
+
+  const filteredWithNewCards = selectedCity === "all" ? data.withNewCards : data.withNewCards.filter(c => c.city === selectedCity);
+  const filteredWithoutNewCards = selectedCity === "all" ? data.withoutNewCards : data.withoutNewCards.filter(c => c.city === selectedCity);
 
   const handleDelete = async (id: string, listType: 'with' | 'without') => {
     if (!confirm("هل أنت متأكد من حذف هذه البطاقة القديمة؟ لا يمكن التراجع عن هذا الإجراء.")) return;
@@ -40,11 +49,11 @@ export default function LegacyCardsClient({ initialData }: { initialData: Legacy
   };
 
   const handleDeleteAllWithNewCards = async () => {
-    if (!confirm("هل أنت متأكد من حذف جميع البطاقات القديمة التي صدرت لها بطاقات حديثة؟ سيتم حذف " + data.withNewCards.length + " سجلاً.")) return;
+    if (!confirm(`هل أنت متأكد من حذف جميع البطاقات القديمة التي صدرت لها بطاقات حديثة؟ سيتم حذف ${filteredWithNewCards.length} سجلاً.`)) return;
     
     setIsDeletingAllWith(true);
     try {
-      const ids = data.withNewCards.map(c => c.legacy_id);
+      const ids = filteredWithNewCards.map(c => c.legacy_id);
       const res = await deleteAllUnusedLegacyCardsAction(ids);
       if (res.success) {
         setData(prev => ({ ...prev, withNewCards: [] }));
@@ -58,11 +67,11 @@ export default function LegacyCardsClient({ initialData }: { initialData: Legacy
   };
 
   const handleDeleteAllUnused = async () => {
-    if (!confirm("هل أنت متأكد من حذف جميع البطاقات القديمة التي لم يصدر لأصحابها شيء جديد؟ سيتم حذف " + data.withoutNewCards.length + " سجلاً.")) return;
+    if (!confirm(`هل أنت متأكد من حذف جميع البطاقات القديمة التي لم يصدر لأصحابها شيء جديد؟ سيتم حذف ${filteredWithoutNewCards.length} سجلاً.`)) return;
     
     setIsDeletingAll(true);
     try {
-      const ids = data.withoutNewCards.map(c => c.legacy_id);
+      const ids = filteredWithoutNewCards.map(c => c.legacy_id);
       const res = await deleteAllUnusedLegacyCardsAction(ids);
       if (res.success) {
         setData(prev => ({ ...prev, withoutNewCards: [] }));
@@ -86,6 +95,21 @@ export default function LegacyCardsClient({ initialData }: { initialData: Legacy
 
   return (
     <div className="space-y-8">
+      {/* فلتر المدينة */}
+      <div className="flex items-center gap-4 p-4 border rounded-xl bg-card">
+        <label className="text-sm font-medium text-slate-700 dark:text-slate-300">المدينة:</label>
+        <select 
+          className="px-3 py-2 border rounded-md text-sm outline-none bg-background focus:ring-2 focus:ring-emerald-500/50"
+          value={selectedCity}
+          onChange={(e) => setSelectedCity(e.target.value)}
+        >
+          <option value="all">جميع المدن</option>
+          {allCities.map(city => (
+            <option key={city} value={city}>{city}</option>
+          ))}
+        </select>
+      </div>
+
       {/* القسم الأول: صدر لهم جديد */}
       <div className="rounded-xl border bg-card text-card-foreground shadow-sm border-emerald-100 shadow-sm dark:border-emerald-900/30">
         <div className="flex flex-col space-y-1.5 p-6 bg-emerald-50/50 pb-4 dark:bg-emerald-900/10">
@@ -103,7 +127,7 @@ export default function LegacyCardsClient({ initialData }: { initialData: Legacy
                 className="h-8 text-xs"
               >
                 {isDeletingAllWith ? <Loader2 className="ml-1.5 h-3.5 w-3.5 animate-spin" /> : <Trash2 className="ml-1.5 h-3.5 w-3.5" />}
-                حذف الكل ({data.withNewCards.length})
+                حذف الكل ({filteredWithNewCards.length})
               </Button>
             )}
           </div>
@@ -120,17 +144,18 @@ export default function LegacyCardsClient({ initialData }: { initialData: Legacy
                   <th className="px-4 py-3 font-medium">الاسم</th>
                   <th className="px-4 py-3 font-medium">البطاقة القديمة</th>
                   <th className="px-4 py-3 font-medium">البطاقة الحديثة</th>
+                  <th className="px-4 py-3 font-medium">المدينة</th>
                   <th className="px-4 py-3 font-medium">طريقة الإصدار</th>
                   <th className="px-4 py-3 font-medium">الإجراء</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {data.withNewCards.length === 0 ? (
+                {filteredWithNewCards.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-slate-500">لا توجد سجلات مطابقة</td>
+                    <td colSpan={6} className="px-4 py-8 text-center text-slate-500">لا توجد سجلات مطابقة</td>
                   </tr>
                 ) : (
-                  data.withNewCards.map((item) => (
+                  filteredWithNewCards.map((item) => (
                     <tr key={item.legacy_id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                       <td className="px-4 py-3 font-medium text-slate-900 dark:text-slate-200">{item.name}</td>
                       <td className="px-4 py-3">
@@ -144,6 +169,11 @@ export default function LegacyCardsClient({ initialData }: { initialData: Legacy
                           <span className="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400">{item.new_card}</span>
                           <span className="text-[10px] text-slate-400">{formatDate(item.new_date)}</span>
                         </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-1 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                          {item.city || "غير محدد"}
+                        </span>
                       </td>
                       <td className="px-4 py-3">
                         {item.new_batch ? (
@@ -193,7 +223,7 @@ export default function LegacyCardsClient({ initialData }: { initialData: Legacy
                 className="h-8 text-xs"
               >
                 {isDeletingAll ? <Loader2 className="ml-1.5 h-3.5 w-3.5 animate-spin" /> : <Trash2 className="ml-1.5 h-3.5 w-3.5" />}
-                حذف الكل ({data.withoutNewCards.length})
+                حذف الكل ({filteredWithoutNewCards.length})
               </Button>
             )}
           </div>
@@ -208,20 +238,26 @@ export default function LegacyCardsClient({ initialData }: { initialData: Legacy
                 <tr>
                   <th className="px-4 py-3 font-medium">الاسم</th>
                   <th className="px-4 py-3 font-medium">البطاقة القديمة</th>
+                  <th className="px-4 py-3 font-medium">المدينة</th>
                   <th className="px-4 py-3 font-medium">تاريخ الدخول للمنظومة</th>
                   <th className="px-4 py-3 font-medium">الإجراء</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {data.withoutNewCards.length === 0 ? (
+                {filteredWithoutNewCards.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-4 py-8 text-center text-slate-500">لا توجد سجلات مطابقة</td>
+                    <td colSpan={5} className="px-4 py-8 text-center text-slate-500">لا توجد سجلات مطابقة</td>
                   </tr>
                 ) : (
-                  data.withoutNewCards.map((item) => (
+                  filteredWithoutNewCards.map((item) => (
                     <tr key={item.legacy_id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                       <td className="px-4 py-3 font-medium text-slate-900 dark:text-slate-200">{item.name}</td>
                       <td className="px-4 py-3 font-mono text-xs text-rose-600 dark:text-rose-400">{item.legacy_card}</td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-1 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                          {item.city || "غير محدد"}
+                        </span>
+                      </td>
                       <td className="px-4 py-3 text-xs text-slate-500">{formatDate(item.legacy_date)}</td>
                       <td className="px-4 py-3">
                         <Button 

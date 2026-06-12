@@ -61,7 +61,7 @@ export function OpticsAddTransactionModal({
 
   // Form inputs
   const [amount, setAmount] = useState("");
-  const [subCategory, setSubCategory] = useState("OPTICS");
+
   const [selectedFacilityId, setSelectedFacilityId] = useState(defaultFacilityId);
   const [transactionDate, setTransactionDate] = useState(() => {
     return new Intl.DateTimeFormat("en-CA", {
@@ -96,7 +96,7 @@ export function OpticsAddTransactionModal({
     setBeneficiary(null);
     setYearlyConsumed(0);
     setAmount("");
-    setSubCategory("OPTICS");
+
     setSelectedFacilityId(defaultFacilityId);
     setShowConfirm(false);
     setError(null);
@@ -236,22 +236,8 @@ export function OpticsAddTransactionModal({
   // Financial calculations
   const amountNum = parseFloat(amount) || 0;
   const hasAmount = amountNum > 0;
-
-  const settings = opticsSettings || null;
-  const hasCustomPolicies = !!(
-    settings?.ortho?.enabled ||
-    settings?.implant?.enabled ||
-    settings?.prosthetics?.enabled
-  );
-
   let categoryCoverage = 100 - copayPercentage; // default coverage
-  if (subCategory === "OPTICS_ORTHO" && settings?.ortho?.enabled) {
-    categoryCoverage = Number(settings.ortho.coverage);
-  } else if (subCategory === "OPTICS_IMPLANT" && settings?.implant?.enabled) {
-    categoryCoverage = Number(settings.implant.coverage);
-  } else if (subCategory === "OPTICS_PROSTHETICS" && settings?.prosthetics?.enabled) {
-    categoryCoverage = Number(settings.prosthetics.coverage);
-  }
+
 
   const effectiveCopayPercentage = 100 - categoryCoverage;
   const copayFactor = effectiveCopayPercentage / 100;
@@ -557,31 +543,7 @@ export function OpticsAddTransactionModal({
               </div>
             </div>
 
-            {/* Optics Subcategory Input */}
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
-                تصنيف خدمة البصريات
-              </label>
-              <select
-                className="flex h-11 w-full rounded-md border border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 px-3 py-2 text-sm font-bold text-slate-900 focus-visible:outline-none focus-visible:border-teal-500 focus-visible:ring-2 focus-visible:ring-teal-500/30"
-                value={subCategory}
-                onChange={(e) => {
-                  setSubCategory(e.target.value);
-                  setShowConfirm(false);
-                }}
-              >
-                <option value="OPTICS">خدمات بصريات عامة ({100 - copayPercentage}% تغطية)</option>
-                {settings?.ortho?.enabled && (
-                  <option value="OPTICS_ORTHO">تقويم البصريات ({settings.ortho.coverage}% تغطية)</option>
-                )}
-                {settings?.implant?.enabled && (
-                  <option value="OPTICS_IMPLANT">زراعة البصريات ({settings.implant.coverage}% تغطية)</option>
-                )}
-                {settings?.prosthetics?.enabled && (
-                  <option value="OPTICS_PROSTHETICS">تركيبات البصريات ({settings.prosthetics.coverage}% تغطية)</option>
-                )}
-              </select>
-            </div>
+
           </div>
 
           {/* 3. Calculations Preview */}

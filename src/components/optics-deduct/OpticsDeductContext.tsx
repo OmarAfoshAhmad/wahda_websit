@@ -59,8 +59,6 @@ interface OpticsDeductContextValue {
   // Deduction
   amount: string;
   setAmount: (v: string) => void;
-  subCategory: string;
-  setSubCategory: (v: string) => void;
   showConfirm: boolean;
   setShowConfirm: (v: boolean) => void;
   deducting: boolean;
@@ -108,7 +106,6 @@ export function OpticsDeductProvider({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
-  const [subCategory, setSubCategory] = useState("OPTICS");
   const [showConfirm, setShowConfirm] = useState(false);
   const [deducting, setDeducting] = useState(false);
 
@@ -213,7 +210,6 @@ export function OpticsDeductProvider({
     setShowSuggestions(false);
     setBeneficiary(null);
     setAmount("");
-    setSubCategory("OPTICS");
     setShowConfirm(false);
     setError(null);
     setSuccess(null);
@@ -317,16 +313,8 @@ export function OpticsDeductProvider({
         setSuccess("تمت عملية الاقتطاع بنجاح");
         toast.success(`تم تسجيل خصم بقيمة ${amountNum.toLocaleString("ar-LY")} د.ل بنجاح!`);
         
-        // Update yearly consumed amount
-        const settings = beneficiary.company?.optics_settings ? (beneficiary.company.optics_settings as any) : null;
         let categoryCoverage = 100 - copayPercentage; // default coverage
-        if (subCategory === "OPTICS_ORTHO" && settings?.ortho?.enabled) {
-          categoryCoverage = Number(settings.ortho.coverage);
-        } else if (subCategory === "OPTICS_IMPLANT" && settings?.implant?.enabled) {
-          categoryCoverage = Number(settings.implant.coverage);
-        } else if (subCategory === "OPTICS_PROSTHETICS" && settings?.prosthetics?.enabled) {
-          categoryCoverage = Number(settings.prosthetics.coverage);
-        }
+
         const effectiveCopay = 100 - categoryCoverage;
         const copayFactor = effectiveCopay / 100;
         const originalCompanyShare = amountNum * (1 - copayFactor);
@@ -344,7 +332,7 @@ export function OpticsDeductProvider({
       setShowConfirm(false);
       setError("حدث خطأ في الاتصال. حاول مرة أخرى.");
     }
-  }, [beneficiary, amount, subCategory, yearlyConsumed, annualCeiling, copayPercentage, toast]);
+  }, [beneficiary, amount, yearlyConsumed, annualCeiling, copayPercentage, toast]);
 
   const remainingCeiling = annualCeiling !== null ? Math.max(0, annualCeiling - yearlyConsumed) : null;
 
@@ -377,8 +365,6 @@ export function OpticsDeductProvider({
         remainingCeiling,
         amount,
         setAmount,
-        subCategory,
-        setSubCategory,
         showConfirm,
         setShowConfirm,
         deducting,

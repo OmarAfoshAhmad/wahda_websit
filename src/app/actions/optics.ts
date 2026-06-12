@@ -108,8 +108,7 @@ export async function getOpticsBeneficiaryDetail(beneficiaryId: string, companyI
             service_policies: {
               where: { service_type: { code: "OPTICS" } },
               select: { ceiling_amount: true, coverage_percent: true, frequency_months: true }
-            },
-            optics_settings: true
+            }
           } as any
         }
       }

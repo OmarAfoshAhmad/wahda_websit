@@ -152,7 +152,7 @@ export function DeductProvider({
       ? "DENTAL"
       : facilityType === "OPTICS"
       ? "OPTICS"
-      : "SUPPLIES"
+      : "GENERAL"
   );
   const [showConfirm, setShowConfirm] = useState(false);
   const [deducting, setDeducting] = useState(false);

@@ -12,6 +12,7 @@ export async function getLegacyCardsAnalysisAction() {
         name: true,
         card_number: true,
         created_at: true,
+        city: true,
       }
     });
 
@@ -29,6 +30,7 @@ export async function getLegacyCardsAnalysisAction() {
         card_number: true,
         created_at: true,
         batch_number: true,
+        city: true,
       }
     });
 
@@ -49,14 +51,16 @@ export async function getLegacyCardsAnalysisAction() {
           new_card: newerCard.card_number,
           new_batch: newerCard.batch_number,
           legacy_date: legacy.created_at,
-          new_date: newerCard.created_at
+          new_date: newerCard.created_at,
+          city: legacy.city || newerCard.city || null,
         });
       } else {
         withoutNewCards.push({
           legacy_id: legacy.id,
           name: legacy.name,
           legacy_card: legacy.card_number,
-          legacy_date: legacy.created_at
+          legacy_date: legacy.created_at,
+          city: legacy.city || null,
         });
       }
     });

@@ -169,8 +169,8 @@ export async function deductBalance(formData: {
       }
 
       // قيد عزل صارم: الخدمات الطبية العامة (دواء وكشف عام) مقصورة على منتسبي مصرف الوحدة فقط
-      if (type !== "DENTAL" && companyId && companyId !== WAHDA_BANK_COMPANY_ID) {
-        throw new Error("هذا المستفيد يتبع شركة تأمين خاصة بالأسنان فقط. الخدمات العامة مقصورة على مصرف الوحدة.");
+      if (type !== "DENTAL" && type !== "OPTICS" && companyId && companyId !== WAHDA_BANK_COMPANY_ID) {
+        throw new Error("هذا المستفيد يتبع شركة تأمين خاصة بالأسنان والبصريات فقط. الخدمات العامة مقصورة على مصرف الوحدة.");
       }
 
       // [TPA] Calculate Annual Consumption for this Category
@@ -244,16 +244,33 @@ export async function deductBalance(formData: {
             categoryCoverage = Number(settings.prosthetics.coverage);
           }
           
+          
           copay_percentage = Math.max(0, 100 - categoryCoverage);
           isConfigured = !!dentalPolicy;
+        } else if (policyServiceType === "OPTICS") {
+          const opticsPolicy = company.service_policies?.find((p: any) => p.service_type?.code === "OPTICS");
+          annual_ceiling = opticsPolicy && opticsPolicy.ceiling_amount !== null ? Number(opticsPolicy.ceiling_amount) : null;
+          
+          let categoryCoverage = opticsPolicy ? Number(opticsPolicy.coverage_percent) : 100;
+          
+          copay_percentage = Math.max(0, 100 - categoryCoverage);
+          isConfigured = !!opticsPolicy;
         } else if (policyServiceType === "GENERAL") {
-          annual_ceiling = company.general_ceiling === null ? null : Number(company.general_ceiling);
-          copay_percentage = Math.max(0, 100 - Number(company.general_coverage));
-          isConfigured = true;
-        } else if (policyServiceType === "MEDICINE") {
-          annual_ceiling = company.medicine_ceiling === null ? null : Number(company.medicine_ceiling);
-          copay_percentage = Math.max(0, 100 - Number(company.medicine_coverage));
-          isConfigured = true;
+          if (company.code === "WAB" || company.code === "WAAD" || company.id === WAHDA_BANK_COMPANY_ID) {
+            isConfigured = false;
+          } else {
+            annual_ceiling = company.general_ceiling === null ? null : Number(company.general_ceiling);
+            copay_percentage = Math.max(0, 100 - Number(company.general_coverage));
+            isConfigured = true;
+          }
+        } else if (policyServiceType === "MEDICINE" || policyServiceType === "SUPPLIES") {
+          if (company.code === "WAB" || company.code === "WAAD" || company.id === WAHDA_BANK_COMPANY_ID) {
+            isConfigured = false;
+          } else {
+            annual_ceiling = company.medicine_ceiling === null ? null : Number(company.medicine_ceiling);
+            copay_percentage = Math.max(0, 100 - Number(company.medicine_coverage));
+            isConfigured = true;
+          }
         }
 
         if (isConfigured) {
@@ -268,6 +285,10 @@ export async function deductBalance(formData: {
 
       if (type === "DENTAL" && !policyRecord) {
         throw new Error("لا توجد سياسة أسنان (DENTAL) نشطة ومُعرّفة لهذه الشركة. لا يمكن إتمام الخصم.");
+      }
+
+      if (type === "OPTICS" && !policyRecord) {
+        throw new Error("لا توجد سياسة بصريات (OPTICS) نشطة ومُعرّفة لهذه الشركة. لا يمكن إتمام الخصم.");
       }
 
       let tpaData: Record<string, unknown> = {};
@@ -323,7 +344,7 @@ export async function deductBalance(formData: {
       if (beneficiary.status === "SUSPENDED") {
         throw new Error("حساب المستفيد موقوف ولا يمكن إجراء خصم عليه");
       }
-      if (beneficiary.status === "FINISHED" && type !== "DENTAL") {
+      if (beneficiary.status === "FINISHED" && !["DENTAL", "OPTICS"].includes(type)) {
         throw new Error("حساب المستفيد مكتمل ولا يمكن الخصم من الرصيد الأساسي");
       }
 
@@ -336,9 +357,9 @@ export async function deductBalance(formData: {
       let newBalance = balanceBefore;
       let newStatus: "ACTIVE" | "FINISHED" | "SUSPENDED" = beneficiary.status as any;
 
-      // خصم الأسنان معزول تماماً عن الرصيد الأساسي للمستفيد (remaining_balance)
+      // خصم الأسنان والبصريات معزول تماماً عن الرصيد الأساسي للمستفيد (remaining_balance)
       // الرصيد الأساسي يخص المخصص العام للكشوفات والأدوية (مثل مصرف الوحدة)
-      if (type !== "DENTAL") {
+      if (!["DENTAL", "OPTICS"].includes(type)) {
         if (companyShare > balanceBefore) {
           throw new Error(`القيمة المطلوبة من الشركة (${formatCurrency(companyShare)}) أكبر من الرصيد المتاح للمخصص (${formatCurrency(balanceBefore)} د.ل)`);
         }
@@ -456,27 +477,20 @@ export async function deductBalance(formData: {
     const mapDeductionError = (rawMessage: string): string => {
       if (!rawMessage) return "تعذر تنفيذ عملية الخصم";
 
-      const knownArabicMessages = [
-        "المستفيد غير موجود",
-        "رصيد المستفيد صفر أو مكتمل",
-        "حساب المستفيد موقوف ولا يمكن إجراء خصم عليه",
-        "يوجد أكثر من سجل بنفس رقم البطاقة. يرجى دمج التكرار أولاً قبل الخصم.",
-      ];
-      if (knownArabicMessages.includes(rawMessage)) return rawMessage;
-      if (rawMessage.startsWith("المبلغ أكبر من الرصيد")) return rawMessage;
-
       // يظهر عندما لا تتطابق الأرصدة المخزنة مع دفتر الحركات
-      if (rawMessage.startsWith("BALANCE_GUARD_INVARIANT_FAILED")) {
+      if (rawMessage.includes("BALANCE_GUARD_INVARIANT_FAILED")) {
         return "فشل التحقق من سلامة الرصيد (عدم تطابق بين الرصيد المخزن والحركات). يلزم مراجعة/إعادة احتساب الأرصدة.";
+      }
+
+      // السماح بتمرير جميع رسائل الأخطاء الخاصة بالمنظومة (التي كتبناها باللغة العربية)
+      const isArabicMessage = /[\u0600-\u06FF]/.test(rawMessage);
+      if (isArabicMessage && !rawMessage.includes("PrismaClient") && !rawMessage.includes("Invalid `prisma")) {
+        return rawMessage;
       }
 
       // سباق تزامن على idempotency_key (طلب مكرر بنفس requestId)
       if (rawMessage.includes("P2002")) {
         return "تم اكتشاف طلب مكرر أو تعارض تزامن. أعد المحاولة بنفس requestId أو حدّث الصفحة.";
-      }
-
-      if (rawMessage.includes("رقم البطاقة") || rawMessage.includes("المبلغ") || rawMessage.includes("المرفق") || rawMessage.startsWith("حصة المستفيد")) {
-        return rawMessage;
       }
 
       return "تعذر تنفيذ عملية الخصم";
@@ -634,13 +648,21 @@ export async function getPolicyInfo(beneficiaryId: string, serviceType: string, 
       }
       isConfigured = !!dentalPolicy;
     } else if (policyServiceType === "GENERAL") {
-      ceiling = company.general_ceiling === null ? null : Number(company.general_ceiling);
-      copayPercentage = Math.max(0, 100 - Number(company.general_coverage));
-      isConfigured = true;
-    } else if (policyServiceType === "MEDICINE") {
-      ceiling = company.medicine_ceiling === null ? null : Number(company.medicine_ceiling);
-      copayPercentage = Math.max(0, 100 - Number(company.medicine_coverage));
-      isConfigured = true;
+      if (company.code === "WAB" || company.code === "WAAD" || company.id === WAHDA_BANK_COMPANY_ID) {
+        isConfigured = false;
+      } else {
+        ceiling = company.general_ceiling === null ? null : Number(company.general_ceiling);
+        copayPercentage = Math.max(0, 100 - Number(company.general_coverage));
+        isConfigured = true;
+      }
+    } else if (policyServiceType === "MEDICINE" || policyServiceType === "SUPPLIES") {
+      if (company.code === "WAB" || company.code === "WAAD" || company.id === WAHDA_BANK_COMPANY_ID) {
+        isConfigured = false;
+      } else {
+        ceiling = company.medicine_ceiling === null ? null : Number(company.medicine_ceiling);
+        copayPercentage = Math.max(0, 100 - Number(company.medicine_coverage));
+        isConfigured = true;
+      }
     }
 
     if (!isConfigured) return { isTpa: false };

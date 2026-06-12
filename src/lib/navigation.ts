@@ -11,7 +11,8 @@ import {
   Home,
   Activity,
   Stethoscope,
-  Archive
+  Archive,
+  Shield
 } from "lucide-react";
 import type { ManagerPermissions } from "./permissions";
 
@@ -31,6 +32,8 @@ export const SUPER_ADMIN_NAV = [
 ];
 
 export const MAINTENANCE_NAV = [
+  { name: "شركات التأمين", href: "/admin/companies", icon: Building2, perms: [] },
+  { name: "سياسات التأمين", href: "/admin/service-policies", icon: Shield, perms: [] },
   { name: "ترقيم البطاقات", href: "/admin/card-numbering", icon: ListOrdered, perms: ["manage_card_numbering", "migrate_card_numbering"] as Array<keyof ManagerPermissions> },
   { name: "النسخ الاحتياطي", href: "/admin/backup", icon: DatabaseBackup, perms: [] },
   { name: "إدارة المشاكل", href: "/admin/duplicates", icon: TriangleAlert, perms: [] },

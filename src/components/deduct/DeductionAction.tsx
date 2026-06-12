@@ -35,16 +35,37 @@ export function DeductionAction() {
   const hasAmount = Number.isFinite(amountValue) && amountValue > 0;
 
   const typeLabels: Record<string, string> = {
-    GENERAL: "خدمات عامة",
+    GENERAL: "كشف عام",
     MEDICINE: "أدوية صرف عام",
     DENTAL: "خدمات أسنان",
     OPTICS: "خدمات بصريات / عيون",
-    SUPPLIES: "كشف عام",
+    SUPPLIES: "مستلزمات طبية",
   };
 
-  const serviceTypes = availableServiceTypes.length > 0
-    ? availableServiceTypes.map((t) => ({ value: t, label: typeLabels[t] || t }))
-    : [{ value: "SUPPLIES", label: "كشف عام" }, { value: "MEDICINE", label: "أدوية صرف عام" }];
+  let filteredTypes = availableServiceTypes.length > 0
+    ? [...availableServiceTypes]
+    : ["GENERAL", "MEDICINE"];
+
+  if (facilityType === "PHARMACY") {
+    filteredTypes = filteredTypes.filter(t => t === "MEDICINE");
+    if (filteredTypes.length === 0) filteredTypes = ["MEDICINE"];
+  } else if (facilityType === "DENTAL") {
+    filteredTypes = filteredTypes.filter(t => t === "DENTAL");
+    if (filteredTypes.length === 0) filteredTypes = ["DENTAL"];
+  } else if (facilityType === "OPTICS") {
+    filteredTypes = filteredTypes.filter(t => t === "OPTICS");
+    if (filteredTypes.length === 0) filteredTypes = ["OPTICS"];
+  } else {
+    // For HOSPITAL or general admin view, remove DENTAL unless they are explicitly in a DENTAL facility.
+    // The user requested: "في مصرف الوحدة كشف عام و ادوية صرف عام فقط و عندما اكون في وضع الاسنان يظهر فقط قسم الاسنان"
+    filteredTypes = filteredTypes.filter(t => t !== "DENTAL");
+    
+    if (filteredTypes.length === 0) {
+      filteredTypes = ["GENERAL", "MEDICINE"];
+    }
+  }
+
+  const serviceTypes = filteredTypes.map((t) => ({ value: t, label: typeLabels[t] || t }));
 
   return (
     <div className="space-y-4">
