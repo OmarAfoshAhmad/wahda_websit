@@ -166,56 +166,15 @@ export function DeductionAction() {
         </div>
       )}
 
-      {/* ─── زر المراجعة ─── */}
-      {!showConfirm && (
+      {/* ─── زر التأكيد المباشر ─── */}
+      {hasAmount && !amountExceedsMax && (
         <Button
-          onClick={() => setShowConfirm(true)}
-          disabled={!hasAmount || amountExceedsMax || simulating}
-          className="w-full h-12 text-sm font-black uppercase tracking-[0.2em] shadow-lg shadow-primary/10"
+          onClick={handleDeduct}
+          disabled={deducting || simulating}
+          className="w-full h-12 text-base font-black shadow-lg shadow-primary/20 bg-teal-600 hover:bg-teal-700 text-white dark:bg-teal-600 dark:hover:bg-teal-500 transition-all"
         >
-          مراجعة البيانات وتأكيد الخصم
+          {deducting ? <Loader2 className="h-5 w-5 animate-spin" /> : "تأكيد وخصم الآن"}
         </Button>
-      )}
-
-      {/* ─── لوحة التأكيد النهائية ─── */}
-      {showConfirm && (
-        <div className="space-y-4 rounded-xl border-2 border-primary/20 bg-primary/5 p-5 shadow-inner animate-in fade-in slide-in-from-top-2">
-          <div className="text-center">
-            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 mb-1">تأكيد العملية النهائية</p>
-            <p className="text-3xl font-black text-primary mb-2">
-              {formatCurrency(
-                simulation?.isTpa && (simulation as any).calcResult
-                  ? (simulation as any).calcResult.actualCompanyShare
-                  : amountValue
-              )} د.ل
-            </p>
-            <div className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-[11px] font-bold text-slate-500 border border-slate-200">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-              {type === "SUPPLIES" ? "كشف عام" : type === "MEDICINE" ? "أدوية صرف عام" : type === "GENERAL" ? "كشف عام" : type === "DENTAL" ? "أسنان" : type === "OPTICS" ? "بصريات" : "مستلزمات"}
-              {" • "}
-              {beneficiary.name}
-            </div>
-          </div>
-
-
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <Button
-              onClick={handleDeduct}
-              disabled={deducting}
-              className="flex-1 h-12 text-base font-black shadow-lg shadow-primary/20"
-            >
-              {deducting ? <Loader2 className="h-5 w-5 animate-spin" /> : "تأكيد وخصم الآن"}
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => setShowConfirm(false)}
-              disabled={deducting}
-              className="flex-1 h-12 text-sm font-bold bg-white"
-            >
-              رجوع للتعديل
-            </Button>
-          </div>
-        </div>
       )}
     </div>
   );
