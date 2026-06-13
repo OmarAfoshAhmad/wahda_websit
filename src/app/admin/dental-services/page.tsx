@@ -70,8 +70,8 @@ export default async function DentalServicesPage({
     },
   });
 
-  // جميع الشركات النشطة تدعم خدمات الأسنان
-  const dentalCompanies = companies;
+  // نعرض فقط الشركات التي لها سياسة أسنان مُعرفة
+  const dentalCompanies = companies.filter((c) => c.service_policies.length > 0);
   // جميع الشركات (للاستيراد)
   const allCompaniesForImport = companies.map(c => ({ id: c.id, name: c.name, code: c.code }));
 

@@ -119,32 +119,41 @@ export function DeductionAction() {
         <div className={cn(
           "relative overflow-hidden rounded-lg border p-4 transition-all duration-300",
           simulating ? "opacity-60" : "opacity-100",
-          simulation?.isTpa ? "bg-blue-50/50 border-blue-100" : "bg-slate-50 border-slate-200"
+          simulation?.isTpa 
+            ? "bg-blue-50/50 border-blue-100 dark:bg-blue-950/30 dark:border-blue-900/50" 
+            : "bg-slate-50 border-slate-200 dark:bg-slate-800/80 dark:border-slate-700"
         )}>
-          {simulation?.isTpa ? (
+          {process.env.NEXT_PUBLIC_APP_MODE?.replace(/["']/g, '').toUpperCase() === "WAHDA_ONLY" ? (
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">قيمة الخصم</p>
+                <p className="text-2xl font-black text-slate-900 dark:text-white">{formatCurrency(amountValue)} د.ل</p>
+              </div>
+            </div>
+          ) : simulation?.isTpa ? (
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1">
                 <div className="flex items-center gap-2 mb-1">
-                  <Badge variant="info" className="text-[10px] py-0 px-2 h-4">نظام السقف</Badge>
+                  <Badge variant="info" className="text-[10px] py-0 px-2 h-4 dark:bg-blue-900/50 dark:text-blue-300 dark:border-blue-800">نظام السقف</Badge>
                   {simulation.calcResult.isPartialCoverage && (
-                    <Badge variant="danger" className="text-[10px] py-0 px-2 h-4 animate-pulse">تغطية جزئية</Badge>
+                    <Badge variant="danger" className="text-[10px] py-0 px-2 h-4 animate-pulse dark:bg-red-900/50 dark:text-red-300 dark:border-red-800">تغطية جزئية</Badge>
                   )}
                 </div>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider">على الجهة الضامنة</p>
-                <p className="text-xl font-black text-blue-600">{formatCurrency(simulation.calcResult.actualCompanyShare)}</p>
+                <p className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">على الجهة الضامنة</p>
+                <p className="text-xl font-black text-blue-600 dark:text-blue-400">{formatCurrency(simulation.calcResult.actualCompanyShare)}</p>
               </div>
-              <div className="space-y-1 border-r border-slate-200 pl-4 text-left">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mt-5 sm:mt-6">يدفعه المؤمن (كاش)</p>
-                <p className="text-xl font-black text-amber-600">{formatCurrency(simulation.calcResult.actualPatientShare)}</p>
+              <div className="space-y-1 border-r border-slate-200 dark:border-slate-700 pl-4 text-left">
+                <p className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mt-5 sm:mt-6">يدفعه المؤمن (كاش)</p>
+                <p className="text-xl font-black text-amber-600 dark:text-amber-500">{formatCurrency(simulation.calcResult.actualPatientShare)}</p>
               </div>
             </div>
           ) : (
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider">سيتم خصمه من الرصيد</p>
-                <p className="text-2xl font-black text-slate-700">{formatCurrency(amountValue)} د.ل</p>
+                <p className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">سيتم خصمه من الرصيد</p>
+                <p className="text-2xl font-black text-slate-700 dark:text-slate-200">{formatCurrency(amountValue)} د.ل</p>
               </div>
-              <Badge variant="default">رصيد مباشر</Badge>
+              <Badge variant="default" className="dark:bg-slate-700 dark:text-slate-100">رصيد مباشر</Badge>
             </div>
           )}
         </div>

@@ -51,23 +51,29 @@ export default async function CompaniesPage() {
   const companiesWithStats = companies.map((c: any) => {
     const dentalPolicy = c.service_policies?.[0];
     return {
-      ...c,
+      id: c.id,
+      name: c.name,
+      code: c.code,
+      card_pattern: c.card_pattern,
+      logo: c.logo,
+      is_active: c.is_active,
+      _count: c._count,
       dental_ceiling: dentalPolicy && dentalPolicy.ceiling_amount !== null ? Number(dentalPolicy.ceiling_amount) : null,
       dental_coverage: dentalPolicy ? Number(dentalPolicy.coverage_percent) : 100,
-    general_ceiling: c.general_ceiling ? Number(c.general_ceiling) : null,
-    general_coverage: c.general_coverage ? Number(c.general_coverage) : 80,
-    medicine_ceiling: c.medicine_ceiling ? Number(c.medicine_ceiling) : null,
-    medicine_coverage: c.medicine_coverage ? Number(c.medicine_coverage) : 80,
-    dental_settings: c.dental_settings ? JSON.parse(JSON.stringify(c.dental_settings)) : null,
-    service_type_mappings: c.service_type_mappings ? JSON.parse(JSON.stringify(c.service_type_mappings)) : null,
-    created_at: c.created_at.toISOString(),
-    updated_at: c.updated_at.toISOString(),
-    deleted_at: c.deleted_at ? c.deleted_at.toISOString() : null,
-    stats: {
-      active: activeMap.get(c.id) ?? 0,
-      deleted: deletedMap.get(c.id) ?? 0,
-    }
-  };
+      general_ceiling: c.general_ceiling ? Number(c.general_ceiling) : null,
+      general_coverage: c.general_coverage ? Number(c.general_coverage) : 80,
+      medicine_ceiling: c.medicine_ceiling ? Number(c.medicine_ceiling) : null,
+      medicine_coverage: c.medicine_coverage ? Number(c.medicine_coverage) : 80,
+      dental_settings: c.dental_settings ? JSON.parse(JSON.stringify(c.dental_settings)) : null,
+      service_type_mappings: c.service_type_mappings ? JSON.parse(JSON.stringify(c.service_type_mappings)) : null,
+      created_at: c.created_at.toISOString(),
+      updated_at: c.updated_at.toISOString(),
+      deleted_at: c.deleted_at ? c.deleted_at.toISOString() : null,
+      stats: {
+        active: activeMap.get(c.id) ?? 0,
+        deleted: deletedMap.get(c.id) ?? 0,
+      }
+    };
   });
 
   return (

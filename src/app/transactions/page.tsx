@@ -615,7 +615,9 @@ export default async function TransactionsPage({
                   <option value="all">الكل</option>
                   <option value="supplies">كشف عام</option>
                   <option value="medicine">أدوية صرف عام</option>
-                  <option value="dental">أسنان</option>
+                  {process.env.NEXT_PUBLIC_APP_MODE?.replace(/["']/g, '').toUpperCase() !== "WAHDA_ONLY" && (
+                    <option value="dental">أسنان</option>
+                  )}
                 </select>
               </div>
 
@@ -655,10 +657,13 @@ export default async function TransactionsPage({
               )}
 
 
-              <div className="flex items-end">
-                <button type="submit" className="w-full rounded-md bg-primary px-4 py-2.5 text-sm font-black text-white transition-colors hover:bg-primary-dark">
+              <div className="flex items-end gap-2">
+                <button type="submit" className="flex-1 rounded-md bg-primary px-4 py-2.5 text-sm font-black text-white transition-colors hover:bg-primary-dark whitespace-nowrap">
                   عرض التقرير
                 </button>
+                <Link href="/transactions" className="flex items-center justify-center rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm font-black text-slate-600 dark:text-slate-400 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/50 hover:text-slate-900 dark:hover:text-slate-200" title="إعادة تعيين الفلاتر">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-rotate-ccw"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                </Link>
               </div>
             </div>
           </form>
@@ -675,7 +680,7 @@ export default async function TransactionsPage({
                   <SelectAllTransactionsCheckbox />
                   <BulkTransactionActionButton
                     statusFilter={statusFilter}
-                    canCancel={canCancel || session.is_admin}
+                    canCancel={false}
                     canDelete={canDelete || session.is_admin}
                   />
                 </div>
@@ -778,7 +783,7 @@ export default async function TransactionsPage({
                       </label>
                     )}
 
-                    {canSingleAction && (
+                    {/* {canSingleAction && (
                       <div className="mr-auto">
                         <TransactionCancelButton
                           transactionId={tx.id}
@@ -786,7 +791,7 @@ export default async function TransactionsPage({
                           type={tx.type}
                         />
                       </div>
-                    )}
+                    )} */}
                   </div>
                 )}
               </Card>
@@ -805,7 +810,7 @@ export default async function TransactionsPage({
                 <div className="flex-1" />
                 <BulkTransactionActionButton
                   statusFilter={statusFilter}
-                  canCancel={canCancel || session.is_admin}
+                  canCancel={false}
                   canDelete={canDelete || session.is_admin}
                 />
               </div>
@@ -977,13 +982,13 @@ export default async function TransactionsPage({
                         {(session.is_admin || canCorrect || canCancel || canEditTransaction) && (
                           <td className="px-6 py-4 text-center no-print">
                             <div className="flex items-center justify-center gap-2">
-                              {canSingleAction && (
+                              {/* {canSingleAction && (
                                 <TransactionCancelButton
                                   transactionId={tx.id}
                                   isCancelled={tx.is_cancelled}
                                   type={tx.type}
                                 />
-                              )}
+                              )} */}
                               {(session.is_admin || canEditTransaction) && (
                                 <TransactionEditModal
                                   transaction={{

@@ -43,15 +43,12 @@ export function SelectAllTransactionsCheckbox() {
   };
 
   return (
-    <div className="flex items-center gap-2">
-      <input
-        type="checkbox"
-        checked={isChecked}
-        onChange={handleChange}
-        className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30"
-        title="تحديد الكل في هذه الصفحة"
-      />
-      <span>تحديد</span>
-    </div>
+    <input
+      type="checkbox"
+      checked={isChecked}
+      onChange={handleChange}
+      className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30"
+      title="تحديد الكل في هذه الصفحة"
+    />
   );
 }

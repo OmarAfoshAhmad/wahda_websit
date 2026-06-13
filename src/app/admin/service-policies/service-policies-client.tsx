@@ -20,16 +20,20 @@ export function ServicePoliciesClient({
 }: ServicePoliciesClientProps) {
   const toast = useToast();
   const [search, setSearch] = useState("");
+  const [filterServiceId, setFilterServiceId] = useState("ALL");
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedPolicy, setSelectedPolicy] = useState<any | null>(null);
 
   const filteredPolicies = initialPolicies.filter((p) => {
     const q = search.toLowerCase();
-    return (
+    const matchesSearch = 
       p.company.name.toLowerCase().includes(q) ||
       p.company.code.toLowerCase().includes(q) ||
-      p.service_type.name.toLowerCase().includes(q)
-    );
+      p.service_type.name.toLowerCase().includes(q);
+      
+    const matchesService = filterServiceId === "ALL" || p.service_type.id === filterServiceId;
+    
+    return matchesSearch && matchesService;
   });
 
   const handleDelete = async (id: string) => {
@@ -64,13 +68,27 @@ export function ServicePoliciesClient({
         </Button>
       </div>
 
-      <div className="flex w-full max-w-sm">
-        <Input
-          placeholder="ابحث باسم الشركة أو الخدمة..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="h-11"
-        />
+      <div className="flex w-full max-w-xl gap-3">
+        <div className="flex-1">
+          <Input
+            placeholder="ابحث باسم الشركة أو الخدمة..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-11"
+          />
+        </div>
+        <select
+          className="h-11 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-bold text-slate-900 dark:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 min-w-[150px]"
+          value={filterServiceId}
+          onChange={(e) => setFilterServiceId(e.target.value)}
+        >
+          <option value="ALL">جميع الخدمات</option>
+          {serviceTypes.map((st) => (
+            <option key={st.id} value={st.id}>
+              {st.name}
+            </option>
+          ))}
+        </select>
       </div>
 
       <Card className="overflow-hidden p-0">
