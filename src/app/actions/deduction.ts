@@ -250,7 +250,6 @@ export async function deductBalance(formData: {
             categoryCoverage = Number(settings.prosthetics.coverage);
           }
           
-          
           copay_percentage = Math.max(0, 100 - categoryCoverage);
           isConfigured = !!dentalPolicy;
         } else if (policyServiceType === "OPTICS") {

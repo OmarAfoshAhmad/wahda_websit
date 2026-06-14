@@ -932,15 +932,15 @@ export default async function OpticsCompanyPage({
                               <div className="mt-1.5 flex gap-3 text-xs font-bold">
                                 {opticsCeiling === null ? (
                                   <>
-                                    <span className="text-sky-700 dark:text-sky-300">مخصوم: {Number(beneficiary.total_balance).toLocaleString("ar-LY")} د.ل</span>
+                                    <span className="text-slate-600 dark:text-slate-300">الرصيد الكلي: سقف مفتوح</span>
                                     <span className="text-slate-400">|</span>
-                                    <span className="text-emerald-700 dark:text-emerald-300">مستهلك: {Number(beneficiary.remaining_balance).toLocaleString("ar-LY")} د.ل</span>
+                                    <span className="text-sky-700 dark:text-sky-300">مستهلك: {Number(beneficiary.total_balance).toLocaleString("ar-LY")} د.ل</span>
                                   </>
                                 ) : (
                                   <>
-                                    <span className="text-sky-700 dark:text-sky-300">{Number(beneficiary.remaining_balance).toLocaleString("ar-LY")} د.ل</span>
+                                    <span className="text-slate-600 dark:text-slate-300">الرصيد الكلي: {Number(beneficiary.total_balance).toLocaleString("ar-LY")} د.ل</span>
                                     <span className="text-slate-400">|</span>
-                                    <span className="text-emerald-700 dark:text-emerald-300">إجمالي: {Number(beneficiary.total_balance).toLocaleString("ar-LY")} د.ل</span>
+                                    <span className="text-sky-700 dark:text-sky-300">متبقي: {Number(beneficiary.remaining_balance).toLocaleString("ar-LY")} د.ل</span>
                                   </>
                                 )}
                               </div>
@@ -1016,11 +1016,11 @@ export default async function OpticsCompanyPage({
                         <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">تاريخ الميلاد</th>
                         {!isDeletedView && (
                           <>
-                            <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-sky-600 dark:text-sky-400">
-                              الرصيد المتبقي الحالي
+                            <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+                              الرصيد الكلي
                             </th>
-                            <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-emerald-600 dark:text-emerald-400">
-                              إجمالي المستهلك للشركة
+                            <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.18em] text-sky-600 dark:text-sky-400">
+                              {opticsCeiling === null ? "الرصيد المستهلك" : "الرصيد المتبقي"}
                             </th>
                           </>
                         )}
@@ -1073,11 +1073,13 @@ export default async function OpticsCompanyPage({
                             </td>
                             {!isDeletedView && (
                               <>
-                                <td className="px-6 py-4 text-sm font-bold text-sky-700 dark:text-sky-300">
-                                  {Number(opticsCeiling === null ? beneficiary.total_balance : beneficiary.remaining_balance).toLocaleString("ar-LY")} د.ل
+                                <td className="px-6 py-4 text-sm font-bold text-slate-700 dark:text-slate-300">
+                                  {opticsCeiling === null ? "سقف مفتوح" : `${Number(beneficiary.total_balance).toLocaleString("ar-LY")} د.ل`}
                                 </td>
-                                <td className="px-6 py-4 text-sm font-bold text-emerald-700 dark:text-emerald-300">
-                                  {Number(opticsCeiling === null ? beneficiary.remaining_balance : beneficiary.total_balance).toLocaleString("ar-LY")} د.ل
+                                <td className="px-6 py-4 text-sm font-bold text-sky-700 dark:text-sky-300">
+                                  {opticsCeiling === null 
+                                    ? `${Number(beneficiary.total_balance).toLocaleString("ar-LY")} د.ل`
+                                    : `${Number(beneficiary.remaining_balance).toLocaleString("ar-LY")} د.ل`}
                                 </td>
                               </>
                             )}
