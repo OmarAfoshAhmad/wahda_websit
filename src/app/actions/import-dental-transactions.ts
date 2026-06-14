@@ -32,6 +32,8 @@ export type ImportResult = {
   insertedCount: number;
   skippedCount: number;
   autoCreatedCount: number;
+  ceilingExceededCount: number;
+  ceilingExceededDetails: SkippedRowDetail[];
   skippedDetails: SkippedRowDetail[];
   groups: SummaryGroup[];
 };
@@ -154,7 +156,7 @@ export async function importDentalTransactionsAction(
 ): Promise<ImportResult> {
   const session = await requireActiveFacilitySession();
   if (!session || !session.is_admin) {
-    return { success: false, error: "غير مصرح — مخصص للمشرفين فقط", totalRows: 0, insertedCount: 0, skippedCount: 0, autoCreatedCount: 0, skippedDetails: [], groups: [] };
+    return { success: false, error: "غير مصرح — مخصص للمشرفين فقط", totalRows: 0, insertedCount: 0, skippedCount: 0, autoCreatedCount: 0, ceilingExceededCount: 0, ceilingExceededDetails: [], skippedDetails: [], groups: [] };
   }
 
   try {
@@ -163,7 +165,7 @@ export async function importDentalTransactionsAction(
     await workbook.xlsx.load(buffer as any);
     const ws = workbook.getWorksheet(1) || workbook.worksheets[0];
     if (!ws) {
-      return { success: false, error: "ملف Excel فارغ أو لا يحتوي على ورقة عمل صالحة.", totalRows: 0, insertedCount: 0, skippedCount: 0, autoCreatedCount: 0, skippedDetails: [], groups: [] };
+      return { success: false, error: "ملف Excel فارغ أو لا يحتوي على ورقة عمل صالحة.", totalRows: 0, insertedCount: 0, skippedCount: 0, autoCreatedCount: 0, ceilingExceededCount: 0, ceilingExceededDetails: [], skippedDetails: [], groups: [] };
     }
 
     const rawRows: any[] = [];
@@ -182,8 +184,12 @@ export async function importDentalTransactionsAction(
       const name = nameVal ? String(nameVal).trim() : "";
       const amount = Number(amountVal || 0);
 
-      // Skip completely empty rows
-      if (!card && !name && amount === 0) return;
+      const hasName = Boolean(name);
+      const facilityString = facilityVal ? String(facilityVal).trim() : "";
+      const hasFacility = Boolean(facilityString);
+
+      // Skip completely empty rows or junk formula rows
+      if (amount === 0) return;
 
       rawRows.push({
         rowNumber,
@@ -199,7 +205,7 @@ export async function importDentalTransactionsAction(
 
     const totalRows = rawRows.length;
     if (totalRows === 0) {
-      return { success: false, error: "لم يتم العثور على أي حركات صالحة في الملف.", totalRows: 0, insertedCount: 0, skippedCount: 0, autoCreatedCount: 0, skippedDetails: [], groups: [] };
+      return { success: false, error: "لم يتم العثور على أي حركات صالحة في الملف.", totalRows: 0, insertedCount: 0, skippedCount: 0, autoCreatedCount: 0, ceilingExceededCount: 0, ceilingExceededDetails: [], skippedDetails: [], groups: [] };
     }
 
     // Sort chronologically by date
@@ -208,7 +214,7 @@ export async function importDentalTransactionsAction(
     // Gather unique card numbers to match beneficiaries
     const uniqueCards = Array.from(new Set(rawRows.map((r) => r.card).filter(Boolean)));
     
-    const dbBeneficiaries = await prisma.beneficiary.findMany({
+    const dbBeneficiaries = uniqueCards.length > 0 ? await prisma.beneficiary.findMany({
       where: {
         deleted_at: null,
         ...(companyId 
@@ -235,9 +241,10 @@ export async function importDentalTransactionsAction(
             id: true,
             name: true,
           }
-        }
+        },
+        custom_ceilings: true,
       },
-    });
+    }) : [];
 
     const resolveBeneficiary = (excelCard: string, excelName: string) => {
       if (!excelCard) return null;
@@ -389,6 +396,8 @@ export async function importDentalTransactionsAction(
     const groupStats = new Map<string, { count: number; totalAmount: number; isMatched: boolean; reason?: string }>();
 
     const skippedDetails: SkippedRowDetail[] = [];
+    const ceilingExceededDetails: SkippedRowDetail[] = [];
+    let ceilingExceededCount = 0;
     let insertedCount = 0;
     let skippedCount = 0;
 
@@ -520,12 +529,6 @@ export async function importDentalTransactionsAction(
         continue;
       }
 
-      if (dryRun) {
-        // If it's a dry-run, we skip DB write but count it as "to be inserted"
-        insertedCount++;
-        continue;
-      }
-
       // Chronological consumption tracking
       const year = r.date.getFullYear();
       const consumptionKey = `${beneficiary.id}:${year}`;
@@ -549,8 +552,13 @@ export async function importDentalTransactionsAction(
 
       let tpaData: any = {};
       if (policy) {
-        const effectiveCeiling = (policy.annual_ceiling === null || Number(policy.annual_ceiling) === 0)
+        let effectiveCeiling = (policy.annual_ceiling === null || Number(policy.annual_ceiling) === 0)
           ? null : Number(policy.annual_ceiling);
+
+        if (beneficiary.custom_ceilings && typeof beneficiary.custom_ceilings === "object" && "DENTAL" in (beneficiary.custom_ceilings as any)) {
+          const cVal = (beneficiary.custom_ceilings as any).DENTAL;
+          effectiveCeiling = cVal === null ? null : Number(cVal);
+        }
 
         const calcResult = InsuranceEngine.calculate({
           amount: r.amount,
@@ -581,6 +589,18 @@ export async function importDentalTransactionsAction(
             notes: r.notes || `استيراد حركة سابقة - موافقة ${r.approval || "بدون"}`,
           },
         };
+
+        if (calcResult.actualPatientShare > calcResult.originalPatientShare) {
+          ceilingExceededCount++;
+          ceilingExceededDetails.push({
+            rowNumber: r.rowNumber,
+            name: r.name,
+            card: r.card,
+            facilityName: r.facilityName,
+            amount: r.amount,
+            reason: `تجاوز السقف: السقف المتبقي قبل الحركة كان ${calcResult.remainingCeilingBefore?.toFixed(2) || 0} د.ل وتم تحميل ${calcResult.actualPatientShare.toFixed(2)} د.ل على المستفيد`,
+          });
+        }
 
         runningConsumption.set(consumptionKey, currentConsumed + Number(calcResult.ceilingConsumed));
       } else {
@@ -615,6 +635,12 @@ export async function importDentalTransactionsAction(
         continue;
       }
 
+      if (dryRun) {
+        insertedCount++;
+        continue;
+      }
+
+      // --- Database Transaction Creation ---
       await prisma.transaction.create({
         data: {
           beneficiary_id: beneficiary.id,
@@ -632,7 +658,7 @@ export async function importDentalTransactionsAction(
     }
 
     // Convert map to groups array
-    const groups: SummaryGroup[] = Array.from(groupStats.entries()).map(([key, value]) => {
+    const groupArray = Array.from(groupStats.entries()).map(([key, value]) => {
       const [companyName, facilityName] = key.split(":::");
       return {
         companyName,
@@ -658,20 +684,13 @@ export async function importDentalTransactionsAction(
       insertedCount,
       skippedCount,
       autoCreatedCount,
+      ceilingExceededCount,
+      ceilingExceededDetails,
       skippedDetails,
-      groups,
+      groups: groupArray,
     };
   } catch (error: any) {
-    logger.error("Dental transactions import action error", { error: String(error) });
-    return {
-      success: false,
-      error: error.message || "حدث خطأ غير متوقع أثناء معالجة الاستيراد.",
-      totalRows: 0,
-      insertedCount: 0,
-      skippedCount: 0,
-      autoCreatedCount: 0,
-      skippedDetails: [],
-      groups: [],
-    };
+    logger.error("Dental Import Error:", { error: error.message, stack: error.stack });
+    return { success: false, error: "حدث خطأ غير متوقع: " + error.message, totalRows: 0, insertedCount: 0, skippedCount: 0, autoCreatedCount: 0, ceilingExceededCount: 0, ceilingExceededDetails: [], skippedDetails: [], groups: [] };
   }
 }

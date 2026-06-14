@@ -284,6 +284,7 @@ export async function updateBeneficiary(data: {
   is_legacy_card?: boolean;
   total_balance?: number;
   remaining_balance?: number;
+  custom_ceilings?: Record<string, number | null> | null;
 }) {
   const session = await requireActiveFacilitySession();
   if (!session || !hasPermission(session, "edit_beneficiary")) {
@@ -313,6 +314,7 @@ export async function updateBeneficiary(data: {
           completed_via: true,
           total_balance: true,
           remaining_balance: true,
+          custom_ceilings: true,
         },
       });
 
@@ -375,6 +377,7 @@ export async function updateBeneficiary(data: {
           completed_via: payload.status === "FINISHED" ? (oldRecord.completed_via ?? "MANUAL") : null,
           total_balance: nextTotal,
           remaining_balance: nextRemaining,
+          ...(payload.custom_ceilings !== undefined ? { custom_ceilings: (payload.custom_ceilings ?? null) as any } : {}),
         },
       });
 

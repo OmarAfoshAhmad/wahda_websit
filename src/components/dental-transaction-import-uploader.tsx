@@ -33,6 +33,8 @@ export function DentalTransactionImportUploader({
     insertedCount: number;
     skippedCount: number;
     autoCreatedCount: number;
+    ceilingExceededCount?: number;
+    ceilingExceededDetails?: SkippedRowDetail[];
     skippedDetails: SkippedRowDetail[];
     groups: SummaryGroup[];
   } | null>(null);
@@ -45,6 +47,8 @@ export function DentalTransactionImportUploader({
     insertedCount: number;
     skippedCount: number;
     autoCreatedCount: number;
+    ceilingExceededCount?: number;
+    ceilingExceededDetails?: SkippedRowDetail[];
     skippedDetails: SkippedRowDetail[];
   } | null>(null);
 
@@ -320,6 +324,12 @@ export function DentalTransactionImportUploader({
                 <p className="text-xs text-red-600">حركات غير مطابقة (ستتخطى)</p>
                 <p className="mt-1 text-2xl font-black text-red-800 dark:text-red-300">{analysis.skippedCount}</p>
               </Card>
+              {analysis.ceilingExceededCount !== undefined && analysis.ceilingExceededCount > 0 && (
+                <Card className="p-4 text-center bg-amber-50/50 dark:bg-amber-900/10 border-amber-100 dark:border-amber-950">
+                  <p className="text-xs text-amber-600">حركات تجاوزت السقف</p>
+                  <p className="mt-1 text-2xl font-black text-amber-800 dark:text-amber-300">{analysis.ceilingExceededCount}</p>
+                </Card>
+              )}
             </div>
 
             {/* Aggregated Group Statistics */}
@@ -402,6 +412,41 @@ export function DentalTransactionImportUploader({
                             <Badge variant="danger" className="font-bold">
                               {detail.reason}
                             </Badge>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Ceiling Exceeded Warnings list */}
+            {analysis.ceilingExceededCount !== undefined && analysis.ceilingExceededCount > 0 && (
+              <div className="space-y-3 mb-6">
+                <h3 className="text-sm font-black text-amber-800 dark:text-amber-300">تنبيه: حركات تتجاوز سقف المستفيد (سيتم استيرادها مع تحميل الفرق للمستفيد)</h3>
+                <div className="border border-slate-100 dark:border-slate-800 rounded-lg overflow-hidden max-h-60 overflow-y-auto">
+                  <table className="min-w-full divide-y divide-slate-100 dark:divide-slate-800 text-right text-xs">
+                    <thead className="bg-slate-50 dark:bg-slate-900 sticky top-0">
+                      <tr>
+                        <th className="px-4 py-2 text-slate-500 font-bold">الصف</th>
+                        <th className="px-4 py-2 text-slate-500 font-bold">الاسم بالملف</th>
+                        <th className="px-4 py-2 text-slate-500 font-bold">رقم التأمين</th>
+                        <th className="px-4 py-2 text-slate-500 font-bold">المرفق بالملف</th>
+                        <th className="px-4 py-2 text-slate-500 font-bold">المبلغ</th>
+                        <th className="px-4 py-2 text-slate-500 font-bold">تفاصيل التجاوز</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-950">
+                      {analysis.ceilingExceededDetails?.map((detail: any, idx: number) => (
+                        <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/20">
+                          <td className="px-4 py-2 text-slate-400 font-bold">#{detail.rowNumber}</td>
+                          <td className="px-4 py-2 text-slate-900 dark:text-white font-bold">{detail.name || "-"}</td>
+                          <td className="px-4 py-2 font-mono font-bold">{detail.card || "-"}</td>
+                          <td className="px-4 py-2">{detail.facilityName || "-"}</td>
+                          <td className="px-4 py-2 text-teal-600 font-bold">{detail.amount.toFixed(2)} د.ل</td>
+                          <td className="px-4 py-2 text-amber-600 font-bold max-w-[300px] whitespace-normal">
+                            {detail.reason}
                           </td>
                         </tr>
                       ))}

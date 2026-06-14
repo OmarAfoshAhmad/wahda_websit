@@ -17,6 +17,7 @@ interface BeneficiaryEditModalProps {
     is_legacy_card?: boolean;
     total_balance?: number;
     remaining_balance?: number;
+    custom_ceilings?: any;
   };
   iconOnly?: boolean;
 }
@@ -33,6 +34,15 @@ export function BeneficiaryEditModal({ beneficiary, iconOnly = false }: Benefici
   const [status, setStatus] = useState<"ACTIVE" | "FINISHED" | "SUSPENDED">(beneficiary.status);
   const [isLegacyCard, setIsLegacyCard] = useState(Boolean(beneficiary.is_legacy_card));
   const [remainingBalance, setRemainingBalance] = useState(String(beneficiary.remaining_balance ?? 0));
+  
+  // Custom Ceilings
+  const [dentalCeiling, setDentalCeiling] = useState<string>(
+    beneficiary.custom_ceilings?.DENTAL != null ? String(beneficiary.custom_ceilings.DENTAL) : ""
+  );
+  const [opticsCeiling, setOpticsCeiling] = useState<string>(
+    beneficiary.custom_ceilings?.OPTICS != null ? String(beneficiary.custom_ceilings.OPTICS) : ""
+  );
+
   const [error, setError] = useState<string | null>(null);
 
   // إغلاق بمفتاح Escape
@@ -64,6 +74,11 @@ export function BeneficiaryEditModal({ beneficiary, iconOnly = false }: Benefici
           status,
           is_legacy_card: isLegacyCard,
           remaining_balance: parsedRemaining,
+          custom_ceilings: {
+            ...beneficiary.custom_ceilings,
+            DENTAL: dentalCeiling.trim() === "" ? null : Number(dentalCeiling),
+            OPTICS: opticsCeiling.trim() === "" ? null : Number(opticsCeiling),
+          },
         });
 
         if (result.error) {
@@ -162,6 +177,37 @@ export function BeneficiaryEditModal({ beneficiary, iconOnly = false }: Benefici
                   />
                   بطاقة قديمة
                 </label>
+              </div>
+
+              {/* أسقف استثنائية */}
+              <div className="col-span-2 mt-4 border-t border-slate-100 dark:border-slate-800 pt-4">
+                <h4 className="mb-3 text-sm font-black text-teal-700 dark:text-teal-400">سقوف استثنائية (اختياري)</h4>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-xs font-black text-slate-500 dark:text-slate-400">سقف الأسنان الاستثنائي</label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="اتركه فارغاً لاستخدام سقف الشركة"
+                      value={dentalCeiling}
+                      onChange={(e) => setDentalCeiling(e.target.value)}
+                      className="h-10 text-right placeholder:text-[10px]"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-black text-slate-500 dark:text-slate-400">سقف البصريات الاستثنائي</label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="اتركه فارغاً لاستخدام سقف الشركة"
+                      value={opticsCeiling}
+                      onChange={(e) => setOpticsCeiling(e.target.value)}
+                      className="h-10 text-right placeholder:text-[10px]"
+                    />
+                  </div>
+                </div>
               </div>
 
               {error && <p className="col-span-2 text-sm font-bold text-red-600 dark:text-red-400">{error}</p>}

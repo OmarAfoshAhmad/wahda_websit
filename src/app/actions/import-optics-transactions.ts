@@ -32,45 +32,99 @@ export type ImportResult = {
   insertedCount: number;
   skippedCount: number;
   autoCreatedCount: number;
+  ceilingExceededCount: number;
+  ceilingExceededDetails: SkippedRowDetail[];
   skippedDetails: SkippedRowDetail[];
   groups: SummaryGroup[];
 };
 
 const FACILITY_MAP: Record<string, string> = {
-  "الليبية التخصصية": "cmn78k17t0034nz1nkwiklngp",
-  "الليبية التخصصية - اسنان": "cmn78k17t0034nz1nkwiklngp",
-  "الليبية التخصصيه": "cmn78k17t0034nz1nkwiklngp",
-  "الليبيه التخصصيه": "cmn78k17t0034nz1nkwiklngp",
-  "الليبيه التخصيصيه": "cmn78k17t0034nz1nkwiklngp",
-  "فينيسيا": "cmn78k17t0035nz1n3t9j6iey",
-  "مركز فينيسيا - اسنان": "cmn78k17t0035nz1n3t9j6iey",
-  "مستشفى فينيسيا": "cmn78k17t0035nz1n3t9j6iey",
-  "فنيسيا": "cmn78k17t0035nz1n3t9j6iey",
-  "عيادة الابتسامه": "cmn78k17t0033nz1n8kwgcf2i",
-  "الابتسامه": "cmn78k17t0033nz1n8kwgcf2i",
-  "الابتسامة": "cmn78k17t0033nz1n8kwgcf2i",
-  "الايتسامة": "cmn78k17t0033nz1n8kwgcf2i",
-  "مركز الابتسامة  - اسنان": "cmn78k17t0033nz1n8kwgcf2i",
-  "مركز الابتسامه": "cmn78k17t0033nz1n8kwgcf2i",
-  "مركز قيس": "cmnovn0z9059vpm0o6024iq09",
-  "مركز قيس للاسنان": "cmnovn0z9059vpm0o6024iq09",
-  "القيس": "cmnovn0z9059vpm0o6024iq09",
-  "الامل": "cmn78k17t0032nz1nbcu8a0jr",
-  "مركز الامل": "cmn78k17t0032nz1nbcu8a0jr",
-  "مركز الامل - اسنان": "cmn78k17t0032nz1nbcu8a0jr",
-  "الريادة": "cmnfobmdu0asrpm0o2phplk8v",
-  "مركز الريادة": "cmnfobmdu0asrpm0o2phplk8v",
-  "مركز الريادة للاسنان": "cmnfobmdu0asrpm0o2phplk8v",
-  "الرياده": "cmnfobmdu0asrpm0o2phplk8v",
-  "التيجان": "cmn78k17t003hnz1niuni1ruy",
-  "تيجان": "cmn78k17t003hnz1niuni1ruy",
-  "الهلال الاحمر - البركة": "cmn4pktb8000cn82k834igzmj",
-  "دينتال": "cmn78k17t003gnz1nguqwjd8n",
-  "مركز الحياة": "cmn4pktb9003on82kw9kzwrgo",
-  "مركز درنه": "cmn78k17t003fnz1ntwonox2n",
-  "مصحة الاستشاري": "cmn4pktb9002ln82kk9hadztc",
-  "مصحة الحكمة": "cmn4pktb90042n82kqob8niyt",
-  "نبض الحياه": "cmn4pktb9004bn82kbp7iafvl"
+  // الجهمي
+  "الجهمي للبصريات": "waljahmi_eye",
+  "شركه مجموعة الجهمي": "waljahmi_eye",
+  "مجموعة الجهمي": "waljahmi_eye",
+  "مجموعة الجهمي للبصريات": "waljahmi_eye",
+  "شركه مجموعه الجهمي": "waljahmi_eye",
+  "مجموعة الجهمي للبصرياات": "waljahmi_eye",
+  "مجموعة  الجهمي": "waljahmi_eye",
+  
+  // ساطي
+  "ساطي": "wsati_eye",
+  "ساطي للبصريات": "wsati_eye",
+  "شركة ساطي": "wsati_eye",
+  "الساطي": "wsati_eye",
+  "شركة الساطي": "wsati_eye",
+
+  // دلتا
+  "دلتا للبصريات": "wdelta_eye",
+  "دلتا البصريات": "wdelta_eye",
+  "دلتا": "wdelta_eye",
+
+  // 21 بصريات
+  "21 للبصريات": "wtwenty_one_eye",
+  "21بصريات": "wtwenty_one_eye",
+  "21 بصريات": "wtwenty_one_eye",
+
+  // برنيق
+  "البرنيق": "wberniq_eye",
+  "البرنيق للبصريات": "wberniq_eye",
+  "شركة برنيق الجديد": "wberniq_eye",
+  "برنيق الجديد": "wberniq_eye",
+
+  // الرؤية
+  "الرؤية للبصريات": "wroaya_eye",
+  "رؤية للبصريات": "wroaya_eye",
+  "رؤيه": "wroaya_eye",
+  "رؤية": "wroaya_eye",
+
+  // الأنيس
+  "الانيس للبصريات": "walanis_eye",
+  "الانيس": "walanis_eye",
+
+  // الأمل للشفاء
+  "الامل للشفاء": "walamal_eye",
+
+  // ليتوريا
+  "ليتوريا": "wletoria_eye",
+  "مركز ليتوريا": "wletoria_eye",
+
+  // مكين
+  "مكين": "wmakeen_eye",
+
+  // رشاد
+  "الرشاد": "wrashad_eye",
+  "رشاد للبصريات": "wrashad_eye",
+  "مركز رشاد": "wrashad_eye",
+
+  // المتقدم
+  "المتقدم": "wmotakadem_eye",
+  "المتقدم للبصريات": "wmotakadem_eye",
+
+  // ابن سينا
+  "ابن سينا  للبصريات": "wibnsina_eye",
+
+  // بوراوي
+  "بوراوي للبصريات": "wborawi_eye",
+
+  // بصريات الشريف
+  "بصريات الشريف": "walshareef_eye",
+
+  // أبو النجا
+  "ابو النجا": "wabonaja_eye",
+
+  // الوصال
+  "الوصال للبصريات": "walwesal_eye",
+  "الوصال": "walwesal_eye",
+
+  // مركز درنة
+  "مركز درنة الطبي": "wderna_eye",
+  "مركز درتة": "wderna_eye",
+
+  // مركز الحكيم
+  "مركز الحكيم": "walhakim_eye",
+
+  // الأميرة
+  "الأميرة للنظارات": "walamira_eye"
 };
 
 function normalizeCardNumber(card: any): string {
@@ -154,7 +208,7 @@ export async function importOpticsTransactionsAction(
 ): Promise<ImportResult> {
   const session = await requireActiveFacilitySession();
   if (!session || !session.is_admin) {
-    return { success: false, error: "غير مصرح — مخصص للمشرفين فقط", totalRows: 0, insertedCount: 0, skippedCount: 0, autoCreatedCount: 0, skippedDetails: [], groups: [] };
+    return { success: false, error: "غير مصرح — مخصص للمشرفين فقط", totalRows: 0, insertedCount: 0, skippedCount: 0, autoCreatedCount: 0, ceilingExceededCount: 0, ceilingExceededDetails: [], skippedDetails: [], groups: [] };
   }
 
   try {
@@ -163,7 +217,7 @@ export async function importOpticsTransactionsAction(
     await workbook.xlsx.load(buffer as any);
     const ws = workbook.getWorksheet(1) || workbook.worksheets[0];
     if (!ws) {
-      return { success: false, error: "ملف Excel فارغ أو لا يحتوي على ورقة عمل صالحة.", totalRows: 0, insertedCount: 0, skippedCount: 0, autoCreatedCount: 0, skippedDetails: [], groups: [] };
+      return { success: false, error: "ملف Excel فارغ أو لا يحتوي على ورقة عمل صالحة.", totalRows: 0, insertedCount: 0, skippedCount: 0, autoCreatedCount: 0, ceilingExceededCount: 0, ceilingExceededDetails: [], skippedDetails: [], groups: [] };
     }
 
     const rawRows: any[] = [];
@@ -175,15 +229,19 @@ export async function importOpticsTransactionsAction(
       const approvalVal = row.getCell(3).value;
       const amountVal = row.getCell(4).value;
       const dateVal = row.getCell(5).value;
-      const notesVal = row.getCell(6).value;
-      const facilityVal = row.getCell(7).value;
+      const facilityVal = row.getCell(6).value; // F
+      const notesVal = row.getCell(7).value; // G
 
       const card = normalizeCardNumber(cardVal);
       const name = nameVal ? String(nameVal).trim() : "";
       const amount = Number(amountVal || 0);
 
-      // Skip completely empty rows
-      if (!card && !name && amount === 0) return;
+      const hasName = Boolean(name);
+      const facilityString = facilityVal ? String(facilityVal).trim() : "";
+      const hasFacility = Boolean(facilityString);
+
+      // Skip completely empty rows or junk formula rows
+      if (amount === 0) return;
 
       rawRows.push({
         rowNumber,
@@ -199,7 +257,7 @@ export async function importOpticsTransactionsAction(
 
     const totalRows = rawRows.length;
     if (totalRows === 0) {
-      return { success: false, error: "لم يتم العثور على أي حركات صالحة في الملف.", totalRows: 0, insertedCount: 0, skippedCount: 0, autoCreatedCount: 0, skippedDetails: [], groups: [] };
+      return { success: false, error: "لم يتم العثور على أي حركات صالحة في الملف.", totalRows: 0, insertedCount: 0, skippedCount: 0, autoCreatedCount: 0, ceilingExceededCount: 0, ceilingExceededDetails: [], skippedDetails: [], groups: [] };
     }
 
     // Sort chronologically by date
@@ -208,7 +266,7 @@ export async function importOpticsTransactionsAction(
     // Gather unique card numbers to match beneficiaries
     const uniqueCards = Array.from(new Set(rawRows.map((r) => r.card).filter(Boolean)));
     
-    const dbBeneficiaries = await prisma.beneficiary.findMany({
+    const dbBeneficiaries = uniqueCards.length > 0 ? await prisma.beneficiary.findMany({
       where: {
         deleted_at: null,
         ...(companyId 
@@ -235,9 +293,10 @@ export async function importOpticsTransactionsAction(
             id: true,
             name: true,
           }
-        }
+        },
+        custom_ceilings: true,
       },
-    });
+    }) : [];
 
     const resolveBeneficiary = (excelCard: string, excelName: string) => {
       if (!excelCard) return null;
@@ -320,7 +379,7 @@ export async function importOpticsTransactionsAction(
     // Get list of facilities to match
     const dbFacilities = await prisma.facility.findMany({
       where: { deleted_at: null },
-      select: { id: true, name: true },
+      select: { id: true, name: true, username: true },
     });
 
     // Match helper
@@ -328,10 +387,10 @@ export async function importOpticsTransactionsAction(
       if (!name) return null;
       const clean = name.trim();
       
-      // 1. Check custom map
-      const mappedId = FACILITY_MAP[clean];
-      if (mappedId) {
-        const found = dbFacilities.find(f => f.id === mappedId);
+      // 1. Check custom map by username
+      const mappedUsername = FACILITY_MAP[clean];
+      if (mappedUsername) {
+        const found = dbFacilities.find(f => f.username === mappedUsername);
         if (found) return found;
       }
 
@@ -389,6 +448,8 @@ export async function importOpticsTransactionsAction(
     const groupStats = new Map<string, { count: number; totalAmount: number; isMatched: boolean; reason?: string }>();
 
     const skippedDetails: SkippedRowDetail[] = [];
+    const ceilingExceededDetails: SkippedRowDetail[] = [];
+    let ceilingExceededCount = 0;
     let insertedCount = 0;
     let skippedCount = 0;
 
@@ -520,12 +581,6 @@ export async function importOpticsTransactionsAction(
         continue;
       }
 
-      if (dryRun) {
-        // If it's a dry-run, we skip DB write but count it as "to be inserted"
-        insertedCount++;
-        continue;
-      }
-
       // Chronological consumption tracking
       const year = r.date.getFullYear();
       const consumptionKey = `${beneficiary.id}:${year}`;
@@ -549,8 +604,13 @@ export async function importOpticsTransactionsAction(
 
       let tpaData: any = {};
       if (policy) {
-        const effectiveCeiling = (policy.annual_ceiling === null || Number(policy.annual_ceiling) === 0)
+        let effectiveCeiling = (policy.annual_ceiling === null || Number(policy.annual_ceiling) === 0)
           ? null : Number(policy.annual_ceiling);
+
+        if (beneficiary.custom_ceilings && typeof beneficiary.custom_ceilings === "object" && "OPTICS" in (beneficiary.custom_ceilings as any)) {
+          const cVal = (beneficiary.custom_ceilings as any).OPTICS;
+          effectiveCeiling = cVal === null ? null : Number(cVal);
+        }
 
         const calcResult = InsuranceEngine.calculate({
           amount: r.amount,
@@ -581,6 +641,18 @@ export async function importOpticsTransactionsAction(
             notes: r.notes || `استيراد حركة سابقة - موافقة ${r.approval || "بدون"}`,
           },
         };
+
+        if (calcResult.actualPatientShare > calcResult.originalPatientShare) {
+          ceilingExceededCount++;
+          ceilingExceededDetails.push({
+            rowNumber: r.rowNumber,
+            name: r.name,
+            card: r.card,
+            facilityName: r.facilityName,
+            amount: r.amount,
+            reason: `تجاوز السقف: السقف المتبقي قبل الحركة كان ${calcResult.remainingCeilingBefore?.toFixed(2) || 0} د.ل وتم تحميل ${calcResult.actualPatientShare.toFixed(2)} د.ل على المستفيد`,
+          });
+        }
 
         runningConsumption.set(consumptionKey, currentConsumed + Number(calcResult.ceilingConsumed));
       } else {
@@ -615,6 +687,11 @@ export async function importOpticsTransactionsAction(
         continue;
       }
 
+      if (dryRun) {
+        insertedCount++;
+        continue;
+      }
+
       await prisma.transaction.create({
         data: {
           beneficiary_id: beneficiary.id,
@@ -632,7 +709,7 @@ export async function importOpticsTransactionsAction(
     }
 
     // Convert map to groups array
-    const groups: SummaryGroup[] = Array.from(groupStats.entries()).map(([key, value]) => {
+    const groupArray: SummaryGroup[] = Array.from(groupStats.entries()).map(([key, value]) => {
       const [companyName, facilityName] = key.split(":::");
       return {
         companyName,
@@ -658,18 +735,22 @@ export async function importOpticsTransactionsAction(
       insertedCount,
       skippedCount,
       autoCreatedCount,
+      ceilingExceededCount,
+      ceilingExceededDetails,
       skippedDetails,
-      groups,
+      groups: groupArray,
     };
   } catch (error: any) {
-    logger.error("Optics transactions import action error", { error: String(error) });
+    logger.error("Optics Import Error:", { error: error.message, stack: error.stack });
     return {
       success: false,
-      error: error.message || "حدث خطأ غير متوقع أثناء معالجة الاستيراد.",
+      error: "حدث خطأ غير متوقع: " + error.message,
       totalRows: 0,
       insertedCount: 0,
       skippedCount: 0,
       autoCreatedCount: 0,
+      ceilingExceededCount: 0,
+      ceilingExceededDetails: [],
       skippedDetails: [],
       groups: [],
     };

@@ -127,15 +127,15 @@ export async function deductBalance(formData: {
       // 1. Get beneficiary with row-level lock (using raw sql as Prisma interactive tx isn't always enough for specific locking locks)
       // On PostgreSQL, we can use SELECT ... FOR UPDATE
       const beneficiaries = beneficiaryIdInput
-        ? await tx.$queryRaw<Array<{ id: string; name: string; card_number: string; company_id: string | null; remaining_balance: number; total_balance: number; status: string }>>`
-          SELECT id, name, card_number, company_id, remaining_balance, total_balance::float8, status FROM "Beneficiary"
+        ? await tx.$queryRaw<Array<{ id: string; name: string; card_number: string; company_id: string | null; remaining_balance: number; total_balance: number; status: string; custom_ceilings: any }>>`
+          SELECT id, name, card_number, company_id, remaining_balance, total_balance::float8, status, custom_ceilings FROM "Beneficiary"
           WHERE id = ${beneficiaryIdInput}
             AND "deleted_at" IS NULL
           LIMIT 1
           FOR UPDATE
         `
-        : await tx.$queryRaw<Array<{ id: string; name: string; card_number: string; company_id: string | null; remaining_balance: number; total_balance: number; status: string }>>`
-          SELECT id, name, card_number, company_id, remaining_balance, total_balance::float8, status FROM "Beneficiary"
+        : await tx.$queryRaw<Array<{ id: string; name: string; card_number: string; company_id: string | null; remaining_balance: number; total_balance: number; status: string; custom_ceilings: any }>>`
+          SELECT id, name, card_number, company_id, remaining_balance, total_balance::float8, status, custom_ceilings FROM "Beneficiary"
           WHERE TRANSLATE(
             REGEXP_REPLACE(UPPER(card_number), '[^A-Z0-9٠-٩۰-۹]+', '', 'g'),
             '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹',
@@ -230,8 +230,14 @@ export async function deductBalance(formData: {
         let isConfigured = false;
 
         if (policyServiceType === "DENTAL") {
-          const dentalPolicy = company.service_policies?.find((p: any) => p.service_type?.code === "DENTAL");
-          annual_ceiling = dentalPolicy && dentalPolicy.ceiling_amount !== null ? Number(dentalPolicy.ceiling_amount) : null;
+          const dentalPolicy = (company as any).service_policies?.find((p: any) => p.service_type?.code === "DENTAL");
+          
+          if (beneficiary.custom_ceilings && typeof beneficiary.custom_ceilings === "object" && "DENTAL" in beneficiary.custom_ceilings) {
+            const cVal = (beneficiary.custom_ceilings as any).DENTAL;
+            annual_ceiling = cVal === null ? null : Number(cVal);
+          } else {
+            annual_ceiling = dentalPolicy && dentalPolicy.ceiling_amount !== null ? Number(dentalPolicy.ceiling_amount) : null;
+          }
           
           const settings = (company as any).dental_settings ? ((company as any).dental_settings as any) : null;
           let categoryCoverage = dentalPolicy ? Number(dentalPolicy.coverage_percent) : 100;
@@ -248,8 +254,14 @@ export async function deductBalance(formData: {
           copay_percentage = Math.max(0, 100 - categoryCoverage);
           isConfigured = !!dentalPolicy;
         } else if (policyServiceType === "OPTICS") {
-          const opticsPolicy = company.service_policies?.find((p: any) => p.service_type?.code === "OPTICS");
-          annual_ceiling = opticsPolicy && opticsPolicy.ceiling_amount !== null ? Number(opticsPolicy.ceiling_amount) : null;
+          const opticsPolicy = (company as any).service_policies?.find((p: any) => p.service_type?.code === "OPTICS");
+          
+          if (beneficiary.custom_ceilings && typeof beneficiary.custom_ceilings === "object" && "OPTICS" in beneficiary.custom_ceilings) {
+            const cVal = (beneficiary.custom_ceilings as any).OPTICS;
+            annual_ceiling = cVal === null ? null : Number(cVal);
+          } else {
+            annual_ceiling = opticsPolicy && opticsPolicy.ceiling_amount !== null ? Number(opticsPolicy.ceiling_amount) : null;
+          }
           
           let categoryCoverage = opticsPolicy ? Number(opticsPolicy.coverage_percent) : 100;
           

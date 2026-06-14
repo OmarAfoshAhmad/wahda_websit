@@ -90,6 +90,9 @@ model Beneficiary {
   wallet_consumptions          WalletConsumption[]
   claims                       Claim[]
 
+  // Custom Ceilings (JSON mapping of category to custom ceiling value)
+  custom_ceilings Json?
+
   @@index([card_number])
   @@index([deleted_at])
   @@index([status])

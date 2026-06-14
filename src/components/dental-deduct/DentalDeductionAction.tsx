@@ -18,11 +18,10 @@ export function DentalDeductionAction() {
     deducting,
     handleDeduct,
     yearlyConsumed,
-    annualCeiling,
-    copayPercentage,
     remainingCeiling,
     companyName,
     error,
+    copayPercentage,
     success,
     resetSearchState,
   } = useDentalDeductContext();
@@ -55,14 +54,16 @@ export function DentalDeductionAction() {
   const originalCompanyShare = amountNum * (1 - copayFactor);
   const originalPatientShare = amountNum * copayFactor;
 
+  const actualAnnualCeiling = beneficiary.total_balance;
+
   // تطبيق السقف السنوي
-  const remaining = remainingCeiling !== null ? remainingCeiling : Infinity;
-  const actualCompanyShare = annualCeiling === null
+  const remaining = actualAnnualCeiling !== null ? Math.max(0, actualAnnualCeiling - yearlyConsumed) : Infinity;
+  const actualCompanyShare = actualAnnualCeiling === null
     ? originalCompanyShare
     : Math.min(originalCompanyShare, remaining);
   const actualPatientShare = amountNum - actualCompanyShare;
-  const isPartial = annualCeiling !== null && originalCompanyShare > remaining && remaining > 0;
-  const isCeilingExhausted = annualCeiling !== null && remaining <= 0;
+  const isPartial = actualAnnualCeiling !== null && originalCompanyShare > remaining && remaining > 0;
+  const isCeilingExhausted = actualAnnualCeiling !== null && remaining <= 0;
 
   if (success) {
     return (
@@ -87,9 +88,17 @@ export function DentalDeductionAction() {
 
   return (
     <Card className="p-5 border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl shadow-sm space-y-4">
-      <div className="pb-3 border-b border-slate-100 dark:border-slate-800">
-        <h3 className="font-black text-slate-900 dark:text-white">اقتطاع خدمات الأسنان</h3>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">تطبيق خصم مالي مباشر وحساب نسب التحمل</p>
+      <div className="pb-3 border-b border-slate-100 dark:border-slate-800 flex justify-between items-start">
+        <div>
+          <h3 className="font-black text-slate-900 dark:text-white">اقتطاع خدمات الأسنان</h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">تطبيق خصم مالي مباشر وحساب نسب التحمل</p>
+        </div>
+        {beneficiary.hasCustomCeiling && (
+          <div className="flex items-center gap-1.5 bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 px-2.5 py-1 rounded-md border border-amber-200 dark:border-amber-800/50">
+            <span className="text-sm">🌟</span>
+            <span className="text-[10px] font-black uppercase tracking-wider">سقف استثنائي</span>
+          </div>
+        )}
       </div>
 
       {/* اختيار نوع الخدمة إذا كان هناك سياسات مخصصة */}
@@ -163,7 +172,7 @@ export function DentalDeductionAction() {
           {isCeilingExhausted ? (
             <div className="text-center py-2">
               <p className="font-black text-red-700 dark:text-red-400">انتهى السقف السنوي لخدمات الأسنان</p>
-              <p className="text-xs text-red-600 dark:text-red-500 mt-1">لا يمكن إجراء اقتطاع — المستهلك: {formatCurrency(yearlyConsumed)} / {annualCeiling?.toLocaleString("ar-LY")} د.ل</p>
+              <p className="text-xs text-red-600 dark:text-red-500 mt-1">لا يمكن إجراء اقتطاع — المستهلك: {formatCurrency(yearlyConsumed)} / {actualAnnualCeiling?.toLocaleString("ar-LY")} د.ل</p>
             </div>
           ) : (
             <>
@@ -184,7 +193,7 @@ export function DentalDeductionAction() {
                   <p className="text-[10px] text-slate-400 mt-0.5">د.ل</p>
                 </div>
               </div>
-              {annualCeiling !== null && (
+              {actualAnnualCeiling !== null && (
                 <div className="pt-2.5 border-t border-slate-200/50 dark:border-slate-850 text-xs text-slate-500 dark:text-slate-400">
                   الرصيد المتبقي بعد الاقتطاع: <span className="font-black text-slate-700 dark:text-slate-355">
                     {Math.max(0, remaining - actualCompanyShare).toLocaleString("ar-LY")} د.ل

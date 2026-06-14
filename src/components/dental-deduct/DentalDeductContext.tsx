@@ -12,6 +12,7 @@ export interface DentalBeneficiary {
   remaining_balance: number | null;
   total_balance: number | null;
   status: string;
+  hasCustomCeiling?: boolean;
   company?: { id: string; name: string; code: string; logo?: string | null; dental_settings?: any } | null;
 }
 
@@ -22,6 +23,7 @@ export interface DentalSuggestion {
   status: string;
   remaining_balance: number | null;
   total_balance: number | null;
+  hasCustomCeiling?: boolean;
 }
 
 interface DentalDeductContextValue {
@@ -271,6 +273,7 @@ export function DentalDeductProvider({
           status: b.status,
           remaining_balance: b.remaining_balance,
           total_balance: b.total_balance,
+          hasCustomCeiling: b.hasCustomCeiling,
         });
 
         // Focus on the amount input after load

@@ -12,6 +12,7 @@ export interface OpticsBeneficiary {
   remaining_balance: number | null;
   total_balance: number | null;
   status: string;
+  hasCustomCeiling?: boolean;
   company?: { id: string; name: string; code: string; logo?: string | null; optics_settings?: any } | null;
 }
 
@@ -22,6 +23,7 @@ export interface OpticsSuggestion {
   status: string;
   remaining_balance: number | null;
   total_balance: number | null;
+  hasCustomCeiling?: boolean;
 }
 
 interface OpticsDeductContextValue {
@@ -267,6 +269,7 @@ export function OpticsDeductProvider({
           status: b.status,
           remaining_balance: b.remaining_balance,
           total_balance: b.total_balance,
+          hasCustomCeiling: b.hasCustomCeiling,
         });
 
         // Focus on the amount input after load

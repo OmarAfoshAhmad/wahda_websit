@@ -110,6 +110,7 @@ export const updateBeneficiarySchema = z.object({
   is_legacy_card: z.boolean().optional(),
   total_balance: z.coerce.number().min(0, "الرصيد الكلي لا يمكن أن يكون سالباً").optional(),
   remaining_balance: z.coerce.number().min(0, "الرصيد المتبقي لا يمكن أن يكون سالباً").optional(),
+  custom_ceilings: z.record(z.string(), z.union([z.number(), z.null()])).nullable().optional(),
 }).refine(
   (data) => {
     if (data.remaining_balance !== undefined && data.total_balance !== undefined) {

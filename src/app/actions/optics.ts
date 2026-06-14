@@ -45,6 +45,7 @@ export async function searchCompanyBeneficiaries(query: string, companyId: strin
         status: true,
         remaining_balance: true,
         total_balance: true,
+        custom_ceilings: true,
         company: {
           select: {
             service_policies: {
@@ -61,7 +62,14 @@ export async function searchCompanyBeneficiaries(query: string, companyId: strin
     return {
       items: rows.map(r => {
         const policy = r.company?.service_policies?.[0];
-        const opticsCeiling = policy?.ceiling_amount !== null && policy?.ceiling_amount !== undefined ? Number(policy.ceiling_amount) : 3000;
+        let opticsCeiling = policy?.ceiling_amount !== null && policy?.ceiling_amount !== undefined ? Number(policy.ceiling_amount) : 3000;
+        let hasCustomCeiling = false;
+        
+        if (r.custom_ceilings && typeof r.custom_ceilings === "object" && "OPTICS" in (r.custom_ceilings as any)) {
+          const cVal = (r.custom_ceilings as any).OPTICS;
+          opticsCeiling = cVal === null ? 99999999 : Number(cVal);
+          hasCustomCeiling = true;
+        }
         return {
           id: r.id,
           name: r.name,
@@ -69,6 +77,7 @@ export async function searchCompanyBeneficiaries(query: string, companyId: strin
           status: r.status,
           remaining_balance: opticsCeiling,
           total_balance: opticsCeiling,
+          hasCustomCeiling,
         };
       })
     };
@@ -99,6 +108,7 @@ export async function getOpticsBeneficiaryDetail(beneficiaryId: string, companyI
         status: true,
         remaining_balance: true,
         total_balance: true,
+        custom_ceilings: true,
         company: {
           select: {
             id: true,
@@ -141,9 +151,16 @@ export async function getOpticsBeneficiaryDetail(beneficiaryId: string, companyI
 
     const yearlyConsumed = Number(agg._sum.ceiling_consumed ?? 0);
 
-    const opticsCeiling = policy?.ceiling_amount !== null && policy?.ceiling_amount !== undefined
+    let opticsCeiling = policy?.ceiling_amount !== null && policy?.ceiling_amount !== undefined
       ? Number(policy.ceiling_amount)
       : (beneficiary.company ? null : 3000);
+
+    let hasCustomCeiling = false;
+    if (beneficiary.custom_ceilings && typeof beneficiary.custom_ceilings === "object" && "OPTICS" in beneficiary.custom_ceilings) {
+      const cVal = (beneficiary.custom_ceilings as any).OPTICS;
+      opticsCeiling = cVal === null ? null : Number(cVal);
+      hasCustomCeiling = true;
+    }
 
     const dynamicRemaining = opticsCeiling === null ? null : Math.max(0, opticsCeiling - yearlyConsumed);
     const dynamicStatus = beneficiary.status === "SUSPENDED"
@@ -159,6 +176,7 @@ export async function getOpticsBeneficiaryDetail(beneficiaryId: string, companyI
         status: dynamicStatus,
         remaining_balance: dynamicRemaining,
         total_balance: opticsCeiling,
+        hasCustomCeiling,
         company: beneficiary.company
       },
       yearlyConsumed
