@@ -22,8 +22,17 @@ const companies = [
 async function main() {
   console.log("🚀 بدء عملية إدخال وتحديث شركات التأمين والسياسات...");
 
+  // جلب معرفات الخدمات (يجب أن تكون موجودة مسبقاً)
+  const dentalService = await prisma.serviceType.findUnique({ where: { code: "DENTAL" } });
+  const opticsService = await prisma.serviceType.findUnique({ where: { code: "OPTICS" } });
+
+  if (!dentalService || !opticsService) {
+    console.error("❌ الخدمات الأساسية (DENTAL, OPTICS) غير موجودة! يرجى تشغيل السكربت الذي يضيفها أولاً.");
+    process.exit(1);
+  }
+
   for (const comp of companies) {
-    // 1. إنشاء أو تحديث الشركة بالسياسات المدمجة
+    // 1. إنشاء أو تحديث الشركة
     const company = await prisma.insuranceCompany.upsert({
       where: { code: comp.code },
       update: {
@@ -31,30 +40,50 @@ async function main() {
         card_pattern: comp.pattern,
         is_active: true,
         deleted_at: null,
-        dental_ceiling: comp.ceiling,
-        dental_coverage: comp.coverage,
-        general_ceiling: null,
-        general_coverage: 0,
-        medicine_ceiling: null,
-        medicine_coverage: 0
       },
       create: {
         name: comp.name,
         code: comp.code,
         card_pattern: comp.pattern,
         is_active: true,
-        dental_ceiling: comp.ceiling,
-        dental_coverage: comp.coverage,
-        general_ceiling: null,
-        general_coverage: 0,
-        medicine_ceiling: null,
-        medicine_coverage: 0
       }
     });
-    console.log(`✅ الشركة: ${company.name} (${company.code}) | ID: ${company.id}`);
-    console.log(`   └─ الأسنان: سقف = ${company.dental_ceiling} د.ل | تحمل = ${100 - Number(company.dental_coverage)}%`);
-    console.log(`   └─ العام: سقف = مغلق | تحمل = 100%`);
-    console.log(`   └─ الأدوية: سقف = مغلق | تحمل = 100%`);
+
+    // 2. تحديث سياسة الأسنان
+    await prisma.servicePolicy.upsert({
+      where: { 
+        company_id_service_type_id: { company_id: company.id, service_type_id: dentalService.id }
+      },
+      update: {
+        ceiling_amount: comp.ceiling,
+        coverage_percent: comp.coverage,
+      },
+      create: {
+        company_id: company.id,
+        service_type_id: dentalService.id,
+        ceiling_amount: comp.ceiling,
+        coverage_percent: comp.coverage,
+      }
+    });
+
+    // 3. تحديث سياسة البصريات (بافتراض نفس السقف للآن)
+    await prisma.servicePolicy.upsert({
+      where: { 
+        company_id_service_type_id: { company_id: company.id, service_type_id: opticsService.id }
+      },
+      update: {
+        ceiling_amount: comp.ceiling,
+        coverage_percent: comp.coverage,
+      },
+      create: {
+        company_id: company.id,
+        service_type_id: opticsService.id,
+        ceiling_amount: comp.ceiling,
+        coverage_percent: comp.coverage,
+      }
+    });
+
+    console.log(`✅ الشركة: ${company.name} (${company.code}) | السياسات أُضيفت بنجاح`);
   }
 
   console.log("🏁 تمت العملية بنجاح!");
