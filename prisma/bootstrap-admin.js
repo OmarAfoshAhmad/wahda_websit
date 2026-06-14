@@ -4,6 +4,22 @@ const bcrypt = require("bcryptjs");
 
 const db = new PrismaClient();
 
+async function bootstrapServiceTypes() {
+  const defaultServices = [
+    { code: "DENTAL", name: "الأسنان", is_active: true },
+    { code: "OPTICS", name: "البصريات", is_active: true }
+  ];
+
+  for (const service of defaultServices) {
+    await db.serviceType.upsert({
+      where: { code: service.code },
+      update: { name: service.name },
+      create: service,
+    });
+  }
+  console.log("[bootstrap-admin] Service types (DENTAL, OPTICS) are ready.");
+}
+
 async function main() {
   const username = process.env.DEFAULT_ADMIN_USERNAME;
   const password = process.env.DEFAULT_ADMIN_PASSWORD;
@@ -47,6 +63,9 @@ async function main() {
   });
 
   console.log(`[bootstrap-admin] admin account is ready for username: ${username}`);
+  
+  // Initialize default service types
+  await bootstrapServiceTypes();
 }
 
 main()
