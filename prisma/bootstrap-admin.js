@@ -21,6 +21,10 @@ async function bootstrapServiceTypes() {
 }
 
 async function main() {
+  // 1. Initialize default service types (Runs unconditionally)
+  await bootstrapServiceTypes();
+
+  // 2. Initialize admin
   const username = process.env.DEFAULT_ADMIN_USERNAME;
   const password = process.env.DEFAULT_ADMIN_PASSWORD;
   const name = process.env.DEFAULT_ADMIN_NAME || "System Admin";
@@ -63,9 +67,6 @@ async function main() {
   });
 
   console.log(`[bootstrap-admin] admin account is ready for username: ${username}`);
-  
-  // Initialize default service types
-  await bootstrapServiceTypes();
 }
 
 main()
