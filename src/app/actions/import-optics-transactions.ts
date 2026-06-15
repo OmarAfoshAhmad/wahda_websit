@@ -325,16 +325,28 @@ export async function importOpticsTransactionsAction(
       if (exactMatch) return exactMatch;
 
       // 2. Base card match with name matching
+      const getSuffix = (c: string) => {
+        const match = c.match(/[MFWSDH]\d*$/);
+        return match ? match[0] : "";
+      };
+      
       const getBase = (c: string) => {
         // Strip relation suffix (e.g. S1, D2, W1, H1 or single letter S, D, W, M, F, H at the end)
         const withoutSuffix = c.replace(/[MFWSDH]\d+$/, "").replace(/[MFWSDH]$/, "");
         // Normalize padding zeros after the year (e.g. 20250008 -> 20258)
         return withoutSuffix.replace(/(20\d{2})0+/, "$1");
       };
+      
       const excelBase = getBase(normExcelCard);
+      const excelSuffix = getSuffix(normExcelCard);
 
       const baseCandidates = dbBeneficiaries.filter(b => {
         const dbNorm = b.card_number.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+        // Strict suffix conflict check: if both have explicit suffixes and they don't match, they are different people
+        const dbSuffix = getSuffix(dbNorm);
+        if (excelSuffix && dbSuffix && excelSuffix !== dbSuffix) {
+          return false;
+        }
         return getBase(dbNorm) === excelBase;
       });
 
@@ -674,7 +686,9 @@ export async function importOpticsTransactionsAction(
         where: { idempotency_key: idempotencyKey },
       });
 
-      if (existing) {
+      const willBePurged = purgeOld && (!companyId || existing?.company_id === companyId);
+
+      if (existing && !willBePurged) {
         skippedCount++;
         skippedDetails.push({
           rowNumber: r.rowNumber,

@@ -9,6 +9,8 @@ type Props = {
   beneficiaryName: string;
   hasTransactions: boolean;
   overrideTotalBalance?: number;
+  overrideRemainingBalance?: number;
+  overrideConsumedBalance?: number;
 };
 
 type TxItem = {
@@ -92,7 +94,7 @@ function typeLabel(type: string, idempotencyKey?: string | null) {
   return type;
 }
 
-export function BeneficiaryTransactionsPanelButton({ beneficiaryId, beneficiaryName, hasTransactions, overrideTotalBalance }: Props) {
+export function BeneficiaryTransactionsPanelButton({ beneficiaryId, beneficiaryName, hasTransactions, overrideTotalBalance, overrideRemainingBalance, overrideConsumedBalance }: Props) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -189,11 +191,11 @@ export function BeneficiaryTransactionsPanelButton({ beneficiaryId, beneficiaryN
                       {overrideTotalBalance === null || overrideTotalBalance === undefined ? "الرصيد المستهلك" : "الرصيد المتبقي"}
                     </p>
                     <p className="mt-1 text-xl font-black text-emerald-800 dark:text-emerald-200">
-                      {overrideTotalBalance === null || overrideTotalBalance === undefined 
-                        ? Number(data.beneficiary.total_balance).toLocaleString("ar-LY")
-                        : overrideTotalBalance !== undefined 
-                          ? Math.max(0, overrideTotalBalance - data.summary.total_used_dental).toLocaleString("ar-LY")
-                          : Number(data.beneficiary.remaining_balance).toLocaleString("ar-LY")} د.ل
+                      {overrideRemainingBalance !== undefined
+                        ? overrideRemainingBalance.toLocaleString("ar-LY")
+                        : overrideTotalBalance === null || overrideTotalBalance === undefined 
+                          ? Number(data.beneficiary.total_balance).toLocaleString("ar-LY")
+                          : Math.max(0, overrideTotalBalance - data.summary.total_used_dental).toLocaleString("ar-LY")} د.ل
                     </p>
                   </div>
                   <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-700 dark:bg-slate-800/40">
@@ -214,10 +216,10 @@ export function BeneficiaryTransactionsPanelButton({ beneficiaryId, beneficiaryN
                   </div>
                   <div className="rounded border border-slate-200 bg-slate-50 px-2 py-2 dark:border-slate-700 dark:bg-slate-800/40">
                     <p className="text-slate-500 dark:text-slate-400">
-                      {overrideTotalBalance !== undefined ? "إجمالي المستهلك للشركة" : "إجمالي المستهلك"}
+                      {overrideConsumedBalance !== undefined || overrideTotalBalance !== undefined ? "إجمالي المستهلك للشركة" : "إجمالي المستهلك"}
                     </p>
                     <p className="font-black text-slate-900 dark:text-slate-100">
-                      {(overrideTotalBalance !== undefined ? data.summary.total_used_dental : data.summary.total_used_general).toLocaleString("ar-LY")} د.ل
+                      {(overrideConsumedBalance !== undefined ? overrideConsumedBalance : overrideTotalBalance !== undefined ? data.summary.total_used_dental : data.summary.total_used_general).toLocaleString("ar-LY")} د.ل
                     </p>
                   </div>
 

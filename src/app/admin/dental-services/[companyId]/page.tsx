@@ -965,6 +965,8 @@ export default async function DentalCompanyPage({
                                   beneficiaryName={beneficiary.name}
                                   hasTransactions={beneficiary._count.transactions > 0}
                                   overrideTotalBalance={Number(beneficiary.total_balance)}
+                                  overrideRemainingBalance={Number(beneficiary.remaining_balance)}
+                                  overrideConsumedBalance={Number(beneficiary.total_balance) - Number(beneficiary.remaining_balance)}
                                 />
 
                                 {canEditBen && (
