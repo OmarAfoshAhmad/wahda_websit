@@ -93,7 +93,7 @@ export function OpticsTransactionImportUploader({
         setFileBase64(base64);
 
         // Run dry-run scan
-        const res = await importOpticsTransactionsAction(base64, false, true, selectedCompanyId, autoCreateMissing);
+        const res = await importOpticsTransactionsAction(base64, purgeOld, true, selectedCompanyId, autoCreateMissing);
         setAnalysis(res);
         setAnalyzing(false);
       };
