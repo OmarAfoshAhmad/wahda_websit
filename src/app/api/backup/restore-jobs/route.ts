@@ -15,9 +15,7 @@ export async function POST(request: NextRequest) {
   }
 
   const forwardedProto = request.headers.get("x-forwarded-proto");
-  if (process.env.NODE_ENV === "production" && forwardedProto && forwardedProto !== "https") {
-    return NextResponse.json({ error: "يجب استخدام HTTPS" }, { status: 400 });
-  }
+  // Check removed to allow local backups behind HTTP proxies
 
   const contentLength = request.headers.get("content-length");
   if (contentLength && parseInt(contentLength, 10) > MAX_BACKUP_SIZE) {

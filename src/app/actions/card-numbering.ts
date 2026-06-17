@@ -142,6 +142,75 @@ const normalizeArabicText = (text: string): string => {
     .replace(/\s+/g, " ");
 };
 
+const smartParseDate = (dateStr: string | undefined | null): Date | null => {
+  if (!dateStr) return null;
+  const str = String(dateStr).trim();
+  
+  // Try standard JS parse first
+  const standardDate = new Date(str);
+  if (!isNaN(standardDate.getTime())) {
+    // Basic sanity check: ensure year is 4 digits (to avoid 1961/21/10 parsing as strange valid date in some engines)
+    if (standardDate.getFullYear() > 1900 && standardDate.getFullYear() <= new Date().getFullYear()) {
+       // Wait, some engines parse YYYY/DD/MM incorrectly and return a valid date but wrong month/day. 
+       // We'll trust standard parsing UNLESS the string clearly has a year but fails.
+    }
+  }
+
+  // Let's do a robust custom parse by parts
+  const parts = str.split(/[-\/.]/).map(p => parseInt(p, 10)).filter(p => !isNaN(p));
+  
+  if (parts.length === 3) {
+    let year = 0, month = 0, day = 0;
+
+    // Format: YYYY / ? / ?
+    if (parts[0] > 1000) {
+      year = parts[0];
+      if (parts[1] > 12 && parts[2] <= 12) {
+        // YYYY / DD / MM
+        day = parts[1];
+        month = parts[2];
+      } else if (parts[2] > 12 && parts[1] <= 12) {
+        // YYYY / MM / DD
+        month = parts[1];
+        day = parts[2];
+      } else {
+        // Ambiguous or standard YYYY/MM/DD
+        month = parts[1];
+        day = parts[2];
+      }
+    } 
+    // Format: ? / ? / YYYY
+    else if (parts[2] > 1000) {
+      year = parts[2];
+      if (parts[0] > 12 && parts[1] <= 12) {
+        // DD / MM / YYYY
+        day = parts[0];
+        month = parts[1];
+      } else if (parts[1] > 12 && parts[0] <= 12) {
+        // MM / DD / YYYY
+        month = parts[0];
+        day = parts[1];
+      } else {
+        // Default to European/Arabic DD/MM/YYYY
+        day = parts[0];
+        month = parts[1];
+      }
+    }
+
+    if (year >= 1900 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      // Valid parsed date!
+      // Use UTC to prevent timezone shifts
+      const d = new Date(Date.UTC(year, month - 1, day));
+      if (!isNaN(d.getTime())) return d;
+    }
+  }
+
+  // Fallback to standard JS parse
+  const fallback = new Date(str);
+  return isNaN(fallback.getTime()) ? null : fallback;
+};
+
+
 export async function importCardNumberingAction(data: CardNumberingItem[], options: { prefix: string, padding: number, sourceFile?: string, city?: string, batchNumber?: string }) {
   const session = await getSession();
   if (!session || !hasPermission(session, "manage_card_numbering")) return { error: "غير مصرح" };
@@ -149,28 +218,7 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
   try {
     const { prefix = "WAB2025", padding = 0, sourceFile = "يدوي", city: manualCity, batchNumber: manualBatch } = options;
 
-    // --- فرز البيانات لضمان ترقيم صحيح حسب العمر داخل العائلة ---
-    const empOrder = new Map();
-    data.forEach((item, index) => {
-      if (!empOrder.has(item.employee_number)) empOrder.set(item.employee_number, index);
-    });
-
-    data.sort((a, b) => {
-      const orderA = empOrder.get(a.employee_number);
-      const orderB = empOrder.get(b.employee_number);
-      if (orderA !== orderB) return orderA - orderB;
-      
-      const rankA = getRelRank(a.relationship || "");
-      const rankB = getRelRank(b.relationship || "");
-      if (rankA !== rankB) return rankA - rankB;
-      
-      if (a.birth_date && b.birth_date) {
-        const dateA = new Date(a.birth_date).getTime();
-        const dateB = new Date(b.birth_date).getTime();
-        if (!isNaN(dateA) && !isNaN(dateB)) return dateA - dateB;
-      }
-      return 0;
-    });
+    // تم إزالة فرز البيانات للحفاظ على ترتيب العائلات والأفراد بنفس ترتيب المصدر (ملف الإكسل) كما طلب المستخدم.
     const report = { total: data.length, ready: 0, duplicate: 0, error: 0, excluded: 0, excludedItems: [] as CardNumberingItem[] };
     const countsPerEmp = new Map<string, number>();
     const seenInBatch = new Set<string>();
@@ -447,13 +495,7 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
 
       seenInBatch.add(rowKey);
 
-      let bDate = null;
-      if (item.birth_date) {
-        const d = new Date(item.birth_date);
-        if (!isNaN(d.getTime())) {
-          bDate = d;
-        }
-      }
+      let bDate = smartParseDate(item.birth_date);
 
       const { percentage: matchPercentage, mismatches } = calculateMatchPercentage(
         item.original_date,

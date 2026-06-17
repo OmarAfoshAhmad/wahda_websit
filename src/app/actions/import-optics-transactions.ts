@@ -302,29 +302,34 @@ export async function importOpticsTransactionsAction(
       if (!excelCard) return null;
       
       const normExcelCard = excelCard.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
-      const cleanExcelName = excelName.trim().replace(/\s+/g, " ");
+      
+      const normalizeName = (n: string) => n.replace(/عبد /g, "عبد").replace(/\s+/g, " ").trim();
+      const cleanExcelName = normalizeName(excelName);
 
       // Helper to calculate name similarity
       const nameMatch = (dbName: string, exName: string) => {
-        const cleanDb = dbName.trim().replace(/\s+/g, " ");
+        const cleanDb = normalizeName(dbName);
         if (cleanDb === exName) return 1.0;
-        if (cleanDb.includes(exName) || exName.includes(cleanDb)) return 0.8;
         
         const dbWords = cleanDb.split(" ").filter(Boolean);
         const exWords = exName.split(" ").filter(Boolean);
+        
+        if (cleanDb.includes(exName) || exName.includes(cleanDb)) {
+          if (dbWords[0] === exWords[0]) return 0.8;
+          if (dbWords[0] && exWords[0] && dbWords[0].replace(/^ال/, "") === exWords[0].replace(/^ال/, "")) return 0.8;
+          return 0.3; // Cap below 0.4 to prevent child matching father
+        }
+        
         const intersection = dbWords.filter(w => exWords.includes(w));
-        if (intersection.length >= 2) return 0.6;
+        if (intersection.length >= 2) {
+          if (dbWords[0] === exWords[0]) return 0.6;
+          if (dbWords[0] && exWords[0] && dbWords[0].replace(/^ال/, "") === exWords[0].replace(/^ال/, "")) return 0.6;
+          return 0.3;
+        }
         
         return 0.0;
       };
 
-      // 1. Exact case-insensitive card match
-      const exactMatch = dbBeneficiaries.find(b => 
-        b.card_number.trim().toUpperCase().replace(/[^A-Z0-9]/g, "") === normExcelCard
-      );
-      if (exactMatch) return exactMatch;
-
-      // 2. Base card match with name matching
       const getSuffix = (c: string) => {
         const match = c.match(/[MFWSDH]\d*$/);
         return match ? match[0] : "";
@@ -351,31 +356,27 @@ export async function importOpticsTransactionsAction(
       });
 
       if (baseCandidates.length > 0) {
-        // If there's only one base candidate, we only match if:
-        // 1. The card number matches exactly (case-insensitive)
-        // 2. OR the name similarity score is high (>= 0.4)
-        if (baseCandidates.length === 1) {
-          const candidate = baseCandidates[0];
-          const dbNorm = candidate.card_number.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
-          const score = nameMatch(candidate.name, cleanExcelName);
-          if (normExcelCard === dbNorm || score >= 0.4) {
-            return candidate;
+        const scored = baseCandidates.map(c => {
+          const dbNorm = c.card_number.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+          const isExactCard = dbNorm === normExcelCard;
+          const score = nameMatch(c.name, cleanExcelName);
+          return { candidate: c, isExactCard, score };
+        });
+
+        if (excelSuffix) {
+          const exact = scored.find(s => s.isExactCard);
+          if (exact && exact.score >= 0.0) {
+            return exact.candidate;
           }
-          return null; // Return null so we can auto-create the correct dependent card
         }
 
-        let bestCandidate = null;
-        let highestScore = 0;
-        for (const candidate of baseCandidates) {
-          const score = nameMatch(candidate.name, cleanExcelName);
-          if (score > highestScore) {
-            highestScore = score;
-            bestCandidate = candidate;
-          }
+        scored.sort((a, b) => b.score - a.score);
+        const best = scored[0];
+        
+        if (best.score >= 0.4) {
+          return best.candidate;
         }
-        if (bestCandidate && highestScore >= 0.4) {
-          return bestCandidate;
-        }
+
         return null;
       }
 

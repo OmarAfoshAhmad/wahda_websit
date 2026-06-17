@@ -332,12 +332,13 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
         throw new Error("المرفق المحدد غير موجود");
       }
 
-      // غير المشرف لا يغير مصدر الحركة ولا يعدّل حركات خارج مرفقه.
-      if (!session.is_admin && transaction.facility_id !== session.id) {
+      // غير المشرف لا يغير مصدر الحركة ولا يعدّل حركات خارج مرفقه (إلا إذا كان لديه صلاحية استثنائية).
+      const canEditAny = hasPermission(session, "edit_any_facility_transaction");
+      if (!session.is_admin && transaction.facility_id !== session.id && !canEditAny) {
         throw new Error("غير مصرح لك بتعديل حركة خارج مرفقك");
       }
 
-      if (!session.is_admin && targetFacilityId !== transaction.facility_id) {
+      if (!session.is_admin && targetFacilityId !== transaction.facility_id && !canEditAny) {
         throw new Error("غير مصرح لك بتغيير مرفق الحركة");
       }
 

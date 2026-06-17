@@ -503,7 +503,7 @@ export function CardNumberingClient({
         "التفاصيل": item.error_message || ""
       }));
       const ws2 = XLSX.utils.json_to_sheet(excludedData);
-      XLSX.utils.book_append_sheet(wb, ws2, "باقي الحالات");
+      XLSX.utils.book_append_sheet(wb, ws2, "المستبعدين");
     }
 
     XLSX.writeFile(wb, `تقرير_ترقيم_البطاقات_${new Date().toISOString().split('T')[0]}.xlsx`);

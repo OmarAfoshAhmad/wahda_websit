@@ -32,6 +32,7 @@ export type ManagerPermissions = {
   optics_services: boolean; // صلاحية خدمات البصريات
   view_optics_beneficiaries: boolean; // عرض مستفيدي البصريات
   add_manual_transaction: boolean; // صلاحية إضافة حركات يدوية
+  edit_any_facility_transaction: boolean; // تعديل حركات خارج المرفق
 };
 
 export type UserRole = "ADMIN" | "MANAGER" | "EMPLOYEE" | "FACILITY";

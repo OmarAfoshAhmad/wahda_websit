@@ -40,9 +40,7 @@ export async function GET(request: NextRequest) {
   }
 
   const forwardedProto = request.headers.get("x-forwarded-proto");
-  if (process.env.NODE_ENV === "production" && forwardedProto && forwardedProto !== "https") {
-    return NextResponse.json({ error: "يجب استخدام HTTPS" }, { status: 400 });
-  }
+  // Check removed to allow local backups behind HTTP proxies
 
   const includeSensitive = true;
 

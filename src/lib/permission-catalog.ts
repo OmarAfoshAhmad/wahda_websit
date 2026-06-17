@@ -40,6 +40,7 @@ export const PERMISSION_DEFINITIONS: ReadonlyArray<PermissionDefinition> = [
   { key: "edit_transaction", label: "تعديل الحركات المالية", group: "transactions" },
   { key: "delete_transaction", label: "حذف الحركات المالية (نهائياً أو مؤقتاً)", group: "transactions" },
   { key: "add_manual_transaction", label: "إضافة حركات يدوية", group: "transactions" },
+  { key: "edit_any_facility_transaction", label: "تعديل الحركات لأي مرفق", group: "transactions" },
 
   { key: "view_beneficiaries", label: "عرض قائمة المستفيدين", group: "reports" },
   { key: "view_dental_beneficiaries", label: "عرض مستفيدي خدمات الأسنان", group: "dental" },
