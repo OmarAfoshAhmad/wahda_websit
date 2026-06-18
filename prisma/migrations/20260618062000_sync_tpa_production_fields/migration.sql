@@ -1,4 +1,4 @@
-﻿-- CreateEnum
+-- CreateEnum
 CREATE TYPE "ClaimStatus" AS ENUM ('APPROVED', 'PARTIAL', 'REJECTED');
 
 -- AlterEnum
