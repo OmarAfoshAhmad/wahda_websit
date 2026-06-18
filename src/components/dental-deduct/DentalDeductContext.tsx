@@ -13,7 +13,7 @@ export interface DentalBeneficiary {
   total_balance: number | null;
   status: string;
   hasCustomCeiling?: boolean;
-  company?: { id: string; name: string; code: string; logo?: string | null; dental_settings?: any } | null;
+  company?: { id: string; name: string; code: string; logo?: string | null; dental_settings?: any; service_aliases?: any } | null;
 }
 
 export interface DentalSuggestion {

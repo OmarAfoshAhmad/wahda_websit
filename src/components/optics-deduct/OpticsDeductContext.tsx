@@ -13,7 +13,7 @@ export interface OpticsBeneficiary {
   total_balance: number | null;
   status: string;
   hasCustomCeiling?: boolean;
-  company?: { id: string; name: string; code: string; logo?: string | null; optics_settings?: any } | null;
+  company?: { id: string; name: string; code: string; logo?: string | null; optics_settings?: any; service_aliases?: any } | null;
 }
 
 export interface OpticsSuggestion {
