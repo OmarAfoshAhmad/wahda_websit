@@ -1,5 +1,12 @@
 -- CreateEnum
-CREATE TYPE "ClaimStatus" AS ENUM ('APPROVED', 'PARTIAL', 'REJECTED');
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'ClaimStatus') THEN
+        CREATE TYPE "ClaimStatus" AS ENUM ('APPROVED', 'PARTIAL', 'REJECTED');
+    END IF;
+END
+$$;
 
 -- AlterEnum
 -- This migration adds more than one value to an enum.
@@ -9,9 +16,9 @@ CREATE TYPE "ClaimStatus" AS ENUM ('APPROVED', 'PARTIAL', 'REJECTED');
 -- the enum.
 
 
-ALTER TYPE "TransactionType" ADD VALUE 'DENTAL';
-ALTER TYPE "TransactionType" ADD VALUE 'OPTICS';
-ALTER TYPE "TransactionType" ADD VALUE 'GENERAL';
+ALTER TYPE "TransactionType" ADD VALUE IF NOT EXISTS 'DENTAL';
+ALTER TYPE "TransactionType" ADD VALUE IF NOT EXISTS 'OPTICS';
+ALTER TYPE "TransactionType" ADD VALUE IF NOT EXISTS 'GENERAL';
 
 -- DropIndex
 DROP INDEX "Beneficiary_completed_via_idx";
@@ -35,24 +42,24 @@ DROP INDEX "Transaction_original_transaction_id_idx";
 DROP INDEX "idx_transaction_type_cancelled_beneficiary";
 
 -- AlterTable
-ALTER TABLE "Beneficiary" ADD COLUMN     "birth_date_synced_from_truth" BOOLEAN NOT NULL DEFAULT false,
-ADD COLUMN     "company_id" TEXT,
-ADD COLUMN     "custom_ceilings" JSONB,
-ADD COLUMN     "phone_number" TEXT;
+ALTER TABLE "Beneficiary" ADD COLUMN IF NOT EXISTS     "birth_date_synced_from_truth" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN IF NOT EXISTS     "company_id" TEXT,
+ADD COLUMN IF NOT EXISTS     "custom_ceilings" JSONB,
+ADD COLUMN IF NOT EXISTS     "phone_number" TEXT;
 
 -- AlterTable
-ALTER TABLE "CardIssuanceRegistry" ADD COLUMN     "phone_number" TEXT;
+ALTER TABLE "CardIssuanceRegistry" ADD COLUMN IF NOT EXISTS     "phone_number" TEXT;
 
 -- AlterTable
-ALTER TABLE "CardIssuanceRegistryAll" ADD COLUMN     "phone_number" TEXT,
+ALTER TABLE "CardIssuanceRegistryAll" ADD COLUMN IF NOT EXISTS     "phone_number" TEXT,
 ALTER COLUMN "batch_number" SET NOT NULL;
 
 -- AlterTable
-ALTER TABLE "CardNumberingArchive" ADD COLUMN     "phone_number" TEXT;
+ALTER TABLE "CardNumberingArchive" ADD COLUMN IF NOT EXISTS     "phone_number" TEXT;
 
 -- AlterTable
-ALTER TABLE "Facility" ADD COLUMN     "facility_type" TEXT,
-ADD COLUMN     "role" TEXT NOT NULL DEFAULT 'FACILITY';
+ALTER TABLE "Facility" ADD COLUMN IF NOT EXISTS     "facility_type" TEXT,
+ADD COLUMN IF NOT EXISTS     "role" TEXT NOT NULL DEFAULT 'FACILITY';
 
 -- AlterTable
 ALTER TABLE "FamilyImportArchive" ALTER COLUMN "family_count_from_file" DROP NOT NULL,
@@ -69,23 +76,23 @@ ALTER COLUMN "updated_at" DROP DEFAULT,
 ALTER COLUMN "updated_at" SET DATA TYPE TIMESTAMP(3);
 
 -- AlterTable
-ALTER TABLE "Transaction" ADD COLUMN     "actual_company_share" DECIMAL(12,2),
-ADD COLUMN     "actual_patient_share" DECIMAL(12,2),
-ADD COLUMN     "calc_metadata" JSONB,
-ADD COLUMN     "ceiling_consumed" DECIMAL(12,2),
-ADD COLUMN     "company_id" TEXT,
-ADD COLUMN     "consumed_after" DECIMAL(12,2),
-ADD COLUMN     "consumed_before" DECIMAL(12,2),
-ADD COLUMN     "original_company_share" DECIMAL(12,2),
-ADD COLUMN     "original_patient_share" DECIMAL(12,2),
-ADD COLUMN     "policy_snapshot" JSONB,
-ADD COLUMN     "remaining_ceiling_after" DECIMAL(12,2),
-ADD COLUMN     "remaining_ceiling_before" DECIMAL(12,2),
-ADD COLUMN     "service_category" TEXT,
-ADD COLUMN     "service_type_id" TEXT;
+ALTER TABLE "Transaction" ADD COLUMN IF NOT EXISTS     "actual_company_share" DECIMAL(12,2),
+ADD COLUMN IF NOT EXISTS     "actual_patient_share" DECIMAL(12,2),
+ADD COLUMN IF NOT EXISTS     "calc_metadata" JSONB,
+ADD COLUMN IF NOT EXISTS     "ceiling_consumed" DECIMAL(12,2),
+ADD COLUMN IF NOT EXISTS     "company_id" TEXT,
+ADD COLUMN IF NOT EXISTS     "consumed_after" DECIMAL(12,2),
+ADD COLUMN IF NOT EXISTS     "consumed_before" DECIMAL(12,2),
+ADD COLUMN IF NOT EXISTS     "original_company_share" DECIMAL(12,2),
+ADD COLUMN IF NOT EXISTS     "original_patient_share" DECIMAL(12,2),
+ADD COLUMN IF NOT EXISTS     "policy_snapshot" JSONB,
+ADD COLUMN IF NOT EXISTS     "remaining_ceiling_after" DECIMAL(12,2),
+ADD COLUMN IF NOT EXISTS     "remaining_ceiling_before" DECIMAL(12,2),
+ADD COLUMN IF NOT EXISTS     "service_category" TEXT,
+ADD COLUMN IF NOT EXISTS     "service_type_id" TEXT;
 
 -- CreateTable
-CREATE TABLE "InsuranceCompany" (
+CREATE TABLE IF NOT EXISTS "InsuranceCompany" (
     "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "code" TEXT NOT NULL,
@@ -109,7 +116,7 @@ CREATE TABLE "InsuranceCompany" (
 );
 
 -- CreateTable
-CREATE TABLE "OtpCode" (
+CREATE TABLE IF NOT EXISTS "OtpCode" (
     "id" TEXT NOT NULL,
     "phone_number" TEXT NOT NULL,
     "code" TEXT NOT NULL,
@@ -121,7 +128,7 @@ CREATE TABLE "OtpCode" (
 );
 
 -- CreateTable
-CREATE TABLE "ServiceType" (
+CREATE TABLE IF NOT EXISTS "ServiceType" (
     "id" TEXT NOT NULL,
     "code" TEXT NOT NULL,
     "name" TEXT NOT NULL,
@@ -133,7 +140,7 @@ CREATE TABLE "ServiceType" (
 );
 
 -- CreateTable
-CREATE TABLE "ServicePolicy" (
+CREATE TABLE IF NOT EXISTS "ServicePolicy" (
     "id" TEXT NOT NULL,
     "company_id" TEXT NOT NULL,
     "service_type_id" TEXT NOT NULL,
@@ -148,7 +155,7 @@ CREATE TABLE "ServicePolicy" (
 );
 
 -- CreateTable
-CREATE TABLE "WalletConsumption" (
+CREATE TABLE IF NOT EXISTS "WalletConsumption" (
     "id" TEXT NOT NULL,
     "beneficiary_id" TEXT NOT NULL,
     "company_id" TEXT NOT NULL,
@@ -163,7 +170,7 @@ CREATE TABLE "WalletConsumption" (
 );
 
 -- CreateTable
-CREATE TABLE "ServiceTypeMapping" (
+CREATE TABLE IF NOT EXISTS "ServiceTypeMapping" (
     "id" TEXT NOT NULL,
     "company_id" TEXT NOT NULL,
     "service_type" TEXT NOT NULL,
@@ -173,7 +180,7 @@ CREATE TABLE "ServiceTypeMapping" (
 );
 
 -- CreateTable
-CREATE TABLE "Claim" (
+CREATE TABLE IF NOT EXISTS "Claim" (
     "id" TEXT NOT NULL,
     "beneficiary_id" TEXT NOT NULL,
     "company_id" TEXT,
@@ -191,7 +198,7 @@ CREATE TABLE "Claim" (
 );
 
 -- CreateTable
-CREATE TABLE "ClaimAuditLog" (
+CREATE TABLE IF NOT EXISTS "ClaimAuditLog" (
     "id" TEXT NOT NULL,
     "claim_id" TEXT NOT NULL,
     "action" TEXT NOT NULL,
@@ -209,7 +216,7 @@ CREATE TABLE "ClaimAuditLog" (
 );
 
 -- CreateTable
-CREATE TABLE "SystemSetting" (
+CREATE TABLE IF NOT EXISTS "SystemSetting" (
     "key" TEXT NOT NULL,
     "value" TEXT NOT NULL,
     "description" TEXT,
@@ -219,88 +226,88 @@ CREATE TABLE "SystemSetting" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "InsuranceCompany_code_key" ON "InsuranceCompany"("code");
+CREATE UNIQUE INDEX IF NOT EXISTS "InsuranceCompany_code_key" ON "InsuranceCompany"("code");
 
 -- CreateIndex
-CREATE INDEX "InsuranceCompany_code_idx" ON "InsuranceCompany"("code");
+CREATE INDEX IF NOT EXISTS "InsuranceCompany_code_idx" ON "InsuranceCompany"("code");
 
 -- CreateIndex
-CREATE INDEX "OtpCode_phone_number_code_idx" ON "OtpCode"("phone_number", "code");
+CREATE INDEX IF NOT EXISTS "OtpCode_phone_number_code_idx" ON "OtpCode"("phone_number", "code");
 
 -- CreateIndex
-CREATE INDEX "OtpCode_expires_at_idx" ON "OtpCode"("expires_at");
+CREATE INDEX IF NOT EXISTS "OtpCode_expires_at_idx" ON "OtpCode"("expires_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "ServiceType_code_key" ON "ServiceType"("code");
+CREATE UNIQUE INDEX IF NOT EXISTS "ServiceType_code_key" ON "ServiceType"("code");
 
 -- CreateIndex
-CREATE INDEX "ServiceType_code_idx" ON "ServiceType"("code");
+CREATE INDEX IF NOT EXISTS "ServiceType_code_idx" ON "ServiceType"("code");
 
 -- CreateIndex
-CREATE INDEX "ServicePolicy_company_id_idx" ON "ServicePolicy"("company_id");
+CREATE INDEX IF NOT EXISTS "ServicePolicy_company_id_idx" ON "ServicePolicy"("company_id");
 
 -- CreateIndex
-CREATE INDEX "ServicePolicy_service_type_id_idx" ON "ServicePolicy"("service_type_id");
+CREATE INDEX IF NOT EXISTS "ServicePolicy_service_type_id_idx" ON "ServicePolicy"("service_type_id");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "ServicePolicy_company_id_service_type_id_key" ON "ServicePolicy"("company_id", "service_type_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "ServicePolicy_company_id_service_type_id_key" ON "ServicePolicy"("company_id", "service_type_id");
 
 -- CreateIndex
-CREATE INDEX "WalletConsumption_beneficiary_id_company_id_idx" ON "WalletConsumption"("beneficiary_id", "company_id");
+CREATE INDEX IF NOT EXISTS "WalletConsumption_beneficiary_id_company_id_idx" ON "WalletConsumption"("beneficiary_id", "company_id");
 
 -- CreateIndex
-CREATE INDEX "WalletConsumption_company_id_wallet_type_idx" ON "WalletConsumption"("company_id", "wallet_type");
+CREATE INDEX IF NOT EXISTS "WalletConsumption_company_id_wallet_type_idx" ON "WalletConsumption"("company_id", "wallet_type");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "WalletConsumption_beneficiary_id_company_id_wallet_type_fis_key" ON "WalletConsumption"("beneficiary_id", "company_id", "wallet_type", "fiscal_year");
+CREATE UNIQUE INDEX IF NOT EXISTS "WalletConsumption_beneficiary_id_company_id_wallet_type_fis_key" ON "WalletConsumption"("beneficiary_id", "company_id", "wallet_type", "fiscal_year");
 
 -- CreateIndex
-CREATE INDEX "ServiceTypeMapping_company_id_idx" ON "ServiceTypeMapping"("company_id");
+CREATE INDEX IF NOT EXISTS "ServiceTypeMapping_company_id_idx" ON "ServiceTypeMapping"("company_id");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "ServiceTypeMapping_company_id_service_type_key" ON "ServiceTypeMapping"("company_id", "service_type");
+CREATE UNIQUE INDEX IF NOT EXISTS "ServiceTypeMapping_company_id_service_type_key" ON "ServiceTypeMapping"("company_id", "service_type");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Claim_transaction_id_key" ON "Claim"("transaction_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "Claim_transaction_id_key" ON "Claim"("transaction_id");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Claim_idempotency_key_key" ON "Claim"("idempotency_key");
+CREATE UNIQUE INDEX IF NOT EXISTS "Claim_idempotency_key_key" ON "Claim"("idempotency_key");
 
 -- CreateIndex
-CREATE INDEX "Claim_beneficiary_id_idx" ON "Claim"("beneficiary_id");
+CREATE INDEX IF NOT EXISTS "Claim_beneficiary_id_idx" ON "Claim"("beneficiary_id");
 
 -- CreateIndex
-CREATE INDEX "Claim_company_id_idx" ON "Claim"("company_id");
+CREATE INDEX IF NOT EXISTS "Claim_company_id_idx" ON "Claim"("company_id");
 
 -- CreateIndex
-CREATE INDEX "Claim_created_at_idx" ON "Claim"("created_at");
+CREATE INDEX IF NOT EXISTS "Claim_created_at_idx" ON "Claim"("created_at");
 
 -- CreateIndex
-CREATE INDEX "Claim_status_idx" ON "Claim"("status");
+CREATE INDEX IF NOT EXISTS "Claim_status_idx" ON "Claim"("status");
 
 -- CreateIndex
-CREATE INDEX "ClaimAuditLog_claim_id_idx" ON "ClaimAuditLog"("claim_id");
+CREATE INDEX IF NOT EXISTS "ClaimAuditLog_claim_id_idx" ON "ClaimAuditLog"("claim_id");
 
 -- CreateIndex
-CREATE INDEX "ClaimAuditLog_created_at_idx" ON "ClaimAuditLog"("created_at");
+CREATE INDEX IF NOT EXISTS "ClaimAuditLog_created_at_idx" ON "ClaimAuditLog"("created_at");
 
 -- CreateIndex
-CREATE INDEX "Beneficiary_company_id_idx" ON "Beneficiary"("company_id");
+CREATE INDEX IF NOT EXISTS "Beneficiary_company_id_idx" ON "Beneficiary"("company_id");
 
 -- CreateIndex
-CREATE INDEX "Facility_role_idx" ON "Facility"("role");
+CREATE INDEX IF NOT EXISTS "Facility_role_idx" ON "Facility"("role");
 
 -- CreateIndex
-CREATE INDEX "Transaction_company_id_idx" ON "Transaction"("company_id");
+CREATE INDEX IF NOT EXISTS "Transaction_company_id_idx" ON "Transaction"("company_id");
 
 -- CreateIndex
-CREATE INDEX "Transaction_is_cancelled_type_idx" ON "Transaction"("is_cancelled", "type");
+CREATE INDEX IF NOT EXISTS "Transaction_is_cancelled_type_idx" ON "Transaction"("is_cancelled", "type");
 
 -- CreateIndex
-CREATE INDEX "Transaction_service_category_created_at_idx" ON "Transaction"("service_category", "created_at");
+CREATE INDEX IF NOT EXISTS "Transaction_service_category_created_at_idx" ON "Transaction"("service_category", "created_at");
 
 -- CreateIndex
-CREATE INDEX "Transaction_service_type_id_idx" ON "Transaction"("service_type_id");
+CREATE INDEX IF NOT EXISTS "Transaction_service_type_id_idx" ON "Transaction"("service_type_id");
 
 -- AddForeignKey
 ALTER TABLE "Beneficiary" ADD CONSTRAINT "Beneficiary_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "InsuranceCompany"("id") ON DELETE SET NULL ON UPDATE CASCADE;
