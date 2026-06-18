@@ -107,7 +107,14 @@ export async function upsertServicePolicy(data: {
     }
 
     revalidatePath("/admin/service-policies");
-    return { success: true, policy };
+    
+    const serializedPolicy = {
+      ...policy,
+      ceiling_amount: policy.ceiling_amount !== null ? Number(policy.ceiling_amount) : null,
+      coverage_percent: Number(policy.coverage_percent),
+    };
+
+    return { success: true, policy: serializedPolicy };
   } catch (error: any) {
     console.error("Error upserting service policy:", error);
     return { error: "حدث خطأ أثناء حفظ السياسة." };

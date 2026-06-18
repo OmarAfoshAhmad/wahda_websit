@@ -518,8 +518,7 @@ export function CardNumberingClient({
       "اسم المستفيد": item.name,
       "رقم البطاقة": item.card_number,
       "المواليد": item.birth_date ? new Date(item.birth_date).toLocaleDateString('en-GB') : "",
-      "image": "",
-      "سبب الاستبعاد": "ملحق أو متوفي"
+      "سبب الاستبعاد": item.error_message || "مستبعد (ملحق/متوفي/نواقص)"
     }));
 
     const ws = XLSX.utils.json_to_sheet(exportData);

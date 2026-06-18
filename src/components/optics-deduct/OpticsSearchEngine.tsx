@@ -26,6 +26,7 @@ export function OpticsSearchEngine() {
     handlePickRecent,
     beneficiary,
     resetSearchState,
+    setSelectedBeneficiaryId,
   } = useOpticsDeductContext();
 
   return (
@@ -43,6 +44,7 @@ export function OpticsSearchEngine() {
                 const v = e.target.value;
                 setSearchInput(v);
                 setCardNumber(v);
+                setSelectedBeneficiaryId(null);
                 setError(null);
                 if (v.trim().length < 2) {
                   setShowSuggestions(false);
@@ -83,7 +85,11 @@ export function OpticsSearchEngine() {
                       key={item.id}
                       type="button"
                       className="flex w-full items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 px-3 py-2 text-right hover:bg-slate-50 dark:hover:bg-slate-800 last:border-b-0"
-                      onClick={() => handleSelectSuggestion(item)}
+                      onClick={() => {
+                        handleSelectSuggestion(item);
+                        // Force search after selection
+                        setTimeout(() => handleSearch(undefined, item.card_number, item.id), 50);
+                      }}
                     >
                       <div>
                         <p className="text-sm font-bold text-slate-900 dark:text-white">{item.name}</p>

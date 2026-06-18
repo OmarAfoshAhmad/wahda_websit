@@ -66,6 +66,15 @@ export async function getBeneficiaryByCard(card_number: string) {
         ...beneficiary,
         total_balance: Number(beneficiary.total_balance),
         remaining_balance: derivedRemaining,
+        company: beneficiary.company ? {
+          ...beneficiary.company,
+          dental_ceiling: beneficiary.company.dental_ceiling ? Number(beneficiary.company.dental_ceiling) : null,
+          dental_coverage: Number(beneficiary.company.dental_coverage),
+          general_ceiling: beneficiary.company.general_ceiling ? Number(beneficiary.company.general_ceiling) : null,
+          general_coverage: Number(beneficiary.company.general_coverage),
+          medicine_ceiling: beneficiary.company.medicine_ceiling ? Number(beneficiary.company.medicine_ceiling) : null,
+          medicine_coverage: Number(beneficiary.company.medicine_coverage),
+        } : null
       },
     };
   } catch (error: unknown) {

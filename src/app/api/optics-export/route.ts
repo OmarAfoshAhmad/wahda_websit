@@ -3,6 +3,7 @@ import { hasPermission, requireActiveFacilitySession } from "@/lib/session-guard
 import prisma from "@/lib/prisma";
 import ExcelJS from "exceljs";
 import { Prisma } from "@prisma/client";
+import { getServiceAlias } from "@/lib/service-aliases";
 
 export async function GET(request: Request) {
   const session = await requireActiveFacilitySession();
@@ -62,13 +63,16 @@ export async function GET(request: Request) {
       created_at: true,
       beneficiary: { select: { name: true, card_number: true } },
       facility: { select: { name: true } },
-      company: { select: { name: true, code: true } },
+      company: { select: { name: true, code: true, service_aliases: true } },
     },
   });
 
+  const firstCompany = transactions[0]?.company;
+  const sheetName = getServiceAlias(firstCompany, 'OPTICS', "حركات البصريات");
+
   // توليد ملف Excel
   const workbook = new ExcelJS.Workbook();
-  const ws = workbook.addWorksheet("حركات البصريات", { properties: { tabColor: { argb: "FF0D9488" } } });
+  const ws = workbook.addWorksheet(sheetName, { properties: { tabColor: { argb: "FF0D9488" } } });
 
   // رأس الجدول
   ws.columns = [
@@ -139,7 +143,8 @@ export async function GET(request: Request) {
     ? (transactions[0]?.company?.name ?? "شركة")
     : "جميع الشركات";
   const dateStr = new Date().toISOString().slice(0, 10);
-  const filename = `كشف_بصريات_${companyLabel}_${dateStr}.xlsx`;
+  const aliasName = getServiceAlias(firstCompany, 'OPTICS', "بصريات");
+  const filename = `كشف_${aliasName}_${companyLabel}_${dateStr}.xlsx`;
 
   return new NextResponse(buffer, {
     headers: {

@@ -5,6 +5,7 @@ import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-gua
 import { formatDateTripoli } from "@/lib/datetime";
 import { BackButton } from "@/components/back-button";
 import { AutoPrint } from "@/components/auto-print";
+import { getServiceAlias } from "@/lib/service-aliases";
 
 const ROWS_PER_PRINT_PAGE = 30;
 // حد أقصى للحركات في صفحة الطباعة لتجنب تعطل الخادم
@@ -263,7 +264,7 @@ export default async function OpticsCompanyPrintPage({
                   <p className="text-[10px] text-slate-500 font-bold">منظومة إدارة مطالبات التأمين الطبي</p>
                 </div>
                 <div className="text-center">
-                  <h2 className="text-lg font-black text-teal-800">كشف حركات البصريات المخصصة</h2>
+                  <h2 className="text-lg font-black text-teal-800">كشف حركات {getServiceAlias(company, 'OPTICS', "البصريات")} المخصصة</h2>
                   <p className="text-xs font-bold text-slate-600 mt-0.5">شركة التأمين: {company.name}</p>
                   {copay > 0 && (
                     <p className="text-[10px] font-black text-amber-700 mt-0.5">نسبة التحمل: {copay}% | السقف: {opticsCeiling !== null ? `${opticsCeiling.toLocaleString("ar-LY")} د.ل` : "مفتوح"}</p>

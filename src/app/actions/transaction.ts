@@ -284,6 +284,26 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
 
   try {
     await prisma.$transaction(async (tx) => {
+      // 1. قفل الحركة أولاً بحزم لمنع ثغرة تبخر الرصيد
+      const lockedTx = await tx.$queryRaw<Array<{ is_cancelled: boolean; type: string; amount: number }>>`
+        SELECT is_cancelled, type, amount::float8 AS amount FROM "Transaction"
+        WHERE id = ${input.id}
+        FOR UPDATE
+      `;
+
+      if (lockedTx.length === 0) {
+        throw new Error("الحركة غير موجودة");
+      }
+
+      if (lockedTx[0].is_cancelled) {
+        throw new Error("لا يمكن تعديل حركة ملغاة");
+      }
+
+      if (lockedTx[0].type === "CANCELLATION") {
+        throw new Error("لا يمكن تعديل حركة مصححة مباشرة");
+      }
+
+      // القراءة الآن آمنة تماماً
       const transaction = await tx.transaction.findUnique({
         where: { id: input.id },
         select: {
@@ -307,14 +327,6 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
 
       if (!transaction) {
         throw new Error("الحركة غير موجودة");
-      }
-
-      if (transaction.is_cancelled) {
-        throw new Error("لا يمكن تعديل حركة ملغاة");
-      }
-
-      if (transaction.type === "CANCELLATION") {
-        throw new Error("لا يمكن تعديل حركة مصححة مباشرة");
       }
 
       // مالك الحركة يبقى كما هو، ولا يتحول إلى مرفق المعدّل.

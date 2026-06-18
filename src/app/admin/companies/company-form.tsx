@@ -19,6 +19,7 @@ interface Props {
     medicine_ceiling?: any;
     medicine_coverage?: any;
     dental_settings?: any;
+    service_aliases?: any;
   };
 }
 
@@ -49,6 +50,10 @@ export function CompanyForm({ company }: Props) {
 
   // parse dental_settings from JSON
   const settings = company?.dental_settings ? (company.dental_settings as any) : null;
+  const aliases = company?.service_aliases ? (company.service_aliases as any) : null;
+  
+  const [dentalAlias, setDentalAlias] = useState(aliases?.DENTAL ?? "");
+  const [opticsAlias, setOpticsAlias] = useState(aliases?.OPTICS ?? "");
   
   const [customOrtho, setCustomOrtho] = useState(!!settings?.ortho?.enabled);
   const [orthoCoverage, setOrthoCoverage] = useState(settings?.ortho?.coverage !== undefined && settings?.ortho?.coverage !== null ? String(settings.ortho.coverage) : "50");
@@ -107,6 +112,10 @@ export function CompanyForm({ company }: Props) {
         prosthetics: { enabled: customProsthetics, coverage: customProsthetics ? Number(prostheticsCoverage) : null }
       };
 
+      const serviceAliases: Record<string, string> = {};
+      if (dentalAlias.trim()) serviceAliases.DENTAL = dentalAlias.trim();
+      if (opticsAlias.trim()) serviceAliases.OPTICS = opticsAlias.trim();
+
       const payload = {
         name: formData.name,
         code: formData.code,
@@ -119,6 +128,7 @@ export function CompanyForm({ company }: Props) {
         medicine_ceiling: formData.medicine_ceiling === "" ? null : Number(formData.medicine_ceiling),
         medicine_coverage: Number(formData.medicine_coverage),
         dental_settings: dentalSettings,
+        service_aliases: Object.keys(serviceAliases).length > 0 ? serviceAliases : null,
       };
 
       const result = company 
@@ -140,6 +150,8 @@ export function CompanyForm({ company }: Props) {
             setImplantCoverage("50");
             setCustomProsthetics(false);
             setProstheticsCoverage("50");
+            setDentalAlias("");
+            setOpticsAlias("");
           }
         }, 800);
       }
@@ -215,6 +227,31 @@ export function CompanyForm({ company }: Props) {
                   placeholder="مثال: WAB-.*"
                 />
                 <p className="mt-1 text-xs text-slate-400">يستخدم للتحقق التلقائي عند الإدخال (مثال: WAB-.* لشركة الوحدة)</p>
+              </div>
+
+              {/* قسم التسميات المخصصة */}
+              <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 space-y-4">
+                <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 border-b pb-2">التسميات المخصصة للخدمات (اختياري)</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="mb-1 block text-[10px] font-bold text-slate-500">اسم مخصص للأسنان (DENTAL)</label>
+                    <Input
+                      value={dentalAlias}
+                      onChange={(e) => setDentalAlias(e.target.value)}
+                      placeholder="مثال: تركيبات"
+                    />
+                    <p className="mt-1 text-[9px] text-slate-400">إذا تُرك فارغاً، سيظهر "خدمات الأسنان"</p>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[10px] font-bold text-slate-500">اسم مخصص للبصريات (OPTICS)</label>
+                    <Input
+                      value={opticsAlias}
+                      onChange={(e) => setOpticsAlias(e.target.value)}
+                      placeholder="مثال: نظارات طبية"
+                    />
+                    <p className="mt-1 text-[9px] text-slate-400">إذا تُرك فارغاً، سيظهر "خدمات البصريات"</p>
+                  </div>
+                </div>
               </div>
 
               {/* قسم التغطية والأسقف المالية */}

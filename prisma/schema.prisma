@@ -19,6 +19,7 @@ model InsuranceCompany {
   deleted_at            DateTime?
   created_at            DateTime             @default(now())
   updated_at            DateTime             @updatedAt
+  service_aliases       Json? // e.g. { "DENTAL": "تركيبات", "OPTICS": "نظارات طبية" }
   beneficiaries         Beneficiary[]
   transactions          Transaction[]
   wallet_consumptions   WalletConsumption[]

@@ -33,7 +33,26 @@ export async function cancelTransaction(transactionId: string) {
     } | null = null;
 
     await prisma.$transaction(async (tx) => {
-      // FIX: قراءة الحركة داخل الـ transaction لإغلاق ثغرة TOCTOU
+      // 1. قفل الحركة أولاً بحزم لمنع ثغرة TOCTOU والاسترجاع المزدوج
+      const lockedTx = await tx.$queryRaw<Array<{ is_cancelled: boolean; type: string }>>`
+        SELECT is_cancelled, type FROM "Transaction"
+        WHERE id = ${transactionId}
+        FOR UPDATE
+      `;
+
+      if (lockedTx.length === 0) {
+        throw new Error("TX_NOT_FOUND");
+      }
+
+      if (lockedTx[0].is_cancelled) {
+        throw new Error("TX_ALREADY_CANCELLED");
+      }
+
+      if (lockedTx[0].type === "CANCELLATION") {
+        throw new Error("TX_IS_CANCELLATION");
+      }
+
+      // القراءة الآن آمنة تماماً لأن الحركة مقفلة باسم هذا الـ Request
       const transaction = await tx.transaction.findUnique({
         where: { id: transactionId },
         include: { beneficiary: true },
@@ -41,14 +60,6 @@ export async function cancelTransaction(transactionId: string) {
 
       if (!transaction) {
         throw new Error("TX_NOT_FOUND");
-      }
-
-      if (transaction.is_cancelled) {
-        throw new Error("TX_ALREADY_CANCELLED");
-      }
-
-      if (transaction.type === "CANCELLATION") {
-        throw new Error("TX_IS_CANCELLATION");
       }
 
       const amount = Number(transaction.amount);
@@ -239,21 +250,29 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
       const deletableIds = deletable.map((tx) => tx.id);
 
       await prisma.$transaction(async (tx) => {
-        // استعلام واحد لكل الحركات المطلوب حذفها
-        const transactionRecords = await tx.transaction.findMany({
-          where: { id: { in: deletableIds }, type: { not: "CANCELLATION" } },
-        });
-        if (transactionRecords.length === 0) return;
+        // استعلام وقفل الحركات المطلوب حذفها لضمان التزامن المالي (FOR UPDATE)
+        const lockedTransactions = await tx.$queryRaw<Array<{ id: string; beneficiary_id: string; is_cancelled: boolean; type: string }>>`
+          SELECT id, beneficiary_id, is_cancelled, type FROM "Transaction"
+          WHERE id = ANY(${deletableIds}::text[])
+          FOR UPDATE
+        `;
+        if (lockedTransactions.length === 0) return;
 
-        // تحديث جميع الحراقات كحذف ناعم دفعة واحدة
+        // فلترة الحركات التي لا تزال غير ملغاة فعلياً
+        const validTransactions = lockedTransactions.filter((t) => !t.is_cancelled && t.type !== "CANCELLATION");
+        if (validTransactions.length === 0) return;
+
+        const validIds = validTransactions.map((t) => t.id);
+
+        // تحديث جميع الحركات كحذف ناعم دفعة واحدة
         await tx.transaction.updateMany({
-          where: { id: { in: transactionRecords.map((r) => r.id) } },
+          where: { id: { in: validIds } },
           data: { is_cancelled: true },
         });
 
         // تجميع حسب المستفيد لمعالجة كل مستفيد بقفل واحد
-        const byBeneficiary = new Map<string, typeof transactionRecords>();
-        for (const rec of transactionRecords) {
+        const byBeneficiary = new Map<string, typeof validTransactions>();
+        for (const rec of validTransactions) {
           const group = byBeneficiary.get(rec.beneficiary_id) || [];
           group.push(rec);
           byBeneficiary.set(rec.beneficiary_id, group);
@@ -314,19 +333,27 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
       const restorableIds = restorable.map((tx) => tx.id);
 
       await prisma.$transaction(async (tx) => {
-        const transactionRecords = await tx.transaction.findMany({
-          where: { id: { in: restorableIds } },
-        });
-        if (transactionRecords.length === 0) return;
+        // استرجاع جميع الحركات دفعة واحدة بقفل يحميها من التلاعب الخارجي (FOR UPDATE)
+        const lockedTransactions = await tx.$queryRaw<Array<{ id: string; beneficiary_id: string; is_cancelled: boolean; type: string }>>`
+          SELECT id, beneficiary_id, is_cancelled, type FROM "Transaction"
+          WHERE id = ANY(${restorableIds}::text[])
+          FOR UPDATE
+        `;
+        if (lockedTransactions.length === 0) return;
 
-        // استرجاع جميع الحركات دفعة واحدة
+        // فلترة الحركات القابلة للاستعادة فقط لتفادي تكرار الاستعادة
+        const validTransactions = lockedTransactions.filter((t) => t.is_cancelled && t.type !== "CANCELLATION");
+        if (validTransactions.length === 0) return;
+
+        const validIds = validTransactions.map((t) => t.id);
+
         await tx.transaction.updateMany({
-          where: { id: { in: transactionRecords.map((r) => r.id) } },
+          where: { id: { in: validIds } },
           data: { is_cancelled: false },
         });
 
-        const byBeneficiary = new Map<string, typeof transactionRecords>();
-        for (const rec of transactionRecords) {
+        const byBeneficiary = new Map<string, typeof validTransactions>();
+        for (const rec of validTransactions) {
           const group = byBeneficiary.get(rec.beneficiary_id) || [];
           group.push(rec);
           byBeneficiary.set(rec.beneficiary_id, group);

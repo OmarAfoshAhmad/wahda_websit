@@ -11,6 +11,8 @@ type Props = {
   overrideTotalBalance?: number;
   overrideRemainingBalance?: number;
   overrideConsumedBalance?: number;
+  contextLabel?: string;
+  serviceContextFilter?: string;
 };
 
 type TxItem = {
@@ -94,7 +96,7 @@ function typeLabel(type: string, idempotencyKey?: string | null) {
   return type;
 }
 
-export function BeneficiaryTransactionsPanelButton({ beneficiaryId, beneficiaryName, hasTransactions, overrideTotalBalance, overrideRemainingBalance, overrideConsumedBalance }: Props) {
+export function BeneficiaryTransactionsPanelButton({ beneficiaryId, beneficiaryName, hasTransactions, overrideTotalBalance, overrideRemainingBalance, overrideConsumedBalance, contextLabel, serviceContextFilter }: Props) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -131,6 +133,12 @@ export function BeneficiaryTransactionsPanelButton({ beneficiaryId, beneficiaryN
     if (data?.beneficiary.id === memberId) return;
     void load(memberId, false);
   };
+
+  const displayTransactions = data 
+    ? (serviceContextFilter 
+        ? data.transactions.filter(tx => tx.type === serviceContextFilter)
+        : data.transactions)
+    : [];
 
   return (
     <>
@@ -181,14 +189,14 @@ export function BeneficiaryTransactionsPanelButton({ beneficiaryId, beneficiaryN
               <div className="space-y-4">
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                   <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-700 dark:bg-slate-800/40">
-                    <p className="text-xs font-bold text-slate-500 dark:text-slate-400">الرصيد الكلي</p>
+                    <p className="text-xs font-bold text-slate-500 dark:text-slate-400">الرصيد الكلي {contextLabel ? `(${contextLabel})` : ""}</p>
                     <p className="mt-1 text-base font-black text-slate-900 dark:text-slate-100">
                       {overrideTotalBalance === null || overrideTotalBalance === undefined ? "سقف مفتوح" : `${Number(overrideTotalBalance ?? data.beneficiary.total_balance).toLocaleString("ar-LY")} د.ل`}
                     </p>
                   </div>
                   <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-3 dark:border-emerald-900 dark:bg-emerald-900/30">
                     <p className="text-xs font-bold text-emerald-700 dark:text-emerald-300">
-                      {overrideTotalBalance === null || overrideTotalBalance === undefined ? "الرصيد المستهلك" : "الرصيد المتبقي"}
+                      {overrideTotalBalance === null || overrideTotalBalance === undefined ? `الرصيد المستهلك ${contextLabel ? `(${contextLabel})` : ""}` : `الرصيد المتبقي ${contextLabel ? `(${contextLabel})` : ""}`}
                     </p>
                     <p className="mt-1 text-xl font-black text-emerald-800 dark:text-emerald-200">
                       {overrideRemainingBalance !== undefined
@@ -211,12 +219,12 @@ export function BeneficiaryTransactionsPanelButton({ beneficiaryId, beneficiaryN
                 </div>
 
                   <div className="rounded border border-slate-200 bg-slate-50 px-2 py-2 dark:border-slate-700 dark:bg-slate-800/40">
-                    <p className="text-slate-500 dark:text-slate-400">إجمالي الحركات</p>
-                    <p className="font-black text-slate-900 dark:text-slate-100">{data.summary.transactions_count.toLocaleString("ar-LY")}</p>
+                    <p className="text-slate-500 dark:text-slate-400">إجمالي الحركات {contextLabel ? `(${contextLabel})` : "(الكل)"}</p>
+                    <p className="font-black text-slate-900 dark:text-slate-100">{displayTransactions.length.toLocaleString("ar-LY")}</p>
                   </div>
                   <div className="rounded border border-slate-200 bg-slate-50 px-2 py-2 dark:border-slate-700 dark:bg-slate-800/40">
-                    <p className="text-slate-500 dark:text-slate-400">
-                      {overrideConsumedBalance !== undefined || overrideTotalBalance !== undefined ? "إجمالي المستهلك للشركة" : "إجمالي المستهلك"}
+                    <p className="text-slate-500 dark:text-slate-400 text-xs">
+                      {overrideConsumedBalance !== undefined || overrideTotalBalance !== undefined ? `إجمالي المستهلك للشركة ${contextLabel ? `(${contextLabel})` : ""}` : "إجمالي المستهلك"}
                     </p>
                     <p className="font-black text-slate-900 dark:text-slate-100">
                       {(overrideConsumedBalance !== undefined ? overrideConsumedBalance : overrideTotalBalance !== undefined ? data.summary.total_used_dental : data.summary.total_used_general).toLocaleString("ar-LY")} د.ل
@@ -287,12 +295,14 @@ export function BeneficiaryTransactionsPanelButton({ beneficiaryId, beneficiaryN
                       </tr>
                     </thead>
                     <tbody>
-                      {data.transactions.length === 0 ? (
+                      {displayTransactions.length === 0 ? (
                         <tr>
-                          <td colSpan={9} className="p-3 text-center text-slate-500 dark:text-slate-400">لا توجد حركات لهذا المستفيد</td>
+                          <td colSpan={9} className="p-3 text-center text-slate-500 dark:text-slate-400">
+                            {serviceContextFilter ? "لا توجد حركات في هذا القسم للمستفيد" : "لا توجد حركات لهذا المستفيد"}
+                          </td>
                         </tr>
                       ) : (
-                        data.transactions.map((tx) => (
+                        displayTransactions.map((tx) => (
                           <tr key={tx.id} className="border-b dark:border-slate-800">
                             <td className="p-2">{typeLabel(tx.type, tx.idempotency_key)}</td>
                             <td className="p-2">{tx.amount.toLocaleString("ar-LY")} د.ل</td>

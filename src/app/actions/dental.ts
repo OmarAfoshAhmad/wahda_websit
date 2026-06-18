@@ -119,7 +119,8 @@ export async function getDentalBeneficiaryDetail(beneficiaryId: string, companyI
               where: { service_type: { code: "DENTAL" } },
               select: { ceiling_amount: true, coverage_percent: true, frequency_months: true }
             },
-            dental_settings: true
+            dental_settings: true,
+            service_aliases: true
           } as any
         }
       }
@@ -168,6 +169,15 @@ export async function getDentalBeneficiaryDetail(beneficiaryId: string, companyI
       ? "SUSPENDED"
       : (dynamicRemaining !== null && dynamicRemaining <= 0 ? "FINISHED" : "ACTIVE");
 
+    const companyData = beneficiary.company ? {
+      ...beneficiary.company,
+      service_policies: beneficiary.company.service_policies?.map((p: any) => ({
+        ...p,
+        ceiling_amount: p.ceiling_amount !== null ? Number(p.ceiling_amount) : null,
+        coverage_percent: p.coverage_percent !== null ? Number(p.coverage_percent) : null,
+      }))
+    } : null;
+
     return {
       success: true,
       beneficiary: {
@@ -178,7 +188,7 @@ export async function getDentalBeneficiaryDetail(beneficiaryId: string, companyI
         remaining_balance: dynamicRemaining,
         total_balance: dentalCeiling,
         hasCustomCeiling,
-        company: beneficiary.company
+        company: companyData
       },
       yearlyConsumed
     };

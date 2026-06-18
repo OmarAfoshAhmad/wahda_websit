@@ -18,6 +18,7 @@ export async function createCompany(data: {
   medicine_ceiling?: number | null;
   medicine_coverage?: number;
   dental_settings?: any;
+  service_aliases?: any;
 }) {
   const session = await requireActiveFacilitySession();
   // SEC-05 FIX: يتطلب صلاحية manage_companies بدل أي مدير
@@ -50,6 +51,8 @@ export async function createCompany(data: {
         medicine_ceiling: data.medicine_ceiling !== undefined ? data.medicine_ceiling : null,
         medicine_coverage: data.medicine_coverage !== undefined ? data.medicine_coverage : 80,
         dental_settings: data.dental_settings,
+        // @ts-ignore: field is generated but typescript might be stale
+        service_aliases: data.service_aliases,
         service_policies: dentalType ? {
           create: {
             service_type_id: dentalType.id,
@@ -84,6 +87,7 @@ export async function updateCompany(id: string, data: {
   medicine_ceiling?: number | null;
   medicine_coverage?: number;
   dental_settings?: any;
+  service_aliases?: any;
 }) {
   const session = await requireActiveFacilitySession();
   if (!session?.is_admin && !hasPermission(session!, "manage_companies")) {
@@ -120,6 +124,8 @@ export async function updateCompany(id: string, data: {
         medicine_ceiling: data.medicine_ceiling,
         medicine_coverage: data.medicine_coverage,
         dental_settings: data.dental_settings,
+        // @ts-ignore: field is generated but typescript might be stale
+        service_aliases: data.service_aliases,
         ...(data.code ? { code: data.code.toUpperCase() } : {}),
       },
     });

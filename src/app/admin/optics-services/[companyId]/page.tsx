@@ -18,6 +18,7 @@ import { BeneficiaryTransactionsPanelButton } from "@/components/beneficiary-tra
 import { BeneficiaryRestoreActions } from "@/components/beneficiary-restore-actions";
 import { BeneficiariesBulkActionButton, SelectAllCheckbox, EmptyRecycleBinButton } from "@/components/beneficiaries-bulk-action-button";
 import { TransactionsBulkActionButton, SelectAllTransactionsCheckbox } from "@/components/transactions-bulk-action-button";
+import { getServiceAlias } from "@/lib/service-aliases";
 
 export default async function OpticsCompanyPage({
   params,
@@ -277,7 +278,7 @@ export default async function OpticsCompanyPage({
           is_legacy_card: true,
           deleted_at: true,
           _count: {
-            select: { transactions: { where: { is_cancelled: false } } }
+            select: { transactions: { where: { is_cancelled: false, type: "OPTICS" } } }
           }
         }
       }),
@@ -374,7 +375,7 @@ export default async function OpticsCompanyPage({
             <div className="min-w-0 flex-1 space-y-2">
               <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
                 <Link href="/admin/optics-services" className="hover:text-teal-600 dark:hover:text-teal-400 font-bold transition-colors">
-                  خدمات البصريات
+                  {getServiceAlias(company, 'OPTICS', 'خدمات البصريات')}
                 </Link>
                 <ArrowRight className="h-3.5 w-3.5 rotate-180" />
                 <span className="font-medium">{company.name}</span>
@@ -964,7 +965,11 @@ export default async function OpticsCompanyPage({
                                   beneficiaryId={beneficiary.id}
                                   beneficiaryName={beneficiary.name}
                                   hasTransactions={beneficiary._count.transactions > 0}
-                                  overrideTotalBalance={Number(beneficiary.total_balance)}
+                                  overrideTotalBalance={opticsCeiling === null ? undefined : Number(beneficiary.total_balance)}
+                                  overrideRemainingBalance={opticsCeiling === null ? Number(beneficiary.total_balance) : Number(beneficiary.remaining_balance)}
+                                  overrideConsumedBalance={opticsCeiling === null ? Number(beneficiary.total_balance) : Number(beneficiary.total_balance) - Number(beneficiary.remaining_balance)}
+                                  contextLabel="بصريات"
+                                  serviceContextFilter="OPTICS"
                                 />
 
                                 {canEditBen && (
@@ -1110,7 +1115,11 @@ export default async function OpticsCompanyPage({
                                         beneficiaryId={beneficiary.id}
                                         beneficiaryName={beneficiary.name}
                                         hasTransactions={beneficiary._count.transactions > 0}
-                                        overrideTotalBalance={Number(beneficiary.total_balance)}
+                                        overrideTotalBalance={opticsCeiling === null ? undefined : Number(beneficiary.total_balance)}
+                                        overrideRemainingBalance={opticsCeiling === null ? Number(beneficiary.total_balance) : Number(beneficiary.remaining_balance)}
+                                        overrideConsumedBalance={opticsCeiling === null ? Number(beneficiary.total_balance) : Number(beneficiary.total_balance) - Number(beneficiary.remaining_balance)}
+                                        contextLabel="بصريات"
+                                        serviceContextFilter="OPTICS"
                                       />
 
                                       {canEditBen && (

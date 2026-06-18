@@ -43,8 +43,10 @@ interface OpticsDeductContextValue {
   suggestionLoading: boolean;
   loading: boolean;
   searchBoxRef: React.RefObject<HTMLDivElement | null>;
-  handleSearch: (e?: React.FormEvent, explicitCard?: string) => Promise<void>;
+  handleSearch: (e?: React.FormEvent, explicitCard?: string, explicitId?: string) => Promise<void>;
   handleSelectSuggestion: (item: OpticsSuggestion) => void;
+  selectedBeneficiaryId: string | null;
+  setSelectedBeneficiaryId: (id: string | null) => void;
 
   // Recent
   recentBeneficiaries: OpticsSuggestion[];
@@ -103,6 +105,7 @@ export function OpticsDeductProvider({
   const [suggestions, setSuggestions] = useState<OpticsSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [beneficiary, setBeneficiary] = useState<OpticsBeneficiary | null>(null);
+  const [selectedBeneficiaryId, setSelectedBeneficiaryId] = useState<string | null>(null);
   const [yearlyConsumed, setYearlyConsumed] = useState(0);
 
   const [error, setError] = useState<string | null>(null);
@@ -211,6 +214,7 @@ export function OpticsDeductProvider({
     setSuggestions([]);
     setShowSuggestions(false);
     setBeneficiary(null);
+    setSelectedBeneficiaryId(null);
     setAmount("");
     setShowConfirm(false);
     setError(null);
@@ -221,14 +225,15 @@ export function OpticsDeductProvider({
   const handleSelectSuggestion = useCallback((item: OpticsSuggestion) => {
     setCardNumber(item.card_number);
     setSearchInput(`${item.name} - ${item.card_number}`);
+    setSelectedBeneficiaryId(item.id);
     setShowSuggestions(false);
     setError(null);
   }, []);
 
-  const handleSearch = useCallback(async (e?: React.FormEvent, explicitCard?: string) => {
+  const handleSearch = useCallback(async (e?: React.FormEvent, explicitCard?: string, explicitId?: string) => {
     e?.preventDefault();
     const candidate = explicitCard?.trim() || cardNumber.trim() || searchInput.trim();
-    if (!candidate) return;
+    if (!candidate && !explicitId && !selectedBeneficiaryId) return;
 
     setLoading(true);
     setError(null);
@@ -237,20 +242,25 @@ export function OpticsDeductProvider({
     setShowConfirm(false);
 
     try {
-      // Find beneficiary details and current optics yearly consumed amount
-      const searchResults = await searchCompanyBeneficiaries(candidate, companyId);
-      if (searchResults.error || !searchResults.items || searchResults.items.length === 0) {
-        setLoading(false);
-        setError("المستفيد غير موجود في هذه الشركة");
-        return;
+      let matchedId = explicitId || selectedBeneficiaryId;
+      
+      if (!matchedId) {
+        // Find beneficiary details and current optics yearly consumed amount
+        const searchResults = await searchCompanyBeneficiaries(candidate, companyId);
+        if (searchResults.error || !searchResults.items || searchResults.items.length === 0) {
+          setLoading(false);
+          setError("المستفيد غير موجود في هذه الشركة");
+          return;
+        }
+
+        // Pick the first match or exact match
+        const matched = searchResults.items.find(
+          (x) => x.card_number.toUpperCase() === candidate.toUpperCase()
+        ) || searchResults.items[0];
+        matchedId = matched.id;
       }
 
-      // Pick the first match or exact match
-      const matched = searchResults.items.find(
-        (x) => x.card_number.toUpperCase() === candidate.toUpperCase()
-      ) || searchResults.items[0];
-
-      const res = await getOpticsBeneficiaryDetail(matched.id, companyId);
+      const res = await getOpticsBeneficiaryDetail(matchedId, companyId);
       setLoading(false);
 
       if (res.error || !res.beneficiary) {
@@ -286,7 +296,7 @@ export function OpticsDeductProvider({
 
   const handlePickRecent = useCallback((item: OpticsSuggestion) => {
     handleSelectSuggestion(item);
-    void handleSearch(undefined, item.card_number);
+    void handleSearch(undefined, item.card_number, item.id);
   }, [handleSelectSuggestion, handleSearch]);
 
   const handleDeduct = useCallback(async () => {
@@ -358,6 +368,8 @@ export function OpticsDeductProvider({
         searchBoxRef,
         handleSearch,
         handleSelectSuggestion,
+        selectedBeneficiaryId,
+        setSelectedBeneficiaryId,
         recentBeneficiaries,
         setRecentBeneficiaries,
         handlePickRecent,

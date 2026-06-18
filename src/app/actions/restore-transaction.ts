@@ -28,6 +28,30 @@ export async function deleteCancellationTransaction(cancellationId: string) {
 
     // FIX TOCTOU: نقرأ الحركة داخل الـ Transaction لمنع تغير البيانات بين القراءة والقفل
     await prisma.$transaction(async (tx) => {
+      // 1. قفل حركة الإلغاء فوراً لمنع التزامن المزدوج
+      const lockedCancel = await tx.$queryRaw<Array<{ type: string; original_transaction_id: string | null; amount: number; beneficiary_id: string; is_cancelled: boolean }>>`
+        SELECT type, original_transaction_id, amount::float8 AS amount, beneficiary_id, is_cancelled FROM "Transaction"
+        WHERE id = ${cancellationId}
+        FOR UPDATE
+      `;
+
+      if (lockedCancel.length === 0) {
+        throw new Error("CANCELLATION_NOT_FOUND");
+      }
+
+      if (lockedCancel[0].type !== "CANCELLATION") {
+        throw new Error("NOT_CANCELLATION");
+      }
+
+      if (!lockedCancel[0].original_transaction_id) {
+        throw new Error("NO_ORIGINAL_TRANSACTION");
+      }
+
+      if (lockedCancel[0].is_cancelled) {
+        throw new Error("ALREADY_REVERTED");
+      }
+
+      // قراءة البيانات بأمان الآن
       const cancellationTransaction = await tx.transaction.findUnique({
         where: { id: cancellationId },
         select: {
@@ -161,6 +185,24 @@ export async function deleteCancellationPair(cancellationId: string) {
     }
 
     await prisma.$transaction(async (tx) => {
+      const lockedCancel = await tx.$queryRaw<Array<{ id: string; type: string; is_cancelled: boolean; original_transaction_id: string | null; beneficiary_id: string }>>`
+        SELECT id, type, is_cancelled, original_transaction_id, beneficiary_id FROM "Transaction"
+        WHERE id = ${cancellationId}
+        FOR UPDATE
+      `;
+
+      if (lockedCancel.length === 0) throw new Error("CANCELLATION_NOT_FOUND");
+      if (lockedCancel[0].type !== "CANCELLATION") throw new Error("NOT_CANCELLATION");
+      if (!lockedCancel[0].original_transaction_id) throw new Error("NO_ORIGINAL_TRANSACTION");
+
+      const lockedOriginal = await tx.$queryRaw<Array<{ id: string; type: string; is_cancelled: boolean; beneficiary_id: string }>>`
+        SELECT id, type, is_cancelled, beneficiary_id FROM "Transaction"
+        WHERE id = ${lockedCancel[0].original_transaction_id}
+        FOR UPDATE
+      `;
+
+      if (lockedOriginal.length === 0) throw new Error("ORIGINAL_NOT_FOUND");
+
       const cancellation = await tx.transaction.findUnique({
         where: { id: cancellationId },
         select: {
@@ -174,20 +216,7 @@ export async function deleteCancellationPair(cancellationId: string) {
       });
 
       if (!cancellation) throw new Error("CANCELLATION_NOT_FOUND");
-      if (cancellation.type !== "CANCELLATION") throw new Error("NOT_CANCELLATION");
-      if (!cancellation.original_transaction_id) throw new Error("NO_ORIGINAL_TRANSACTION");
-
-      const originalTx = await tx.transaction.findUnique({
-        where: { id: cancellation.original_transaction_id },
-        select: {
-          id: true,
-          type: true,
-          is_cancelled: true,
-          beneficiary_id: true,
-        },
-      });
-
-      if (!originalTx) throw new Error("ORIGINAL_NOT_FOUND");
+      const originalTx = lockedOriginal[0];
 
       // قفل صف المستفيد قبل أي تعديل
       const locked = await tx.$queryRaw<Array<{ id: string; status: string }>>`
@@ -279,11 +308,18 @@ export async function restoreSingleTransaction(transactionId: string) {
     }
 
     await prisma.$transaction(async (tx) => {
+      const lockedTx = await tx.$queryRaw<Array<{ id: string; is_cancelled: boolean; beneficiary_id: string }>>`
+        SELECT id, is_cancelled, beneficiary_id FROM "Transaction"
+        WHERE id = ${transactionId}
+        FOR UPDATE
+      `;
+      if (lockedTx.length === 0) throw new Error("TX_NOT_FOUND");
+      if (!lockedTx[0].is_cancelled) throw new Error("TX_NOT_CANCELLED");
+
       const transaction = await tx.transaction.findUnique({
         where: { id: transactionId },
       });
       if (!transaction) throw new Error("TX_NOT_FOUND");
-      if (!transaction.is_cancelled) throw new Error("TX_NOT_CANCELLED");
 
       // 1. Mark as not cancelled
       await tx.transaction.update({
@@ -356,11 +392,18 @@ export async function deleteSingleTransactionPermanently(transactionId: string) 
     }
 
     await prisma.$transaction(async (tx) => {
+      const lockedTx = await tx.$queryRaw<Array<{ id: string; is_cancelled: boolean; beneficiary_id: string }>>`
+        SELECT id, is_cancelled, beneficiary_id FROM "Transaction"
+        WHERE id = ${transactionId}
+        FOR UPDATE
+      `;
+      if (lockedTx.length === 0) throw new Error("TX_NOT_FOUND");
+      if (!lockedTx[0].is_cancelled) throw new Error("TX_MUST_BE_CANCELLED");
+
       const transaction = await tx.transaction.findUnique({
         where: { id: transactionId },
       });
       if (!transaction) throw new Error("TX_NOT_FOUND");
-      if (!transaction.is_cancelled) throw new Error("TX_MUST_BE_CANCELLED");
 
       // Delete related CANCELLATION transactions
       await tx.transaction.deleteMany({

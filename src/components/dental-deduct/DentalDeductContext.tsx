@@ -43,8 +43,10 @@ interface DentalDeductContextValue {
   suggestionLoading: boolean;
   loading: boolean;
   searchBoxRef: React.RefObject<HTMLDivElement | null>;
-  handleSearch: (e?: React.FormEvent, explicitCard?: string) => Promise<void>;
+  handleSearch: (e?: React.FormEvent, explicitCard?: string, explicitId?: string) => Promise<void>;
   handleSelectSuggestion: (item: DentalSuggestion) => void;
+  selectedBeneficiaryId: string | null;
+  setSelectedBeneficiaryId: (id: string | null) => void;
 
   // Recent
   recentBeneficiaries: DentalSuggestion[];
@@ -105,6 +107,7 @@ export function DentalDeductProvider({
   const [suggestions, setSuggestions] = useState<DentalSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [beneficiary, setBeneficiary] = useState<DentalBeneficiary | null>(null);
+  const [selectedBeneficiaryId, setSelectedBeneficiaryId] = useState<string | null>(null);
   const [yearlyConsumed, setYearlyConsumed] = useState(0);
 
   const [error, setError] = useState<string | null>(null);
@@ -214,6 +217,7 @@ export function DentalDeductProvider({
     setSuggestions([]);
     setShowSuggestions(false);
     setBeneficiary(null);
+    setSelectedBeneficiaryId(null);
     setAmount("");
     setSubCategory("DENTAL");
     setShowConfirm(false);
@@ -225,14 +229,15 @@ export function DentalDeductProvider({
   const handleSelectSuggestion = useCallback((item: DentalSuggestion) => {
     setCardNumber(item.card_number);
     setSearchInput(`${item.name} - ${item.card_number}`);
+    setSelectedBeneficiaryId(item.id);
     setShowSuggestions(false);
     setError(null);
   }, []);
 
-  const handleSearch = useCallback(async (e?: React.FormEvent, explicitCard?: string) => {
+  const handleSearch = useCallback(async (e?: React.FormEvent, explicitCard?: string, explicitId?: string) => {
     e?.preventDefault();
     const candidate = explicitCard?.trim() || cardNumber.trim() || searchInput.trim();
-    if (!candidate) return;
+    if (!candidate && !explicitId && !selectedBeneficiaryId) return;
 
     setLoading(true);
     setError(null);
@@ -241,20 +246,26 @@ export function DentalDeductProvider({
     setShowConfirm(false);
 
     try {
-      // Find beneficiary details and current dental yearly consumed amount
-      const searchResults = await searchCompanyBeneficiaries(candidate, companyId);
-      if (searchResults.error || !searchResults.items || searchResults.items.length === 0) {
-        setLoading(false);
-        setError("المستفيد غير موجود في هذه الشركة");
-        return;
+      let matchedId = explicitId || selectedBeneficiaryId;
+
+      if (!matchedId) {
+        // Find beneficiary details and current dental yearly consumed amount
+        const searchResults = await searchCompanyBeneficiaries(candidate, companyId);
+        if (searchResults.error || !searchResults.items || searchResults.items.length === 0) {
+          setLoading(false);
+          setError("المستفيد غير موجود في هذه الشركة");
+          return;
+        }
+
+        // Pick the first match or exact match
+        const matched = searchResults.items.find(
+          (x) => x.card_number.toUpperCase() === candidate.toUpperCase()
+        ) || searchResults.items[0];
+        
+        matchedId = matched.id;
       }
 
-      // Pick the first match or exact match
-      const matched = searchResults.items.find(
-        (x) => x.card_number.toUpperCase() === candidate.toUpperCase()
-      ) || searchResults.items[0];
-
-      const res = await getDentalBeneficiaryDetail(matched.id, companyId);
+      const res = await getDentalBeneficiaryDetail(matchedId, companyId);
       setLoading(false);
 
       if (res.error || !res.beneficiary) {
@@ -290,7 +301,7 @@ export function DentalDeductProvider({
 
   const handlePickRecent = useCallback((item: DentalSuggestion) => {
     handleSelectSuggestion(item);
-    void handleSearch(undefined, item.card_number);
+    void handleSearch(undefined, item.card_number, item.id);
   }, [handleSelectSuggestion, handleSearch]);
 
   const handleDeduct = useCallback(async () => {
@@ -371,6 +382,8 @@ export function DentalDeductProvider({
         searchBoxRef,
         handleSearch,
         handleSelectSuggestion,
+        selectedBeneficiaryId,
+        setSelectedBeneficiaryId,
         recentBeneficiaries,
         setRecentBeneficiaries,
         handlePickRecent,

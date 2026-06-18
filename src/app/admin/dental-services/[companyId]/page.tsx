@@ -18,6 +18,7 @@ import { BeneficiaryTransactionsPanelButton } from "@/components/beneficiary-tra
 import { BeneficiaryRestoreActions } from "@/components/beneficiary-restore-actions";
 import { BeneficiariesBulkActionButton, SelectAllCheckbox, EmptyRecycleBinButton } from "@/components/beneficiaries-bulk-action-button";
 import { TransactionsBulkActionButton, SelectAllTransactionsCheckbox } from "@/components/transactions-bulk-action-button";
+import { getServiceAlias } from "@/lib/service-aliases";
 
 export default async function DentalCompanyPage({
   params,
@@ -277,7 +278,7 @@ export default async function DentalCompanyPage({
           is_legacy_card: true,
           deleted_at: true,
           _count: {
-            select: { transactions: { where: { is_cancelled: false } } }
+            select: { transactions: { where: { is_cancelled: false, type: "DENTAL" } } }
           }
         }
       }),
@@ -374,7 +375,7 @@ export default async function DentalCompanyPage({
             <div className="min-w-0 flex-1 space-y-2">
               <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
                 <Link href="/admin/dental-services" className="hover:text-teal-600 dark:hover:text-teal-400 font-bold transition-colors">
-                  خدمات الأسنان
+                  {getServiceAlias(company, 'DENTAL', 'خدمات الأسنان')}
                 </Link>
                 <ArrowRight className="h-3.5 w-3.5 rotate-180" />
                 <span className="font-medium">{company.name}</span>
@@ -964,9 +965,11 @@ export default async function DentalCompanyPage({
                                   beneficiaryId={beneficiary.id}
                                   beneficiaryName={beneficiary.name}
                                   hasTransactions={beneficiary._count.transactions > 0}
-                                  overrideTotalBalance={Number(beneficiary.total_balance)}
-                                  overrideRemainingBalance={Number(beneficiary.remaining_balance)}
-                                  overrideConsumedBalance={Number(beneficiary.total_balance) - Number(beneficiary.remaining_balance)}
+                                  overrideTotalBalance={dentalCeiling === null ? undefined : Number(beneficiary.total_balance)}
+                                  overrideRemainingBalance={dentalCeiling === null ? Number(beneficiary.total_balance) : Number(beneficiary.remaining_balance)}
+                                  overrideConsumedBalance={dentalCeiling === null ? Number(beneficiary.total_balance) : Number(beneficiary.total_balance) - Number(beneficiary.remaining_balance)}
+                                  contextLabel="أسنان"
+                                  serviceContextFilter="DENTAL"
                                 />
 
                                 {canEditBen && (
@@ -1112,7 +1115,11 @@ export default async function DentalCompanyPage({
                                         beneficiaryId={beneficiary.id}
                                         beneficiaryName={beneficiary.name}
                                         hasTransactions={beneficiary._count.transactions > 0}
-                                        overrideTotalBalance={Number(beneficiary.total_balance)}
+                                        overrideTotalBalance={dentalCeiling === null ? undefined : Number(beneficiary.total_balance)}
+                                        overrideRemainingBalance={dentalCeiling === null ? Number(beneficiary.total_balance) : Number(beneficiary.remaining_balance)}
+                                        overrideConsumedBalance={dentalCeiling === null ? Number(beneficiary.total_balance) : Number(beneficiary.total_balance) - Number(beneficiary.remaining_balance)}
+                                        contextLabel="أسنان"
+                                        serviceContextFilter="DENTAL"
                                       />
 
                                       {canEditBen && (

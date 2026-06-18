@@ -36,6 +36,9 @@ export function DentalDeductionAction() {
 
   // حساب فوري للحصص
   const settings = beneficiary?.company?.dental_settings ? (beneficiary.company.dental_settings as any) : null;
+  const serviceAliases = beneficiary?.company?.service_aliases ? (beneficiary.company.service_aliases as any) : null;
+  const dentalLabel = serviceAliases?.DENTAL || "خدمات الأسنان";
+
   const hasCustomPolicies = !!(
     settings?.ortho?.enabled ||
     settings?.implant?.enabled ||
@@ -90,7 +93,7 @@ export function DentalDeductionAction() {
     <Card className="p-5 border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl shadow-sm space-y-4">
       <div className="pb-3 border-b border-slate-100 dark:border-slate-800 flex justify-between items-start">
         <div>
-          <h3 className="font-black text-slate-900 dark:text-white">اقتطاع خدمات الأسنان</h3>
+          <h3 className="font-black text-slate-900 dark:text-white">اقتطاع {dentalLabel}</h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">تطبيق خصم مالي مباشر وحساب نسب التحمل</p>
         </div>
         {beneficiary.hasCustomCeiling && (
@@ -134,7 +137,7 @@ export function DentalDeductionAction() {
       {/* حقل القيمة */}
       <div className="space-y-1.5">
         <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
-          قيمة فاتورة الأسنان
+          قيمة فاتورة {dentalLabel}
         </label>
         <div className="relative">
           <div className="absolute right-3 top-1/2 -translate-y-1/2 text-teal-600 dark:text-teal-400">
@@ -171,7 +174,7 @@ export function DentalDeductionAction() {
         }`}>
           {isCeilingExhausted ? (
             <div className="text-center py-2">
-              <p className="font-black text-red-700 dark:text-red-400">انتهى السقف السنوي لخدمات الأسنان</p>
+              <p className="font-black text-red-700 dark:text-red-400">انتهى السقف السنوي لـ {dentalLabel}</p>
               <p className="text-xs text-red-600 dark:text-red-500 mt-1">لا يمكن إجراء اقتطاع — المستهلك: {formatCurrency(yearlyConsumed)} / {actualAnnualCeiling?.toLocaleString("ar-LY")} د.ل</p>
             </div>
           ) : (
