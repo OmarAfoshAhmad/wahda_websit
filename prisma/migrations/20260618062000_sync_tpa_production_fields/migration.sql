@@ -21,25 +21,25 @@ ALTER TYPE "TransactionType" ADD VALUE IF NOT EXISTS 'OPTICS';
 ALTER TYPE "TransactionType" ADD VALUE IF NOT EXISTS 'GENERAL';
 
 -- DropIndex
-DROP INDEX "Beneficiary_completed_via_idx";
+DROP INDEX IF EXISTS "Beneficiary_completed_via_idx";
 
 -- DropIndex
-DROP INDEX "Beneficiary_is_legacy_card_idx";
+DROP INDEX IF EXISTS "Beneficiary_is_legacy_card_idx";
 
 -- DropIndex
-DROP INDEX "idx_beneficiary_deleted_status_completed";
+DROP INDEX IF EXISTS "idx_beneficiary_deleted_status_completed";
 
 -- DropIndex
-DROP INDEX "idx_family_import_archive_last_imported_at";
+DROP INDEX IF EXISTS "idx_family_import_archive_last_imported_at";
 
 -- DropIndex
-DROP INDEX "Transaction_facility_id_created_at_idx";
+DROP INDEX IF EXISTS "Transaction_facility_id_created_at_idx";
 
 -- DropIndex
-DROP INDEX "Transaction_original_transaction_id_idx";
+DROP INDEX IF EXISTS "Transaction_original_transaction_id_idx";
 
 -- DropIndex
-DROP INDEX "idx_transaction_type_cancelled_beneficiary";
+DROP INDEX IF EXISTS "idx_transaction_type_cancelled_beneficiary";
 
 -- AlterTable
 ALTER TABLE "Beneficiary" ADD COLUMN IF NOT EXISTS     "birth_date_synced_from_truth" BOOLEAN NOT NULL DEFAULT false,
