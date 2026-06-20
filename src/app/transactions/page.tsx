@@ -4,7 +4,7 @@ import prisma from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { Shell } from "@/components/shell";
 import { getArabicSearchTerms } from "@/lib/search";
-import { Card, Badge, Input, Button } from "@/components/ui";
+import { Card, Badge, Input, Button, DateInput } from "@/components/ui";
 import { SmartPrintButton } from "@/components/smart-print-button";
 import { ExportButton } from "@/components/export-button";
 import { PaginationButtons } from "@/components/pagination-buttons";
@@ -344,7 +344,7 @@ export default async function TransactionsPage({
     }),
     focus_tx
       ? prisma.transaction.findFirst({
-        where: { ...where, id: focus_tx },
+        where: { id: focus_tx },
         select: {
           id: true,
           beneficiary_id: true,
@@ -595,11 +595,11 @@ export default async function TransactionsPage({
             <div className={`grid grid-cols-1 gap-4 ${session.is_admin ? "md:grid-cols-7" : "md:grid-cols-5"}`}>
               <div className="space-y-1">
                 <label htmlFor="start_date" className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">من تاريخ</label>
-                <Input id="start_date" type="date" name="start_date" defaultValue={start_date} lang="en-GB" className="[direction:ltr] text-right" />
+                <DateInput name="start_date" defaultValue={start_date ?? undefined} className="[direction:ltr] text-right" />
               </div>
               <div className="space-y-1">
                 <label htmlFor="end_date" className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">إلى تاريخ</label>
-                <Input id="end_date" type="date" name="end_date" defaultValue={end_date} lang="en-GB" className="[direction:ltr] text-right" />
+                <DateInput name="end_date" defaultValue={end_date ?? undefined} className="[direction:ltr] text-right" />
               </div>
 
 

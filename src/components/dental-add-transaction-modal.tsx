@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { X, Search, Loader2, CheckCircle2, AlertCircle, Building2, CreditCard, CalendarDays } from "lucide-react";
-import { Button, Input } from "@/components/ui";
+import { Button, Input , DateInput} from "@/components/ui";
 import { formatCurrency } from "@/lib/money";
 import { searchCompanyBeneficiaries, getDentalBeneficiaryDetail } from "@/app/actions/dental";
 import { deductBalance } from "@/app/actions/deduction";
@@ -519,7 +519,7 @@ export function DentalAddTransactionModal({
                   <CalendarDays className="h-4 w-4" />
                 </div>
                 <input
-                  type="date"
+                  type="date" lang="en-GB"
                   className="flex h-11 w-full rounded-md border border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 pr-10 pl-3 py-2 text-sm font-bold text-slate-900 focus-visible:outline-none focus-visible:border-teal-500 focus-visible:ring-2 focus-visible:ring-teal-500/30"
                   value={transactionDate}
                   max={maxDate}

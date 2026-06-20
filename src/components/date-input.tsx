@@ -140,7 +140,7 @@ export function DateInput({
       <input type="hidden" name={name} value={isoValue} />
       <input
         ref={nativePickerRef}
-        type="date"
+        type="date" lang="en-GB"
         tabIndex={-1}
         aria-hidden="true"
         value={isoValue}

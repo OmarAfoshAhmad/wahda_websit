@@ -4,7 +4,7 @@ import { useActionState, useEffect, useRef, useState, useCallback } from "react"
 import { useRouter } from "next/navigation";
 import { addTransactionFromForm } from "@/app/actions/transaction";
 import { getBeneficiaryFamilyImportInsights, searchBeneficiaries } from "@/app/actions/beneficiary";
-import { Button, Card, Input, ConfirmationModal } from "@/components/ui";
+import { Button, Card, Input, ConfirmationModal , DateInput} from "@/components/ui";
 import { formatCurrency, roundCurrency } from "@/lib/money";
 import {
   AMOUNT_POLICY_ERROR,
@@ -506,7 +506,7 @@ export function AddTransactionForm({
           <label className="mb-1 block text-xs font-bold text-slate-500 dark:text-slate-400">تاريخ الحركة</label>
           <input
             name="transaction_date"
-            type="date"
+            type="date" lang="en-GB"
             defaultValue={todayLocal}
             max={todayLocal}
             required

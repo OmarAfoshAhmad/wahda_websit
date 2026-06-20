@@ -129,7 +129,12 @@ export async function authenticate(prevState: unknown, formData: FormData) {
   }
 
   const session = await getSession();
-  redirect(session?.is_employee ? "/cash-claim" : "/dashboard");
+  const appMode = process.env.NEXT_PUBLIC_APP_MODE?.replace(/["']/g, '').toUpperCase() || "";
+  let redirectTo = session?.is_employee ? "/cash-claim" : "/dashboard";
+  if (!session?.is_employee && appMode.includes("DENTAL")) {
+    redirectTo = "/admin/dental-services";
+  }
+  redirect(redirectTo);
 }
 
 export async function changePassword(prevState: unknown, formData: FormData) {
@@ -190,7 +195,11 @@ export async function changePassword(prevState: unknown, formData: FormData) {
       facility_type: session.facility_type,
     });
 
-    const redirectTo = session.role === "EMPLOYEE" ? "/cash-claim" : "/dashboard";
+    const appMode = process.env.NEXT_PUBLIC_APP_MODE?.replace(/["']/g, '').toUpperCase() || "";
+    let redirectTo = session.role === "EMPLOYEE" ? "/cash-claim" : "/dashboard";
+    if (session.role !== "EMPLOYEE" && appMode.includes("DENTAL")) {
+      redirectTo = "/admin/dental-services";
+    }
     return { success: true, redirectTo };
   } catch (error: any) {
     console.error("CHANGE_PASSWORD_ERROR", error);
@@ -294,7 +303,11 @@ export async function checkMustChangePasswordStatus() {
       facility_type: session.facility_type,
     });
 
-    const redirectTo = facility.is_employee ? "/cash-claim" : "/dashboard";
+    const appMode = process.env.NEXT_PUBLIC_APP_MODE?.replace(/["']/g, '').toUpperCase() || "";
+    let redirectTo = facility.is_employee ? "/cash-claim" : "/dashboard";
+    if (!facility.is_employee && appMode.includes("DENTAL")) {
+      redirectTo = "/admin/dental-services";
+    }
     return { changed: true, redirectTo };
   }
 

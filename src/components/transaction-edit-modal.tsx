@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Button, Input } from "@/components/ui";
+import { Button, Input, DateInput } from "@/components/ui";
 import { Loader2 } from "lucide-react";
 import { updateTransactionEntry } from "@/app/actions/transaction";
 
@@ -21,13 +21,14 @@ type TransactionView = {
   is_cancelled: boolean;
 };
 
-type EditableTransactionType = "MEDICINE" | "SUPPLIES" | "DENTAL";
+type EditableTransactionType = "MEDICINE" | "SUPPLIES" | "DENTAL" | "OPTICS";
 
 function toMovementType(txType: string): EditableTransactionType {
   // الجلب يكون من "نوع الحركة" لا "المصدر":
   // IMPORT و MEDICINE كلاهما = أدوية صرف عام.
   if (txType === "SUPPLIES") return "SUPPLIES";
   if (txType === "DENTAL") return "DENTAL";
+  if (txType === "OPTICS") return "OPTICS";
   return "MEDICINE";
 }
 
@@ -182,6 +183,8 @@ export function TransactionEditModal({
                 >
                   {transaction.type === "DENTAL" ? (
                     <option value="DENTAL">أسنان</option>
+                  ) : transaction.type === "OPTICS" ? (
+                    <option value="OPTICS">بصريات</option>
                   ) : (
                     <>
                       <option value="SUPPLIES">كشف عام</option>
@@ -193,13 +196,11 @@ export function TransactionEditModal({
 
               <div>
                 <label className="mb-1 block text-xs font-black text-slate-500 dark:text-slate-400">تاريخ الحركة</label>
-                <input
-                  type="date"
+                <DateInput
                   value={transactionDate}
-                  onChange={(e) => setTransactionDate(e.target.value)}
+                  onChange={(val) => setTransactionDate(val)}
                   min="1900-01-01"
                   max={todayLocal}
-                  className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                 />
               </div>
 

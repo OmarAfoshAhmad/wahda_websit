@@ -24,7 +24,7 @@ export type AddTransactionState = {
 export type EditTransactionInput = {
   id: string;
   amount: number;
-  type: "MEDICINE" | "SUPPLIES" | "IMPORT" | "DENTAL";
+  type: "MEDICINE" | "SUPPLIES" | "IMPORT" | "DENTAL" | "OPTICS";
   transactionDate: string;
   facilityId?: string;
 };
@@ -245,7 +245,7 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
     return { error: "قيمة المبلغ غير صالحة" };
   }
 
-  if (input.type !== "DENTAL") {
+  if (input.type !== "DENTAL" && input.type !== "OPTICS") {
     if (input.amount > MAX_DEDUCTION_AMOUNT) {
       return { error: MAX_AMOUNT_POLICY_ERROR };
     }

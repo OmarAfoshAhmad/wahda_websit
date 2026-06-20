@@ -547,14 +547,14 @@ export default async function DentalCompanyPage({
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-slate-500">من</span>
                   <input
-                    type="date"
+                    type="date" lang="en-GB"
                     name="from"
                     defaultValue={fromDate}
                     className="flex h-10 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-bold text-slate-900 dark:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/30"
                   />
                   <span className="text-xs font-bold text-slate-500">إلى</span>
                   <input
-                    type="date"
+                    type="date" lang="en-GB"
                     name="to"
                     defaultValue={toDate}
                     className="flex h-10 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-bold text-slate-900 dark:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/30"
