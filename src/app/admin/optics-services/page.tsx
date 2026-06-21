@@ -15,9 +15,10 @@ export default async function OpticsServicesPage({
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
   
-  const canAccess = hasPermission(session, "optics_services");
+  const canAccess = hasPermission(session, "optics_services") || hasPermission(session, "view_optics_beneficiaries");
   if (!canAccess) {
-    if (process.env.NEXT_PUBLIC_APP_MODE?.replace(/["']/g, '').toUpperCase() === "OPTICS") {
+    const appMode = process.env.NEXT_PUBLIC_APP_MODE?.replace(/["']/g, '').toUpperCase() || "";
+    if (appMode.includes("OPTICS")) {
       return (
         <Shell facilityName={session.name} session={session}>
           <div className="flex items-center justify-center min-h-[50vh]">
@@ -64,7 +65,7 @@ export default async function OpticsServicesPage({
         },
       },
       service_policies: {
-        where: { service_type: { code: 'OPTICS' } },
+        where: { service_type: { code: 'OPTICS' }, is_active: true },
         select: { ceiling_amount: true, coverage_percent: true }
       }
     },

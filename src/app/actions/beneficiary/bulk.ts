@@ -325,7 +325,16 @@ export async function bulkPermanentDeleteBeneficiaries(formData: FormData) {
         name: true,
         card_number: true,
         deleted_at: true,
-        _count: { select: { transactions: true } },
+        _count: {
+          select: {
+            transactions: {
+              where: {
+                is_cancelled: false,
+                type: { notIn: ["IMPORT", "CANCELLATION"] },
+              },
+            },
+          },
+        },
       },
     });
 
@@ -344,6 +353,7 @@ export async function bulkPermanentDeleteBeneficiaries(formData: FormData) {
       await tx.walletConsumption.deleteMany({ where: { beneficiary_id: { in: deletableIds } } });
       await tx.claim.deleteMany({ where: { beneficiary_id: { in: deletableIds } } });
       await tx.notification.deleteMany({ where: { beneficiary_id: { in: deletableIds } } });
+      await tx.transaction.deleteMany({ where: { beneficiary_id: { in: deletableIds } } });
       await tx.beneficiary.deleteMany({ where: { id: { in: deletableIds } } });
 
       const details = beneficiaries.map((b) => {

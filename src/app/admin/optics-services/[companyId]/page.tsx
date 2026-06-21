@@ -38,16 +38,22 @@ export default async function OpticsCompanyPage({
 }) {
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
-  const canAccess = hasPermission(session, "optics_services");
+  const canAccess = hasPermission(session, "optics_services") || hasPermission(session, "view_optics_beneficiaries");
   if (!canAccess) redirect("/dashboard");
 
 
+  // تحديد التبويب الفعال والتحقق من الصلاحيات
+  const canDeduct = session.is_admin || session.role === "FACILITY" || hasPermission(session, "deduct_balance");
   const canViewBeneficiaries = session.is_admin || hasPermission(session, "view_optics_beneficiaries");
+  const validTabs = ["transactions"];
+  if (canDeduct) validTabs.push("deduct");
+  if (canViewBeneficiaries) validTabs.push("beneficiaries");
+
   const { companyId } = await params;
   const sp = await searchParams;
-  let activeTab = sp.tab === "transactions" ? "transactions" : sp.tab === "beneficiaries" ? "beneficiaries" : "deduct";
-  if (!canViewBeneficiaries && activeTab === "beneficiaries") {
-    activeTab = "deduct";
+  let activeTab = sp.tab || (canDeduct ? "deduct" : "transactions");
+  if (!validTabs.includes(activeTab)) {
+    activeTab = canDeduct ? "deduct" : "transactions";
   }
   const searchQuery = (sp.q ?? "").trim();
   const page = Math.max(1, parseInt(sp.page ?? "1") || 1);
@@ -62,15 +68,15 @@ export default async function OpticsCompanyPage({
         select: { beneficiaries: { where: { deleted_at: null } } },
       },
       service_policies: {
-        where: { service_type: { code: 'OPTICS' } },
+        where: { service_type: { code: 'OPTICS' }, is_active: true },
         select: { ceiling_amount: true, coverage_percent: true }
       }
     },
   })) as any;
 
-  if (!company) notFound();
+  if (!company || !company.service_policies?.length) notFound();
 
-  const policy = company.service_policies?.[0];
+  const policy = company.service_policies[0];
   const ceiling = policy && policy.ceiling_amount !== null ? Number(policy.ceiling_amount) : null;
   const copay = Math.max(0, 100 - (policy ? Number(policy.coverage_percent) : 100));
   const opticsPolicy = true;
@@ -390,16 +396,18 @@ export default async function OpticsCompanyPage({
 
                 {opticsPolicy && (
                   <div className="mr-1 flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-1 w-fit">
-                    <Link
-                      href={`/admin/optics-services/${companyId}?tab=deduct`}
-                      className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${
-                        activeTab === "deduct"
-                          ? "bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-sm border border-slate-200 dark:border-slate-700"
-                          : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-                      }`}
-                    >
-                      إجراء الخصم
-                    </Link>
+                    {canDeduct && (
+                      <Link
+                        href={`/admin/optics-services/${companyId}?tab=deduct`}
+                        className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${
+                          activeTab === "deduct"
+                            ? "bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-sm border border-slate-200 dark:border-slate-700"
+                            : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+                        }`}
+                      >
+                        إجراء الخصم
+                      </Link>
+                    )}
                     <Link
                       href={`/admin/optics-services/${companyId}?tab=transactions`}
                       className={`px-4 py-2 rounded-md text-sm font-bold transition-colors ${

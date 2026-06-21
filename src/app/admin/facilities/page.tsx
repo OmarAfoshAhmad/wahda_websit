@@ -39,7 +39,7 @@ function getFacilityTypeBadgeClass(fType: FacilityType): string {
 export default async function FacilitiesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; page?: string; sort?: string; order?: string; view?: string }>;
+  searchParams: Promise<{ q?: string; page?: string; sort?: string; order?: string; view?: string; type?: string }>;
 }) {
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
@@ -47,7 +47,7 @@ export default async function FacilitiesPage({
     redirect("/dashboard");
   }
 
-  const { q, page: pageParam, sort, order, view } = await searchParams;
+  const { q, page: pageParam, sort, order, view, type } = await searchParams;
   const page = Math.max(1, parseInt(pageParam ?? "1", 10) || 1);
   const isDeletedView = view === "deleted";
 
@@ -56,10 +56,10 @@ export default async function FacilitiesPage({
   const sortCol: SortCol = (ALLOWED_SORT as ReadonlyArray<string>).includes(sort ?? "") ? sort as SortCol : "created_at";
   const sortDir: "asc" | "desc" = order === "asc" ? "asc" : "desc";
 
-  // فلترة المرافق فقط باستخدام دور FACILITY لضمان عدم ظهور الموظفين أو المديرين هنا
   const where = {
     deleted_at: isDeletedView ? { not: null } : null,
     role: "FACILITY",
+    ...(type && ["HOSPITAL", "PHARMACY", "DENTAL", "OPTICS"].includes(type) ? { facility_type: type } : {}),
     ...(q && q.trim()
       ? {
         OR: getArabicSearchTerms(q.trim()).flatMap(t => [
@@ -73,6 +73,7 @@ export default async function FacilitiesPage({
   const allWhere = {
     deleted_at: isDeletedView ? { not: null } : null,
     role: "FACILITY",
+    ...(type && ["HOSPITAL", "PHARMACY", "DENTAL", "OPTICS"].includes(type) ? { facility_type: type } : {}),
   };
 
   const [facilities, totalCount, allFacilities] = await Promise.all([
@@ -127,6 +128,7 @@ export default async function FacilitiesPage({
   const buildHref = (p: number) => {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
+    if (type) params.set("type", type);
     if (isDeletedView) params.set("view", "deleted");
     params.set("sort", sortCol);
     params.set("order", sortDir);
@@ -137,6 +139,7 @@ export default async function FacilitiesPage({
   const sortHref = (col: SortCol) => {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
+    if (type) params.set("type", type);
     if (isDeletedView) params.set("view", "deleted");
     params.set("sort", col);
     params.set("order", sortCol === col && sortDir === "asc" ? "desc" : "asc");
@@ -175,7 +178,7 @@ export default async function FacilitiesPage({
             </Link>
             {canExport && (
               <a
-                href="/api/export/facilities"
+                href={`/api/export/facilities?type=${type ?? ""}`}
                 target="_blank"
                 className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-black text-white! transition-colors hover:bg-emerald-700 dark:hover:bg-emerald-600 sm:w-auto"
               >
@@ -191,7 +194,6 @@ export default async function FacilitiesPage({
           {/* قائمة المرافق */}
           <div className="space-y-4">
 
-            {/* شريط البحث */}
             <form method="get" className="flex flex-col gap-2 sm:flex-row print:hidden">
               <input type="hidden" name="page" value="1" />
               <Input
@@ -201,6 +203,17 @@ export default async function FacilitiesPage({
                 className="h-10 w-full text-sm"
                 autoComplete="off"
               />
+              <select
+                name="type"
+                defaultValue={type ?? ""}
+                className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-800 dark:bg-slate-950 dark:focus-visible:ring-slate-300 sm:w-auto"
+              >
+                <option value="">كل المرافق</option>
+                <option value="HOSPITAL">مشفى / عيادة عامة</option>
+                <option value="PHARMACY">صيدلية</option>
+                <option value="DENTAL">عيادة أسنان</option>
+                <option value="OPTICS">مركز بصريات / عيون</option>
+              </select>
               <Button type="submit" className="h-10 w-full px-5 sm:w-auto sm:shrink-0">بحث</Button>
             </form>
 

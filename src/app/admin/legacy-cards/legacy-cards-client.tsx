@@ -111,7 +111,7 @@ export default function LegacyCardsClient({ initialData }: { initialData: Legacy
       </div>
 
       {/* القسم الأول: صدر لهم جديد */}
-      <div className="rounded-xl border bg-card text-card-foreground shadow-sm border-emerald-100 shadow-sm dark:border-emerald-900/30">
+      <div className="rounded-xl border bg-card text-card-foreground shadow-sm border-emerald-100 dark:border-emerald-900/30 overflow-hidden">
         <div className="flex flex-col space-y-1.5 p-6 bg-emerald-50/50 pb-4 dark:bg-emerald-900/10">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -138,15 +138,15 @@ export default function LegacyCardsClient({ initialData }: { initialData: Legacy
         </div>
         <div className="p-0">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm text-right">
+            <table className="w-full text-sm text-right min-w-[800px]">
               <thead className="bg-slate-50 text-slate-500 dark:bg-slate-800/50 dark:text-slate-400">
                 <tr>
-                  <th className="px-4 py-3 font-medium">الاسم</th>
-                  <th className="px-4 py-3 font-medium">البطاقة القديمة</th>
-                  <th className="px-4 py-3 font-medium">البطاقة الحديثة</th>
-                  <th className="px-4 py-3 font-medium">المدينة</th>
-                  <th className="px-4 py-3 font-medium">طريقة الإصدار</th>
-                  <th className="px-4 py-3 font-medium">الإجراء</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap">الاسم</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap">البطاقة القديمة</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap">البطاقة الحديثة</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap">المدينة</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap">طريقة الإصدار</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap text-left">الإجراء</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -157,20 +157,20 @@ export default function LegacyCardsClient({ initialData }: { initialData: Legacy
                 ) : (
                   filteredWithNewCards.map((item) => (
                     <tr key={item.legacy_id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                      <td className="px-4 py-3 font-medium text-slate-900 dark:text-slate-200">{item.name}</td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 font-medium text-slate-900 dark:text-slate-200 whitespace-nowrap">{item.name}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">
                         <div className="flex flex-col">
-                          <span className="font-mono text-xs text-rose-600 dark:text-rose-400">{item.legacy_card}</span>
-                          <span className="text-[10px] text-slate-400">{formatDate(item.legacy_date)}</span>
+                          <span className="font-mono text-xs text-rose-600 dark:text-rose-400" dir="ltr">{item.legacy_card}</span>
+                          <span className="text-[10px] text-slate-400 mt-1">{formatDate(item.legacy_date)}</span>
                         </div>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 whitespace-nowrap">
                         <div className="flex flex-col">
-                          <span className="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400">{item.new_card}</span>
-                          <span className="text-[10px] text-slate-400">{formatDate(item.new_date)}</span>
+                          <span className="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400" dir="ltr">{item.new_card}</span>
+                          <span className="text-[10px] text-slate-400 mt-1">{formatDate(item.new_date)}</span>
                         </div>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 whitespace-nowrap">
                         <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-1 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                           {item.city || "غير محدد"}
                         </span>
@@ -186,7 +186,7 @@ export default function LegacyCardsClient({ initialData }: { initialData: Legacy
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 whitespace-nowrap text-left">
                         <Button 
                           variant="danger" 
                           size="sm"
@@ -207,7 +207,7 @@ export default function LegacyCardsClient({ initialData }: { initialData: Legacy
       </div>
 
       {/* القسم الثاني: لم يصدر لهم جديد */}
-      <div className="rounded-xl border bg-card text-card-foreground shadow-sm border-rose-100 shadow-sm dark:border-rose-900/30">
+      <div className="rounded-xl border bg-card text-card-foreground shadow-sm border-rose-100 dark:border-rose-900/30 overflow-hidden">
         <div className="flex flex-col space-y-1.5 p-6 bg-rose-50/50 pb-4 dark:bg-rose-900/10">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -233,14 +233,14 @@ export default function LegacyCardsClient({ initialData }: { initialData: Legacy
         </div>
         <div className="p-0">
           <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
-            <table className="w-full text-sm text-right relative">
+            <table className="w-full text-sm text-right relative min-w-[800px]">
               <thead className="bg-slate-50 text-slate-500 dark:bg-slate-800/50 dark:text-slate-400 sticky top-0">
                 <tr>
-                  <th className="px-4 py-3 font-medium">الاسم</th>
-                  <th className="px-4 py-3 font-medium">البطاقة القديمة</th>
-                  <th className="px-4 py-3 font-medium">المدينة</th>
-                  <th className="px-4 py-3 font-medium">تاريخ الدخول للمنظومة</th>
-                  <th className="px-4 py-3 font-medium">الإجراء</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap">الاسم</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap">البطاقة القديمة</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap">المدينة</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap">تاريخ الدخول للمنظومة</th>
+                  <th className="px-4 py-3 font-medium whitespace-nowrap text-left">الإجراء</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -251,15 +251,15 @@ export default function LegacyCardsClient({ initialData }: { initialData: Legacy
                 ) : (
                   filteredWithoutNewCards.map((item) => (
                     <tr key={item.legacy_id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                      <td className="px-4 py-3 font-medium text-slate-900 dark:text-slate-200">{item.name}</td>
-                      <td className="px-4 py-3 font-mono text-xs text-rose-600 dark:text-rose-400">{item.legacy_card}</td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 font-medium text-slate-900 dark:text-slate-200 whitespace-nowrap">{item.name}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-rose-600 dark:text-rose-400 whitespace-nowrap" dir="ltr">{item.legacy_card}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">
                         <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-1 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                           {item.city || "غير محدد"}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-xs text-slate-500">{formatDate(item.legacy_date)}</td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{formatDate(item.legacy_date)}</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-left">
                         <Button 
                           variant="ghost" 
                           size="sm"

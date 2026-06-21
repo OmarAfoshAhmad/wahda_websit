@@ -15,9 +15,10 @@ export default async function DentalServicesPage({
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
   
-  const canAccess = hasPermission(session, "dental_services");
+  const canAccess = hasPermission(session, "dental_services") || hasPermission(session, "view_dental_beneficiaries");
   if (!canAccess) {
-    if (process.env.NEXT_PUBLIC_APP_MODE?.replace(/["']/g, '').toUpperCase() === "DENTAL") {
+    const appMode = process.env.NEXT_PUBLIC_APP_MODE?.replace(/["']/g, '').toUpperCase() || "";
+    if (appMode.includes("DENTAL")) {
       return (
         <Shell facilityName={session.name} session={session}>
           <div className="flex items-center justify-center min-h-[50vh]">
@@ -64,7 +65,7 @@ export default async function DentalServicesPage({
         },
       },
       service_policies: {
-        where: { service_type: { code: 'DENTAL' } },
+        where: { service_type: { code: 'DENTAL' }, is_active: true },
         select: { ceiling_amount: true, coverage_percent: true }
       }
     },

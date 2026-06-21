@@ -1676,7 +1676,7 @@ export async function getFamilyNumberingMismatchContextAction(data: {
     const familyBase = buildFamilyNumberingBaseFromCanonical(currentCanonical);
     const normalizedName = normalizeNameLoose(anchor.name);
     const birthDateIso = birthKey(anchor.birth_date);
-    const anchorPersonKey = normalizedName && birthDateIso ? `${normalizedName}::${birthDateIso}` : "";
+    const anchorPersonKey = buildPersonKeyForFamily(anchor.name, anchor.birth_date);
 
     const systemFamilyRows = await prisma.$queryRaw<FamilyNumberingContextSystemMember[]>`
       SELECT
@@ -1846,10 +1846,10 @@ export async function resolveFamilyNumberingMismatchAction(data: {
     const familyBase = buildFamilyNumberingBaseFromCanonical(sourceCanonical);
     const normalizedName = normalizeNameLoose(anchor.name);
     const birthDateIso = birthKey(anchor.birth_date);
-    if (!normalizedName || !birthDateIso) {
-      return { error: "لا يمكن معالجة التباين بدون اسم وميلاد صالحين" };
+    if (!normalizedName) {
+      return { error: "لا يمكن معالجة التباين بدون اسم صحيح" };
     }
-    const anchorPersonKey = `${normalizedName}::${birthDateIso}`;
+    const anchorPersonKey = buildPersonKeyForFamily(anchor.name, anchor.birth_date);
 
     const targetCanonical = canonicalizeCardNumber(targetCardRaw);
     if (!targetCanonical) return { error: "رقم البطاقة الهدف غير صالح" };

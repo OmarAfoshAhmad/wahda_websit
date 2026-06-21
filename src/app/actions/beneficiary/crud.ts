@@ -557,7 +557,16 @@ export async function permanentDeleteBeneficiary(id: string) {
         card_number: true,
         name: true,
         deleted_at: true,
-        _count: { select: { transactions: true } },
+        _count: {
+          select: {
+            transactions: {
+              where: {
+                is_cancelled: false,
+                type: { notIn: ["IMPORT", "CANCELLATION"] },
+              },
+            },
+          },
+        },
       },
     });
 
@@ -582,6 +591,7 @@ export async function permanentDeleteBeneficiary(id: string) {
       await tx.walletConsumption.deleteMany({ where: { beneficiary_id: id } });
       await tx.claim.deleteMany({ where: { beneficiary_id: id } });
       await tx.notification.deleteMany({ where: { beneficiary_id: id } });
+      await tx.transaction.deleteMany({ where: { beneficiary_id: id } });
       await tx.beneficiary.delete({ where: { id } });
     });
 

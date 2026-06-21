@@ -5,8 +5,9 @@ import prisma from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import ExcelJS from "exceljs";
 import { formatDateTripoli } from "@/lib/datetime";
+import { getFacilityTypeLabel, type FacilityType } from "@/lib/facility-type";
 
-export async function GET() {
+export async function GET(req: Request) {
   const session = await requireActiveFacilitySession();
   if (!session) {
     return new NextResponse("Unauthorized", { status: 401 });
@@ -20,14 +21,24 @@ export async function GET() {
     return NextResponse.json({ error: rateLimitError }, { status: 429 });
   }
 
+  const url = new URL(req.url);
+  const type = url.searchParams.get("type");
+
   try {
+    const where: any = { deleted_at: null, role: "FACILITY" };
+    if (type && ["HOSPITAL", "PHARMACY", "DENTAL", "OPTICS"].includes(type)) {
+      where.facility_type = type;
+    }
+
     const facilities = await prisma.facility.findMany({
-      where: { deleted_at: null },
+      where,
       orderBy: { created_at: "asc" },
       select: {
         name: true,
         username: true,
         is_admin: true,
+        role: true,
+        facility_type: true,
         created_at: true,
         _count: { select: { transactions: true } },
       },
@@ -41,6 +52,7 @@ export async function GET() {
     worksheet.columns = [
       { header: "#", key: "index", width: 8 },
       { header: "اسم المرفق", key: "name", width: 35 },
+      { header: "نوع المرفق", key: "facility_type", width: 20 },
       { header: "اسم المستخدم", key: "username", width: 25 },
       { header: "النوع", key: "role", width: 15 },
       { header: "عدد العمليات", key: "transactions", width: 18 },
@@ -54,10 +66,11 @@ export async function GET() {
       worksheet.addRow({
         index: idx + 1,
         name: f.name,
+        facility_type: getFacilityTypeLabel((f.facility_type as FacilityType) || "HOSPITAL"),
         username: f.username,
-        role: f.is_admin ? "المبرمج" : "مرفق",
+        role: "مرفق",
         transactions: f._count.transactions,
-         created_at: formatDateTripoli(f.created_at, "en-GB"),
+        created_at: formatDateTripoli(f.created_at, "en-GB"),
       });
     });
 

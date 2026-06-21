@@ -1,0 +1,789 @@
+M	.env.example
+M	.github/workflows/ci.yml
+M	.vscode/settings.json
+A	650 fhrd.xlsx
+A	DEPLOY_SAFE.md
+M	Dockerfile
+A	IMG-20260514-WA0020.jpg
+A	IMG-20260514-WA0020_1080x1920_blur.jpg
+A	IMG-20260514-WA0020_1080x1920_solid.jpg
+A	IMG-20260514-WA0021.jpg
+A	IMG-20260514-WA0022.jpg
+A	MERG ARCADIA/سجل الموظفين اركاديا المدمج.xlsx
+A	MERG HJR/HAJAR ALMAS 1 .xlsx
+A	assign_jamarek_cards.js
+A	calc_txns.js
+A	card_analysis_result.csv
+A	check_arcadia.js
+A	check_audit.js
+A	check_cancel.js
+D	check_cards.js
+M	check_db.js
+A	check_duplicate_beneficiary.js
+A	check_excel.js
+A	check_family.js
+A	check_filter_counts.js
+A	check_id.js
+A	check_idem.js
+A	check_jihan.js
+A	check_jmr_policy.js
+R100	check_queries.ts	check_queries.js
+R100	check_queries_v2.ts	check_queries_v2.js
+A	check_zubair.js
+A	cleanup-next.js
+A	count-legacy-registry.js
+A	create_shadow.js
+M	docker-compose.yml
+A	dump2.js
+A	dump_excel.js
+A	dump_policies.js
+A	dump_txns.js
+M	eslint.config.mjs
+A	export_users.js
+A	exported_users.json
+A	exports/650_fhrd_enriched.xlsx
+A	exports/650_fhrd_enriched_all_company.xlsx
+A	exports/650_fhrd_enriched_all_company_split.xlsx
+A	exports/650_fhrd_matched_only.xlsx
+A	exports/batch_rebuild_2026-05-27T15-55-11-259Z/README.txt
+A	exports/batch_rebuild_2026-05-27T15-55-11-259Z/ترميزات_بدون_دفعة_للمراجعة.xlsx
+A	exports/batch_rebuild_2026-05-27T15-55-11-259Z/دفعة_10_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_2026-05-27T15-55-11-259Z/دفعة_11_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_2026-05-27T15-55-11-259Z/دفعة_12_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_2026-05-27T15-55-11-259Z/دفعة_13_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_2026-05-27T15-55-11-259Z/دفعة_14_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_2026-05-27T15-55-11-259Z/دفعة_15_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_2026-05-27T15-55-11-259Z/دفعة_16_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_2026-05-27T15-55-11-259Z/دفعة_1_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_2026-05-27T15-55-11-259Z/دفعة_2_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_2026-05-27T15-55-11-259Z/دفعة_3_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_2026-05-27T15-55-11-259Z/دفعة_4_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_2026-05-27T15-55-11-259Z/دفعة_5_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_2026-05-27T15-55-11-259Z/دفعة_6_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_2026-05-27T15-55-11-259Z/دفعة_7_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_2026-05-27T15-55-11-259Z/دفعة_8_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_2026-05-27T15-55-11-259Z/دفعة_9_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_2026-05-27T15-55-11-259Z/ملخص_الدفعات_المنسقة.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-32-56-441Z/README.txt
+A	exports/batch_rebuild_no_additions_2026-05-27T13-32-56-441Z/ترميزات_بدون_دفعة_للمراجعة.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-32-56-441Z/دفعة_10_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-32-56-441Z/دفعة_11_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-32-56-441Z/دفعة_12_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-32-56-441Z/دفعة_13_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-32-56-441Z/دفعة_14_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-32-56-441Z/دفعة_15_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-32-56-441Z/دفعة_16_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-32-56-441Z/دفعة_1_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-32-56-441Z/دفعة_2_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-32-56-441Z/دفعة_3_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-32-56-441Z/دفعة_4_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-32-56-441Z/دفعة_5_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-32-56-441Z/دفعة_6_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-32-56-441Z/دفعة_7_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-32-56-441Z/دفعة_8_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-32-56-441Z/دفعة_9_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-32-56-441Z/ملخص_الدفعات_المنسقة.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-35-08-524Z/README.txt
+A	exports/batch_rebuild_no_additions_2026-05-27T13-35-08-524Z/ترميزات_بدون_دفعة_للمراجعة.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-35-08-524Z/دفعة_10_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-35-08-524Z/دفعة_11_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-35-08-524Z/دفعة_12_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-35-08-524Z/دفعة_13_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-35-08-524Z/دفعة_14_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-35-08-524Z/دفعة_15_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-35-08-524Z/دفعة_16_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-35-08-524Z/دفعة_1_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-35-08-524Z/دفعة_2_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-35-08-524Z/دفعة_3_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-35-08-524Z/دفعة_4_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-35-08-524Z/دفعة_5_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-35-08-524Z/دفعة_6_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-35-08-524Z/دفعة_7_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-35-08-524Z/دفعة_8_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-35-08-524Z/دفعة_9_منسقة_مع_الترميزات.xlsx
+A	exports/batch_rebuild_no_additions_2026-05-27T13-35-08-524Z/ملخص_الدفعات_المنسقة.xlsx
+A	exports/legacy_tagging_from_old_movements_report_2026-05-25.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-50-33-006Z/README.txt
+A	exports/truth_registry_batch_import_2026-05-27T16-50-33-006Z/دفعة_10_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-50-33-006Z/دفعة_11_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-50-33-006Z/دفعة_12_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-50-33-006Z/دفعة_13_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-50-33-006Z/دفعة_14_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-50-33-006Z/دفعة_15_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-50-33-006Z/دفعة_16_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-50-33-006Z/دفعة_1_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-50-33-006Z/دفعة_2_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-50-33-006Z/دفعة_3_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-50-33-006Z/دفعة_4_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-50-33-006Z/دفعة_5_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-50-33-006Z/دفعة_6_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-50-33-006Z/دفعة_7_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-50-33-006Z/دفعة_8_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-50-33-006Z/دفعة_9_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-50-33-006Z/ملخص_ملفات_الدفعات_لجدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-54-38-428Z/README.txt
+A	exports/truth_registry_batch_import_2026-05-27T16-54-38-428Z/دفعة_10_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-54-38-428Z/دفعة_11_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-54-38-428Z/دفعة_12_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-54-38-428Z/دفعة_13_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-54-38-428Z/دفعة_14_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-54-38-428Z/دفعة_15_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-54-38-428Z/دفعة_16_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-54-38-428Z/دفعة_1_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-54-38-428Z/دفعة_2_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-54-38-428Z/دفعة_3_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-54-38-428Z/دفعة_4_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-54-38-428Z/دفعة_5_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-54-38-428Z/دفعة_6_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-54-38-428Z/دفعة_7_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-54-38-428Z/دفعة_8_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-54-38-428Z/دفعة_9_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-54-38-428Z/ملخص_ملفات_الدفعات_لجدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-57-01-228Z/README.txt
+A	exports/truth_registry_batch_import_2026-05-27T16-57-01-228Z/دفعة_10_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-57-01-228Z/دفعة_11_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-57-01-228Z/دفعة_12_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-57-01-228Z/دفعة_13_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-57-01-228Z/دفعة_14_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-57-01-228Z/دفعة_15_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-57-01-228Z/دفعة_16_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-57-01-228Z/دفعة_1_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-57-01-228Z/دفعة_2_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-57-01-228Z/دفعة_3_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-57-01-228Z/دفعة_4_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-57-01-228Z/دفعة_5_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-57-01-228Z/دفعة_6_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-57-01-228Z/دفعة_7_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-57-01-228Z/دفعة_8_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-57-01-228Z/دفعة_9_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/truth_registry_batch_import_2026-05-27T16-57-01-228Z/ملخص_ملفات_الدفعات_لجدول_الحقيقة.xlsx
+A	exports/wcard_beneficiaries_organized.xlsx
+A	exports/wcard_beneficiaries_organized_db_enriched.xlsx
+A	exports/wcard_rebuilt_from_tree.xlsx
+A	exports/دفعات مجمعة جديدة/README.txt
+A	exports/دفعات مجمعة جديدة/دفعة_10_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/دفعات مجمعة جديدة/دفعة_11_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/دفعات مجمعة جديدة/دفعة_12_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/دفعات مجمعة جديدة/دفعة_13_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/دفعات مجمعة جديدة/دفعة_14_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/دفعات مجمعة جديدة/دفعة_15_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/دفعات مجمعة جديدة/دفعة_16_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/دفعات مجمعة جديدة/دفعة_1_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/دفعات مجمعة جديدة/دفعة_2_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/دفعات مجمعة جديدة/دفعة_3_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/دفعات مجمعة جديدة/دفعة_4_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/دفعات مجمعة جديدة/دفعة_5_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/دفعات مجمعة جديدة/دفعة_6_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/دفعات مجمعة جديدة/دفعة_7_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/دفعات مجمعة جديدة/دفعة_8_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/دفعات مجمعة جديدة/دفعة_9_جاهزة_لاستيراد_جدول_الحقيقة.xlsx
+A	exports/دفعات مجمعة جديدة/ملخص_ملفات_الدفعات_لجدول_الحقيقة.xlsx
+A	exports/دفعات_مجمعة_ترقيم_مقترح_بدون_اضافات.xlsx
+A	exports/دفعات_مجمعة_ترقيم_مقترح_من_نفس_الملف.xlsx
+A	exports/نسخة كاملة للمستفيدين مع اضافة/README.txt
+A	exports/نسخة كاملة للمستفيدين مع اضافة/ترميزات_بدون_دفعة_للمراجعة.xlsx
+A	exports/نسخة كاملة للمستفيدين مع اضافة/دفعة_10_منسقة_مع_الترميزات.xlsx
+A	exports/نسخة كاملة للمستفيدين مع اضافة/دفعة_11_منسقة_مع_الترميزات.xlsx
+A	exports/نسخة كاملة للمستفيدين مع اضافة/دفعة_12_منسقة_مع_الترميزات.xlsx
+A	exports/نسخة كاملة للمستفيدين مع اضافة/دفعة_13_منسقة_مع_الترميزات.xlsx
+A	exports/نسخة كاملة للمستفيدين مع اضافة/دفعة_14_منسقة_مع_الترميزات.xlsx
+A	exports/نسخة كاملة للمستفيدين مع اضافة/دفعة_15_منسقة_مع_الترميزات.xlsx
+A	exports/نسخة كاملة للمستفيدين مع اضافة/دفعة_16_منسقة_مع_الترميزات.xlsx
+A	exports/نسخة كاملة للمستفيدين مع اضافة/دفعة_1_منسقة_مع_الترميزات.xlsx
+A	exports/نسخة كاملة للمستفيدين مع اضافة/دفعة_2_منسقة_مع_الترميزات.xlsx
+A	exports/نسخة كاملة للمستفيدين مع اضافة/دفعة_3_منسقة_مع_الترميزات.xlsx
+A	exports/نسخة كاملة للمستفيدين مع اضافة/دفعة_4_منسقة_مع_الترميزات.xlsx
+A	exports/نسخة كاملة للمستفيدين مع اضافة/دفعة_5_منسقة_مع_الترميزات.xlsx
+A	exports/نسخة كاملة للمستفيدين مع اضافة/دفعة_6_منسقة_مع_الترميزات.xlsx
+A	exports/نسخة كاملة للمستفيدين مع اضافة/دفعة_7_منسقة_مع_الترميزات.xlsx
+A	exports/نسخة كاملة للمستفيدين مع اضافة/دفعة_8_منسقة_مع_الترميزات.xlsx
+A	exports/نسخة كاملة للمستفيدين مع اضافة/دفعة_9_منسقة_مع_الترميزات.xlsx
+A	exports/نسخة كاملة للمستفيدين مع اضافة/ملخص_الدفعات_المنسقة.xlsx
+A	fetch_audit.js
+A	find_high.js
+A	find_jamarek_no_card.js
+A	find_missing_insured.js
+A	fix_all_balances.js
+A	fix_all_balances2.js
+A	fix_date_inputs.js
+A	fix_dateinput.js
+A	fix_db.js
+A	fix_drop.js
+A	fix_migration.js
+A	fix_misclassified.js
+A	fix_swapped_dates.js
+A	generate-mapping.js
+A	generate-optics-facilities.js
+A	generate_dental_transactions.js
+A	generate_optics_transactions.js
+A	generate_report.py
+A	import_users.js
+A	inspect_optics.js
+A	merg waad -tpa/قوائم اسماء موظفي شركة وعد-بنغازي وطرابلس.xlsx
+A	merg waad architect/الوعد المعماري قائمة اسماء 1.xlsx
+A	merg waha/كشف بموظفي طرابلس بنغازي (1).xlsx
+M	next.config.ts
+M	output.txt
+M	package-lock.json
+M	package.json
+A	patch_dob.js
+M	prisma/bootstrap-admin.js
+A	prisma/check-admin.js
+A	prisma/check-all-import-jobs.js
+A	prisma/check-audit-logs-filtered.js
+A	prisma/check-audit-logs.js
+A	prisma/check-aya-permission.js
+A	prisma/check-aya.js
+A	prisma/check-ben-created.js
+A	prisma/check-beneficiaries.js
+A	prisma/check-card-samples.js
+A	prisma/check-company-ids.js
+A	prisma/check-db-facilities.js
+A	prisma/check-db-tx.js
+A	prisma/check-dental-tx.js
+A	prisma/check-failures.js
+A	prisma/check-import-jobs.js
+A	prisma/check-import-logs.js
+A	prisma/check-jmr-company.js
+A	prisma/check-job-payloads.js
+A	prisma/check-lcc.js
+A	prisma/check-null-companies.js
+A	prisma/check-null-company-beneficiaries.js
+A	prisma/check-null-txs.js
+A	prisma/check-parsed-rows.js
+A	prisma/check-patterns.js
+A	prisma/check-remaining-nulls.js
+A	prisma/check-row-count.js
+A	prisma/check-test-dental.js
+A	prisma/check-total-beneficiaries.js
+A	prisma/check-tx-balances.js
+A	prisma/check-tx-bens.js
+A	prisma/check-tx-cards.js
+A	prisma/check-txs.js
+A	prisma/check-unmatched-facilities.js
+A	prisma/check-xlsx-count.js
+A	prisma/create-and-run-jmr-job.ts
+A	prisma/dry-run-reconcile.js
+A	prisma/inspect-beneficiary-files.js
+A	prisma/inspect-excel.js
+A	prisma/list-all-companies.js
+A	prisma/list-companies.js
+A	prisma/migrations/20260603070549_sync_schema/migration.sql
+A	prisma/recalculate-beneficiary-balances.ts
+A	prisma/reconcile.js
+A	prisma/run-import.ts
+M	prisma/schema.prisma
+A	prisma/search-logs.js
+A	prisma/seed-companies.js
+A	prisma/show-patterns.js
+A	prisma/test-ben-import.js
+A	prisma/test-job-creation.js
+A	prisma/test-lookup.js
+A	prisma/test-match.js
+A	prisma/update-aya-password.js
+M	public/manifest.json
+A	public/manifest.webmanifest
+A	public/scripts/pre-hydration.js
+A	public/site.webmanifest
+A	query-1400-arch.js
+A	query-archive-4052.js
+A	query-archive.js
+A	query-db.js
+A	query-items.js
+A	query-legacy-dup.js
+A	query-nadia.js
+A	query_arcad.js
+A	query_arcad_cancelled.js
+A	query_arcad_optics.js
+A	query_arcad_types.js
+A	query_card.js
+A	query_companies.js
+R100	query_db.ts	query_db.js
+A	query_future.js
+A	query_imports.js
+A	query_ts.js
+A	query_tx.js
+A	query_txs.js
+A	read_excel.js
+A	replace-optics-action.js
+A	replace-optics-api.js
+A	replace-optics-buttons.js
+A	replace-optics-deduct.js
+A	replace-optics-forms.js
+A	replace-optics-import-action.js
+A	replace-optics-tx-pages.js
+A	replace-optics.js
+A	replace-optics2.js
+A	reports/wahda_in_system_not_in_truth_details.csv
+A	reports/wahda_in_system_not_in_truth_summary.csv
+A	reports/استيرا مستفيدين من الحركات-legacy-tag-report-2026-05-25T21-38-32.xlsx
+A	reports/استيرا مستفيدين من الحركات-legacy-tag-report-2026-05-26T01-27-14.xlsx
+M	restart-dev.ps1
+A	run_fresh.bat
+A	scratch/analyze-import-matching.js
+A	scratch/change_aya_password.js
+A	scratch/check-import-jobs.js
+A	scratch/check-skipped-waad.js
+A	scratch/check-transactions.js
+A	scratch/check-waad-imported.js
+A	scratch/check_aya.ts
+A	scratch/check_db.js
+A	scratch/check_deep_duplicates.js
+A	scratch/check_output.js
+A	scratch/check_ports.js
+A	scratch/check_tx.js
+A	scratch/db-facilities.json
+A	scratch/dump-db-facilities.js
+A	scratch/extract-facilities.js
+A	scratch/find-fuzzy-db-matches.js
+A	scratch/find_admin.js
+A	scratch/find_aya.js
+A	scratch/find_julian.js
+A	scratch/fix_historical_consumption.js
+A	scratch/generate-facilities-excel.js
+A	scratch/get-all-companies.js
+A	scratch/inspect-and-filter-facilities.js
+A	scratch/inspect-arcadia-duplicates.js
+A	scratch/inspect-arcadia-new.js
+A	scratch/inspect-arcadia-result.js
+A	scratch/inspect-arcadia-row-count.js
+A	scratch/inspect-companies.js
+A	scratch/inspect-db-cards.js
+A	scratch/inspect-dental-columns.js
+A	scratch/inspect-dental-deductions.js
+A	scratch/inspect-dental-rows-all.js
+A	scratch/inspect-exact-db-names.js
+A	scratch/inspect-excel.js
+A	scratch/inspect-facilities.js
+A	scratch/inspect-folders-deeper.js
+A	scratch/inspect-folders.js
+A	scratch/inspect-import-format.js
+A	scratch/inspect-mapped-results.js
+A	scratch/inspect-matched-cards.js
+A	scratch/inspect-users.js
+A	scratch/inspect-waad-all-rows.js
+A	scratch/inspect-waad-architect-all.js
+A	scratch/inspect-waad-architect-details.js
+A	scratch/inspect-waad-b.js
+A	scratch/inspect-waad-cards.js
+A	scratch/inspect-waad-clean.js
+A	scratch/inspect-waad-duplicates.js
+A	scratch/inspect-waad-greater.js
+A	scratch/inspect-waad-nonempty.js
+A	scratch/inspect-waad-result.js
+A	scratch/inspect-waad-src.js
+A	scratch/inspect-waad-status-cols.js
+A	scratch/inspect-waad-types.js
+A	scratch/inspect_batches.js
+A	scratch/inspect_cement.js
+A	scratch/inspect_dental_excel.js
+A	scratch/inspect_dups.js
+A	scratch/inspect_excel.js
+A	scratch/inspect_excel_17.js
+A	scratch/inspect_fathi_excel.js
+A	scratch/inspect_gelyana.js
+A	scratch/inspect_images.py
+A	scratch/inspect_jamarek.js
+A	scratch/inspect_new_xlsx.js
+A	scratch/list-companies.js
+A	scratch/list-dental-facilities.js
+A	scratch/list-system-dental-facilities.js
+A	scratch/list-system-facilities.js
+A	scratch/map-excel-facilities-to-db.js
+A	scratch/match-facilities.js
+A	scratch/merge_batches_dry.js
+A	scratch/merge_batches_final.js
+A	scratch/prepare_dental_imports.js
+A	scratch/prepare_new_dental_imports.js
+A	scratch/process-imports.js
+A	scratch/query_ben.js
+A	scratch/query_emp_cards.js
+A	scratch/resize_image.py
+A	scratch/search-exact-patterns.js
+A	scratch/search-remaining.js
+A	scratch/search-usernames.js
+A	scratch/search_ben_4064.js
+A	scratch/seed_dental_companies.js
+A	scratch/test_can_access.js
+A	scratch/test_perm.ts
+A	scratch_fajriya.js
+A	scratch_test.js
+A	scripts/__pycache__/extract_wcard_beneficiaries.cpython-310.pyc
+A	scripts/__pycache__/rebuild_wcard_from_tree.cpython-310.pyc
+A	scripts/activate-wahda.ts
+A	scripts/audit-ben-13-20.js
+A	scripts/check-db.js
+A	scripts/check-jwt-length.ts
+A	scripts/check-tx.ts
+A	scripts/check-wahda.ts
+A	scripts/check_db_queries.js
+A	scripts/enrich_truth_registry_filter_export.py
+A	scripts/enrich_wcard_batches_from_db.mjs
+A	scripts/exported_users.json
+A	scripts/extract_wcard_beneficiaries.py
+A	scripts/fill-merged-batch-numbering-inplace.js
+A	scripts/fill-merged-family-numbering-suggestions.js
+A	scripts/fix-ben-batches-13-20.js
+A	scripts/fix-managers-password.js
+A	scripts/fix_queries.js
+A	scripts/fix_remaining_queries.js
+A	scripts/import-gelyana-beneficiaries.js
+A	scripts/import_gelyana_beneficiaries.py
+A	scripts/inspect-ben-13-20.js
+A	scripts/inspect-ben13-14-keys.js
+A	scripts/inspect-ben13-anom-context.js
+A	scripts/inspect-ben13-diff.js
+A	scripts/inspect-ben1516-diff.js
+A	scripts/inspect-ben17-diff.js
+A	scripts/inspect-emp720.js
+A	scripts/insurance-migration.ts
+A	scripts/list-companies.ts
+A	scripts/mark-legacy-cards.js
+A	scripts/migrate-dental-to-service-policy.ts
+A	scripts/migrate-facility-roles.js
+A	scripts/prepare-truth-registry-import-from-folder.js
+A	scripts/prepare_gelyana_template.py
+A	scripts/production-seed-policies.ts
+A	scripts/pull-ben1-numbering-from-draft.js
+A	scripts/rebuild-batches-with-numbering-variants-no-additions.js
+A	scripts/rebuild-batches-with-numbering-variants.js
+A	scripts/rebuild_wcard_from_tree.py
+A	scripts/seed-optics-policies.ts
+A	scripts/split-merged-generated-numbering-to-truth-import.js
+A	scripts/split-wahda-annexes-from-mixed.js
+M	scripts/sync-card-issuance-registry.js
+A	scripts/tag-legacy-cards-from-excel.js
+A	scripts/test-manager.ts
+A	scripts/test_demographic_query.js
+A	scripts/test_in_system_not_in_registry_syntax.js
+A	scripts/test_missing_query.js
+A	scripts/test_not_in_system_syntax.js
+A	scripts/test_query.js
+A	scripts/unify-and-import-dental.js
+A	scripts/update-precise-policies.ts
+A	scripts/verify-corrected-samples.js
+A	search42.js
+A	seed-optics.js
+A	sim_full.js
+A	sim_raw.js
+A	sim_resolve.js
+M	src/__tests__/balance-guard.test.ts
+A	src/__tests__/company-matcher.test.ts
+M	src/__tests__/deduction.test.ts
+A	src/__tests__/insurance-engine.test.ts
+A	src/__tests__/permission-catalog.test.ts
+M	src/app/actions/auth.ts
+M	src/app/actions/balance-health-actions.ts
+M	src/app/actions/beneficiary/bulk.ts
+M	src/app/actions/beneficiary/crud.ts
+M	src/app/actions/beneficiary/merge.ts
+M	src/app/actions/beneficiary/search.ts
+M	src/app/actions/cancel-transaction.ts
+M	src/app/actions/card-numbering.ts
+M	src/app/actions/cash-claim.ts
+A	src/app/actions/company.ts
+M	src/app/actions/deduction.ts
+A	src/app/actions/dental.ts
+M	src/app/actions/facility.ts
+A	src/app/actions/import-dental-transactions.ts
+A	src/app/actions/import-optics-transactions.ts
+A	src/app/actions/legacy-cards.ts
+M	src/app/actions/manager.ts
+A	src/app/actions/optics.ts
+M	src/app/actions/restore-transaction.ts
+A	src/app/actions/service-policies.ts
+M	src/app/actions/system-settings.ts
+M	src/app/actions/transaction.ts
+A	src/app/actions/truth-registry-alignment.ts
+M	src/app/actions/truth-registry.ts
+M	src/app/add-transaction/page.tsx
+A	src/app/admin/companies/company-form.tsx
+A	src/app/admin/companies/delete-company.tsx
+A	src/app/admin/companies/page.tsx
+A	src/app/admin/companies/purge-beneficiaries.tsx
+A	src/app/admin/dental-services/[companyId]/page.tsx
+A	src/app/admin/dental-services/[companyId]/print/page.tsx
+A	src/app/admin/dental-services/page.tsx
+A	src/app/admin/dental-transactions/import/page.tsx
+A	src/app/admin/dental-transactions/page.tsx
+M	src/app/admin/duplicates/page.tsx
+M	src/app/admin/facilities/create-form.tsx
+M	src/app/admin/facilities/page.tsx
+A	src/app/admin/legacy-cards/legacy-cards-client.tsx
+A	src/app/admin/legacy-cards/page.tsx
+M	src/app/admin/managers/page.tsx
+A	src/app/admin/optics-services/[companyId]/page.tsx
+A	src/app/admin/optics-services/[companyId]/print/page.tsx
+A	src/app/admin/optics-services/page.tsx
+A	src/app/admin/optics-transactions/import/page.tsx
+A	src/app/admin/optics-transactions/page.tsx
+A	src/app/admin/service-policies/page.tsx
+A	src/app/admin/service-policies/service-policies-client.tsx
+A	src/app/admin/service-policies/service-policy-modal.tsx
+M	src/app/admin/truth-registry/page.tsx
+M	src/app/api/admin/beneficiary/[id]/reset-pin/route.ts
+M	src/app/api/admin/duplicates/export/route.ts
+M	src/app/api/admin/empty-recycle-bin/route.ts
+A	src/app/api/admin/truth-registry/export/route.ts
+M	src/app/api/backup/export/route.ts
+M	src/app/api/backup/restore-jobs/route.ts
+M	src/app/api/beneficiaries/[id]/transactions/route.ts
+M	src/app/api/beneficiary-link/route.ts
+A	src/app/api/beneficiary/auth/request-otp/route.ts
+M	src/app/api/beneficiary/auth/route.ts
+A	src/app/api/beneficiary/auth/verify-otp/route.ts
+M	src/app/api/beneficiary/setup-pin/route.ts
+A	src/app/api/debug-dental/route.ts
+A	src/app/api/dental-beneficiaries-export/route.ts
+A	src/app/api/dental-export/route.ts
+M	src/app/api/export/beneficiaries/route.ts
+M	src/app/api/export/import-report/route.ts
+M	src/app/api/export/transactions/route.ts
+M	src/app/api/import-jobs/[jobId]/run/route.ts
+M	src/app/api/import-jobs/route.ts
+M	src/app/api/import-transactions/jobs/[jobId]/run/route.ts
+M	src/app/api/import-transactions/route.ts
+A	src/app/api/optics-export/route.ts
+A	src/app/api/tpa-export/route.ts
+M	src/app/beneficiaries/page.tsx
+M	src/app/beneficiary/dashboard/client.tsx
+M	src/app/beneficiary/login/page.tsx
+M	src/app/cash-claim/page.tsx
+M	src/app/change-password/page.tsx
+M	src/app/dashboard/page.tsx
+M	src/app/globals.css
+M	src/app/layout.tsx
+M	src/app/login/page.tsx
+D	src/app/manifest.ts
+M	src/app/page.tsx
+M	src/app/settings/page.tsx
+M	src/app/transactions/page.tsx
+M	src/app/transactions/print/page.tsx
+M	src/components/add-transaction-form.tsx
+M	src/components/admin/data-health-content.tsx
+M	src/components/admin/index.ts
+A	src/components/admin/legacy-cards-unified-manager.tsx
+M	src/components/admin/transaction-import-uploader.tsx
+A	src/components/admin/truth-registry-alignment-tool.tsx
+M	src/components/admin/truth-registry-import.tsx
+A	src/components/admin/truth-registry-table.tsx
+M	src/components/beneficiaries-bulk-action-button.tsx
+M	src/components/beneficiaries-search.tsx
+M	src/components/beneficiary-create-modal.tsx
+M	src/components/beneficiary-edit-modal.tsx
+D	src/components/beneficiary-reset-pin-button.tsx
+M	src/components/beneficiary-transactions-panel-button.tsx
+M	src/components/card-numbering-client.tsx
+M	src/components/cash-claim-form.tsx
+M	src/components/date-input.tsx
+M	src/components/deduct-form.tsx
+M	src/components/deduct/BeneficiaryCard.tsx
+M	src/components/deduct/DeductContext.tsx
+M	src/components/deduct/DeductionAction.tsx
+M	src/components/deduct/SearchEngine.tsx
+A	src/components/dental-add-transaction-button.tsx
+A	src/components/dental-add-transaction-modal.tsx
+A	src/components/dental-beneficiaries-export-button.tsx
+A	src/components/dental-deduct-form.tsx
+A	src/components/dental-deduct/DentalBeneficiaryCard.tsx
+A	src/components/dental-deduct/DentalDeductContext.tsx
+A	src/components/dental-deduct/DentalDeductionAction.tsx
+A	src/components/dental-deduct/DentalSearchEngine.tsx
+A	src/components/dental-export-button.tsx
+A	src/components/dental-import-uploader.tsx
+A	src/components/dental-transaction-import-uploader.tsx
+M	src/components/duplicate-manual-merge-form.tsx
+M	src/components/facility-edit-modal.tsx
+M	src/components/import-uploader.tsx
+A	src/components/manager-edit-name-modal.tsx
+M	src/components/manager-permissions-modal.tsx
+A	src/components/manager-reset-password-button.tsx
+A	src/components/optics-add-transaction-button.tsx
+A	src/components/optics-add-transaction-modal.tsx
+A	src/components/optics-deduct-form.tsx
+A	src/components/optics-deduct/OpticsBeneficiaryCard.tsx
+A	src/components/optics-deduct/OpticsDeductContext.tsx
+A	src/components/optics-deduct/OpticsDeductionAction.tsx
+A	src/components/optics-deduct/OpticsSearchEngine.tsx
+A	src/components/optics-export-button.tsx
+A	src/components/optics-import-uploader.tsx
+A	src/components/optics-transaction-import-uploader.tsx
+M	src/components/select-all-transactions-checkbox.tsx
+M	src/components/settings-page-client.tsx
+M	src/components/shell.tsx
+M	src/components/toast.tsx
+M	src/components/transaction-edit-modal.tsx
+A	src/components/transaction-restore-actions.tsx
+A	src/components/transactions-bulk-action-button.tsx
+M	src/components/ui/core.tsx
+M	src/components/ui/date-input.tsx
+M	src/instrumentation.ts
+M	src/lib/auth.ts
+M	src/lib/backup-crypto.ts
+M	src/lib/constants.ts
+M	src/lib/datetime.ts
+M	src/lib/facility-type.ts
+M	src/lib/import-jobs.ts
+M	src/lib/import-transactions/archive.ts
+M	src/lib/import-transactions/core.ts
+M	src/lib/import-transactions/migration.ts
+M	src/lib/import-transactions/types.ts
+A	src/lib/insurance/company-matcher.ts
+A	src/lib/insurance/engine.ts
+A	src/lib/insurance/shadow-mode.ts
+M	src/lib/ledger-balance.ts
+M	src/lib/navigation.ts
+A	src/lib/permission-catalog.ts
+M	src/lib/permissions.ts
+M	src/lib/prisma.ts
+M	src/lib/queue.ts
+M	src/lib/rate-limit.ts
+M	src/lib/redis.ts
+M	src/lib/restore-jobs.ts
+A	src/lib/service-aliases.ts
+A	src/lib/service-engine.ts
+M	src/lib/session-guard.ts
+M	src/lib/sse-notifications.ts
+A	src/lib/system-settings.ts
+M	src/lib/transaction-import-jobs.ts
+M	src/lib/tx-balance-guard.ts
+M	src/lib/validation.ts
+A	src/lib/wallet/engine.ts
+A	src/lib/wallet/types.ts
+M	src/proxy.ts
+M	src/reset-admin.ts
+A	test-fetch-dental.js
+A	test-jwt.js
+A	test-log.js
+A	test-prisma.js
+A	test-suffix.js
+R100	test4.ts	test4.js
+A	test_all_keys.js
+A	test_cancel.js
+A	test_crypto.js
+A	test_decrypt.js
+A	test_decrypt_ts.txt
+A	test_import.js
+A	test_prod_keys_ts.txt
+M	tests/components/deduct-form.test.tsx
+M	tests/e2e/migration.spec.ts
+A	truth-registry-filter-results-2026-05-25-20-09-21.xlsx
+M	tsconfig.json
+A	update-ayada.js
+A	update_filters.js
+A	verify_insured_counts.js
+M	استيرا مستفيدين من الحركات.xlsx
+A	اسماء شركات الاسنان جاهزة للاستيراد/Arcadia_List_Import.xlsx
+A	اسماء شركات الاسنان جاهزة للاستيراد/Cement_List_Import.xlsx
+A	اسماء شركات الاسنان جاهزة للاستيراد/Future_List_Import.xlsx
+A	اسماء شركات الاسنان جاهزة للاستيراد/Hajar_List_Import.xlsx
+A	اسماء شركات الاسنان جاهزة للاستيراد/Jamarek_List_Import.xlsx
+A	اسماء شركات الاسنان جاهزة للاستيراد/Members_Import_Template (1).xlsx
+A	اسماء شركات الاسنان جاهزة للاستيراد/Members_Import_Template.xlsx
+A	اسماء شركات الاسنان جاهزة للاستيراد/OZONE_List_Import.xlsx
+A	اسماء شركات الاسنان جاهزة للاستيراد/Rewaq_List_Import.xlsx
+A	اسماء شركات الاسنان جاهزة للاستيراد/Tosyali_List_Import.xlsx
+A	اسماء شركات الاسنان جاهزة للاستيراد/Vision_List_Import.xlsx
+A	اسماء شركات الاسنان جاهزة للاستيراد/Waad_Architect_List_Import.xlsx
+A	اسماء شركات الاسنان جاهزة للاستيراد/Waad_List_Import.xlsx
+A	اسماء شركات الاسنان جاهزة للاستيراد/Waha_List_Import.xlsx
+A	اسماء شركات الاسنان جاهزة للاستيراد/الدفعات المدمجة للأسنان.xlsx
+A	اسماء شركات الاسنان/OZONE_List.xlsx
+A	اسماء شركات الاسنان/Tosyali_List (2).xlsx
+A	اسماء شركات الاسنان/Vision_List.xlsx
+A	اسماء شركات الاسنان/desktop.ini
+A	اسماء شركات الاسنان/جليانة_جاهز_للاستيراد.xlsx
+A	اسماء شركات الاسنان/جليانة_علاقات_دقيقة.xlsx
+A	اسماء شركات الاسنان/جمارك دمج - Copy.xlsx
+A	اسماء شركات الاسنان/دمج الاسمنت.xlsx
+A	اسماء شركات الاسنان/فيوتشر للموظفين المستوفين البيانات.xlsx
+A	اسماء شركات الاسنان/قائمة اسماء شركة رواق.xlsx
+A	اسماء شركات الاسنان/قائمة فيوتشر المدمجة.xlsx
+A	الاسماء_دقيقة.xlsx
+A	المرافق الصحية للأسنان.xlsx
+A	النواقص - مؤمنين غير مستوردين/SUMMARY_النواقص.xlsx
+A	النواقص - مؤمنين غير مستوردين/أركاديا_ARCAD_MISSING.xlsx
+A	النواقص - مؤمنين غير مستوردين/جمارك_JMR_MISSING.xlsx
+A	النواقص - مؤمنين غير مستوردين/جمارك_JMR_بدون_بطاقة.xlsx
+A	النواقص - مؤمنين غير مستوردين/جمارك_JMR_بدون_بطاقة_مرقّمة.xlsx
+A	النواقص - مؤمنين غير مستوردين/حجر_الماس_HJR_MISSING.xlsx
+A	النواقص - مؤمنين غير مستوردين/وعد_WAAD_MISSING.xlsx
+A	تقرير_التحقق_من_أعداد_المؤمنين.xlsx
+A	حركات الشركات للأسنان - جديد/ARCD_Transactions.xlsx
+A	حركات الشركات للأسنان - جديد/FUT_Transactions.xlsx
+A	حركات الشركات للأسنان - جديد/HJR_Transactions.xlsx
+A	حركات الشركات للأسنان - جديد/JFZ_Transactions.xlsx
+A	حركات الشركات للأسنان - جديد/JMR_Transactions.xlsx
+A	حركات الشركات للأسنان - جديد/LCC_Transactions.xlsx
+A	حركات الشركات للأسنان - جديد/O3G_Transactions.xlsx
+A	حركات الشركات للأسنان - جديد/RWG_Transactions.xlsx
+A	حركات الشركات للأسنان - جديد/STATISTICS.xlsx
+A	حركات الشركات للأسنان - جديد/TOSY_Transactions.xlsx
+A	حركات الشركات للأسنان - جديد/VISN_Transactions.xlsx
+A	حركات الشركات للأسنان - جديد/WAAD_Transactions.xlsx
+A	حركات الشركات للأسنان - جديد/WAB_Transactions.xlsx
+A	حركات الشركات للأسنان - جديد/WAHA_Transactions.xlsx
+A	حركات الشركات للأسنان - جديد/WCA_Transactions.xlsx
+A	حركات الشركات للأسنان/ARCD_Transactions.xlsx
+A	حركات الشركات للأسنان/FUT_Transactions.xlsx
+A	حركات الشركات للأسنان/JFZ_Transactions.xlsx
+A	حركات الشركات للأسنان/JMR_Transactions.xlsx
+A	حركات الشركات للأسنان/LCC_Transactions.xlsx
+A	حركات الشركات للأسنان/O3G_Transactions.xlsx
+A	حركات الشركات للأسنان/RWG_Transactions.xlsx
+A	حركات الشركات للأسنان/TOSY_Transactions.xlsx
+A	حركات الشركات للأسنان/VISN_Transactions.xlsx
+A	حركات الشركات للأسنان/WAAD_Transactions copy.xlsx
+A	حركات الشركات للأسنان/WAAD_Transactions.xlsx
+A	حركات الشركات للأسنان/WAB_Transactions.xlsx
+A	حركات الشركات للأسنان/WAHA_Transactions.xlsx
+A	حركات الشركات للأسنان/WCA_Transactions.xlsx
+A	حركات الشركات للبصريات - جديد/ARCD_Transactions_Optics.xlsx
+A	حركات الشركات للبصريات - جديد/FUT_Transactions_Optics.xlsx
+A	حركات الشركات للبصريات - جديد/HJR_Transactions_Optics.xlsx
+A	حركات الشركات للبصريات - جديد/JFZ_Transactions_Optics.xlsx
+A	حركات الشركات للبصريات - جديد/JMR_Transactions_Optics.xlsx
+A	حركات الشركات للبصريات - جديد/LCC_Transactions_Optics.xlsx
+A	حركات الشركات للبصريات - جديد/O3G_Transactions_Optics.xlsx
+A	حركات الشركات للبصريات - جديد/RWG_Transactions_Optics.xlsx
+A	حركات الشركات للبصريات - جديد/STATISTICS_OPTICS.xlsx
+A	حركات الشركات للبصريات - جديد/TOSY_Transactions_Optics.xlsx
+A	حركات الشركات للبصريات - جديد/VISN_Transactions_Optics.xlsx
+A	حركات الشركات للبصريات - جديد/WAAD_Transactions_Optics.xlsx
+A	حركات الشركات للبصريات - جديد/WAB_Transactions_Optics.xlsx
+A	حركات الشركات للبصريات - جديد/WAHA_Transactions_Optics.xlsx
+A	حركات الشركات للبصريات - جديد/WCA_Transactions_Optics.xlsx
+A	خصومات اسنان كاملة.xlsx
+A	خصومات اسنان و بصريات.xlsx
+A	خصومات الاسنان - Copy.xlsx
+A	خصومات الاسنان - مطابقة المرافق.pdf
+A	خصومات الاسنان - مطابقة المرافق.xlsx
+A	خصومات بصريات.xlsx
+A	دفعات مجمعة.xlsx
+A	دفعة 20.xlsx
+A	عدد مؤمنين الشركات (1).xlsx
+A	مجمععات الجزيرة جديد.rar
+A	مرافق_البصريات_للاستيراد.xlsx
+A	مطابقة_مراكز_البصريات.xlsx
+A	ملاحق الوحدة/الوحده ملحق سابق 1.xlsx
+A	ملاحق الوحدة/جاهز_جدول_الحقيقة_من_ملحق_سابق1/ملاحق_الوحدة_تحتاج_مراجعة.xlsx
+A	ملاحق الوحدة/جاهز_جدول_الحقيقة_من_ملحق_سابق1/ملاحق_الوحدة_جاهز_للاستيراد_جدول_الحقيقة.xlsx
+A	ملاحق الوحدة/جاهز_جدول_الحقيقة_من_ملحق_سابق1/ملاحق_الوحدة_جريء_مع_توليد_ترقيم.xlsx
+A	ملاحق الوحدة/جاهز_جدول_الحقيقة_من_ملحق_سابق1/ملحق_1_جاهز_للاستيراد_جدول_الحقيقة.xlsx
+A	ملاحق الوحدة/جاهز_جدول_الحقيقة_من_ملحق_سابق1/ملحق_2_جاهز_للاستيراد_جدول_الحقيقة.xlsx
+A	ملاحق الوحدة/جاهز_جدول_الحقيقة_من_ملحق_سابق1/ملحق_3_جاهز_للاستيراد_جدول_الحقيقة.xlsx
+A	ملاحق الوحدة/جاهز_جدول_الحقيقة_من_ملحق_سابق1/ملحق_4_جاهز_للاستيراد_جدول_الحقيقة.xlsx
+A	ملاحق الوحدة/جاهز_جدول_الحقيقة_من_ملحق_سابق1/ملحق_5_جاهز_للاستيراد_جدول_الحقيقة.xlsx
+A	ملاحق الوحدة/جاهز_جدول_الحقيقة_من_ملحق_سابق1/ملحق_7_جاهز_للاستيراد_جدول_الحقيقة.xlsx
+A	ملاحق الوحدة/جاهز_جدول_الحقيقة_من_ملحق_سابق1/ملحق_9_جاهز_للاستيراد_جدول_الحقيقة.xlsx
+A	ملاحق الوحدة/جاهز_جدول_الحقيقة_من_ملحق_سابق1/ملخص_فصل_ملاحق_الوحدة.xlsx
+A	ملاحق الوحدة/ملحق 14 (Autosaved).xlsx
+A	ملاحق الوحدة/ملحق 14.xlsx
+A	ملاحق الوحدة/ملحق 2.xlsx
+A	ملاحق الوحدة/ملحق 3.xlsx
+A	ملاحق الوحدة/ملحق 5.xlsx
+A	ملاحق الوحدة/ملحق 7+ تعديلات 3.xlsx
+A	ملاحق الوحدة/ملحق 8.xlsx
+A	ملاحق الوحدة/ملحق 9.xlsx
+A	ملاحق الوحدة/ملحق6.xlsx
+A	ملاحق الوحدة/نواقص  ملحق 9.xlsx

@@ -44,7 +44,7 @@ export async function calculateBeneficiaryBalance(
     where: {
       beneficiary_id: beneficiaryId,
       is_cancelled: false,
-      type: { notIn: ["CANCELLATION", "DENTAL"] }, // DENTAL doesn't affect balance
+      type: { notIn: ["CANCELLATION", "DENTAL", "OPTICS"] }, // DENTAL and OPTICS don't affect balance
     },
     select: { amount: true, actual_company_share: true },
   });

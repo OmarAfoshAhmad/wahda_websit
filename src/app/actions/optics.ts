@@ -134,10 +134,13 @@ export async function getOpticsBeneficiaryDetail(beneficiaryId: string, companyI
     const policy = beneficiary.company?.service_policies?.[0];
     const frequencyMonths = policy?.frequency_months || 12;
 
-    // حساب الاستهلاك خلال فترة التغطية
+    // حساب الاستهلاك خلال فترة التغطية (يغطي حتى نهاية العام لضمان ظهور الحركات المستقبلية المدخلة يدوياً)
     const endDate = new Date();
+    endDate.setMonth(11, 31); // Dec 31
+    endDate.setHours(23, 59, 59, 999);
+    
     const startDate = new Date();
-    startDate.setMonth(endDate.getMonth() - frequencyMonths);
+    startDate.setMonth(new Date().getMonth() - frequencyMonths);
 
     const agg = await prisma.transaction.aggregate({
       where: {

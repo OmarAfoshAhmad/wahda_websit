@@ -97,8 +97,10 @@ export function Shell({
     const filteredSuperAdminNav = SUPER_ADMIN_NAV.filter(item => hasPermission(session, item.perm));
     
     // 3. Extra Tabs
-    const showDentalTab = (appMode === "BOTH" || appMode === "DENTAL_OPTICS") && hasPermission(session, "dental_services");
-    const showOpticsTab = (appMode === "BOTH" || appMode === "DENTAL_OPTICS") && hasPermission(session, "optics_services");
+    const showDentalTab = (appMode === "BOTH" || appMode === "DENTAL_OPTICS") && 
+      (hasPermission(session, "dental_services") || hasPermission(session, "view_dental_beneficiaries"));
+    const showOpticsTab = (appMode === "BOTH" || appMode === "DENTAL_OPTICS") && 
+      (hasPermission(session, "optics_services") || hasPermission(session, "view_optics_beneficiaries"));
     const showCashClaim = !isSpecializedMode && canUseCashClaim;
 
     if (isAdmin) {

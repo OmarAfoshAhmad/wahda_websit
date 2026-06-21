@@ -72,8 +72,14 @@ export default async function Dashboard() {
   }
 
   const appMode = process.env.NEXT_PUBLIC_APP_MODE?.replace(/["']/g, '').toUpperCase() || "";
-  if (appMode.includes("DENTAL")) {
-    redirect("/admin/dental-services");
+  if (appMode.includes("DENTAL") || appMode.includes("OPTICS")) {
+    if (hasPermission(session, "dental_services") || hasPermission(session, "view_dental_beneficiaries")) {
+      redirect("/admin/dental-services");
+    } else if (hasPermission(session, "optics_services") || hasPermission(session, "view_optics_beneficiaries")) {
+      redirect("/admin/optics-services");
+    } else {
+      redirect(appMode.includes("DENTAL") ? "/admin/dental-services" : "/admin/optics-services");
+    }
   }
 
   if (!hasPermission(session, "view_dashboard")) {
