@@ -36,7 +36,7 @@ async function migrateWahdaMukhassas() {
   const txResult = await prisma.transaction.updateMany({
     where: {
       beneficiary: { card_number: { startsWith: "WAB" } },
-      type: "DEDUCTION", // النوع القديم
+      type: "DEDUCTION" as any, // النوع القديم (استخدام any لتجاوز فحص TypeScript لأن النوع حذف من الـ Schema)
     },
     data: {
       type: "GENERAL", // النوع الجديد للمخصص

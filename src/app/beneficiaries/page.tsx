@@ -628,7 +628,9 @@ export default async function BeneficiariesPage({
                         </div>
                         {beneficiary.birth_date && (
                           <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500">
-                            <CalendarDays className={`h-3.5 w-3.5 ${(beneficiary.birth_date && beneficiary.birth_date_synced_from_truth) ? "text-emerald-500 dark:text-emerald-400" : "text-slate-400 dark:text-slate-500"}`} title={(beneficiary.birth_date && beneficiary.birth_date_synced_from_truth) ? "مرحلة من جدول الحقيقة" : undefined} />
+                            <span title={(beneficiary.birth_date && beneficiary.birth_date_synced_from_truth) ? "مرحلة من جدول الحقيقة" : undefined}>
+                              <CalendarDays className={`h-3.5 w-3.5 ${(beneficiary.birth_date && beneficiary.birth_date_synced_from_truth) ? "text-emerald-500 dark:text-emerald-400" : "text-slate-400 dark:text-slate-500"}`} />
+                            </span>
                             <span>{formatDateTripoli(beneficiary.birth_date, "en-GB")}</span>
                           </div>
                         )}
@@ -776,7 +778,9 @@ export default async function BeneficiariesPage({
                         <td className="px-6 py-4 text-sm text-slate-700 dark:text-slate-300">{beneficiary.card_number}</td>
                         <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-400">
                           <div className="flex items-center gap-2">
-                            <CalendarDays className={`h-4 w-4 shrink-0 ${(beneficiary.birth_date && beneficiary.birth_date_synced_from_truth) ? "text-emerald-500 dark:text-emerald-400" : "text-slate-400 dark:text-slate-500"}`} title={(beneficiary.birth_date && beneficiary.birth_date_synced_from_truth) ? "مرحلة من جدول الحقيقة" : undefined} />
+                            <span title={(beneficiary.birth_date && beneficiary.birth_date_synced_from_truth) ? "مرحلة من جدول الحقيقة" : undefined}>
+                              <CalendarDays className={`h-4 w-4 shrink-0 ${(beneficiary.birth_date && beneficiary.birth_date_synced_from_truth) ? "text-emerald-500 dark:text-emerald-400" : "text-slate-400 dark:text-slate-500"}`} />
+                            </span>
                             <span>{beneficiary.birth_date ? formatDateTripoli(beneficiary.birth_date, "en-GB") : "غير مسجل"}</span>
                           </div>
                         </td>
