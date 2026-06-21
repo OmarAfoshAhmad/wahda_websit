@@ -169,27 +169,51 @@ export async function importDentalTransactionsAction(
     }
 
     const rawRows: any[] = [];
+    
+    // Dynamically map columns based on header row (row 1)
+    const headerRow = ws.getRow(1);
+    let nameCol = 1, cardCol = 2, approvalCol = 3, amountCol = 4, dateCol = 5, facilityCol = 6, notesCol = 7;
+    
+    headerRow.eachCell((cell, colNumber) => {
+      const val = String(cell.value || "").trim();
+      if (val.includes("اسم") || val.includes("المريض")) nameCol = colNumber;
+      else if (val.includes("تأمين") || val.includes("تامين") || val.includes("بطاقة")) cardCol = colNumber;
+      else if (val.includes("موافقة")) approvalCol = colNumber;
+      else if (val.includes("قيمة") || val.includes("مبلغ") || val.includes("دينار")) amountCol = colNumber;
+      else if (val.includes("تاريخ")) dateCol = colNumber;
+      else if (val.includes("مرفق") || val.includes("جهة") || val.includes("جيهة") || val.includes("مركز")) facilityCol = colNumber;
+      else if (val.includes("ملاحظة") || val.includes("ملاحظات")) notesCol = colNumber;
+    });
+
     ws.eachRow((row, rowNumber) => {
       if (rowNumber === 1) return; // Header row
 
-      const nameVal = row.getCell(1).value;
-      const cardVal = row.getCell(2).value;
-      const approvalVal = row.getCell(3).value;
-      const amountVal = row.getCell(4).value;
-      const dateVal = row.getCell(5).value;
-      const notesVal = row.getCell(6).value;
-      const facilityVal = row.getCell(7).value;
+      const nameVal = row.getCell(nameCol).value;
+      const cardVal = row.getCell(cardCol).value;
+      const approvalVal = row.getCell(approvalCol).value;
+      const amountVal = row.getCell(amountCol).value;
+      const dateVal = row.getCell(dateCol).value;
+      const facilityVal = row.getCell(facilityCol).value;
+      const notesVal = row.getCell(notesCol).value;
 
       const card = normalizeCardNumber(cardVal);
       const name = nameVal ? String(nameVal).trim() : "";
-      const amount = Number(amountVal || 0);
+      
+      let amount = 0;
+      if (typeof amountVal === "number") {
+        amount = amountVal;
+      } else if (typeof amountVal === "string") {
+        amount = parseFloat(amountVal.replace(/,/g, "").match(/[\d.]+/)?.[0] || "0");
+      } else if (typeof amountVal === "object" && amountVal && "result" in amountVal) {
+        amount = Number((amountVal as any).result || 0);
+      }
 
       const hasName = Boolean(name);
       const facilityString = facilityVal ? String(facilityVal).trim() : "";
       const hasFacility = Boolean(facilityString);
 
-      // Skip completely empty rows or junk formula rows
-      if (amount === 0) return;
+      // Skip completely empty rows
+      if (!card && !name && amount === 0) return;
 
       rawRows.push({
         rowNumber,
