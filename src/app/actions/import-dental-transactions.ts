@@ -83,14 +83,24 @@ function normalizeCardNumber(card: any): string {
 function parseExcelDate(val: any): Date {
   if (!val) return new Date();
   
-  // 1. If ExcelJS parsed it as a Date object directly
-  if (val instanceof Date && !isNaN(val.getTime())) {
-    return val;
+  // Helper to validate reasonable date range
+  const isValidRange = (d: Date) => {
+    if (isNaN(d.getTime())) return false;
+    const y = d.getFullYear();
+    return y >= 2000 && y <= 2100;
+  };
+
+  // 1. If it's already a JS Date object
+  if (val instanceof Date) {
+    if (isValidRange(val)) {
+      return val;
+    }
+    return new Date();
   }
-  
+
   // 2. If it's an object (like formula result or cell object)
   if (typeof val === "object") {
-    if (val.result instanceof Date && !isNaN(val.result.getTime())) {
+    if (val.result instanceof Date && isValidRange(val.result)) {
       return val.result;
     }
     if (val.result !== undefined && val.result !== null) {
@@ -107,7 +117,7 @@ function parseExcelDate(val: any): Date {
     // Excel date serial number (e.g. 45392 represents a date in 2024)
     // 25569 is the number of days between 1900-01-01 and 1970-01-01
     const date = new Date((val - 25569) * 86400 * 1000);
-    if (!isNaN(date.getTime())) {
+    if (isValidRange(date)) {
       return date;
     }
   }
@@ -118,28 +128,28 @@ function parseExcelDate(val: any): Date {
     if (!cleaned) return new Date();
 
     // Check DD/MM/YYYY or D/M/YYYY or with dashes
-    const slashMatch = cleaned.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    const slashMatch = cleaned.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4,})$/);
     if (slashMatch) {
       const day = parseInt(slashMatch[1], 10);
       const month = parseInt(slashMatch[2], 10) - 1; // 0-indexed
       const year = parseInt(slashMatch[3], 10);
       const d = new Date(year, month, day);
-      if (!isNaN(d.getTime())) return d;
+      if (isValidRange(d)) return d;
     }
 
     // Check YYYY/MM/DD or YYYY-MM-DD
-    const isoMatch = cleaned.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+    const isoMatch = cleaned.match(/^(\d{4,})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
     if (isoMatch) {
       const year = parseInt(isoMatch[1], 10);
       const month = parseInt(isoMatch[2], 10) - 1; // 0-indexed
       const day = parseInt(isoMatch[3], 10);
       const d = new Date(year, month, day);
-      if (!isNaN(d.getTime())) return d;
+      if (isValidRange(d)) return d;
     }
 
     // Try native JS Date parser
     const parsed = new Date(cleaned);
-    if (!isNaN(parsed.getTime())) {
+    if (isValidRange(parsed)) {
       return parsed;
     }
   }
