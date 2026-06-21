@@ -33,18 +33,15 @@ async function migrateWahdaMukhassas() {
 
   // 3. ربط الحركات القديمة (المخصص العام) وتحويل نوعها إلى GENERAL
   // لكي تظهر في سجلات النظام الجديد بشكل صحيح ولا تختفي
-  const txResult = await prisma.transaction.updateMany({
-    where: {
-      beneficiary: { card_number: { startsWith: "WAB" } },
-      type: "DEDUCTION" as any, // النوع القديم (استخدام any لتجاوز فحص TypeScript لأن النوع حذف من الـ Schema)
-    },
-    data: {
-      type: "GENERAL", // النوع الجديد للمخصص
-      company_id: wahda.id,
-      service_category: "GENERAL",
-    },
-  });
-  console.log(`✅ تم تحديث وربط ${txResult.count} حركة خصم سابقة للمخصص العام.`);
+  // نستخدم executeRaw لتجاوز فحص Prisma لأن DEDUCTION حذفت من الـ Schema
+  const txResult = await prisma.$executeRawUnsafe(`
+    UPDATE "Transaction"
+    SET "type" = 'GENERAL', "company_id" = '${wahda.id}', "service_category" = 'GENERAL'
+    WHERE "type"::text = 'DEDUCTION' AND "beneficiary_id" IN (
+      SELECT "id" FROM "Beneficiary" WHERE "card_number" LIKE 'WAB%'
+    )
+  `);
+  console.log(`✅ تم تحديث وربط ${txResult} حركة خصم سابقة للمخصص العام.`);
 
   console.log("🏁 تمت عملية معالجة المخصص بنجاح 100%.");
 }

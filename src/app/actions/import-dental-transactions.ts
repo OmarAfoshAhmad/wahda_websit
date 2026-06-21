@@ -251,7 +251,13 @@ export async function importDentalTransactionsAction(
       
       const normExcelCard = excelCard.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
       
-      const normalizeName = (n: string) => n.replace(/عبد /g, "عبد").replace(/\s+/g, " ").trim();
+      const normalizeName = (n: string) => 
+        n.replace(/عبد /g, "عبد")
+         .replace(/[أإآ]/g, "ا")
+         .replace(/ى/g, "ي")
+         .replace(/ة/g, "ه")
+         .replace(/\s+/g, " ")
+         .trim();
       const cleanExcelName = normalizeName(excelName);
 
       // Helper to calculate name similarity
@@ -311,13 +317,12 @@ export async function importDentalTransactionsAction(
           return { candidate: c, isExactCard, score };
         });
 
-        if (excelSuffix) {
-          const exact = scored.find(s => s.isExactCard);
-          if (exact && exact.score >= 0.0) {
-            return exact.candidate;
-          }
+        const exact = scored.find(s => s.isExactCard);
+        if (exact) {
+          return exact.candidate;
         }
 
+        // If no exact match, rely on name score for the base candidates
         scored.sort((a, b) => b.score - a.score);
         const best = scored[0];
         
