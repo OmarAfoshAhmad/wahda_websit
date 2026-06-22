@@ -222,8 +222,8 @@ export async function importDentalTransactionsAction(
       const facilityString = facilityVal ? String(facilityVal).trim() : "";
       const hasFacility = Boolean(facilityString);
 
-      // Skip completely empty rows
-      if (!card && !name && amount === 0) return;
+      // Skip completely empty rows or junk formula rows (e.g. auto-filled card prefixes with no data)
+      if (amount === 0 && !name) return;
 
       rawRows.push({
         rowNumber,

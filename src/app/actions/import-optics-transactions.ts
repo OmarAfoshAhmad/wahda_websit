@@ -211,10 +211,11 @@ function parseExcelDate(val: any): Date {
 
 export async function importOpticsTransactionsAction(
   fileBase64: string,
-  purgeOld: boolean,
-  dryRun: boolean,
+  purgeOld: boolean = false,
+  dryRun: boolean = true,
   companyId?: string,
-  autoCreateMissing: boolean = true
+  autoCreateMissing: boolean = true,
+  isAmountNetCompanyShare: boolean = true
 ): Promise<ImportResult> {
   const session = await requireActiveFacilitySession();
   if (!session || !session.is_admin) {
@@ -275,8 +276,8 @@ export async function importOpticsTransactionsAction(
       const facilityString = facilityVal ? String(facilityVal).trim() : "";
       const hasFacility = Boolean(facilityString);
 
-      // Skip completely empty rows
-      if (!card && !name && amount === 0) return;
+      // Skip completely empty rows or junk formula rows (e.g. auto-filled card prefixes with no data)
+      if (amount === 0 && !name) return;
 
       rawRows.push({
         rowNumber,
@@ -572,6 +573,18 @@ export async function importOpticsTransactionsAction(
 
       const companyName = beneficiary?.company?.name || "شركة غير مطابقة أو غير معروفة";
       const resolvedFacilityName = facility?.name || r.facilityName || "مرفق غير معروف";
+
+      // ── Reverse Calculate Gross Amount if isAmountNetCompanyShare is true ──
+      if (isAmountNetCompanyShare) {
+        const targetCompId = beneficiary?.company_id || companyId;
+        const policy = targetCompId ? policyMap.get(targetCompId) : null;
+        if (policy) {
+          const coveragePercent = 100 - policy.copay_percentage;
+          if (coveragePercent > 0 && coveragePercent <= 100) {
+            r.amount = Number((r.amount / (coveragePercent / 100)).toFixed(2));
+          }
+        }
+      }
 
       const groupKey = `${companyName}:::${resolvedFacilityName}`;
       if (!groupStats.has(groupKey)) {

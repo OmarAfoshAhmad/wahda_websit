@@ -22,6 +22,7 @@ export function OpticsTransactionImportUploader({
   const [file, setFile] = useState<File | null>(null);
   const [purgeOld, setPurgeOld] = useState(false);
   const [autoCreateMissing, setAutoCreateMissing] = useState(true);
+  const [isAmountNetCompanyShare, setIsAmountNetCompanyShare] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
   const [importing, setImporting] = useState(false);
 
@@ -93,7 +94,7 @@ export function OpticsTransactionImportUploader({
         setFileBase64(base64);
 
         // Run dry-run scan
-        const res = await importOpticsTransactionsAction(base64, purgeOld, true, selectedCompanyId, autoCreateMissing);
+        const res = await importOpticsTransactionsAction(base64, purgeOld, true, selectedCompanyId, autoCreateMissing, isAmountNetCompanyShare);
         setAnalysis(res);
         setAnalyzing(false);
       };
@@ -135,7 +136,7 @@ export function OpticsTransactionImportUploader({
     setResult(null);
 
     try {
-      const res = await importOpticsTransactionsAction(fileBase64, purgeOld, false, selectedCompanyId, autoCreateMissing);
+      const res = await importOpticsTransactionsAction(fileBase64, purgeOld, false, selectedCompanyId, autoCreateMissing, isAmountNetCompanyShare);
       setResult(res);
       setImporting(false);
     } catch (err: any) {
@@ -159,6 +160,7 @@ export function OpticsTransactionImportUploader({
     setFileBase64(null);
     setPurgeOld(false);
     setAutoCreateMissing(true);
+    setIsAmountNetCompanyShare(true);
   };
 
   return (
@@ -242,6 +244,28 @@ export function OpticsTransactionImportUploader({
                   </label>
                   <p className="text-xs text-slate-500">
                     إذا تم تفعيل هذا الخيار (موصى به)، سيقوم النظام بإنشاء بطاقة تابعة جديدة تلقائياً إذا كانت البطاقة بالملف غير مسجلة بالنظام (مثل بطاقات الزوجة W أو الأبناء S).
+                  </p>
+                </div>
+              </div>
+            </Card>
+
+            {/* isAmountNetCompanyShare Option */}
+            <Card className="p-4 border-sky-200 bg-sky-50/20 dark:border-sky-900/30">
+              <div className="flex items-start gap-3">
+                <input
+                  id="isAmountNetCompanyShare"
+                  type="checkbox"
+                  checked={isAmountNetCompanyShare}
+                  onChange={(e) => setIsAmountNetCompanyShare(e.target.checked)}
+                  disabled={analyzing}
+                  className="mt-1 h-4.5 w-4.5 text-sky-600 focus:ring-sky-500 border-slate-300 rounded"
+                />
+                <div className="space-y-1">
+                  <label htmlFor="isAmountNetCompanyShare" className="text-sm font-black text-slate-800 dark:text-white cursor-pointer select-none">
+                    المبالغ في الملف تمثل (حصة الشركة الصافية) وليس إجمالي الفاتورة
+                  </label>
+                  <p className="text-xs text-slate-500">
+                    إذا تم تفعيل هذا الخيار (موصى به للبصريات)، ستقوم المنظومة بحساب الفاتورة الإجمالية عكسياً بناءً على نسبة التغطية المخزنة لكل مستفيد.
                   </p>
                 </div>
               </div>
