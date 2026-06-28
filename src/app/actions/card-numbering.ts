@@ -40,7 +40,7 @@ const RELATIONSHIP_CODE_MAP: Record<string, string> = {
 // المصطلحات التي تدل على أن المستفيد هو الموظف أو الحساب الرئيسي شاملة جميع الاحتمالات
 const MAIN_ACCOUNT_TERMS = [
   "موظف", "موظفة", "الموظف", "الموظفة", "موظفه", "الموظفه",
-  "رب الأسرة", "رب العائلة", "رب أسرة", "رب عائلة", "رب الاسرة", "رب الاسره", "رب العائله", "الاب", "الأب",
+  "رب الأسرة", "رب العائلة", "رب أسرة", "رب عائلة", "رب الاسرة", "رب الاسره", "رب العائله",
   "صاحب البطاقة", "رئيسي", "الرئيسي", "الرئيسية", "الرئيسيه",
   "MAIN", "EMPLOYEE",
   "متوفي", "متوفى", "وفاة", "حالة وفاة",
@@ -251,6 +251,30 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
       return new Date(d1).toISOString().split('T')[0] === new Date(d2).toISOString().split('T')[0];
     };
 
+    const extractEmployeeNumber = (cardNumber: string, currentPrefix: string, companyCode?: string): string => {
+      let card = cardNumber.toUpperCase();
+      const pref = currentPrefix.toUpperCase();
+      const comp = companyCode?.toUpperCase();
+      
+      if (card.startsWith(pref)) {
+        card = card.substring(pref.length);
+      } else if (comp && card.startsWith(comp)) {
+        card = card.substring(comp.length);
+      }
+      
+      card = card.replace(/[WSDMFH]\d*$/i, "");
+      
+      const yearMatch = pref.match(/\d+/);
+      if (yearMatch) {
+        const year = yearMatch[0];
+        if (card.startsWith(year)) {
+          card = card.substring(year.length);
+        }
+      }
+      
+      return card.replace(/^\D+/, "").replace(/^0+/, "");
+    };
+
     // البحث في النظام (مع تقييد البحث بالشركة المستهدفة فقط)
     const existingSystemBens = await prisma.beneficiary.findMany({
       where: {
@@ -264,10 +288,12 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
               { card_number: { startsWith: prefixFilter, mode: "insensitive" } }
             ]
           }
-        ] : [],
+        ] : [
+          { card_number: { startsWith: prefixFilter, mode: "insensitive" } }
+        ],
         deleted_at: null
       },
-      select: { card_number: true, name: true, is_legacy_card: true, birth_date: true }
+      select: { card_number: true, name: true, is_legacy_card: true, birth_date: true, company_id: true }
     });
 
     // البحث في الأرشيف (مع تقييد البحث ببادئة الشركة المستهدفة فقط)
@@ -294,10 +320,15 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
       const fullTextSearch = `${statusVal} ${name} ${relVal} ${notesVal}`.toLowerCase();
       const isDeceased = fullTextSearch.includes("متوفي") || fullTextSearch.includes("متوفى") || fullTextSearch.includes("وفاة");
       const isAppendix = fullTextSearch.includes("ملحق");
-      const existingInSystemFast = existingSystemBens.find(b => 
-        b.card_number.toLowerCase().replace(/[wsdmfh]\d*$/i, "").endsWith(empNum.toLowerCase()) &&
-        normalizeArabicText(b.name) === normalizeArabicText(name)
-      );
+      const existingInSystemFast = existingSystemBens.find(b => {
+        const cardLower = b.card_number.toLowerCase();
+        const prefixLower = prefixFilter.toLowerCase();
+        const belongsToCompany = cardLower.startsWith(prefixLower) || (targetCompany && b.company_id === targetCompany.id);
+        if (!belongsToCompany) return false;
+
+        const dbEmpNum = extractEmployeeNumber(b.card_number, prefix, targetCompany?.code);
+        return dbEmpNum === empNum && normalizeArabicText(b.name) === normalizeArabicText(name);
+      });
       const hasOldCard = existingInSystemFast?.is_legacy_card || false;
 
       const birthDateVal = String(item.birth_date || "").trim();
@@ -381,10 +412,15 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
             return false;
           };
 
-          const systemMatch = existingSystemBens.find(b => 
-            b.card_number.toLowerCase().replace(/[wsdmfh]\d*$/i, "").endsWith(empNum.toLowerCase()) &&
-            checkMatch(b.name, b.birth_date, b.card_number)
-          );
+          const systemMatch = existingSystemBens.find(b => {
+            const cardLower = b.card_number.toLowerCase();
+            const prefixLower = prefixFilter.toLowerCase();
+            const belongsToCompany = cardLower.startsWith(prefixLower) || (targetCompany && b.company_id === targetCompany.id);
+            if (!belongsToCompany) return false;
+
+            const dbEmpNum = extractEmployeeNumber(b.card_number, prefix, targetCompany?.code);
+            return dbEmpNum === empNum && checkMatch(b.name, b.birth_date, b.card_number);
+          });
 
           const archiveMatch = existingArchiveItems.find(a => 
             a.employee_number.toLowerCase() === empNum.toLowerCase() &&

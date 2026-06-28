@@ -85,6 +85,7 @@ export function CardNumberingClient({
   const [importBatchNumber, setImportBatchNumber] = useState(""); // حقل الدفعة اليدوي
   const [batchFilter, setBatchFilter] = useState(""); // فلتر الدفعة للعرض
   const [cityFilter, setCityFilter] = useState(""); // فلتر المدينة للعرض
+  const [companyFilter, setCompanyFilter] = useState(""); // فلتر الشركة للعرض
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [pendingData, setPendingData] = useState<{data: any[], fileName: string} | null>(null);
   const [confirmModal, setConfirmModal] = useState<{ open: boolean, title: string, message: string, onConfirm: () => void, variant?: "danger" | "warning" | "info" }>({
@@ -141,26 +142,28 @@ export function CardNumberingClient({
           return;
         }
 
+        // الحصول على جميع المفاتيح الفريدة في كل الصفوف لتحديد أعمدة المضمون مرة واحدة لكامل الملف
+        const allKeys = Array.from(new Set(rawRows.flatMap(row => Object.keys(row))));
+        
+        const findKeyInList = (keysList: string[], keywords: string[]) => 
+          keysList.find(k => {
+            const strK = String(k).trim();
+            return keywords.some(kw => {
+              if (kw === "رقم") return strK === "رقم";
+              return strK.includes(kw);
+            });
+          });
+
+        const nameKey = findKeyInList(allKeys, ["الأسم", "الاسم", "الإسم", "اسم المستفيد", "اسم الموظف", "اسم العضو", "Full Name", "Name"]);
+        const relKey = findKeyInList(allKeys, ["صلة", "القرابة", "Relationship", "النوع", "الصلة", "Rel", "الصفة", "المستفيد", "العلاقة", "صفة"]);
+        const bDateKey = findKeyInList(allKeys, ["تاريخ الملاد", "الملاد", "ميلاد", "المواليد", "تاريخ الميلاد", "Birth", "BDate", "DOB", "تاريخ"]);
+        const statusKey = findKeyInList(allKeys, ["الحالة", "Status", "الوضع"]);
+        const notesKey = findKeyInList(allKeys, ["ملاحظات", "Notes", "البيان", "ملاحظة"]);
+        const empNumKey = findKeyInList(allKeys, ["الرقم الوظيفي", "رقم الوظيفي", "وظيفي", "رقم الموظف", "رقم العضو", "رقم التامين", "رقم التأمين", "Emp", "ID", "رقم"]);
+
         let lastEmpNum = ""; 
         const mappedData = rawRows.map(row => {
-          const keys = Object.keys(row);
           const values = Object.values(row).map(v => String(v || "").trim());
-          
-          const findKey = (keywords: string[]) => 
-            keys.find(k => {
-              const strK = String(k).trim();
-              return keywords.some(kw => {
-                if (kw === "رقم") return strK === "رقم";
-                return strK.includes(kw);
-              });
-            });
-
-          const nameKey = findKey(["الأسم", "الاسم", "الإسم", "اسم المستفيد", "اسم الموظف", "اسم العضو", "Full Name", "Name"]);
-          const relKey = findKey(["صلة", "القرابة", "Relationship", "النوع", "الصلة", "Rel", "الصفة", "المستفيد", "العلاقة", "صفة"]);
-          const bDateKey = findKey(["تاريخ الملاد", "الملاد", "ميلاد", "المواليد", "تاريخ الميلاد", "Birth", "BDate", "DOB", "تاريخ"]);
-          const statusKey = findKey(["الحالة", "Status", "الوضع"]);
-          const notesKey = findKey(["ملاحظات", "Notes", "البيان", "ملاحظة"]);
-          const empNumKey = findKey(["الرقم الوظيفي", "رقم الوظيفي", "وظيفي", "رقم الموظف", "رقم العضو", "رقم التامين", "رقم التأمين", "Emp", "ID", "رقم"]);
 
           // استخراج القيم الأساسية
           let name = nameKey ? row[nameKey] : "";
@@ -433,11 +436,9 @@ export function CardNumberingClient({
     };
 
     const empOrder = new Map();
-    // ترتيب مبدئي تصاعدي حسب المعرف (CUID) لضمان الترتيب الأصلي الدقيق للملف
+    // الترتيب حسب وقت الإنشاء (created_at) لضمان الترتيب الأصلي الدقيق للملف
     const chronologicalData = [...rawData].sort((a, b) => {
-      if (a.id < b.id) return -1;
-      if (a.id > b.id) return 1;
-      return 0;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     });
 
     chronologicalData.forEach((item, index) => {
@@ -670,6 +671,16 @@ export function CardNumberingClient({
 
   const allCities = Array.from(new Set(items.map(item => item.city).filter(Boolean))).sort();
 
+  // استخراج الرموز الفريدة للشركات من أرقام البطاقات (مثل WAB, ATCL, WCA)
+  const allCompanyCodes = Array.from(
+    new Set(
+      items.map(item => {
+        const match = item.card_number.match(/^[A-Za-z]+/);
+        return match ? match[0].toUpperCase() : "";
+      }).filter(Boolean)
+    )
+  ).sort();
+
   const filteredItems = items.filter(item => {
     const matchesSearch = 
       item.name.toLowerCase().includes(activeSearchTerm.toLowerCase()) || 
@@ -678,26 +689,27 @@ export function CardNumberingClient({
     
     const matchesBatch = !batchFilter || String(item.batch_number || "").includes(batchFilter);
     const matchesCity = !cityFilter || String(item.city || "").includes(cityFilter);
+    const matchesCompany = !companyFilter || item.card_number.toUpperCase().startsWith(companyFilter.toUpperCase());
     
     if (statusFilter !== "ALL") {
       if (statusFilter === "SUSPICIOUS_DATE") {
-        return matchesSearch && matchesBatch && matchesCity && item.birth_date?.endsWith("-12-31");
+        return matchesSearch && matchesBatch && matchesCity && matchesCompany && item.birth_date?.endsWith("-12-31");
       }
       if (statusFilter === "MISMATCHED") {
-        return matchesSearch && matchesBatch && matchesCity && item.match_percentage !== null && item.match_percentage < 100;
+        return matchesSearch && matchesBatch && matchesCity && matchesCompany && item.match_percentage !== null && item.match_percentage < 100;
       }
       if (statusFilter === "DUPLICATE_FILE") {
-        return matchesSearch && matchesBatch && matchesCity && item.status === "DUPLICATE" && item.error_message?.includes("[FILE]");
+        return matchesSearch && matchesBatch && matchesCity && matchesCompany && item.status === "DUPLICATE" && item.error_message?.includes("[FILE]");
       }
       if (statusFilter === "DUPLICATE_SYSTEM") {
-        return matchesSearch && matchesBatch && matchesCity && item.status === "DUPLICATE" && item.error_message?.includes("[SYSTEM]");
+        return matchesSearch && matchesBatch && matchesCity && matchesCompany && item.status === "DUPLICATE" && item.error_message?.includes("[SYSTEM]");
       }
       if (statusFilter === "DUPLICATE_ARCHIVE") {
-        return matchesSearch && matchesBatch && matchesCity && item.status === "DUPLICATE" && item.error_message?.includes("[ARCHIVE]");
+        return matchesSearch && matchesBatch && matchesCity && matchesCompany && item.status === "DUPLICATE" && item.error_message?.includes("[ARCHIVE]");
       }
-      return matchesSearch && matchesBatch && matchesCity && item.status === statusFilter;
+      return matchesSearch && matchesBatch && matchesCity && matchesCompany && item.status === statusFilter;
     }
-    return matchesSearch && matchesBatch && matchesCity;
+    return matchesSearch && matchesBatch && matchesCity && matchesCompany;
   });
 
   const paginatedItems = filteredItems.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
@@ -844,6 +856,21 @@ export function CardNumberingClient({
                 className="w-full pr-10 pl-3 py-2.5 text-sm bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-slate-900 dark:text-white"
                 placeholder="بحث بالاسم أو الرقم الوظيفي..."
               />
+            </div>
+            <div className="w-32">
+              <select
+                value={companyFilter}
+                onChange={(e) => {
+                  setCompanyFilter(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="w-full px-3 py-2.5 text-sm bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-slate-900 dark:text-white"
+              >
+                <option value="">رمز الشركة...</option>
+                {allCompanyCodes.map(code => (
+                  <option key={code} value={code}>{code}</option>
+                ))}
+              </select>
             </div>
             <div className="w-32">
               <select
