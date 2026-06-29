@@ -4,7 +4,8 @@ import { z } from "zod";
 import ExcelJS from "exceljs";
 import prisma from "@/lib/prisma";
 import { getCurrentInitialBalance } from "@/lib/initial-balance";
-import { normalizeCardNumber, personKey } from "@/lib/normalize";
+import { normalizeCardNumber, canonicalizeCardNumber, personKey } from "@/lib/normalize";
+import { ensureCardNumberAvailability } from "@/app/actions/beneficiary/utils";
 
 const rawImportRowSchema = z.record(z.string(), z.unknown());
 
@@ -35,6 +36,7 @@ type NormalizedImportRow = {
   card_number: string;
   name: string;
   birth_date: Date | null;
+  status: "ACTIVE" | "SUSPENDED" | null;
 };
 
 type PreparedImportRow = {
@@ -235,7 +237,7 @@ function normalizeImportRow(row: unknown): { data?: NormalizedImportRow; error?:
   }
 
   // التحقق من الكلمات المستبعدة (ملحق أو متوفي)
-  const statusVal = normalizeString(getField(parsed.data, "status", "الحالة", "الوضع"));
+  const statusVal = normalizeString(getField(parsed.data, "status", "الحالة", "الوضع", "الوضعية", "Statue"));
   const relVal = normalizeString(getField(parsed.data, "relationship", "صلة القرابة", "الصلة", "صلة"));
   
   const isExcluded = 
@@ -252,11 +254,22 @@ function normalizeImportRow(row: unknown): { data?: NormalizedImportRow; error?:
   // const birthDate = parseBirthDate(birthDateValue);
   const birthDate = null;
 
+  let parsedStatus: "ACTIVE" | "SUSPENDED" | null = null;
+  if (statusVal) {
+    const normalized = statusVal.trim().toLowerCase();
+    if (normalized.includes("موقوف") || normalized.includes("موقف") || normalized.includes("suspend") || normalized.includes("inactive")) {
+      parsedStatus = "SUSPENDED";
+    } else if (normalized.includes("نشط") || normalized.includes("active")) {
+      parsedStatus = "ACTIVE";
+    }
+  }
+
   return {
     data: {
       card_number: cardNumber,
       name,
       birth_date: birthDate,
+      status: parsedStatus,
     },
   };
 }
@@ -554,20 +567,69 @@ export async function processImportJob(jobId: string, username: string) {
 
     for (const chunk of chunkRows(uniqueRows, 100)) {
       const normalizedCardNumbers = [...new Set(chunk.map((row) => normalizeCardNumber(row.data.card_number)))];
+      const canonicalChunkCards = [...new Set(chunk.map((row) => canonicalizeCardNumber(row.data.card_number)))];
+      const chunkCanonicalSet = new Set(canonicalChunkCards);
 
-      // البحث يشمل المحذوفين soft-delete لتفادي إنشاء سجل مكرر
-      const existingActive = await prisma.$queryRaw<Array<{ normalized_card_number: string }>>`
-        SELECT UPPER(BTRIM("card_number")) AS normalized_card_number
-        FROM "Beneficiary"
-        WHERE UPPER(BTRIM("card_number")) IN (${Prisma.join(normalizedCardNumbers)})
-          AND "deleted_at" IS NULL
-      `;
-      const existingDeleted = await prisma.$queryRaw<Array<{ normalized_card_number: string }>>`
-        SELECT UPPER(BTRIM("card_number")) AS normalized_card_number
-        FROM "Beneficiary"
-        WHERE UPPER(BTRIM("card_number")) IN (${Prisma.join(normalizedCardNumbers)})
-          AND "deleted_at" IS NOT NULL
-      `;
+      // البحث عن المستفيدين النشطين والمحذوفين معيارياً لتجنب التكرار ببادئة الأصفار
+      const candidatesActive = await prisma.beneficiary.findMany({
+        where: {
+          deleted_at: null,
+          OR: [
+            { card_number: { startsWith: "WAB2025", mode: "insensitive" } },
+            { card_number: { in: normalizedCardNumbers, mode: "insensitive" } }
+          ]
+        },
+        select: {
+          id: true,
+          card_number: true,
+          name: true,
+          birth_date: true,
+          is_legacy_card: true,
+          total_balance: true,
+          remaining_balance: true,
+          status: true,
+          company_id: true,
+          _count: {
+            select: {
+              transactions: true,
+              claims: true,
+              wallet_consumptions: true
+            }
+          }
+        }
+      });
+
+      const candidatesDeleted = await prisma.beneficiary.findMany({
+        where: {
+          deleted_at: { not: null },
+          OR: [
+            { card_number: { startsWith: "WAB2025", mode: "insensitive" } },
+            { card_number: { in: normalizedCardNumbers, mode: "insensitive" } }
+          ]
+        },
+        select: {
+          id: true,
+          card_number: true,
+          name: true,
+          birth_date: true,
+          is_legacy_card: true,
+          total_balance: true,
+          remaining_balance: true,
+          status: true,
+          deleted_at: true,
+          company_id: true,
+          _count: {
+            select: {
+              transactions: true,
+              claims: true,
+              wallet_consumptions: true
+            }
+          }
+        }
+      });
+
+      const matchedActive = candidatesActive.filter(b => chunkCanonicalSet.has(canonicalizeCardNumber(b.card_number)));
+      const matchedDeleted = candidatesDeleted.filter(b => chunkCanonicalSet.has(canonicalizeCardNumber(b.card_number)));
 
       const birthDateByTime = new Map<number, Date>();
       chunk.forEach((row) => {
@@ -597,46 +659,13 @@ export async function processImportJob(jobId: string, username: string) {
         })
         : [];
 
-      const activeCards = new Set(existingActive.map((item) => item.normalized_card_number));
-      const deletedCards = new Set(existingDeleted.map((item) => item.normalized_card_number));
-
-      // جلب السجلات الحية الموجودة للتحديث
-      const existingActiveRows = existingActive.length > 0
-        ? await prisma.beneficiary.findMany({
-          where: {
-            card_number: { in: [...activeCards], mode: "insensitive" },
-            deleted_at: null,
-          },
-          select: { id: true, card_number: true, name: true, birth_date: true, is_legacy_card: true, total_balance: true, remaining_balance: true, status: true, company_id: true },
-        })
-        : [];
-      const cardToActiveRow = new Map(
-        existingActiveRows.map((r) => [normalizeCardNumber(r.card_number), r])
-      );
-
-      // جلب السجلات المحذوفة soft-delete لاستعادتها بدل إنشاء سجل جديد
-      const existingDeletedRows = existingDeleted.length > 0
-        ? await prisma.beneficiary.findMany({
-          where: {
-            card_number: { in: [...deletedCards], mode: "insensitive" },
-            deleted_at: { not: null },
-          },
-          select: { id: true, card_number: true, name: true, birth_date: true, is_legacy_card: true, total_balance: true, remaining_balance: true, status: true, deleted_at: true, company_id: true },
-          // آخر سجل محذوف لهذا الرقم
-          orderBy: { deleted_at: "desc" },
-        })
-        : [];
-      const cardToDeletedRow = new Map(
-        existingDeletedRows.map((r) => [normalizeCardNumber(r.card_number), r])
-      );
-
       const existingPersonKeys = new Set(
         existingPersons
           .map((row) => personKey(row.name, row.birth_date))
           .filter((key): key is string => Boolean(key))
       );
 
-      const personKeyToActiveRows = new Map<string, typeof existingActiveRows>();
+      const personKeyToActiveRows = new Map<string, typeof existingPersons>();
       for (const row of existingPersons) {
         const key = personKey(row.name, row.birth_date);
         if (!key) continue;
@@ -645,73 +674,90 @@ export async function processImportJob(jobId: string, username: string) {
         personKeyToActiveRows.set(key, arr);
       }
 
-      const rowsToInsert = chunk.filter((row) => {
-        const cn = normalizeCardNumber(row.data.card_number);
-        if (activeCards.has(cn)) return false;
-        if (deletedCards.has(cn)) return false; // سيُستعاد بدل الإنشاء
+      // فرز وتصنيف الصفوف بحسب التطابق المعياري
+      const resolvedInserts: typeof chunk = [];
+      const resolvedUpdates: Array<{ row: typeof chunk[0]; activeRow: typeof matchedActive[0] }> = [];
+      const resolvedRestores: Array<{ row: typeof chunk[0]; deletedRow: typeof matchedDeleted[0] }> = [];
+      const resolvedFixCards: Array<{ row: typeof chunk[0]; targetRow: typeof existingPersons[0] }> = [];
 
-        const pKey = personKey(row.data.name, row.data.birth_date);
-        if (pKey && existingPersonKeys.has(pKey)) return false;
+      for (const row of chunk) {
+        const rowCanonical = canonicalizeCardNumber(row.data.card_number);
+        const rowNormalized = normalizeCardNumber(row.data.card_number);
 
-        return true;
-      });
+        const activeMatches = matchedActive.filter(b => canonicalizeCardNumber(b.card_number) === rowCanonical);
+        const deletedMatches = matchedDeleted.filter(b => canonicalizeCardNumber(b.card_number) === rowCanonical);
 
-      // صفوف سيتم تحديثها (رقم البطاقة موجود وحيّ)
-      const rowsToUpdate = chunk.filter((row) =>
-        activeCards.has(normalizeCardNumber(row.data.card_number))
-      );
+        if (activeMatches.length > 0) {
+          // وجود تكرار: نقوم بالإبقاء على المستفيد صاحب الحركات، ونقوم بتحديث رقم بطاقته للجديد المعتمد بالإكسيل ومسح الباقين
+          let keep = null;
+          const hasTx = activeMatches.filter(b => (b._count.transactions + b._count.claims + b._count.wallet_consumptions) > 0);
+          
+          if (hasTx.length === 1) {
+            keep = hasTx[0];
+          } else if (hasTx.length > 1) {
+            keep = hasTx.sort((a, b) => {
+              const aCount = a._count.transactions + a._count.claims + a._count.wallet_consumptions;
+              const bCount = b._count.transactions + b._count.claims + b._count.wallet_consumptions;
+              return bCount - aCount;
+            })[0];
+          } else {
+            const exactMatch = activeMatches.find(b => normalizeCardNumber(b.card_number) === rowNormalized);
+            keep = exactMatch || activeMatches[0];
+          }
 
-      // صفوف محذوفة سيتم استعادتها
-      const rowsToRestore = chunk.filter((row) => {
-        const cn = normalizeCardNumber(row.data.card_number);
-        return !activeCards.has(cn) && deletedCards.has(cn);
-      });
+          // مسح الحسابات المكررة الصفرية (التي لا تحتوي على أي حركات)
+          const deleteList = activeMatches.filter(b => b.id !== keep.id);
+          if (deleteList.length > 0) {
+            for (const d of deleteList) {
+              const newCardName = `${d.card_number}_DEL_${Date.now()}_${d.id.slice(-4)}`;
+              await prisma.beneficiary.update({
+                where: { id: d.id },
+                data: {
+                  deleted_at: new Date(),
+                  card_number: newCardName
+                }
+              });
+            }
+            // إزالتهم من المصفوفتين حتى لا يتم رصدهم مجدداً في باقي الحلقة
+            for (const d of deleteList) {
+              const idx = matchedActive.findIndex(b => b.id === d.id);
+              if (idx !== -1) matchedActive.splice(idx, 1);
+            }
+          }
 
-      // صفوف نفس الشخص ببطاقة مختلفة — يتم تصحيح البطاقة تلقائياً إذا كان التطابق فريداً
-      const rowsToFixCardByPerson = chunk.filter((row) => {
-        const cn = normalizeCardNumber(row.data.card_number);
-        if (activeCards.has(cn) || deletedCards.has(cn)) return false;
-
-        const pKey = personKey(row.data.name, row.data.birth_date);
-        if (!pKey) return false;
-
-        const matches = personKeyToActiveRows.get(pKey) ?? [];
-        return matches.length === 1;
-      });
-
-      // صفوف مكررة (نفس الشخص، بطاقة مختلفة) — تُتخطى فقط إذا كان التطابق غير فريد
-      chunk.forEach((row) => {
-        const cn = normalizeCardNumber(row.data.card_number);
-        if (activeCards.has(cn) || deletedCards.has(cn)) return;
-
-        const pKey = personKey(row.data.name, row.data.birth_date);
-        const matches = pKey ? (personKeyToActiveRows.get(pKey) ?? []) : [];
-        if (pKey && existingPersonKeys.has(pKey) && matches.length !== 1) {
-          skippedRows.push(createSkippedRowReport({
-            reason: "duplicate_person",
-            rowNumber: row.rowNumber,
-            rawRow: row.rawRow,
-            normalized: row.data,
-          }));
+          resolvedUpdates.push({ row, activeRow: keep });
+        } else if (deletedMatches.length > 0) {
+          // استعادة محذوف
+          resolvedRestores.push({ row, deletedRow: deletedMatches[0] });
+        } else {
+          // فحص تطابق الاسم والميلاد لتصحيح البطاقة
+          const pKey = personKey(row.data.name, row.data.birth_date);
+          const matches = pKey ? (personKeyToActiveRows.get(pKey) ?? []) : [];
+          if (pKey && matches.length === 1) {
+            resolvedFixCards.push({ row, targetRow: matches[0] });
+          } else {
+            if (pKey && existingPersonKeys.has(pKey) && matches.length !== 1) {
+              skippedRows.push(createSkippedRowReport({
+                reason: "duplicate_person",
+                rowNumber: row.rowNumber,
+                rawRow: row.rawRow,
+                normalized: row.data,
+              }));
+              duplicateRows += 1;
+              processedRows += 1;
+            } else {
+              resolvedInserts.push(row);
+            }
+          }
         }
-      });
+      }
 
-      const trueDuplicates = chunk.filter((row) => {
-        const cn = normalizeCardNumber(row.data.card_number);
-        if (activeCards.has(cn) || deletedCards.has(cn)) return false;
-        const pKey = personKey(row.data.name, row.data.birth_date);
-        if (!pKey || !existingPersonKeys.has(pKey)) return false;
-        const matches = personKeyToActiveRows.get(pKey) ?? [];
-        return matches.length !== 1;
-      }).length;
-
-      duplicateRows += trueDuplicates;
       processedRows += chunk.length;
 
-      // إدراج المستفيدين الجدد
-      if (rowsToInsert.length > 0) {
+      // 1. إدراج المستفيدين الجدد
+      if (resolvedInserts.length > 0) {
         const result = await prisma.beneficiary.createMany({
-          data: rowsToInsert.map((row) => {
+          data: resolvedInserts.map((row) => {
             const cn = normalizeCardNumber(row.data.card_number);
             let rowCompanyId = opts.company_id || null;
             let balance = initialBalance;
@@ -741,20 +787,19 @@ export async function processImportJob(jobId: string, username: string) {
               birth_date: row.data.birth_date,
               total_balance: balance,
               remaining_balance: balance,
-              status: "ACTIVE" as const,
+              status: (row.data.status ?? "ACTIVE") as "ACTIVE" | "SUSPENDED" | "FINISHED",
               ...(rowCompanyId ? { company_id: rowCompanyId } : {}),
             };
           }),
           skipDuplicates: true,
         });
         insertedRows += result.count;
-        duplicateRows += rowsToInsert.length - result.count;
+        duplicateRows += resolvedInserts.length - result.count;
 
-        // حفظ IDs المنشأة حديثاً للتراجع
         if (result.count > 0) {
           const newlyCreated = await prisma.beneficiary.findMany({
             where: {
-              card_number: { in: rowsToInsert.map((r) => r.data.card_number), mode: "insensitive" },
+              card_number: { in: resolvedInserts.map((r) => r.data.card_number), mode: "insensitive" },
               deleted_at: null,
             },
             select: { id: true },
@@ -763,30 +808,11 @@ export async function processImportJob(jobId: string, username: string) {
         }
       }
 
-      // استعادة السجلات المحذوفة soft-delete
-      // SEC-FIX: استبدال Promise.all بحلقة متسلسلة لمنع deadlocks
-      if (rowsToRestore.length > 0) {
-        for (const row of rowsToRestore) {
+      // 2. استعادة السجلات المحذوفة
+      if (resolvedRestores.length > 0) {
+        for (const { row, deletedRow } of resolvedRestores) {
           const cn = normalizeCardNumber(row.data.card_number);
-          const deletedRow = cardToDeletedRow.get(cn);
-          if (!deletedRow) continue;
 
-          const restorePersonKey = personKey(row.data.name, row.data.birth_date);
-          if (restorePersonKey) {
-            const activeMatches = personKeyToActiveRows.get(restorePersonKey) ?? [];
-            if (activeMatches.length > 0) {
-              duplicateRows += 1;
-              skippedRows.push(createSkippedRowReport({
-                reason: "duplicate_person",
-                rowNumber: row.rowNumber,
-                rawRow: row.rawRow,
-                normalized: row.data,
-              }));
-              continue;
-            }
-          }
-
-          // حفظ snapshot قبل الاستعادة
           rollbackBeforeSnapshots.push({
             id: deletedRow.id,
             card_number: deletedRow.card_number,
@@ -821,13 +847,20 @@ export async function processImportJob(jobId: string, username: string) {
             }
           }
 
+          const targetStatus = row.data.status
+            ? row.data.status
+            : (opts.reactivate ? "ACTIVE" : deletedRow.status);
+
+          await ensureCardNumberAvailability(prisma, row.data.card_number, deletedRow.id);
+
           await prisma.beneficiary.update({
             where: { id: deletedRow.id },
             data: {
               deleted_at: null,
+              card_number: row.data.card_number, // تحديث رقم البطاقة للتنسيق المعتمد بالإكسيل
               name: row.data.name,
               birth_date: row.data.birth_date,
-              status: "ACTIVE",
+              status: targetStatus as "ACTIVE" | "SUSPENDED" | "FINISHED",
               ...(rowCompanyId ? { company_id: rowCompanyId } : {}),
               ...(opts.updateBalance ? {
                 total_balance: balance,
@@ -837,35 +870,15 @@ export async function processImportJob(jobId: string, username: string) {
           });
           rollbackRestoredIds.push(deletedRow.id);
         }
-        insertedRows += rowsToRestore.length; // تُحسب كإدراج لأنها استعادة
+        insertedRows += resolvedRestores.length;
       }
 
-      // تحديث المستفيدين الموجودين
-      // SEC-FIX: استبدال Promise.all بحلقة متسلسلة لمنع deadlocks
-      if (rowsToUpdate.length > 0) {
+      // 3. تحديث السجلات النشطة (أو تعديل الأصفار البادئة للبطاقة)
+      if (resolvedUpdates.length > 0) {
         let successfulUpdates = 0;
-        for (const row of rowsToUpdate) {
+        for (const { row, activeRow } of resolvedUpdates) {
           const cn = normalizeCardNumber(row.data.card_number);
-          const activeRow = cardToActiveRow.get(cn);
-          if (!activeRow) continue;
 
-          const updatePersonKey = personKey(row.data.name, row.data.birth_date);
-          if (updatePersonKey) {
-            const activeMatches = personKeyToActiveRows.get(updatePersonKey) ?? [];
-            const hasConflict = activeMatches.some((m) => m.id !== activeRow.id);
-            if (hasConflict) {
-              duplicateRows += 1;
-              skippedRows.push(createSkippedRowReport({
-                reason: "duplicate_person",
-                rowNumber: row.rowNumber,
-                rawRow: row.rawRow,
-                normalized: row.data,
-              }));
-              continue;
-            }
-          }
-
-          // حفظ snapshot قبل التحديث
           rollbackBeforeSnapshots.push({
             id: activeRow.id,
             card_number: activeRow.card_number,
@@ -900,14 +913,20 @@ export async function processImportJob(jobId: string, username: string) {
             }
           }
 
+          const targetStatus = row.data.status
+            ? row.data.status
+            : (opts.reactivate ? "ACTIVE" : activeRow.status);
+
+          await ensureCardNumberAvailability(prisma, row.data.card_number, activeRow.id);
+
           const updateData: Record<string, any> = {
+            card_number: row.data.card_number, // تحديث رقم البطاقة للتنسيق المعتمد بالإكسيل
             name: row.data.name,
             birth_date: row.data.birth_date,
-            status: "ACTIVE",
+            status: targetStatus,
             ...(rowCompanyId ? { company_id: rowCompanyId } : {}),
           };
 
-          // تحديث الرصيد إذا طلب المستخدم ذلك
           if (opts.updateBalance) {
             updateData.total_balance = balance;
             updateData.remaining_balance = balance;
@@ -922,18 +941,10 @@ export async function processImportJob(jobId: string, username: string) {
         updatedRows += successfulUpdates;
       }
 
-      // تصحيح البطاقة تلقائياً لنفس الشخص (تطابق فريد)
-      if (rowsToFixCardByPerson.length > 0) {
+      // 4. تصحيح البطاقة بالاسم والميلاد إذا كانت مختلفة
+      if (resolvedFixCards.length > 0) {
         let successfulCardFixes = 0;
-        for (const row of rowsToFixCardByPerson) {
-          const pKey = personKey(row.data.name, row.data.birth_date);
-          if (!pKey) continue;
-
-          const matches = personKeyToActiveRows.get(pKey) ?? [];
-          if (matches.length !== 1) continue;
-
-          const targetRow = matches[0];
-
+        for (const { row, targetRow } of resolvedFixCards) {
           rollbackBeforeSnapshots.push({
             id: targetRow.id,
             card_number: targetRow.card_number,
@@ -969,11 +980,17 @@ export async function processImportJob(jobId: string, username: string) {
             }
           }
 
+          const targetStatus = row.data.status
+            ? row.data.status
+            : (opts.reactivate ? "ACTIVE" : targetRow.status);
+
+          await ensureCardNumberAvailability(prisma, row.data.card_number, targetRow.id);
+
           const updateData: Record<string, any> = {
             card_number: row.data.card_number,
             name: row.data.name,
             birth_date: row.data.birth_date,
-            status: "ACTIVE",
+            status: targetStatus,
             ...(rowCompanyId ? { company_id: rowCompanyId } : {}),
           };
 

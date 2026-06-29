@@ -157,7 +157,7 @@ export function CardNumberingClient({
         const nameKey = findKeyInList(allKeys, ["الأسم", "الاسم", "الإسم", "اسم المستفيد", "اسم الموظف", "اسم العضو", "Full Name", "Name"]);
         const relKey = findKeyInList(allKeys, ["صلة", "القرابة", "Relationship", "النوع", "الصلة", "Rel", "الصفة", "المستفيد", "العلاقة", "صفة"]);
         const bDateKey = findKeyInList(allKeys, ["تاريخ الملاد", "الملاد", "ميلاد", "المواليد", "تاريخ الميلاد", "Birth", "BDate", "DOB", "تاريخ"]);
-        const statusKey = findKeyInList(allKeys, ["الحالة", "Status", "الوضع"]);
+        const statusKey = findKeyInList(allKeys, ["الحالة", "Status", "الوضع", "Statue", "الوضعية"]);
         const notesKey = findKeyInList(allKeys, ["ملاحظات", "Notes", "البيان", "ملاحظة"]);
         const empNumKey = findKeyInList(allKeys, ["الرقم الوظيفي", "رقم الوظيفي", "وظيفي", "رقم الموظف", "رقم العضو", "رقم التامين", "رقم التأمين", "Emp", "ID", "رقم"]);
 
@@ -380,8 +380,8 @@ export function CardNumberingClient({
 
   const handleDownloadTemplate = () => {
     const templateData = [
-      { "الرقم الوظيفي": "12345", "الاسم": "محمد أحمد", "صلة القرابة": "موظف", "تاريخ الميلاد": "1985-01-01", "بيانات إضافية": "" },
-      { "الرقم الوظيفي": "12345", "الاسم": "أمل محمد", "صلة القرابة": "ابنة", "تاريخ الميلاد": "2010-05-15", "بيانات إضافية": "" },
+      { "الرقم الوظيفي": "12345", "الاسم": "محمد أحمد", "صلة القرابة": "موظف", "تاريخ الميلاد": "1985-01-01", "الحالة": "نشط", "بيانات إضافية": "" },
+      { "الرقم الوظيفي": "12345", "الاسم": "أمل محمد", "صلة القرابة": "ابنة", "تاريخ الميلاد": "2010-05-15", "الحالة": "نشط", "بيانات إضافية": "" },
     ];
     const ws = XLSX.utils.json_to_sheet(templateData);
     const wb = XLSX.utils.book_new();

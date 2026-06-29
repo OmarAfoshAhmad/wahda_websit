@@ -17,6 +17,7 @@ export type CardNumberingItem = {
   status?: string;       
   field3?: string;
   error_message?: string; // رسالة الخطأ
+  beneficiary_status?: string;
 };
 
 // رموز اللاحقة للعائلة شاملة الأخطاء الإملائية وال التعريف والهمزات والتاء المربوطة
@@ -550,6 +551,16 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
         autoBatch = registryEntry.batch_number || autoBatch;
       }
 
+      let parsedBeneficiaryStatus: string | null = null;
+      if (statusVal) {
+        const normalized = statusVal.trim().toLowerCase();
+        if (normalized.includes("موقوف") || normalized.includes("موقف") || normalized.includes("suspend") || normalized.includes("inactive")) {
+          parsedBeneficiaryStatus = "SUSPENDED";
+        } else if (normalized.includes("نشط") || normalized.includes("active")) {
+          parsedBeneficiaryStatus = "ACTIVE";
+        }
+      }
+
       await prisma.cardNumberingArchive.upsert({
         where: { card_number: finalCardNumber },
         update: {
@@ -566,7 +577,8 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
           source_file: sourceFile,
           match_percentage: matchPercentage,
           mismatch_reasons: mismatches.length > 0 ? JSON.stringify(mismatches) : null,
-          deleted_at: null
+          deleted_at: null,
+          beneficiary_status: parsedBeneficiaryStatus
         },
         create: {
           card_number: finalCardNumber,
@@ -584,7 +596,8 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
           match_percentage: matchPercentage,
           mismatch_reasons: mismatches.length > 0 ? JSON.stringify(mismatches) : null,
           deleted_at: null,
-          created_at: new Date(baseTime - loopIndex)
+          created_at: new Date(baseTime - loopIndex),
+          beneficiary_status: parsedBeneficiaryStatus
         },
       });
     }
@@ -646,6 +659,10 @@ export async function migrateCardNumberingAction(ids: string[]) {
         if (existingByCard) {
           // تحديث البيانات المستفيد الموجود بدلاً من الفشل
           const oldData = { ...existingByCard };
+          const targetStatus = (item.beneficiary_status === "ACTIVE" || item.beneficiary_status === "SUSPENDED")
+            ? item.beneficiary_status
+            : (existingByCard.status || "ACTIVE");
+
           await prisma.beneficiary.update({
             where: { id: existingByCard.id },
             data: {
@@ -654,7 +671,7 @@ export async function migrateCardNumberingAction(ids: string[]) {
               batch_number: item.batch_number || existingByCard.batch_number, // ترحيل رقم الدفعة
               company_id: companyId || existingByCard.company_id, // ربط الشركة
               deleted_at: null, // استعادة السجل إذا كان في سلة المحذوفات
-              status: "ACTIVE"
+              status: targetStatus as "ACTIVE" | "SUSPENDED" | "FINISHED"
             }
           });
           report.updated++;
@@ -686,6 +703,10 @@ export async function migrateCardNumberingAction(ids: string[]) {
         if (existingByEmp) {
           // تحديث رقم البطاقة لشخص موجود
           const oldData = { ...existingByEmp };
+          const targetStatus = (item.beneficiary_status === "ACTIVE" || item.beneficiary_status === "SUSPENDED")
+            ? item.beneficiary_status
+            : (existingByEmp.status || "ACTIVE");
+
           await prisma.beneficiary.update({
             where: { id: existingByEmp.id },
             data: {
@@ -693,6 +714,7 @@ export async function migrateCardNumberingAction(ids: string[]) {
               city: item.city || existingByEmp.city,           // ترحيل المدينة
               batch_number: item.batch_number || existingByEmp.batch_number, // ترحيل رقم الدفعة
               company_id: companyId || existingByEmp.company_id, // ربط الشركة
+              status: targetStatus as "ACTIVE" | "SUSPENDED" | "FINISHED"
             }
           });
           report.updated++;
@@ -706,6 +728,10 @@ export async function migrateCardNumberingAction(ids: string[]) {
           });
         } else {
           // 3. إضافة جديد كلياً
+          const targetStatus = (item.beneficiary_status === "ACTIVE" || item.beneficiary_status === "SUSPENDED")
+            ? item.beneficiary_status
+            : "ACTIVE";
+
           const newBen = await prisma.beneficiary.create({
             data: {
               name: item.name,
@@ -713,7 +739,7 @@ export async function migrateCardNumberingAction(ids: string[]) {
               city: item.city,           // ترحيل المدينة للجديد
               batch_number: item.batch_number, // ترحيل رقم الدفعة للجديد
               company_id: companyId,     // ربط المستفيد الجديد بالشركة المكتشفة تلقائياً
-              status: "ACTIVE",
+              status: targetStatus as "ACTIVE" | "SUSPENDED" | "FINISHED",
               total_balance: 600,
               remaining_balance: 600,
             },

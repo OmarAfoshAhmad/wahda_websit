@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-guard";
 import { Shell } from "@/components/shell";
 import { Card, Badge } from "@/components/ui";
@@ -34,6 +35,9 @@ export default async function OpticsCompanyPage({
     view?: string;
     bulk_msg?: string;
     bulk_type?: string;
+    status?: string;
+    completed_via?: string;
+    balance_range?: string;
   }>;
 }) {
   const session = await getSessionWithFreshPermissions();
@@ -59,6 +63,9 @@ export default async function OpticsCompanyPage({
   const page = Math.max(1, parseInt(sp.page ?? "1") || 1);
   const fromDate = sp.from ?? "";
   const toDate = sp.to ?? "";
+  const statusFilter = sp.status || "all";
+  const completedViaFilter = sp.completed_via || "all";
+  const balanceRangeFilter = sp.balance_range || "all";
 
   // جلب بيانات الشركة مع إحصائيات المستفيدين
   const company = (await prisma.insuranceCompany.findUnique({
@@ -243,6 +250,21 @@ export default async function OpticsCompanyPage({
   const bulkMessage = (sp.bulk_msg?.trim() ?? "").slice(0, 220);
   const bulkMessageType: "success" | "error" = sp.bulk_type === "error" ? "error" : "success";
 
+  const buildBeneficiaryParams = (overrides: Record<string, string | undefined>) => {
+    const params = new URLSearchParams();
+    params.set("tab", "beneficiaries");
+    if (searchQuery) params.set("q", searchQuery);
+    if (isDeletedView) params.set("view", "deleted");
+    if (statusFilter !== "all") params.set("status", statusFilter);
+    if (completedViaFilter !== "all") params.set("completed_via", completedViaFilter);
+    if (balanceRangeFilter !== "all") params.set("balance_range", balanceRangeFilter);
+    params.set("page", "1");
+    for (const [k, v] of Object.entries(overrides)) {
+      if (v === undefined || v === "") params.delete(k); else params.set(k, v);
+    }
+    return `/admin/optics-services/${companyId}?${params.toString()}`;
+  };
+
   if (activeTab === "beneficiaries") {
     // جلب عدد المحذوفين ناعماً
     deletedCount = await prisma.beneficiary.count({
@@ -252,106 +274,166 @@ export default async function OpticsCompanyPage({
       },
     });
 
-    const benWhere: any = {
-      company_id: companyId,
-      deleted_at: isDeletedView ? { not: null } : null,
-    };
-    if (searchQuery) {
-      const searchTerms = searchQuery.split(/\s+/).filter(Boolean);
-      if (searchTerms.length > 0) {
-        benWhere.AND = searchTerms.map(t => ({
-          OR: [
-            { name: { contains: t, mode: "insensitive" } },
-            { card_number: { contains: t, mode: "insensitive" } },
-          ]
-        }));
-      }
-    }
-
-    const [benList, benCount] = await Promise.all([
-      prisma.beneficiary.findMany({
-        where: benWhere,
-        orderBy: [{ created_at: "desc" }, { id: "desc" }],
-        skip: (page - 1) * PAGE_SIZE,
-        take: PAGE_SIZE,
-        select: {
-          id: true,
-          name: true,
-          card_number: true,
-          birth_date: true,
-          status: true,
-          total_balance: true,
-          is_legacy_card: true,
-          deleted_at: true,
-          _count: {
-            select: { transactions: { where: { is_cancelled: false, type: "OPTICS" } } }
-          }
-        }
-      }),
-      prisma.beneficiary.count({ where: benWhere })
-    ]);
-
-    const benIds = benList.map((b) => b.id);
-    
-    // Calculate spent optics ceiling per beneficiary in the current fiscal year
     const fiscalYear = new Date().getFullYear();
     const startDate = new Date(fiscalYear, 0, 1);
     const endDate = new Date(fiscalYear, 11, 31, 23, 59, 59);
 
-    const spentOpticsRows = benIds.length > 0
-      ? await prisma.transaction.findMany({
-          where: {
-            beneficiary_id: { in: benIds },
-            company_id: companyId,
-            type: "OPTICS",
-            is_cancelled: false,
-            created_at: { gte: startDate, lte: endDate },
-          },
-          select: {
-            beneficiary_id: true,
-            ceiling_consumed: true,
-            actual_company_share: true,
-            amount: true,
-          }
-        })
-      : [];
+    const filterConds: Prisma.Sql[] = [];
 
-    const spentOpticsMap = new Map();
-    for (const tx of spentOpticsRows) {
-      const benId = tx.beneficiary_id;
-      const consumed = tx.ceiling_consumed !== null
-        ? Number(tx.ceiling_consumed)
-        : Number(tx.actual_company_share ?? tx.amount);
-      const deducted = tx.actual_company_share !== null
-        ? Number(tx.actual_company_share)
-        : Number(tx.amount);
-
-      const existing = spentOpticsMap.get(benId) ?? { consumed: 0, deducted: 0 };
-      spentOpticsMap.set(benId, {
-        consumed: existing.consumed + consumed,
-        deducted: existing.deducted + deducted,
-      });
+    // Search query
+    if (searchQuery) {
+      const searchTerms = searchQuery.split(/\s+/).filter(Boolean);
+      for (const t of searchTerms) {
+        filterConds.push(Prisma.sql`(b.name ILIKE ${'%' + t + '%'} OR b.card_number ILIKE ${'%' + t + '%'})`);
+      }
     }
 
-    const opticsCeiling = ceiling;
+    // Status filter
+    if (statusFilter === "SUSPENDED") {
+      filterConds.push(Prisma.sql`b.status = 'SUSPENDED'`);
+    } else if (statusFilter === "ACTIVE") {
+      filterConds.push(Prisma.sql`b.status <> 'SUSPENDED'`);
+      if (ceiling !== null) {
+        filterConds.push(Prisma.sql`COALESCE((
+          SELECT SUM(COALESCE(t.ceiling_consumed, t.actual_company_share, t.amount))
+          FROM "Transaction" t
+          WHERE t.beneficiary_id = b.id
+            AND t.company_id = ${companyId}
+            AND t.type = 'OPTICS'
+            AND t.is_cancelled = false
+            AND t.created_at >= ${startDate}
+            AND t.created_at <= ${endDate}
+        ), 0) < ${ceiling}`);
+      }
+    } else if (statusFilter === "FINISHED") {
+      filterConds.push(Prisma.sql`b.status <> 'SUSPENDED'`);
+      if (ceiling !== null) {
+        filterConds.push(Prisma.sql`COALESCE((
+          SELECT SUM(COALESCE(t.ceiling_consumed, t.actual_company_share, t.amount))
+          FROM "Transaction" t
+          WHERE t.beneficiary_id = b.id
+            AND t.company_id = ${companyId}
+            AND t.type = 'OPTICS'
+            AND t.is_cancelled = false
+            AND t.created_at >= ${startDate}
+            AND t.created_at <= ${endDate}
+        ), 0) >= ${ceiling}`);
+      } else {
+        filterConds.push(Prisma.sql`1=0`);
+      }
+      if (completedViaFilter !== "all") {
+        filterConds.push(Prisma.sql`b.completed_via = ${completedViaFilter}`);
+      }
+    }
 
-    companyBeneficiaries = benList.map((b) => {
-      const stats = spentOpticsMap.get(b.id) ?? { consumed: 0, deducted: 0 };
-      const consumed = stats.consumed;
-      const deducted = stats.deducted;
+    // Balance range filter
+    if (balanceRangeFilter === "0_10") {
+      if (ceiling !== null) {
+        filterConds.push(Prisma.sql`(${ceiling} - COALESCE((
+          SELECT SUM(COALESCE(t.ceiling_consumed, t.actual_company_share, t.amount))
+          FROM "Transaction" t
+          WHERE t.beneficiary_id = b.id
+            AND t.company_id = ${companyId}
+            AND t.type = 'OPTICS'
+            AND t.is_cancelled = false
+            AND t.created_at >= ${startDate}
+            AND t.created_at <= ${endDate}
+        ), 0)) BETWEEN 0 AND 10`);
+      } else {
+        filterConds.push(Prisma.sql`1=0`);
+      }
+    }
 
-      const remaining = opticsCeiling === null ? consumed : Math.max(0, opticsCeiling - consumed);
-      const total = opticsCeiling === null ? deducted : opticsCeiling;
+    const whereClause = filterConds.length > 0
+      ? Prisma.sql`AND ${Prisma.join(filterConds, ' AND ')}`
+      : Prisma.empty;
+
+    const deletedCond = isDeletedView
+      ? Prisma.sql`b.deleted_at IS NOT NULL`
+      : Prisma.sql`b.deleted_at IS NULL`;
+
+    const countResult = await prisma.$queryRaw<Array<{ count: bigint }>>`
+      SELECT COUNT(*)::bigint AS count
+      FROM "Beneficiary" b
+      WHERE b.company_id = ${companyId}
+        AND ${deletedCond}
+        ${whereClause}
+    `;
+    const benCount = Number(countResult[0]?.count ?? 0);
+
+    const offset = (page - 1) * PAGE_SIZE;
+    const benListRaw = await prisma.$queryRaw<Array<{
+      id: string;
+      name: string;
+      card_number: string;
+      birth_date: Date | null;
+      status: string;
+      total_balance: number;
+      is_legacy_card: boolean;
+      deleted_at: Date | null;
+      completed_via: string | null;
+      spent_amount: number;
+      tx_count: number;
+    }>>`
+      SELECT
+        b.id,
+        b.name,
+        b.card_number,
+        b.birth_date,
+        b.status,
+        b.total_balance::float,
+        b.is_legacy_card,
+        b.deleted_at,
+        b.completed_via,
+        COALESCE((
+          SELECT SUM(COALESCE(t.ceiling_consumed, t.actual_company_share, t.amount))
+          FROM "Transaction" t
+          WHERE t.beneficiary_id = b.id
+            AND t.company_id = ${companyId}
+            AND t.type = 'OPTICS'
+            AND t.is_cancelled = false
+            AND t.created_at >= ${startDate}
+            AND t.created_at <= ${endDate}
+        ), 0)::float AS spent_amount,
+        COALESCE((
+          SELECT COUNT(*)::int
+          FROM "Transaction" t
+          WHERE t.beneficiary_id = b.id
+            AND t.is_cancelled = false
+            AND t.type = 'OPTICS'
+        ), 0)::int AS tx_count
+      FROM "Beneficiary" b
+      WHERE b.company_id = ${companyId}
+        AND ${deletedCond}
+        ${whereClause}
+      ORDER BY b.created_at DESC, b.id DESC
+      LIMIT ${PAGE_SIZE}
+      OFFSET ${offset}
+    `;
+
+    companyBeneficiaries = benListRaw.map((b) => {
+      const consumed = b.spent_amount;
+      const remaining = ceiling === null ? consumed : Math.max(0, ceiling - consumed);
+      const total = ceiling === null ? consumed : ceiling;
 
       const dynamicStatus = b.status === "SUSPENDED"
         ? "SUSPENDED"
-        : (opticsCeiling !== null && Math.max(0, opticsCeiling - consumed) <= 0 ? "FINISHED" : "ACTIVE");
+        : (ceiling !== null && Math.max(0, ceiling - consumed) <= 0 ? "FINISHED" : "ACTIVE");
+
       return {
-        ...b,
+        id: b.id,
+        name: b.name,
+        card_number: b.card_number,
+        birth_date: b.birth_date,
+        status: dynamicStatus,
+        completed_via: b.completed_via,
         total_balance: total,
         remaining_balance: remaining,
-        status: dynamicStatus,
         in_import_file: Boolean(b.is_legacy_card),
+        deleted_at: b.deleted_at,
+        _count: {
+          transactions: b.tx_count
+        }
       };
     });
 
@@ -366,6 +448,11 @@ export default async function OpticsCompanyPage({
     if (fromDate && activeTab === "transactions") params.set("from", fromDate);
     if (toDate && activeTab === "transactions") params.set("to", toDate);
     if (isDeletedView && activeTab === "beneficiaries") params.set("view", "deleted");
+    if (activeTab === "beneficiaries") {
+      if (statusFilter !== "all") params.set("status", statusFilter);
+      if (completedViaFilter !== "all") params.set("completed_via", completedViaFilter);
+      if (balanceRangeFilter !== "all") params.set("balance_range", balanceRangeFilter);
+    }
     params.set("page", String(pageNumber));
     return `/admin/optics-services/${companyId}?${params.toString()}`;
   };
@@ -814,6 +901,9 @@ export default async function OpticsCompanyPage({
               <form method="GET" action={`/admin/optics-services/${companyId}`} className="flex items-center gap-3">
                 <input type="hidden" name="tab" value="beneficiaries" />
                 {isDeletedView && <input type="hidden" name="view" value="deleted" />}
+                {statusFilter !== "all" && <input type="hidden" name="status" value={statusFilter} />}
+                {completedViaFilter !== "all" && <input type="hidden" name="completed_via" value={completedViaFilter} />}
+                {balanceRangeFilter !== "all" && <input type="hidden" name="balance_range" value={balanceRangeFilter} />}
                 <div className="relative flex-1 min-w-52">
                   <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                   <input
@@ -833,7 +923,7 @@ export default async function OpticsCompanyPage({
                   </button>
                   <Link
                     href={`/admin/optics-services/${companyId}?tab=beneficiaries`}
-                    className="inline-flex h-10 items-center justify-center rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 text-sm font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                    className="inline-flex h-10 items-center justify-center rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 text-sm font-bold text-slate-600 dark:text-slate-450 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                   >
                     إعادة تعيين
                   </Link>
@@ -844,7 +934,7 @@ export default async function OpticsCompanyPage({
             {/* تبويب عرض النشطين / المحذوفين */}
             <div className="flex flex-wrap gap-2">
               <Link
-                href={`/admin/optics-services/${companyId}?tab=beneficiaries${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}`}
+                href={buildBeneficiaryParams({ view: undefined, status: undefined, completed_via: undefined, balance_range: undefined })}
                 className={`inline-flex items-center gap-2 rounded-md border px-3.5 py-2 text-sm font-bold transition-colors ${!isDeletedView
                   ? "border-primary/20 bg-primary-light dark:bg-primary-light/10 text-primary dark:text-blue-400 dark:border-primary/30"
                   : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
@@ -857,7 +947,7 @@ export default async function OpticsCompanyPage({
                 </span>
               </Link>
               <Link
-                href={`/admin/optics-services/${companyId}?tab=beneficiaries&view=deleted${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}`}
+                href={buildBeneficiaryParams({ view: "deleted", status: undefined, completed_via: undefined, balance_range: undefined })}
                 className={`inline-flex items-center gap-2 rounded-md border px-3.5 py-2 text-sm font-bold transition-colors ${isDeletedView
                   ? "border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400"
                   : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
@@ -871,6 +961,54 @@ export default async function OpticsCompanyPage({
                   </span>
                 )}
               </Link>
+
+              {/* فلتر الحالة — يظهر فقط في عرض النشطين */}
+              {!isDeletedView && (
+                <>
+                  <span className="self-center w-px h-5 bg-slate-200 dark:bg-slate-700" />
+                  {([
+                    { value: "all", cv: undefined, label: "كل الحالات", activeClass: "border-slate-400 dark:border-slate-500 bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-200" },
+                    { value: "ACTIVE", cv: undefined, label: "نشط", activeClass: "border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400" },
+                    { value: "SUSPENDED", cv: undefined, label: "موقوف", activeClass: "border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400" },
+                    { value: "FINISHED", cv: "MANUAL", label: "مكتمل (خصم)", activeClass: "border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400" },
+                    { value: "FINISHED", cv: "IMPORT", label: "مكتمل (استيراد)", activeClass: "border-violet-300 dark:border-violet-700 bg-violet-50 dark:bg-violet-900/30 text-violet-700 dark:text-violet-400" },
+                  ] as { value: string; cv: string | undefined; label: string; activeClass: string }[]).map(({ value, cv, label, activeClass }) => {
+                    const isActive = value === "all"
+                      ? statusFilter === "all" && completedViaFilter === "all"
+                      : statusFilter === value && (cv ? completedViaFilter === cv : completedViaFilter === "all");
+                    const href = buildBeneficiaryParams({
+                      status: value === "all" ? undefined : value,
+                      completed_via: cv ?? undefined,
+                      page: "1",
+                    });
+                    return (
+                      <Link
+                        key={`${value}-${cv ?? "all"}`}
+                        href={href}
+                        className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-sm font-bold transition-colors ${isActive
+                          ? activeClass
+                          : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700"
+                          }`}
+                      >
+                        {label}
+                      </Link>
+                    );
+                  })}
+
+                  <Link
+                    href={buildBeneficiaryParams({
+                      balance_range: balanceRangeFilter === "0_10" ? undefined : "0_10",
+                      page: "1",
+                    })}
+                    className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-sm font-bold transition-colors ${balanceRangeFilter === "0_10"
+                      ? "border-fuchsia-300 dark:border-fuchsia-700 bg-fuchsia-50 dark:bg-fuchsia-900/30 text-fuchsia-700 dark:text-fuchsia-400"
+                      : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700"
+                      }`}
+                  >
+                    رصيد 0-10 د.ل
+                  </Link>
+                </>
+              )}
             </div>
 
             <Card className="overflow-hidden p-5 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl shadow-sm space-y-4">
@@ -889,7 +1027,7 @@ export default async function OpticsCompanyPage({
                     {!isDeletedView && canAddBen && <BeneficiaryCreateModal companyId={companyId} />}
                     {canExport && (
                       <a
-                        href={`/api/export/beneficiaries?company_id=${companyId}&is_optics=1${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}${isDeletedView ? `&view=deleted` : ""}`}
+                        href={`/api/export/beneficiaries?company_id=${companyId}&is_optics=1${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}${isDeletedView ? `&view=deleted` : ""}${statusFilter !== "all" ? `&status=${statusFilter}` : ""}${completedViaFilter !== "all" ? `&completed_via=${completedViaFilter}` : ""}${balanceRangeFilter !== "all" ? `&balance_range=${balanceRangeFilter}` : ""}`}
                         target="_blank"
                         className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 text-xs font-black text-emerald-700 dark:text-emerald-400 hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-slate-350 transition-colors shadow-sm"
                       >
