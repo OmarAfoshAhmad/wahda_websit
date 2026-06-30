@@ -43,11 +43,13 @@ const MAIN_ACCOUNT_TERMS = [
   "موظف", "موظفة", "الموظف", "الموظفة", "موظفه", "الموظفه",
   "رب الأسرة", "رب العائلة", "رب أسرة", "رب عائلة", "رب الاسرة", "رب الاسره", "رب العائله",
   "صاحب البطاقة", "رئيسي", "الرئيسي", "الرئيسية", "الرئيسيه",
+  "عضو جمارك", "عضو الجمارك", "(عضو جمارك)", "(عضو الجمارك)", "عضو",
   "MAIN", "EMPLOYEE",
   "متوفي", "متوفى", "وفاة", "حالة وفاة",
   "ملحق", "ملحقة", "ملحقه", "الملحق", "الملحقة"
 ];
 
+/* getRelRank unused
 const getRelRank = (rel: string) => {
   const r = String(rel || "").trim().toLowerCase();
   if (!r || MAIN_ACCOUNT_TERMS.includes(r) || r === "employee") return 1;
@@ -57,7 +59,8 @@ const getRelRank = (rel: string) => {
   if (["ابن", "الابن", "إبن", "الإبن", "ولد", "الولد"].includes(r)) return 5;
   if (["ابنة", "الابنة", "ابنه", "الابنه", "بنت", "البنت", "ابنته", "كريمة", "الكريمة"].includes(r)) return 6;
   return 7;
-};
+}; 
+*/
 
 // دالة لحساب نسبة التطابق بين التاريخ الأصلي والمحسوب
 const calculateMatchPercentage = (originalDate: string | undefined, calculatedDate: string | undefined): { percentage: number; mismatches: string[] } => {
@@ -128,7 +131,7 @@ export async function getCardNumberingArchive(showDeleted: boolean = false) {
         birth_date: item.birth_date ? `${item.birth_date.getUTCFullYear()}-${String(item.birth_date.getUTCMonth() + 1).padStart(2, '0')}-${String(item.birth_date.getUTCDate()).padStart(2, '0')}` : null,
       }))
     };
-  } catch (error) {
+  } catch (_error) {
     return { error: "تعذر جلب الأرشيف" };
   }
 }
@@ -223,6 +226,7 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
     const report = { total: data.length, ready: 0, duplicate: 0, error: 0, excluded: 0, excludedItems: [] as CardNumberingItem[] };
     const countsPerEmp = new Map<string, number>();
     const seenInBatch = new Set<string>();
+    const seenFingerprints = new Set<string>();
 
     // جلب كل المستفيدين الحاليين في النظام وأرشيف الترقيم لتسريع التحقق ومتابعة الترقيم
     const employeeNumbers = Array.from(
@@ -247,7 +251,7 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
     const cleanName = (n: string) => normalizeArabicText(n || "");
     const stripSpaces = (n: string) => cleanName(n).replace(/\s+/g, "");
     const getFirstName = (n: string) => cleanName(n).split(" ")[0] || "";
-    const isSameDate = (d1: any, d2: any) => {
+    const isSameDate = (d1: unknown, d2: unknown) => {
       if (!d1 || !d2) return false;
       return new Date(d1).toISOString().split('T')[0] === new Date(d2).toISOString().split('T')[0];
     };
@@ -332,8 +336,8 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
       });
       const hasOldCard = existingInSystemFast?.is_legacy_card || false;
 
-      const birthDateVal = String(item.birth_date || "").trim();
-      const isMissingBirthDate = !birthDateVal;
+      // const birthDateVal = String(item.birth_date || "").trim();
+      // const isMissingBirthDate = !birthDateVal;
 
       let status: CardNumberingStatus = "READY";
       let errorMsg: string | null = null;
@@ -359,7 +363,7 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
       }
 
       const baseCard = prefix + (padding > 0 ? empNum.padStart(padding, "0") : empNum);
-      let rel = String(item.relationship || "").trim();
+      const rel = String(item.relationship || "").trim();
       const isMain = !rel || MAIN_ACCOUNT_TERMS.includes(rel) || rel.toLowerCase() === "employee";
 
       let finalCardNumber = baseCard;
@@ -398,7 +402,7 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
           // الخوارزمية المتقدمة للمطابقة متعددة الطبقات (Multi-Layer Matching)
           const relCode = RELATIONSHIP_CODE_MAP[rel] || "X";
 
-          const checkMatch = (dbName: string, dbDate: any, dbCard: string) => {
+          const checkMatch = (dbName: string, dbDate: unknown, dbCard: string) => {
             // المستوى الأول: التطابق التام
             if (cleanName(dbName) === cleanName(name)) return true;
             // المستوى الثاني: التطابق التام بدون مسافات
@@ -476,10 +480,11 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
       }
 
       const rowKey = `${finalCardNumber}`;
+      const fingerprint = `${empNum}_${stripSpaces(name)}_${item.birth_date || ""}`;
 
       if (status !== "ERROR") {
         // 1. التحقق من التكرار داخل الملف
-        if (seenInBatch.has(rowKey)) {
+        if (seenInBatch.has(rowKey) || seenFingerprints.has(fingerprint)) {
           status = "DUPLICATE";
           errorMsg = "[FILE] مكرر في نفس الملف" + (hasOldCard ? " - يحمل بطاقة قديمة" : "");
           report.duplicate++;
@@ -531,8 +536,9 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
       }
 
       seenInBatch.add(rowKey);
+      seenFingerprints.add(fingerprint);
 
-      let bDate = smartParseDate(item.birth_date);
+      const bDate = smartParseDate(item.birth_date);
 
       const { percentage: matchPercentage, mismatches } = calculateMatchPercentage(
         item.original_date,
@@ -604,7 +610,7 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
 
     revalidatePath("/admin/card-numbering");
     return { success: true, report };
-  } catch (error) {
+  } catch (_error) {
     console.error("Import error:", error);
     return { error: "تعذر معالجة ملف الاستيراد" };
   }
@@ -771,7 +777,7 @@ export async function migrateCardNumberingAction(ids: string[]) {
           }
         });
 
-      } catch (err) {
+      } catch (_err) {
         report.failed++;
         report.details.push({ name: item.name, card_number: item.card_number, status: "FAIL", reason: "خطأ تقني أثناء الترحيل" });
       }
@@ -793,7 +799,7 @@ export async function migrateCardNumberingAction(ids: string[]) {
 
     revalidatePath("/admin/card-numbering");
     return { success: true, report };
-  } catch (error) {
+  } catch (_error) {
     return { error: "فشل عام في عملية الترحيل" };
   }
 }
@@ -829,7 +835,7 @@ export async function rollbackMigrationAction(logId: string) {
     });
 
     return { success: true };
-  } catch (error) {
+  } catch (_error) {
     return { error: "فشل التراجع عن الترحيل" };
   }
 }
@@ -864,7 +870,7 @@ export async function deleteCardNumberingArchiveItemsAction(ids: string[]) {
     });
     revalidatePath("/admin/card-numbering");
     return { success: true };
-  } catch (error) {
+  } catch (_error) {
     return { error: "تعذر نقل السجلات للسلة" };
   }
 }
@@ -880,7 +886,7 @@ export async function restoreCardNumberingArchiveItemsAction(ids: string[]) {
     });
     revalidatePath("/admin/card-numbering");
     return { success: true };
-  } catch (error) {
+  } catch (_error) {
     return { error: "تعذر استعادة السجلات" };
   }
 }
@@ -895,7 +901,7 @@ export async function permanentlyDeleteCardNumberingArchiveItemsAction(ids: stri
     });
     revalidatePath("/admin/card-numbering");
     return { success: true };
-  } catch (error) {
+  } catch (_error) {
     return { error: "تعذر الحذف النهائي" };
   }
 }
@@ -908,7 +914,7 @@ export async function clearCardNumberingArchiveAction() {
     await prisma.cardNumberingArchive.deleteMany({});
     revalidatePath("/admin/card-numbering");
     return { success: true };
-  } catch (error) {
+  } catch (_error) {
     return { error: "تعذر مسح الأرشيف" };
   }
 }

@@ -80,6 +80,7 @@ export async function POST(request: Request) {
     const options: ImportOptions = {
       updateBalance: formData.get("updateBalance") === "true",
       reactivate: formData.get("reactivate") === "true",
+      wipeInactive: formData.get("wipeInactive") === "true",
       ...(typeof companyIdParam === "string" && companyIdParam.trim() ? { company_id: companyIdParam.trim() } : {}),
     };
 

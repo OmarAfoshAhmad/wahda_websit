@@ -29,6 +29,7 @@ export type ImportJobSnapshot = {
 export type ImportOptions = {
   updateBalance: boolean;
   reactivate: boolean;
+  wipeInactive?: boolean;
   company_id?: string; // شركة التأمين المستهدفة (للاستيراد من بوابة الأسنان)
 };
 
@@ -229,7 +230,7 @@ function normalizeImportRow(row: unknown): { data?: NormalizedImportRow; error?:
     return { error: "invalid_row" };
   }
 
-  const cardNumber = normalizeString(getField(parsed.data, "card_number", "رقم البطاقة", "رقم_البطاقة", "الرقم", "رقم_بطاقة", "insurance profile", "Insurance Profile")).toUpperCase();
+  const cardNumber = normalizeString(getField(parsed.data, "card_number", "رقم البطاقة", "رقم_البطاقة", "الرقم", "رقم_بطاقة", "الرقم الوظيفي", "لرقم الوظيفي", "رقم الموظف", "ر.م", "insurance profile", "Insurance Profile")).toUpperCase();
   const name = normalizeString(getField(parsed.data, "name", "الاسم", "الإسم", "اسم المستفيد", "اسم_المستفيد", "employee name", "Employee Name"));
 
   if (!cardNumber || !name) {
@@ -455,11 +456,13 @@ export async function processImportJob(jobId: string, username: string) {
   const opts: ImportOptions = {
     updateBalance: false,
     reactivate: false,
+    wipeInactive: false,
   };
   if (currentJob.options && typeof currentJob.options === "object" && !Array.isArray(currentJob.options)) {
     const rawOpts = currentJob.options as Record<string, unknown>;
     if (rawOpts.updateBalance === true) opts.updateBalance = true;
     if (rawOpts.reactivate === true) opts.reactivate = true;
+    if (rawOpts.wipeInactive === true) opts.wipeInactive = true;
     if (typeof rawOpts.company_id === "string" && rawOpts.company_id) opts.company_id = rawOpts.company_id;
   }
 
@@ -479,6 +482,21 @@ export async function processImportJob(jobId: string, username: string) {
   const rollbackRestoredIds: string[] = []; // IDs of soft-deleted records that were restored
 
   try {
+    if (opts.wipeInactive) {
+      await prisma.beneficiary.updateMany({
+        where: {
+          deleted_at: null,
+          ...(opts.company_id ? { company_id: opts.company_id } : {}),
+          transactions: { none: {} },
+          claims: { none: {} },
+          wallet_consumptions: { none: {} },
+        },
+        data: {
+          deleted_at: new Date(),
+        },
+      });
+    }
+
     const payload = Array.isArray(currentJob.payload) ? currentJob.payload : [];
     const uniqueRows: PreparedImportRow[] = [];
     const seenCards = new Set<string>();

@@ -31,6 +31,8 @@ export type ManagerPermissions = {
   dental_services: boolean; // صلاحية خدمات الأسنان
   optics_services: boolean; // صلاحية خدمات البصريات
   view_optics_beneficiaries: boolean; // عرض مستفيدي البصريات
+  physiotherapy_services: boolean; // صلاحية خدمات العلاج الطبيعي
+  view_physiotherapy_beneficiaries: boolean; // عرض مستفيدي العلاج الطبيعي
   add_manual_transaction: boolean; // صلاحية إضافة حركات يدوية
   edit_any_facility_transaction: boolean; // تعديل حركات خارج المرفق
 };

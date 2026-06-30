@@ -47,5 +47,8 @@ export const DENTAL_NAV = { name: "خدمات الأسنان", href: "/admin/den
 /** تبويب "خدمات البصريات" */
 export const OPTICS_NAV = { name: "خدمات البصريات", href: "/admin/optics-services", icon: Stethoscope };
 
+/** تبويب "خدمات العلاج الطبيعي" */
+export const PHYSIOTHERAPY_NAV = { name: "خدمات العلاج الطبيعي", href: "/admin/physiotherapy-services", icon: Stethoscope };
+
 export const CASH_CLAIM_NAV = { name: "كاش", href: "/cash-claim", icon: Banknote };
 export const EMPLOYEE_HOME_NAV = { name: "الرئيسية", href: "/cash-claim", icon: Home };

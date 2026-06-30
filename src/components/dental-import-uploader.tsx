@@ -41,6 +41,7 @@ export function DentalImportUploader({ companies }: Props) {
   const [rollingBack, setRollingBack] = useState(false);
   const [selectedCompanyId, setSelectedCompanyId] = useState(companies[0]?.id ?? "");
   const [reactivate, setReactivate] = useState(false);
+  const [wipeInactive, setWipeInactive] = useState(false);
 
   useEffect(() => {
     if (!job || (job.status !== "PENDING" && job.status !== "PROCESSING")) return;
@@ -84,6 +85,7 @@ export function DentalImportUploader({ companies }: Props) {
       formData.append("file", file);
       formData.append("company_id", selectedCompanyId);
       formData.append("reactivate", String(reactivate));
+      formData.append("wipeInactive", String(wipeInactive));
       formData.append("updateBalance", "false");
 
       const response = await fetch("/api/import-jobs", { method: "POST", body: formData });
@@ -205,6 +207,19 @@ export function DentalImportUploader({ companies }: Props) {
                 className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
               />
               <span>إعادة تفعيل المستفيدين المعلقين/المكتملين</span>
+            </label>
+            <label className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300 cursor-pointer pt-2 mt-2 border-t border-slate-200 dark:border-slate-700">
+              <input
+                type="checkbox"
+                checked={wipeInactive}
+                onChange={(e) => setWipeInactive(e.target.checked)}
+                disabled={isBusy}
+                className="h-4 w-4 rounded border-slate-300 text-red-500 focus:ring-red-500 mt-1"
+              />
+              <span className="flex flex-col">
+                <span className="font-bold text-red-600 dark:text-red-400">مسح المستفيدين الحاليين الذين ليس لهم حركات</span>
+                <span className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">تنبيه: سيتم حذف جميع الحسابات القديمة غير النشطة. الإجراء لا يمكن التراجع عنه.</span>
+              </span>
             </label>
           </div>
 

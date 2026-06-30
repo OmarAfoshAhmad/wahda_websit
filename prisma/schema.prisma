@@ -12,29 +12,27 @@ model InsuranceCompany {
   id                    String               @id @default(cuid())
   name                  String
   code                  String               @unique
-  logo                  String?              @db.Text
-  card_pattern          String? // Regex like WAB-*
-  service_type_mappings Json? // e.g. {"MEDICINE": "GENERAL"} — maps one service type to another for ceiling sharing
+  card_pattern          String?
   is_active             Boolean              @default(true)
-  deleted_at            DateTime?
   created_at            DateTime             @default(now())
   updated_at            DateTime             @updatedAt
-  service_aliases       Json? // e.g. { "DENTAL": "تركيبات", "OPTICS": "نظارات طبية" }
+  deleted_at            DateTime?
+  service_type_mappings Json?
+  logo                  String?
+  dental_ceiling        Decimal?             @db.Decimal(12, 2)
+  dental_coverage       Decimal              @default(100.00) @db.Decimal(5, 2)
+  general_ceiling       Decimal?             @db.Decimal(12, 2)
+  general_coverage      Decimal              @default(80.00) @db.Decimal(5, 2)
+  medicine_ceiling      Decimal?             @db.Decimal(12, 2)
+  medicine_coverage     Decimal              @default(80.00) @db.Decimal(5, 2)
+  dental_settings       Json?
+  service_aliases       Json?
   beneficiaries         Beneficiary[]
-  transactions          Transaction[]
-  wallet_consumptions   WalletConsumption[]
-  service_mappings      ServiceTypeMapping[]
   claims                Claim[]
   service_policies      ServicePolicy[]
-
-  // Consolidated policy settings (merged from ServicePolicy)
-  dental_ceiling    Decimal? @db.Decimal(12, 2)
-  dental_coverage   Decimal  @default(100.00) @db.Decimal(5, 2)
-  general_ceiling   Decimal? @db.Decimal(12, 2)
-  general_coverage  Decimal  @default(80.00) @db.Decimal(5, 2)
-  medicine_ceiling  Decimal? @db.Decimal(12, 2)
-  medicine_coverage Decimal  @default(80.00) @db.Decimal(5, 2)
-  dental_settings   Json?
+  service_mappings      ServiceTypeMapping[]
+  transactions          Transaction[]
+  wallet_consumptions   WalletConsumption[]
 
   @@index([code])
 }
@@ -51,8 +49,8 @@ model Facility {
   is_manager           Boolean       @default(false)
   manager_permissions  Json?
   is_employee          Boolean       @default(false)
-  role                 String        @default("FACILITY")
   facility_type        String?
+  role                 String        @default("FACILITY")
   transactions         Transaction[]
 
   @@index([deleted_at])
@@ -60,39 +58,33 @@ model Facility {
   @@index([role])
 }
 
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model Beneficiary {
-  id          String @id @default(cuid())
-  card_number String
-  name        String
-
-  // Legacy fields (kept for backward compatibility)
-  total_balance     Decimal @default(600) @db.Decimal(12, 2)
-  remaining_balance Decimal @default(600) @db.Decimal(12, 2)
-
-  // New TPA fields
-  company_id String?
-  company    InsuranceCompany? @relation(fields: [company_id], references: [id])
-
+  id                           String              @id @default(cuid())
+  card_number                  String
+  name                         String
+  total_balance                Decimal             @default(600) @db.Decimal(12, 2)
+  remaining_balance            Decimal             @default(600) @db.Decimal(12, 2)
   status                       BeneficiaryStatus   @default(ACTIVE)
   created_at                   DateTime            @default(now())
   birth_date                   DateTime?
-  birth_date_synced_from_truth Boolean             @default(false)
-  phone_number                 String?
-  city                         String?
-  batch_number                 String?
   deleted_at                   DateTime?
   failed_attempts              Int                 @default(0)
   locked_until                 DateTime?
   pin_hash                     String?
   completed_via                String?
   is_legacy_card               Boolean             @default(false)
+  city                         String?
+  batch_number                 String?
+  phone_number                 String?
+  company_id                   String?
+  birth_date_synced_from_truth Boolean             @default(false)
+  custom_ceilings              Json?
+  company                      InsuranceCompany?   @relation(fields: [company_id], references: [id])
+  claims                       Claim[]
   notifications                Notification[]
   transactions                 Transaction[]
   wallet_consumptions          WalletConsumption[]
-  claims                       Claim[]
-
-  // Custom Ceilings (JSON mapping of category to custom ceiling value)
-  custom_ceilings Json?
 
   @@index([card_number])
   @@index([deleted_at])
@@ -102,47 +94,36 @@ model Beneficiary {
 }
 
 model Transaction {
-  id             String  @id @default(cuid())
-  beneficiary_id String
-  facility_id    String
-  company_id     String? // Added for TPA
-
-  amount           Decimal         @db.Decimal(12, 2) // Gross Service Amount
-  type             TransactionType
-  service_category String? // DENTAL, OPTICS, etc.
-
-  // Financial Shares
-  original_company_share Decimal? @db.Decimal(12, 2)
-  original_patient_share Decimal? @db.Decimal(12, 2)
-  actual_company_share   Decimal? @db.Decimal(12, 2)
-  actual_patient_share   Decimal? @db.Decimal(12, 2)
-
-  // Ceiling Audit
-  remaining_ceiling_before Decimal? @db.Decimal(12, 2)
-  ceiling_consumed         Decimal? @db.Decimal(12, 2)
-  remaining_ceiling_after  Decimal? @db.Decimal(12, 2)
-
-  // Cumulative Consumption tracking
-  consumed_before Decimal? @db.Decimal(12, 2)
-  consumed_after  Decimal? @db.Decimal(12, 2)
-
-  // Policy Snapshot & Metadata
-  policy_snapshot Json? // Stores the policy rules at time of service
-  calc_metadata   Json? // Stores engine version, internal calculations
-
-  created_at              DateTime @default(now())
-  is_cancelled            Boolean  @default(false)
-  original_transaction_id String?
-  idempotency_key         String?  @unique
-  service_type_id         String?
-
-  beneficiary          Beneficiary       @relation(fields: [beneficiary_id], references: [id])
-  facility             Facility          @relation(fields: [facility_id], references: [id])
-  company              InsuranceCompany? @relation(fields: [company_id], references: [id])
-  service_type         ServiceType?      @relation(fields: [service_type_id], references: [id])
-  original_transaction Transaction?      @relation("TransactionCorrection", fields: [original_transaction_id], references: [id])
-  corrections          Transaction[]     @relation("TransactionCorrection")
-  claim                Claim?
+  id                       String            @id @default(cuid())
+  beneficiary_id           String
+  facility_id              String
+  amount                   Decimal           @db.Decimal(12, 2)
+  type                     TransactionType
+  created_at               DateTime          @default(now())
+  is_cancelled             Boolean           @default(false)
+  original_transaction_id  String?
+  idempotency_key          String?           @unique
+  actual_company_share     Decimal?          @db.Decimal(12, 2)
+  actual_patient_share     Decimal?          @db.Decimal(12, 2)
+  calc_metadata            Json?
+  ceiling_consumed         Decimal?          @db.Decimal(12, 2)
+  company_id               String?
+  original_company_share   Decimal?          @db.Decimal(12, 2)
+  original_patient_share   Decimal?          @db.Decimal(12, 2)
+  policy_snapshot          Json?
+  remaining_ceiling_after  Decimal?          @db.Decimal(12, 2)
+  remaining_ceiling_before Decimal?          @db.Decimal(12, 2)
+  service_category         String?
+  consumed_after           Decimal?          @db.Decimal(12, 2)
+  consumed_before          Decimal?          @db.Decimal(12, 2)
+  service_type_id          String?
+  claim                    Claim?
+  beneficiary              Beneficiary       @relation(fields: [beneficiary_id], references: [id])
+  company                  InsuranceCompany? @relation(fields: [company_id], references: [id])
+  facility                 Facility          @relation(fields: [facility_id], references: [id])
+  original_transaction     Transaction?      @relation("TransactionCorrection", fields: [original_transaction_id], references: [id])
+  corrections              Transaction[]     @relation("TransactionCorrection")
+  service_type             ServiceType?      @relation(fields: [service_type_id], references: [id])
 
   @@index([beneficiary_id])
   @@index([facility_id])
@@ -209,7 +190,6 @@ model CardIssuanceRegistry {
   canonical_card    String
   beneficiary_name  String?
   birth_date        DateTime?
-  phone_number      String?
   batch_number      String?
   city              String
   source_file       String?
@@ -217,6 +197,7 @@ model CardIssuanceRegistry {
   source_row        Int?
   created_at        DateTime  @default(now())
   updated_at        DateTime  @default(now()) @updatedAt
+  phone_number      String?
 
   @@index([canonical_card])
   @@index([city])
@@ -224,13 +205,12 @@ model CardIssuanceRegistry {
 }
 
 model CardIssuanceRegistryAll {
-  id                String    @id // Format: cardUpper-batchNumber
+  id                String    @id
   card_number       String
   card_number_upper String
   canonical_card    String
   beneficiary_name  String?
   birth_date        DateTime?
-  phone_number      String?
   batch_number      String
   city              String
   source_file       String?
@@ -238,6 +218,7 @@ model CardIssuanceRegistryAll {
   source_row        Int?
   created_at        DateTime  @default(now())
   updated_at        DateTime  @default(now()) @updatedAt
+  phone_number      String?
 
   @@index([card_number_upper])
   @@index([canonical_card])
@@ -245,18 +226,13 @@ model CardIssuanceRegistryAll {
   @@index([batch_number])
 }
 
-// -----------------------------------------------------------------------------
-// Enterprise Service Engine Models
-// -----------------------------------------------------------------------------
-
 model ServiceType {
-  id         String   @id @default(cuid())
-  code       String   @unique // e.g., 'OPTICS', 'DENTAL', 'HEARING'
-  name       String // e.g., 'البصريات', 'الأسنان'
-  is_active  Boolean  @default(true)
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-
+  id           String          @id @default(cuid())
+  code         String          @unique
+  name         String
+  is_active    Boolean         @default(true)
+  created_at   DateTime        @default(now())
+  updated_at   DateTime        @updatedAt
   policies     ServicePolicy[]
   transactions Transaction[]
 
@@ -264,78 +240,68 @@ model ServiceType {
 }
 
 model ServicePolicy {
-  id              String @id @default(cuid())
-  company_id      String
-  service_type_id String
-
-  ceiling_amount   Decimal? @db.Decimal(12, 2)
-  coverage_percent Decimal  @db.Decimal(5, 2)
-  frequency_months Int? // Number of months the ceiling is valid for (e.g. 12 = 1 year)
-
-  is_active  Boolean  @default(true)
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-
-  company      InsuranceCompany @relation(fields: [company_id], references: [id])
-  service_type ServiceType      @relation(fields: [service_type_id], references: [id])
+  id               String           @id @default(cuid())
+  company_id       String
+  service_type_id  String
+  ceiling_amount   Decimal?         @db.Decimal(12, 2)
+  coverage_percent Decimal          @db.Decimal(5, 2)
+  frequency_months Int?
+  is_active        Boolean          @default(true)
+  created_at       DateTime         @default(now())
+  updated_at       DateTime         @updatedAt
+  company          InsuranceCompany @relation(fields: [company_id], references: [id])
+  service_type     ServiceType      @relation(fields: [service_type_id], references: [id])
 
   @@unique([company_id, service_type_id])
   @@index([company_id])
   @@index([service_type_id])
 }
 
-// ─── Wallet-Based Ceiling System ─────────────────────────────────────────
-// WalletConsumption: رصيد السقف المتراكم لكل مستفيد-شركة-محفظة-سنة
 model WalletConsumption {
-  id              String   @id @default(cuid())
+  id              String           @id @default(cuid())
   beneficiary_id  String
   company_id      String
-  wallet_type     String // "GENERAL", "DENTAL", إلخ — الـ mapped type
+  wallet_type     String
   fiscal_year     Int
-  consumed_amount Decimal  @default(0) @db.Decimal(12, 2)
-  version         Int      @default(1) // Optimistic locking
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
-
-  beneficiary Beneficiary      @relation(fields: [beneficiary_id], references: [id])
-  company     InsuranceCompany @relation(fields: [company_id], references: [id])
+  consumed_amount Decimal          @default(0) @db.Decimal(12, 2)
+  version         Int              @default(1)
+  created_at      DateTime         @default(now())
+  updated_at      DateTime         @updatedAt
+  beneficiary     Beneficiary      @relation(fields: [beneficiary_id], references: [id])
+  company         InsuranceCompany @relation(fields: [company_id], references: [id])
 
   @@unique([beneficiary_id, company_id, wallet_type, fiscal_year])
   @@index([beneficiary_id, company_id])
   @@index([company_id, wallet_type])
 }
 
-// ServiceTypeMapping: جدول رسم الخدمات للمحافظ — بديل JSON field
 model ServiceTypeMapping {
-  id           String @id @default(cuid())
+  id           String           @id @default(cuid())
   company_id   String
-  service_type String // "MEDICINE", "SUPPLIES", إلخ
-  mapped_to    String // "GENERAL", إلخ — المحفظة الحقيقية
-
-  company InsuranceCompany @relation(fields: [company_id], references: [id])
+  service_type String
+  mapped_to    String
+  company      InsuranceCompany @relation(fields: [company_id], references: [id])
 
   @@unique([company_id, service_type])
   @@index([company_id])
 }
 
-// Claim: طلب خصم معتمد (approved / partial / rejected)
 model Claim {
-  id               String      @id @default(cuid())
+  id               String            @id @default(cuid())
   beneficiary_id   String
   company_id       String?
   service_type     String
-  wallet_type      String // الـ mapped type (المحفظة الفعلية)
-  requested_amount Decimal     @db.Decimal(12, 2)
-  approved_amount  Decimal     @db.Decimal(12, 2)
-  status           ClaimStatus @default(APPROVED)
-  transaction_id   String?     @unique // link to Transaction
-  idempotency_key  String?     @unique
-  created_at       DateTime    @default(now())
-  updated_at       DateTime    @updatedAt
-
-  beneficiary Beneficiary       @relation(fields: [beneficiary_id], references: [id])
-  company     InsuranceCompany? @relation(fields: [company_id], references: [id])
-  transaction Transaction?      @relation(fields: [transaction_id], references: [id])
+  wallet_type      String
+  requested_amount Decimal           @db.Decimal(12, 2)
+  approved_amount  Decimal           @db.Decimal(12, 2)
+  status           ClaimStatus       @default(APPROVED)
+  transaction_id   String?           @unique
+  idempotency_key  String?           @unique
+  created_at       DateTime          @default(now())
+  updated_at       DateTime          @updatedAt
+  beneficiary      Beneficiary       @relation(fields: [beneficiary_id], references: [id])
+  company          InsuranceCompany? @relation(fields: [company_id], references: [id])
+  transaction      Transaction?      @relation(fields: [transaction_id], references: [id])
 
   @@index([beneficiary_id])
   @@index([company_id])
@@ -343,11 +309,10 @@ model Claim {
   @@index([status])
 }
 
-// ClaimAuditLog: سجل تدقيق لكل Claim (standalone, no relation to avoid circular deps)
 model ClaimAuditLog {
   id              String   @id @default(cuid())
   claim_id        String
-  action          String // "WALLET_RESOLVED" | "LIMIT_CHECKED" | "APPROVED" | "PARTIAL" | "REJECTED" | "DEDUCTED"
+  action          String
   wallet_type     String?
   limit_annual    Decimal? @db.Decimal(12, 2)
   consumed_before Decimal? @db.Decimal(12, 2)
@@ -360,12 +325,6 @@ model ClaimAuditLog {
 
   @@index([claim_id])
   @@index([created_at])
-}
-
-enum ClaimStatus {
-  APPROVED
-  PARTIAL
-  REJECTED
 }
 
 model Notification {
@@ -382,34 +341,9 @@ model Notification {
   @@index([beneficiary_id, created_at])
 }
 
-enum BeneficiaryStatus {
-  ACTIVE
-  FINISHED
-  SUSPENDED
-}
-
-enum TransactionType {
-  MEDICINE
-  SUPPLIES
-  CANCELLATION
-  IMPORT
-  SETTLEMENT
-  DENTAL // Added
-  OPTICS // Added
-  GENERAL // Added
-}
-
-enum ImportJobStatus {
-  PENDING
-  PROCESSING
-  COMPLETED
-  FAILED
-  ROLLED_BACK
-}
-
 model SystemSetting {
   key         String   @id
-  value       String   @db.Text
+  value       String
   description String?
   updated_at  DateTime @default(now()) @updatedAt
 }
@@ -427,7 +361,6 @@ model FamilyImportArchive {
   updated_at              DateTime @updatedAt
 }
 
-// Keeping legacy models for now to avoid migration issues
 model RestoreJob {
   id                    String           @id @default(cuid())
   created_by            String
@@ -458,40 +391,72 @@ model RestoreJob {
   @@index([status])
 }
 
-enum RestoreJobStatus {
-  PENDING
-  PROCESSING
-  COMPLETED
-  FAILED
-}
-
 model CardNumberingArchive {
-  id               String              @id @default(cuid())
-  name             String
-  employee_number  String
-  relationship     String?
-  birth_date       DateTime?
-  phone_number     String?
-  original_date    String?
-  city             String?
-  original_city    String?
-  batch_number     String?
-  card_number      String              @unique
-  status           CardNumberingStatus @default(READY)
-  error_message    String?
-  field3           String?
-  match_percentage Float?
-  mismatch_reasons String?
-  created_at       DateTime            @default(now())
-  migrated_at      DateTime?
-  deleted_at       DateTime?
-  source_file      String?
+  id                 String              @id @default(cuid())
+  name               String
+  employee_number    String
+  relationship       String?
+  birth_date         DateTime?
+  card_number        String              @unique
+  status             CardNumberingStatus @default(READY)
+  error_message      String?
+  field3             String?
+  created_at         DateTime            @default(now())
+  migrated_at        DateTime?
+  deleted_at         DateTime?
+  source_file        String?
+  city               String?
+  batch_number       String?
+  match_percentage   Float?
+  mismatch_reasons   String?
+  original_city      String?
+  original_date      String?
+  phone_number       String?
   beneficiary_status String?
 
   @@index([card_number])
   @@index([employee_number])
   @@index([created_at])
   @@index([deleted_at])
+}
+
+enum ClaimStatus {
+  APPROVED
+  PARTIAL
+  REJECTED
+}
+
+enum BeneficiaryStatus {
+  ACTIVE
+  FINISHED
+  SUSPENDED
+}
+
+enum TransactionType {
+  MEDICINE
+  SUPPLIES
+  CANCELLATION
+  IMPORT
+  SETTLEMENT
+  DENTAL
+  OPTICS
+  GENERAL
+  PHYSIOTHERAPY
+}
+
+enum ImportJobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  ROLLED_BACK
+}
+
+enum RestoreJobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
 }
 
 enum CardNumberingStatus {

@@ -79,8 +79,8 @@ export function CardNumberingClient({
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(50);
   const [importPrefix, setImportPrefix] = useState("WAB2025");
-  const [importPadding, setImportPadding] = useState(6);
-  const [usePadding, setUsePadding] = useState(true);
+  const [importPadding, setImportPadding] = useState(0);
+  const [usePadding, setUsePadding] = useState(false);
   const [importCity, setImportCity] = useState(""); // حقل المدينة اليدوي
   const [importBatchNumber, setImportBatchNumber] = useState(""); // حقل الدفعة اليدوي
   const [batchFilter, setBatchFilter] = useState(""); // فلتر الدفعة للعرض
@@ -155,7 +155,7 @@ export function CardNumberingClient({
           });
 
         const nameKey = findKeyInList(allKeys, ["الأسم", "الاسم", "الإسم", "اسم المستفيد", "اسم الموظف", "اسم العضو", "Full Name", "Name"]);
-        const relKey = findKeyInList(allKeys, ["صلة", "القرابة", "Relationship", "النوع", "الصلة", "Rel", "الصفة", "المستفيد", "العلاقة", "صفة"]);
+        const relKey = findKeyInList(allKeys, ["صلة", "القرابة", "Relationship", "النوع", "الصلة", "Rel", "الصفة", "العلاقة", "صفة"]);
         const bDateKey = findKeyInList(allKeys, ["تاريخ الملاد", "الملاد", "ميلاد", "المواليد", "تاريخ الميلاد", "Birth", "BDate", "DOB", "تاريخ"]);
         const statusKey = findKeyInList(allKeys, ["الحالة", "Status", "الوضع", "Statue", "الوضعية"]);
         const notesKey = findKeyInList(allKeys, ["ملاحظات", "Notes", "البيان", "ملاحظة"]);
@@ -199,7 +199,7 @@ export function CardNumberingClient({
             }
           }
 
-          const relKeywords = ["زوجة", "زوج", "ابن", "ابنة", "ابنه", "ابنته", "ابه", "ام", "أم", "والدة", "اب", "أب", "والد", "موظف", "موظفة", "رب الأسرة", "صاحب البطاقة", "بنت", "ولد"];
+          const relKeywords = ["زوجة", "زوج", "ابن", "ابنة", "ابنه", "ابنته", "ابه", "ام", "أم", "والدة", "اب", "أب", "والد", "موظف", "موظفة", "رب الأسرة", "صاحب البطاقة", "بنت", "ولد", "عضو جمارك", "عضو الجمارك", "(عضو جمارك)", "(عضو الجمارك)", "عضو"];
           if (!rel || rel.length < 2) {
             const foundRel = values.find(v => relKeywords.includes(v));
             if (foundRel) rel = foundRel;

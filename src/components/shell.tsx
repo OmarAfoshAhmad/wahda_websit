@@ -21,7 +21,8 @@ import {
   CASH_CLAIM_NAV, 
   EMPLOYEE_HOME_NAV,
   DENTAL_NAV,
-  OPTICS_NAV
+  OPTICS_NAV,
+  PHYSIOTHERAPY_NAV
 } from "@/lib/navigation";
 import type { ManagerPermissions, Session } from "@/lib/permissions";
 
@@ -101,6 +102,8 @@ export function Shell({
       (hasPermission(session, "dental_services") || hasPermission(session, "view_dental_beneficiaries"));
     const showOpticsTab = (appMode === "BOTH" || appMode === "DENTAL_OPTICS") && 
       (hasPermission(session, "optics_services") || hasPermission(session, "view_optics_beneficiaries"));
+    const showPhysiotherapyTab = (appMode === "BOTH" || appMode === "DENTAL_OPTICS") && 
+      (hasPermission(session, "physiotherapy_services") || hasPermission(session, "view_physiotherapy_beneficiaries"));
     const showCashClaim = !isSpecializedMode && canUseCashClaim;
 
     if (isAdmin) {
@@ -108,6 +111,7 @@ export function Shell({
         ...filteredBaseNav, 
         ...(showDentalTab ? [DENTAL_NAV] : []),
         ...(showOpticsTab ? [OPTICS_NAV] : []),
+        ...(showPhysiotherapyTab ? [PHYSIOTHERAPY_NAV] : []),
         ...filteredManagerNav, 
         ...(showCashClaim ? [CASH_CLAIM_NAV] : []), 
         ...filteredSuperAdminNav, 
@@ -121,6 +125,7 @@ export function Shell({
           : filteredBaseNav),
         ...(showDentalTab ? [DENTAL_NAV] : []),
         ...(showOpticsTab ? [OPTICS_NAV] : []),
+        ...(showPhysiotherapyTab ? [PHYSIOTHERAPY_NAV] : []),
         ...filteredManagerNav,
         ...(isManager && showCashClaim ? [CASH_CLAIM_NAV] : []),
         ...filteredSuperAdminNav,
@@ -131,6 +136,7 @@ export function Shell({
       ...filteredBaseNav,
       ...(showDentalTab ? [DENTAL_NAV] : []),
       ...(showOpticsTab ? [OPTICS_NAV] : []),
+      ...(showPhysiotherapyTab ? [PHYSIOTHERAPY_NAV] : []),
       ...(showCashClaim ? [CASH_CLAIM_NAV] : []),
     ];
   }, [isAdmin, isManager, isEmployee, canUseCashClaim, permsHash, session]);

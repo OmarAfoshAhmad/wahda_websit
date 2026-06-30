@@ -268,7 +268,7 @@ export async function executeCashClaim(input: {
         const balanceBefore = Number(ben.remaining_balance);
 
         let actualPatientShare = alloc.amount;
-        let tpaData: any = {};
+        let tpaData: Record<string, unknown> = {};
 
         if (ben.company_id) {
           const type = "MEDICINE";
@@ -285,7 +285,7 @@ export async function executeCashClaim(input: {
               created_at: { gte: startDate, lte: endDate },
               OR: [
                 { service_category: policyServiceType },
-                { service_category: null, type: policyServiceType as any }
+                { service_category: null, type: policyServiceType as unknown as import("@prisma/client").TransactionType }
               ]
             },
             _sum: { ceiling_consumed: true }
@@ -314,7 +314,7 @@ export async function executeCashClaim(input: {
             let isConfigured = false;
 
             if (policyServiceType === "DENTAL") {
-              const dentalPolicy = (company as any).service_policies?.find((p: any) => p.service_type?.code === "DENTAL");
+              const dentalPolicy = ((company as unknown) as { service_policies?: { service_type?: { code: string }, ceiling_amount?: number, coverage_percent?: number }[] }).service_policies?.find((p) => p.service_type?.code === "DENTAL");
               annual_ceiling = dentalPolicy && dentalPolicy.ceiling_amount !== null ? Number(dentalPolicy.ceiling_amount) : null;
               copay_percentage = Math.max(0, 100 - (dentalPolicy ? Number(dentalPolicy.coverage_percent) : 100));
               isConfigured = !!dentalPolicy;

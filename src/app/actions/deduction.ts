@@ -20,7 +20,7 @@ export async function deductBalance(formData: {
   beneficiary_id?: string;
   card_number: string;
   amount: number;
-  type: "MEDICINE" | "SUPPLIES" | "GENERAL" | "DENTAL" | "OPTICS";
+  type: "MEDICINE" | "SUPPLIES" | "GENERAL" | "DENTAL" | "OPTICS" | "PHYSIOTHERAPY";
   transactionDate?: Date;
   facilityId?: string;
   requestId?: string;
@@ -78,7 +78,7 @@ export async function deductBalance(formData: {
     if (session.facility_type === "DENTAL" && type !== "DENTAL") {
       return { error: "حسابات عيادات الأسنان لا يمكنها تنفيذ سوى خدمات الأسنان" };
     }
-    if (session.facility_type === "OPTICS" && type !== "OPTICS") {
+    if (session.facility_type === "OPTICS" && type !== "OPTICS" && type !== "PHYSIOTHERAPY") {
       return { error: "حسابات مراكز البصريات لا يمكنها تنفيذ سوى خدمات العيون والبصريات" };
     }
   }
@@ -169,7 +169,7 @@ export async function deductBalance(formData: {
       }
 
       // قيد عزل صارم: الخدمات الطبية العامة (دواء وكشف عام) مقصورة على منتسبي مصرف الوحدة فقط
-      if (type !== "DENTAL" && type !== "OPTICS" && companyId && companyId !== WAHDA_BANK_COMPANY_ID) {
+      if (type !== "DENTAL" && type !== "OPTICS" && type !== "PHYSIOTHERAPY" && companyId && companyId !== WAHDA_BANK_COMPANY_ID) {
         throw new Error("هذا المستفيد يتبع شركة تأمين خاصة بالأسنان والبصريات فقط. الخدمات العامة مقصورة على مصرف الوحدة.");
       }
 
@@ -252,6 +252,20 @@ export async function deductBalance(formData: {
           
           copay_percentage = Math.max(0, 100 - categoryCoverage);
           isConfigured = !!dentalPolicy;
+        } else if (policyServiceType === "PHYSIOTHERAPY") {
+          const pPolicy = (company as any).service_policies?.find((p: any) => p.service_type?.code === "PHYSIOTHERAPY");
+          
+          if (beneficiary.custom_ceilings && typeof beneficiary.custom_ceilings === "object" && "PHYSIOTHERAPY" in beneficiary.custom_ceilings) {
+            const cVal = (beneficiary.custom_ceilings as any).PHYSIOTHERAPY;
+            annual_ceiling = cVal === null ? null : Number(cVal);
+          } else {
+            annual_ceiling = pPolicy && pPolicy.ceiling_amount !== null ? Number(pPolicy.ceiling_amount) : null;
+          }
+          
+          let categoryCoverage = pPolicy ? Number(pPolicy.coverage_percent) : 100;
+          
+          copay_percentage = Math.max(0, 100 - categoryCoverage);
+          isConfigured = !!pPolicy;
         } else if (policyServiceType === "OPTICS") {
           const opticsPolicy = (company as any).service_policies?.find((p: any) => p.service_type?.code === "OPTICS");
           
@@ -300,6 +314,9 @@ export async function deductBalance(formData: {
 
       if (type === "OPTICS" && !policyRecord) {
         throw new Error("لا توجد سياسة بصريات (OPTICS) نشطة ومُعرّفة لهذه الشركة. لا يمكن إتمام الخصم.");
+      }
+      if (type === "PHYSIOTHERAPY" && !policyRecord) {
+        throw new Error("لا توجد سياسة علاج طبيعي (PHYSIOTHERAPY) نشطة ومُعرّفة لهذه الشركة. لا يمكن إتمام الخصم.");
       }
 
       let tpaData: Record<string, unknown> = {};
@@ -355,7 +372,7 @@ export async function deductBalance(formData: {
       if (beneficiary.status === "SUSPENDED") {
         throw new Error("حساب المستفيد موقوف ولا يمكن إجراء خصم عليه");
       }
-      if (beneficiary.status === "FINISHED" && !["DENTAL", "OPTICS"].includes(type)) {
+      if (beneficiary.status === "FINISHED" && !["DENTAL", "OPTICS", "PHYSIOTHERAPY"].includes(type)) {
         throw new Error("حساب المستفيد مكتمل ولا يمكن الخصم من الرصيد الأساسي");
       }
 
@@ -370,7 +387,7 @@ export async function deductBalance(formData: {
 
       // خصم الأسنان والبصريات معزول تماماً عن الرصيد الأساسي للمستفيد (remaining_balance)
       // الرصيد الأساسي يخص المخصص العام للكشوفات والأدوية (مثل مصرف الوحدة)
-      if (!["DENTAL", "OPTICS"].includes(type)) {
+      if (!["DENTAL", "OPTICS", "PHYSIOTHERAPY"].includes(type)) {
         if (companyShare > balanceBefore) {
           throw new Error(`القيمة المطلوبة من الشركة (${formatCurrency(companyShare)}) أكبر من الرصيد المتاح للمخصص (${formatCurrency(balanceBefore)} د.ل)`);
         }
@@ -586,7 +603,7 @@ export async function getAvailableServiceTypes(beneficiaryId: string) {
     // All companies support GENERAL, MEDICINE, and DENTAL under consolidated model
     const policyTypes = new Set<string>(["DENTAL", "GENERAL", "MEDICINE"]);
     const mappings = company.service_type_mappings as Record<string, string> | null;
-    const allTypes = ["GENERAL", "MEDICINE", "DENTAL", "OPTICS", "SUPPLIES"];
+    const allTypes = ["GENERAL", "MEDICINE", "DENTAL", "OPTICS", "PHYSIOTHERAPY", "SUPPLIES"];
     let available = allTypes.filter(st => {
       const mapped = mappings?.[st] ?? st;
       return policyTypes.has(mapped);

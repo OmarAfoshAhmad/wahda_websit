@@ -12,7 +12,7 @@ const HEADER_KEYS = {
   name: ["الاسم", "الأسم", "اسم", "اسم المستفيد", "المستفيد", "beneficiary", "name", "beneficiary_name"],
   relation: ["المستفيد", "صلة القرابة", "القرابة", "relationship", "relation", "status"],
   birth: ["تاريخ الميلاد", "تاريخ الملاد", "الميلاد", "المواليد", "birth", "dob", "birth_date"],
-  emp: ["رقم الوظيفي", "الرقم الوظيفي", "رقم وظيفي", "employee", "emp", "employee_number", "empno"],
+  emp: ["رقم الوظيفي", "الرقم الوظيفي", "لرقم الوظيفي", "رقم وظيفي", "employee", "emp", "employee_number", "empno"],
   familyMarker: ["ع.م", "ع,م", "ر.م", "رم", "fm", "family", "family no", "family index"],
   card: [
     "رقم البطاقة",

@@ -41,7 +41,7 @@ export const deductionSchema = z.object({
     .positive("يجب أن يكون المبلغ أكبر من الصفر")
     .max(MAX_DEDUCTION_AMOUNT, MAX_AMOUNT_POLICY_ERROR)
     .refine(isAllowedDeductionAmount, AMOUNT_POLICY_ERROR),
-  type: z.enum(["MEDICINE", "SUPPLIES", "GENERAL", "DENTAL", "OPTICS"], {
+  type: z.enum(["MEDICINE", "SUPPLIES", "GENERAL", "DENTAL", "OPTICS", "PHYSIOTHERAPY"], {
     message: "يرجى اختيار نوع العملية",
   }),
 });
