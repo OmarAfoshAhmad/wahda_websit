@@ -39,9 +39,8 @@ export function PhysiotherapyDeductionAction() {
   let categoryCoverage = 100 - copayPercentage; // default coverage
 
   const effectiveCopayPercentage = 100 - categoryCoverage;
-  const copayFactor = effectiveCopayPercentage / 100;
-  const originalCompanyShare = amountNum * (1 - copayFactor);
-  const originalPatientShare = amountNum * copayFactor;
+  const originalCompanyShare = amountNum;
+  const originalPatientShare = 0;
 
   const actualAnnualCeiling = beneficiary.total_balance;
 
@@ -62,7 +61,7 @@ export function PhysiotherapyDeductionAction() {
         </div>
         <h3 className="text-lg font-black text-slate-900 dark:text-white">تم الاقتطاع بنجاح</h3>
         <p className="text-sm text-slate-600 dark:text-slate-400 max-w-sm">
-          تم تسجيل عملية اقتطاع بصريات بقيمة <span className="font-black text-slate-800 dark:text-white">{formatCurrency(amountNum)} جلسة</span> بنجاح للمستفيد {beneficiary.name}
+          تم تسجيل عملية اقتطاع علاج طبيعي بقيمة <span className="font-black text-slate-800 dark:text-white">{Math.round(amountNum).toLocaleString("ar-LY")} جلسة</span> بنجاح للمستفيد {beneficiary.name}
         </p>
         <Button
           variant="outline"
@@ -80,7 +79,7 @@ export function PhysiotherapyDeductionAction() {
       <div className="pb-3 border-b border-slate-100 dark:border-slate-800 flex justify-between items-start">
         <div>
           <h3 className="font-black text-slate-900 dark:text-white">اقتطاع {physiotherapyLabel}</h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">تطبيق خصم مالي مباشر وحساب نسب التحمل</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">تطبيق خصم الجلسات حسب نسب التحمل</p>
         </div>
         {beneficiary.hasCustomCeiling && (
           <div className="flex items-center gap-1.5 bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 px-2.5 py-1 rounded-md border border-amber-200 dark:border-amber-800/50">
@@ -95,7 +94,7 @@ export function PhysiotherapyDeductionAction() {
       {/* حقل القيمة */}
       <div className="space-y-1.5">
         <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
-          قيمة فاتورة {physiotherapyLabel}
+          عدد جلسات {physiotherapyLabel} المقررة
         </label>
         <div className="relative">
           <div className="absolute right-3 top-1/2 -translate-y-1/2 text-teal-600 dark:text-teal-400">
@@ -133,7 +132,7 @@ export function PhysiotherapyDeductionAction() {
           {isCeilingExhausted ? (
             <div className="text-center py-2">
               <p className="font-black text-red-700 dark:text-red-400">انتهى السقف السنوي لـ {physiotherapyLabel}</p>
-              <p className="text-xs text-red-600 dark:text-red-500 mt-1">لا يمكن إجراء اقتطاع — المستهلك: {formatCurrency(yearlyConsumed)} / {actualAnnualCeiling?.toLocaleString("ar-LY")} جلسة</p>
+              <p className="text-xs text-red-600 dark:text-red-500 mt-1">لا يمكن إجراء اقتطاع — المستهلك: {Math.round(yearlyConsumed).toLocaleString("ar-LY")} / {actualAnnualCeiling?.toLocaleString("ar-LY")} جلسة</p>
             </div>
           ) : (
             <>
@@ -144,19 +143,23 @@ export function PhysiotherapyDeductionAction() {
               )}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">على {companyName}</p>
-                  <p className="text-2xl font-black text-teal-700 dark:text-teal-400 leading-tight">{formatCurrency(actualCompanyShare)}</p>
-                  <p className="text-[10px] text-slate-400 mt-0.5">جلسة</p>
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">
+                    تحمل {companyName}
+                  </p>
+                  <p className="text-2xl font-black text-teal-700 dark:text-teal-400 leading-tight">{categoryCoverage}%</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">من التكلفة المادية</p>
                 </div>
                 <div className="border-r border-slate-200 dark:border-slate-800 pr-4">
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">على المؤمن (كاش)</p>
-                  <p className="text-2xl font-black text-amber-600 dark:text-amber-450 leading-tight">{formatCurrency(actualPatientShare)}</p>
-                  <p className="text-[10px] text-slate-400 mt-0.5">جلسة</p>
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">
+                    تحمل المؤمن
+                  </p>
+                  <p className="text-2xl font-black text-amber-600 dark:text-amber-450 leading-tight">{effectiveCopayPercentage}%</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">من التكلفة المادية</p>
                 </div>
               </div>
               {actualAnnualCeiling !== null && (
                 <div className="pt-2.5 border-t border-slate-200/50 dark:border-slate-850 text-xs text-slate-500 dark:text-slate-400">
-                  الرصيد المتبقي بعد الاقتطاع: <span className="font-black text-slate-700 dark:text-slate-355">
+                  عدد الجلسات المتبقية بعد الاقتطاع: <span className="font-black text-slate-700 dark:text-slate-355">
                     {Math.max(0, remaining - actualCompanyShare).toLocaleString("ar-LY")} جلسة
                   </span>
                 </div>

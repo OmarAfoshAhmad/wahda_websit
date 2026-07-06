@@ -329,8 +329,7 @@ export function PhysiotherapyDeductProvider({
         let categoryCoverage = 100 - copayPercentage; // default coverage
 
         const effectiveCopay = 100 - categoryCoverage;
-        const copayFactor = effectiveCopay / 100;
-        const originalCompanyShare = amountNum * (1 - copayFactor);
+        const originalCompanyShare = amountNum;
         const remaining = annualCeiling !== null ? Math.max(0, annualCeiling - yearlyConsumed) : Infinity;
         const addedCompanyShare = annualCeiling === null
           ? originalCompanyShare

@@ -59,21 +59,21 @@ export function PhysiotherapyBeneficiaryCard() {
         <div className="rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 p-3 text-center">
           <p className="text-[9px] font-black uppercase tracking-wider text-slate-400">السقف السنوي</p>
           <p className="mt-1.5 text-base font-black text-slate-800 dark:text-slate-200">
-            {annualCeiling !== null ? `${formatCurrency(annualCeiling)} جلسة` : "مفتوح"}
+            {annualCeiling !== null ? `${Math.round(annualCeiling).toLocaleString("ar-LY")} جلسة` : "مفتوح"}
           </p>
         </div>
 
         <div className="rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 p-3 text-center">
           <p className="text-[9px] font-black uppercase tracking-wider text-slate-400">المستهلك هذا العام</p>
           <p className="mt-1.5 text-base font-black text-amber-600 dark:text-amber-400">
-            {formatCurrency(yearlyConsumed)} جلسة
+            {Math.round(yearlyConsumed).toLocaleString("ar-LY")} جلسة
           </p>
         </div>
 
         <div className="rounded-xl border border-teal-100 dark:border-teal-900 bg-teal-50/20 dark:bg-teal-900/10 p-3 text-center">
           <p className="text-[9px] font-black uppercase tracking-wider text-teal-600 dark:text-teal-400">المتبقي في السقف</p>
           <p className="mt-1.5 text-base font-black text-teal-700 dark:text-teal-400">
-            {remainingCeiling !== null ? `${formatCurrency(remainingCeiling)} جلسة` : "∞ مفتوح"}
+            {remainingCeiling !== null ? `${Math.round(remainingCeiling).toLocaleString("ar-LY")} جلسة` : "∞ مفتوح"}
           </p>
         </div>
 

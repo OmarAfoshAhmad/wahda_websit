@@ -3,20 +3,20 @@ const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
 const PHYSIOTHERAPY_LIMITS = [
-  { code: "LCC", limit: 20 },
-  { code: "O3G", limit: 10 },
-  { code: "TOSY", limit: 10 },
-  { code: "VISN", limit: 10 },
-  { code: "FUTU", limit: 40 },
-  { code: "RWG", limit: 11 },
-  { code: "ARCD", limit: 40 },
-  { code: "HJR", limit: 40 },
-  { code: "WAAD", limit: 40 },
-  { code: "WCA", limit: 40 },
-  { code: "WAHA", limit: 40 },
-  { code: "JMR", limit: 20 },
-  { code: "JFZ", limit: 20 },
-  { code: "WAB", limit: 70 },
+  { code: "LCC", limit: 20, coverage: 80 },
+  { code: "O3G", limit: 10, coverage: 80 },
+  { code: "TOSY", limit: 10, coverage: 80 },
+  { code: "VISN", limit: 10, coverage: 100 },
+  { code: "FUTU", limit: 40, coverage: 100 },
+  { code: "RWG", limit: 11, coverage: 100 },
+  { code: "ARCD", limit: 40, coverage: 100 },
+  { code: "HJR", limit: 40, coverage: 100 },
+  { code: "WAAD", limit: 40, coverage: 100 },
+  { code: "WCA", limit: 40, coverage: 100 },
+  { code: "WAHA", limit: 40, coverage: 100 },
+  { code: "JMR", limit: 20, coverage: 75 },
+  { code: "JFZ", limit: 20, coverage: 75 },
+  { code: "WAB", limit: 70, coverage: 100 },
 ];
 
 async function main() {
@@ -57,14 +57,14 @@ async function main() {
       },
       update: {
         ceiling_amount: item.limit,
-        coverage_percent: 100.00,
+        coverage_percent: item.coverage,
         frequency_months: 12 // سنوية لا تتجدد إلا بعد عام
       },
       create: {
         company_id: company.id,
         service_type_id: physioService.id,
         ceiling_amount: item.limit,
-        coverage_percent: 100.00,
+        coverage_percent: item.coverage,
         frequency_months: 12
       }
     });
