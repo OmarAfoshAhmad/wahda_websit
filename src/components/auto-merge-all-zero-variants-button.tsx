@@ -23,11 +23,11 @@ export function AutoMergeAllZeroVariantsButton() {
     batches: 0,
   });
   const router = useRouter();
-  const pathname = usePathname();
+  const pathname = usePathname() || "";
   const searchParams = useSearchParams();
 
   const setQueryFeedback = (type: "ok" | "err", message: string, auditId?: string | null) => {
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
     params.set("tab", "review");
     params.delete("ok");
     params.delete("err");

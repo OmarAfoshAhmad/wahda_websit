@@ -22,7 +22,7 @@ export function PhysiotherapyTransactionImportUploader({
   const [file, setFile] = useState<File | null>(null);
   const [purgeOld, setPurgeOld] = useState(false);
   const [autoCreateMissing, setAutoCreateMissing] = useState(true);
-  const [isAmountNetCompanyShare, setIsAmountNetCompanyShare] = useState(true);
+  const [autoCreateMissingFacilities, setAutoCreateMissingFacilities] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
   const [importing, setImporting] = useState(false);
 
@@ -34,6 +34,7 @@ export function PhysiotherapyTransactionImportUploader({
     insertedCount: number;
     skippedCount: number;
     autoCreatedCount: number;
+    autoCreatedFacilitiesCount: number;
     ceilingExceededCount?: number;
     ceilingExceededDetails?: SkippedRowDetail[];
     skippedDetails: SkippedRowDetail[];
@@ -48,6 +49,7 @@ export function PhysiotherapyTransactionImportUploader({
     insertedCount: number;
     skippedCount: number;
     autoCreatedCount: number;
+    autoCreatedFacilitiesCount: number;
     ceilingExceededCount?: number;
     ceilingExceededDetails?: SkippedRowDetail[];
     skippedDetails: SkippedRowDetail[];
@@ -84,6 +86,7 @@ export function PhysiotherapyTransactionImportUploader({
             insertedCount: 0,
             skippedCount: 0,
             autoCreatedCount: 0,
+            autoCreatedFacilitiesCount: 0,
             skippedDetails: [],
             groups: [],
           });
@@ -94,7 +97,7 @@ export function PhysiotherapyTransactionImportUploader({
         setFileBase64(base64);
 
         // Run dry-run scan
-        const res = await importPhysiotherapyTransactionsAction(base64, purgeOld, true, selectedCompanyId, autoCreateMissing, isAmountNetCompanyShare);
+        const res = await importPhysiotherapyTransactionsAction(base64, purgeOld, true, selectedCompanyId, autoCreateMissing, autoCreateMissingFacilities, false);
         setAnalysis(res);
         setAnalyzing(false);
       };
@@ -107,6 +110,7 @@ export function PhysiotherapyTransactionImportUploader({
           insertedCount: 0,
           skippedCount: 0,
           autoCreatedCount: 0,
+          autoCreatedFacilitiesCount: 0,
           skippedDetails: [],
           groups: [],
         });
@@ -122,6 +126,7 @@ export function PhysiotherapyTransactionImportUploader({
         insertedCount: 0,
         skippedCount: 0,
         autoCreatedCount: 0,
+        autoCreatedFacilitiesCount: 0,
         skippedDetails: [],
         groups: [],
       });
@@ -136,7 +141,7 @@ export function PhysiotherapyTransactionImportUploader({
     setResult(null);
 
     try {
-      const res = await importPhysiotherapyTransactionsAction(fileBase64, purgeOld, false, selectedCompanyId, autoCreateMissing, isAmountNetCompanyShare);
+      const res = await importPhysiotherapyTransactionsAction(fileBase64, purgeOld, false, selectedCompanyId, autoCreateMissing, autoCreateMissingFacilities, false);
       setResult(res);
       setImporting(false);
     } catch (err: any) {
@@ -147,6 +152,7 @@ export function PhysiotherapyTransactionImportUploader({
         insertedCount: 0,
         skippedCount: 0,
         autoCreatedCount: 0,
+        autoCreatedFacilitiesCount: 0,
         skippedDetails: [],
       });
       setImporting(false);
@@ -157,10 +163,9 @@ export function PhysiotherapyTransactionImportUploader({
     setFile(null);
     setAnalysis(null);
     setResult(null);
-    setFileBase64(null);
     setPurgeOld(false);
     setAutoCreateMissing(true);
-    setIsAmountNetCompanyShare(true);
+    setAutoCreateMissingFacilities(true);
   };
 
   return (
@@ -249,23 +254,23 @@ export function PhysiotherapyTransactionImportUploader({
               </div>
             </Card>
 
-            {/* isAmountNetCompanyShare Option */}
-            <Card className="p-4 border-sky-200 bg-sky-50/20 dark:border-sky-900/30">
+            {/* Auto Create Missing Facilities Option */}
+            <Card className="p-4 border-indigo-200 bg-indigo-50/20 dark:border-indigo-900/30">
               <div className="flex items-start gap-3">
                 <input
-                  id="isAmountNetCompanyShare"
+                  id="autoCreateMissingFacilities"
                   type="checkbox"
-                  checked={isAmountNetCompanyShare}
-                  onChange={(e) => setIsAmountNetCompanyShare(e.target.checked)}
+                  checked={autoCreateMissingFacilities}
+                  onChange={(e) => setAutoCreateMissingFacilities(e.target.checked)}
                   disabled={analyzing}
-                  className="mt-1 h-4.5 w-4.5 text-sky-600 focus:ring-sky-500 border-slate-300 rounded"
+                  className="mt-1 h-4.5 w-4.5 text-indigo-600 focus:ring-indigo-500 border-slate-300 rounded"
                 />
                 <div className="space-y-1">
-                  <label htmlFor="isAmountNetCompanyShare" className="text-sm font-black text-slate-800 dark:text-white cursor-pointer select-none">
-                    المبالغ في الملف تمثل (حصة الشركة الصافية) وليس إجمالي الفاتورة
+                  <label htmlFor="autoCreateMissingFacilities" className="text-sm font-black text-slate-800 dark:text-white cursor-pointer select-none">
+                    إنشاء المرافق (العيادات) غير الموجودة تلقائياً
                   </label>
                   <p className="text-xs text-slate-500">
-                    إذا تم تفعيل هذا الخيار (موصى به للبصريات)، ستقوم المنظومة بحساب الفاتورة الإجمالية عكسياً بناءً على نسبة التغطية المخزنة لكل مستفيد.
+                    عند تفعيل هذا الخيار، سيقوم النظام تلقائياً بإنشاء أي مرفق موجود في الملف وغير مسجل في المنظومة، مع منع التكرار وإعطائه كلمة مرور افتراضية (123456). يمكنك لاحقاً تعديل بياناته من إدارة المرافق.
                   </p>
                 </div>
               </div>
@@ -377,7 +382,7 @@ export function PhysiotherapyTransactionImportUploader({
                       <th className="px-4 py-3 text-slate-500 font-bold">الشركة بالمنظومة</th>
                       <th className="px-4 py-3 text-slate-500 font-bold">المرفق الصحي</th>
                       <th className="px-4 py-3 text-slate-500 font-bold">عدد الحركات</th>
-                      <th className="px-4 py-3 text-slate-500 font-bold">إجمالي القيمة</th>
+                      <th className="px-4 py-3 text-slate-500 font-bold">إجمالي الجلسات</th>
                       <th className="px-4 py-3 text-slate-500 font-bold text-center">حالة المطابقة</th>
                     </tr>
                   </thead>
@@ -431,7 +436,7 @@ export function PhysiotherapyTransactionImportUploader({
                         <th className="px-4 py-2 text-slate-500 font-bold">الاسم بالملف</th>
                         <th className="px-4 py-2 text-slate-500 font-bold">رقم التأمين</th>
                         <th className="px-4 py-2 text-slate-500 font-bold">المرفق بالملف</th>
-                        <th className="px-4 py-2 text-slate-500 font-bold">المبلغ</th>
+                        <th className="px-4 py-2 text-slate-500 font-bold">عدد الجلسات</th>
                         <th className="px-4 py-2 text-slate-500 font-bold">السبب</th>
                       </tr>
                     </thead>
@@ -468,7 +473,7 @@ export function PhysiotherapyTransactionImportUploader({
                         <th className="px-4 py-2 text-slate-500 font-bold">الاسم بالملف</th>
                         <th className="px-4 py-2 text-slate-500 font-bold">رقم التأمين</th>
                         <th className="px-4 py-2 text-slate-500 font-bold">المرفق بالملف</th>
-                        <th className="px-4 py-2 text-slate-500 font-bold">المبلغ</th>
+                        <th className="px-4 py-2 text-slate-500 font-bold">عدد الجلسات</th>
                         <th className="px-4 py-2 text-slate-500 font-bold">تفاصيل التجاوز</th>
                       </tr>
                     </thead>
@@ -576,6 +581,19 @@ export function PhysiotherapyTransactionImportUploader({
                   <div>
                     <p className="text-sm font-black text-teal-800 dark:text-teal-300">مستفيد جديد تم إنشاؤه تلقائياً</p>
                     <p className="text-xs text-slate-500">تم إنشاء هؤلاء المستفيدين في قاعدة البيانات لأنهم كانوا في الملف دون تسجيل مسبق.</p>
+                  </div>
+                </div>
+              )}
+
+              {/* عداد المرافق الجدد */}
+              {(result.autoCreatedFacilitiesCount ?? 0) > 0 && (
+                <div className="flex items-center gap-3 rounded-md border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-900/20 px-4 py-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-800 text-indigo-700 dark:text-indigo-300 text-sm font-black shrink-0">
+                    {result.autoCreatedFacilitiesCount}
+                  </div>
+                  <div>
+                    <p className="text-sm font-black text-indigo-800 dark:text-indigo-300">مرفق طبي جديد تم إنشاؤه تلقائياً</p>
+                    <p className="text-xs text-slate-500">تم إنشاء هذه المرافق في المنظومة لأنها غير مسجلة مسبقاً.</p>
                   </div>
                 </div>
               )}

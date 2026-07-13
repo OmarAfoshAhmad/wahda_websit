@@ -1,4 +1,4 @@
-export function getServiceAlias(company: { service_aliases?: any } | null | undefined, serviceType: 'DENTAL' | 'OPTICS', defaultName: string): string {
+export function getServiceAlias(company: { service_aliases?: any } | null | undefined, serviceType: 'DENTAL' | 'OPTICS' | 'PHYSIOTHERAPY', defaultName: string): string {
   if (!company || !company.service_aliases) {
     return defaultName;
   }

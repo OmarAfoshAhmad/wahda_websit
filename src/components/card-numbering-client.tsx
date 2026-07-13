@@ -248,7 +248,24 @@ export function CardNumberingClient({
           };
         });
 
-        const filteredData = mappedData.filter(item => item.name && item.name.length > 2);
+        const filteredData = mappedData.filter(item => {
+          if (!item.name || item.name.length <= 2) return false;
+          
+          // تجاهل أخطاء الإكسيل
+          if (item.name.includes("#N/A") || item.name.includes("#VALUE!") || item.name.includes("#REF!")) return false;
+          
+          // يجب أن يحتوي الاسم على أحرف عربية أو إنجليزية
+          if (!/[a-zA-Z\u0600-\u06FF]/.test(item.name)) return false;
+          
+          // إذا كان الاسم كلمة واحدة فقط (لا توجد مسافة) ولا يوجد تاريخ ميلاد أو صلة قرابة، فهو على الأغلب صف فارغ التقط كلمة عشوائية
+          const hasSpace = item.name.trim().includes(" ");
+          if (!hasSpace && !item.birth_date && !item.relationship) return false;
+          
+          // إذا كان الاسم هو نفسه حقل الملاحظات تماماً ولا يوجد بيانات أخرى
+          if (item.name === item.field3 && !item.birth_date && !item.relationship) return false;
+
+          return true;
+        });
 
         if (filteredData.length === 0) {
           toast.error("لم يتم العثور على سجلات صالحة.");

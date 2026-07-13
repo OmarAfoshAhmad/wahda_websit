@@ -251,7 +251,7 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
     const cleanName = (n: string) => normalizeArabicText(n || "");
     const stripSpaces = (n: string) => cleanName(n).replace(/\s+/g, "");
     const getFirstName = (n: string) => cleanName(n).split(" ")[0] || "";
-    const isSameDate = (d1: unknown, d2: unknown) => {
+    const isSameDate = (d1: any, d2: any) => {
       if (!d1 || !d2) return false;
       return new Date(d1).toISOString().split('T')[0] === new Date(d2).toISOString().split('T')[0];
     };
@@ -611,7 +611,7 @@ export async function importCardNumberingAction(data: CardNumberingItem[], optio
     revalidatePath("/admin/card-numbering");
     return { success: true, report };
   } catch (_error) {
-    console.error("Import error:", error);
+    console.error("Import error:", _error);
     return { error: "تعذر معالجة ملف الاستيراد" };
   }
 }

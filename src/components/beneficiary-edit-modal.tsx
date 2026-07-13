@@ -24,7 +24,7 @@ interface BeneficiaryEditModalProps {
 
 export function BeneficiaryEditModal({ beneficiary, iconOnly = false }: BeneficiaryEditModalProps) {
   const router = useRouter();
-  const pathname = usePathname();
+  const pathname = usePathname() || "";
   const searchParams = useSearchParams();
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -87,7 +87,7 @@ export function BeneficiaryEditModal({ beneficiary, iconOnly = false }: Benefici
         }
 
         setOpen(false);
-        const params = new URLSearchParams(searchParams.toString());
+        const params = new URLSearchParams(searchParams?.toString() || "");
         params.set("focus_beneficiary", beneficiary.id);
         router.replace(`${pathname}?${params.toString()}`);
         router.refresh();

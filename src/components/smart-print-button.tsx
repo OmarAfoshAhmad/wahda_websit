@@ -24,7 +24,7 @@ export function SmartPrintButton() {
   }, []);
 
   const handlePrintFull = useCallback(() => {
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(searchParams?.toString() || "");
     window.open(`/transactions/print?${params.toString()}`, "_blank");
     setOpen(false);
   }, [searchParams]);

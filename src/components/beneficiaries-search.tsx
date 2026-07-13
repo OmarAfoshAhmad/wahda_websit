@@ -11,16 +11,16 @@ interface BeneficiariesSearchProps {
 
 export function BeneficiariesSearch({ initialQuery }: BeneficiariesSearchProps) {
   const router = useRouter();
-  const pathname = usePathname();
+  const pathname = usePathname() || "";
   const searchParams = useSearchParams();
   const [query, setQuery] = useState(initialQuery);
 
   const submitSearch = () => {
-    const currentQuery = (searchParams.get("q") ?? "").trim();
+    const currentQuery = (searchParams?.get("q") ?? "").trim();
     const nextQuery = query.trim();
     if (currentQuery === nextQuery) return;
 
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(searchParams?.toString() || "");
     if (nextQuery) {
       params.set("q", nextQuery);
     } else {
@@ -29,7 +29,7 @@ export function BeneficiariesSearch({ initialQuery }: BeneficiariesSearchProps) 
 
     params.set("page", "1");
     const next = params.toString();
-    router.replace(next ? `${pathname}?${next}` : pathname);
+    router.replace(next ? `${pathname ?? ""}?${next}` : (pathname ?? ""));
   };
 
   return (

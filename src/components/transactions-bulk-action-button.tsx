@@ -20,13 +20,13 @@ export function TransactionsBulkActionButton({ formId, op, label, variant = "dan
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectedCount, setSelectedCount] = useState(0);
   const router = useRouter();
-  const pathname = usePathname();
+  const pathname = usePathname() || "";
   const searchParams = useSearchParams();
 
   const toast = useToast();
 
   const setPageFeedback = (message: string, type: "error" | "success") => {
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(searchParams?.toString() || "");
     if (type === "success") {
       params.delete("bulk_msg");
       params.delete("bulk_type");

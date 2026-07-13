@@ -193,17 +193,17 @@ export default async function PhysiotherapyTransactionsPage({
             <p className="mt-1 text-2xl font-black text-teal-800 dark:text-teal-300">{total.toLocaleString("ar-LY")}</p>
           </Card>
           <Card className="p-4">
-            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">إجمالي الفواتير</p>
+            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">إجمالي الجلسات</p>
             <p className="mt-1 text-2xl font-black text-slate-900 dark:text-white">{totalAmount.toLocaleString("ar-LY", { minimumFractionDigits: 2 })}</p>
             <p className="text-[10px] text-slate-400">جلسة</p>
           </Card>
           <Card className="p-4 border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/10">
-            <p className="text-[10px] font-black uppercase tracking-wider text-blue-600 dark:text-blue-500">على شركات التأمين</p>
+            <p className="text-[10px] font-black uppercase tracking-wider text-blue-600 dark:text-blue-500">الجلسات المغطاة (للشركة)</p>
             <p className="mt-1 text-2xl font-black text-blue-800 dark:text-blue-300">{totalCompanyShare.toLocaleString("ar-LY", { minimumFractionDigits: 2 })}</p>
             <p className="text-[10px] text-blue-400">جلسة</p>
           </Card>
           <Card className="p-4 border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/10">
-            <p className="text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-500">على المؤمنين (كاش)</p>
+            <p className="text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-500">الجلسات الزائدة (على المستفيد)</p>
             <p className="mt-1 text-2xl font-black text-amber-800 dark:text-amber-300">{totalPatientShare.toLocaleString("ar-LY", { minimumFractionDigits: 2 })}</p>
             <p className="text-[10px] text-amber-400">جلسة</p>
           </Card>
@@ -299,9 +299,9 @@ export default async function PhysiotherapyTransactionsPage({
                 <tr>
                   <th className="px-4 py-3.5 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">المستفيد</th>
                   <th className="px-4 py-3.5 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">الشركة</th>
-                  <th className="px-4 py-3.5 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider text-center">قيمة الفاتورة</th>
-                  <th className="px-4 py-3.5 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider text-center">حصة الشركة</th>
-                  <th className="px-4 py-3.5 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider text-center">حصة المؤمن</th>
+                  <th className="px-4 py-3.5 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider text-center">عدد الجلسات</th>
+                  <th className="px-4 py-3.5 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider text-center">الجلسات المغطاة</th>
+                  <th className="px-4 py-3.5 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider text-center">الجلسات الزائدة</th>
                   <th className="px-4 py-3.5 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider text-center">المتبقي بالسقف</th>
                   <th className="px-4 py-3.5 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">المرفق</th>
                   <th className="px-4 py-3.5 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">التاريخ</th>

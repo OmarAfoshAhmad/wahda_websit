@@ -44,7 +44,7 @@ export function TransactionEditModal({
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
-  const pathname = usePathname();
+  const pathname = usePathname() || "";
   const searchParams = useSearchParams();
   const [error, setError] = useState<string | null>(null);
 
@@ -118,7 +118,7 @@ export function TransactionEditModal({
       }
 
       setOpen(false);
-      const params = new URLSearchParams(searchParams.toString());
+      const params = new URLSearchParams(searchParams?.toString() || "");
       params.set("focus_tx", transaction.id);
       router.replace(`${pathname}?${params.toString()}`);
       router.refresh();

@@ -64,7 +64,7 @@ export function Shell({
   facilityName: string;
   session: Session;
 }) {
-  const pathname = usePathname();
+  const pathname = usePathname() || "";
   const [isMaintenanceOpen, setIsMaintenanceOpen] = useState(false);
 
   const isAdmin = session.role === "ADMIN";

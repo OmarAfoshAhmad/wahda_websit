@@ -9,7 +9,7 @@ import { normalizeCardInput } from "@/lib/card-number";
 function SetupPinForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const cardNumber = searchParams.get("card") ?? "";
+  const cardNumber = searchParams?.get("card") ?? "";
 
   const [pin, setPin] = useState(["", "", "", "", "", ""]);
   const [confirmPin, setConfirmPin] = useState(["", "", "", "", "", ""]);

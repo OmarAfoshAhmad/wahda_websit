@@ -23,12 +23,12 @@ export function BeneficiariesBulkActionButton({ formId, mode }: Props) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectedCount, setSelectedCount] = useState(0);
   const router = useRouter();
-  const pathname = usePathname();
+  const pathname = usePathname() || "";
   const searchParams = useSearchParams();
   const toast = useToast();
 
   const setPageFeedback = (message: string, type: "error" | "success") => {
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(searchParams?.toString() || "");
     if (type === "success") {
       params.delete("bulk_msg");
       params.delete("bulk_type");
@@ -217,11 +217,11 @@ export function EmptyRecycleBinButton({ disabled }: { disabled?: boolean }) {
   const [isPending, startTransition] = useTransition();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const router = useRouter();
-  const pathname = usePathname();
+  const pathname = usePathname() || "";
   const searchParams = useSearchParams();
 
   const setPageFeedback = (message: string, type: "error" | "success") => {
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(searchParams?.toString() || "");
     params.set("bulk_msg", message);
     params.set("bulk_type", type);
     router.replace(`${pathname}?${params.toString()}`);
