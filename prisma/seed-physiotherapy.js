@@ -4,19 +4,21 @@ const prisma = new PrismaClient();
 
 const PHYSIOTHERAPY_LIMITS = [
   { code: "LCC", limit: 20, coverage: 80 },
-  { code: "O3G", limit: 10, coverage: 80 },
+  { code: "O3G", limit: 10, coverage: 100 },
   { code: "TOSY", limit: 10, coverage: 80 },
-  { code: "VISN", limit: 10, coverage: 100 },
+  { code: "AHG", limit: 10, coverage: 100 },
   { code: "FUTU", limit: 40, coverage: 100 },
   { code: "RWG", limit: 11, coverage: 100 },
   { code: "ARCD", limit: 40, coverage: 100 },
-  { code: "HJR", limit: 40, coverage: 100 },
+  { code: "HJR", limit: 40, coverage: 80 },
   { code: "WAAD", limit: 40, coverage: 100 },
   { code: "WCA", limit: 40, coverage: 100 },
   { code: "WAHA", limit: 40, coverage: 100 },
   { code: "JMR", limit: 20, coverage: 75 },
   { code: "JFZ", limit: 20, coverage: 75 },
   { code: "WAB", limit: 70, coverage: 100 },
+  // الشركات الناقصة التي تم استخراجها من قاعدة البيانات:
+ 
 ];
 
 async function main() {
