@@ -1,0 +1,201 @@
+import { TransactionType } from "@prisma/client";
+import prisma from "@/lib/prisma";
+import { getLedgerRemainingByBeneficiaryIds } from "@/lib/ledger-balance";
+import { roundCurrency } from "@/lib/money";
+
+export type ImportDuplicateCase = {
+  beneficiaryId: string;
+  name: string;
+  cardNumber: string;
+  totalBalance: number;
+  importCount: number;
+  importFileCount: number;
+  caseType: "ACTIVE_IMPORT_DUPLICATE" | "MULTI_FILE_REPEAT";
+  currentRemaining: number;
+  extraAmount: number;
+  fixedRemaining: number;
+  currentStatus: "ACTIVE" | "FINISHED" | "SUSPENDED";
+  fixedStatus: "ACTIVE" | "FINISHED";
+  keepTransactionId: string;
+  deleteTransactionIds: string[];
+};
+
+type ImportDuplicateCasesOptions = {
+  // يتطلب هذا المسار قراءة AuditLog بشكل أعمق (أبطأ). فعّله فقط عند الحاجة.
+  includeMultiFileRepeat?: boolean;
+};
+
+// round2 مُوحَّدة → roundCurrency (lib/money.ts)
+
+export async function getActiveImportDuplicateCases(options?: ImportDuplicateCasesOptions): Promise<ImportDuplicateCase[]> {
+  const includeMultiFileRepeat = options?.includeMultiFileRepeat === true;
+
+  const repeatedAcrossFilesRows = includeMultiFileRepeat
+    ? await prisma.$queryRaw<Array<{ beneficiary_id: string; file_count: number }>>`
+        SELECT
+          (elem->>'beneficiaryId') AS beneficiary_id,
+          COUNT(DISTINCT a.id)::int AS file_count
+        FROM "AuditLog" a
+        CROSS JOIN LATERAL jsonb_array_elements(COALESCE(a.metadata->'detailedReport'->'execution'->'appliedRows', '[]'::jsonb)) AS elem
+        WHERE a.action = 'IMPORT_TRANSACTIONS'
+          AND (elem->>'beneficiaryId') IS NOT NULL
+        GROUP BY (elem->>'beneficiaryId')
+        HAVING COUNT(DISTINCT a.id) > 1
+      `
+    : [];
+
+  const duplicateRows = await prisma.$queryRaw<Array<{ beneficiary_id: string; cnt: number }>>`
+    SELECT beneficiary_id, COUNT(*)::int AS cnt
+    FROM "Transaction"
+    WHERE type = 'IMPORT' AND is_cancelled = false
+    GROUP BY beneficiary_id
+    HAVING COUNT(*) > 1
+  `;
+
+  if (duplicateRows.length === 0 && repeatedAcrossFilesRows.length === 0) return [];
+
+  const duplicateBeneficiaryIds = duplicateRows.map((row) => row.beneficiary_id);
+  const repeatedBeneficiaryIds = repeatedAcrossFilesRows.map((row) => row.beneficiary_id);
+  const beneficiaryIds = Array.from(new Set([...duplicateBeneficiaryIds, ...repeatedBeneficiaryIds]));
+  const duplicateCountByBeneficiary = new Map(duplicateRows.map((row) => [row.beneficiary_id, Number(row.cnt) || 0]));
+  const fileCountByBeneficiary = new Map(repeatedAcrossFilesRows.map((row) => [row.beneficiary_id, Number(row.file_count) || 0]));
+
+  const [beneficiaries, ledgerRemainingById] = await Promise.all([
+    prisma.beneficiary.findMany({
+      where: { id: { in: beneficiaryIds } },
+      select: {
+        id: true,
+        name: true,
+        card_number: true,
+        status: true,
+        total_balance: true,
+      },
+    }),
+    getLedgerRemainingByBeneficiaryIds(beneficiaryIds),
+  ]);
+
+  const transactions = await prisma.transaction.findMany({
+    where: {
+      beneficiary_id: { in: beneficiaryIds },
+      type: TransactionType.IMPORT,
+      is_cancelled: false,
+    },
+    select: {
+      id: true,
+      beneficiary_id: true,
+      amount: true,
+      created_at: true,
+    },
+    orderBy: [{ beneficiary_id: "asc" }, { created_at: "asc" }],
+  });
+
+  const txByBeneficiary = new Map<string, typeof transactions>();
+  for (const tx of transactions) {
+    const arr = txByBeneficiary.get(tx.beneficiary_id) ?? [];
+    arr.push(tx);
+    txByBeneficiary.set(tx.beneficiary_id, arr);
+  }
+
+  const beneficiaryMap = new Map(beneficiaries.map((b) => [b.id, b]));
+
+  const result: ImportDuplicateCase[] = [];
+  for (const beneficiaryId of beneficiaryIds) {
+    const beneficiary = beneficiaryMap.get(beneficiaryId);
+    if (!beneficiary) continue;
+
+    const txs = txByBeneficiary.get(beneficiaryId) ?? [];
+    const duplicateCount = duplicateCountByBeneficiary.get(beneficiaryId) ?? txs.length;
+    const fileCount = fileCountByBeneficiary.get(beneficiaryId) ?? 0;
+    const hasActiveDuplicate = duplicateCount > 1;
+    const hasMultiFileRepeat = fileCount > 1;
+
+    if (!hasActiveDuplicate && !hasMultiFileRepeat) continue;
+
+    const keepTx = txs[0];
+    const deleteTxs = txs.slice(1);
+    const extraAmount = roundCurrency(deleteTxs.reduce((sum, tx) => sum + Number(tx.amount), 0));
+    const currentRemaining = roundCurrency(ledgerRemainingById.get(beneficiary.id) ?? 0);
+    const fixedRemaining = roundCurrency(currentRemaining + extraAmount);
+    const fixedStatus = fixedRemaining <= 0 ? "FINISHED" : "ACTIVE";
+    const caseType = hasActiveDuplicate ? "ACTIVE_IMPORT_DUPLICATE" : "MULTI_FILE_REPEAT";
+
+    result.push({
+      beneficiaryId: beneficiary.id,
+      name: beneficiary.name,
+      cardNumber: beneficiary.card_number,
+      totalBalance: roundCurrency(Number(beneficiary.total_balance) || 0),
+      importCount: txs.length,
+      importFileCount: fileCount,
+      caseType,
+      currentRemaining,
+      extraAmount,
+      fixedRemaining,
+      currentStatus: beneficiary.status,
+      fixedStatus,
+      keepTransactionId: keepTx?.id ?? "",
+      deleteTransactionIds: deleteTxs.map((tx) => tx.id),
+    });
+  }
+
+  result.sort((a, b) => {
+    if (a.caseType !== b.caseType) return a.caseType === "ACTIVE_IMPORT_DUPLICATE" ? -1 : 1;
+    return b.extraAmount - a.extraAmount;
+  });
+  return result;
+}
+
+export async function applyActiveImportDuplicateFix(params: { user: string; facilityId?: string | null }) {
+  const cases = await getActiveImportDuplicateCases();
+
+  if (cases.length === 0) {
+    return {
+      affectedBeneficiaries: 0,
+      removedTransactions: 0,
+      totalExtraAmount: 0,
+    };
+  }
+
+  let removedTransactions = 0;
+
+  await prisma.$transaction(async (tx) => {
+    for (const item of cases) {
+      if (item.deleteTransactionIds.length === 0) continue;
+
+      await tx.transaction.updateMany({
+        where: { id: { in: item.deleteTransactionIds } },
+        data: { is_cancelled: true },
+      });
+      removedTransactions += item.deleteTransactionIds.length;
+
+      await tx.beneficiary.update({
+        where: { id: item.beneficiaryId },
+        data: {
+          remaining_balance: item.fixedRemaining,
+          status: item.fixedStatus,
+          completed_via: item.fixedStatus === "FINISHED" ? "IMPORT" : null,
+        },
+      });
+    }
+  });
+
+  const totalExtraAmount = roundCurrency(cases.reduce((sum, item) => sum + item.extraAmount, 0));
+
+  await prisma.auditLog.create({
+    data: {
+      facility_id: params.facilityId ?? undefined,
+      user: params.user,
+      action: "FIX_DUPLICATE_IMPORT_TRANSACTIONS_BATCH",
+      metadata: {
+        affectedBeneficiaries: cases.length,
+        removedTransactions,
+        totalExtraAmount,
+      },
+    },
+  });
+
+  return {
+    affectedBeneficiaries: cases.length,
+    removedTransactions,
+    totalExtraAmount,
+  };
+}

@@ -1,0 +1,382 @@
+import { redirect } from "next/navigation";
+import Link from "next/link";
+import { User, Download } from "lucide-react";
+import prisma from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
+import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-guard";
+import { getArabicSearchTerms } from "@/lib/search";
+import { getFacilityTypeLabel, inferFacilityTypeFromText, normalizeFacilityTypeOverride } from "@/lib/facility-type";
+import { Shell } from "@/components/shell";
+import { Card, Badge, Input, Button } from "@/components/ui";
+import { CreateFacilityForm } from "./create-form";
+import { FacilityEditModal } from "@/components/facility-edit-modal";
+import { FacilityDeleteButton } from "@/components/facility-delete-button";
+import { FacilityRecycleActions } from "@/components/facility-recycle-actions";
+import { FacilityImportUploader } from "@/components/facility-import-uploader";
+import { PaginationButtons } from "@/components/pagination-buttons";
+import { PrintButton } from "@/components/print-button";
+import { formatDateTripoli } from "@/lib/datetime";
+
+const PAGE_SIZE = 8;
+
+export default async function FacilitiesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string; page?: string; sort?: string; order?: string; view?: string }>;
+}) {
+  const session = await getSessionWithFreshPermissions();
+  if (!session) redirect("/login");
+  if (!hasPermission(session, "view_facilities")) {
+    redirect("/dashboard");
+  }
+
+  const { q, page: pageParam, sort, order, view } = await searchParams;
+  const page = Math.max(1, parseInt(pageParam ?? "1", 10) || 1);
+  const isDeletedView = view === "deleted";
+
+  const ALLOWED_SORT = ["name", "username", "created_at", "transactions"] as const;
+  type SortCol = typeof ALLOWED_SORT[number];
+  const sortCol: SortCol = (ALLOWED_SORT as ReadonlyArray<string>).includes(sort ?? "") ? sort as SortCol : "created_at";
+  const sortDir: "asc" | "desc" = order === "asc" ? "asc" : "desc";
+
+  const where = {
+    deleted_at: isDeletedView ? { not: null } : null,
+    is_admin: false,
+    is_manager: false,
+    ...(q && q.trim()
+      ? {
+        OR: getArabicSearchTerms(q.trim()).flatMap(t => [
+          { name: { contains: t, mode: "insensitive" as const } },
+          { username: { contains: t, mode: "insensitive" as const } },
+        ]),
+      }
+      : {}),
+  };
+
+  const allWhere = {
+    deleted_at: isDeletedView ? { not: null } : null,
+    is_admin: false,
+    is_manager: false,
+  };
+
+  const [facilities, totalCount, allFacilities] = await Promise.all([
+    prisma.facility.findMany({
+      where,
+      orderBy: sortCol === "transactions"
+        ? { transactions: { _count: sortDir } }
+        : { [sortCol]: sortDir },
+      skip: (page - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        is_admin: true,
+        must_change_password: true,
+        created_at: true,
+        _count: { select: { transactions: true } },
+        deleted_at: true,
+      },
+    }),
+    prisma.facility.count({ where }),
+    prisma.facility.findMany({
+      where: allWhere,
+      orderBy: { created_at: "asc" },
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        is_admin: true,
+        created_at: true,
+        _count: { select: { transactions: true } },
+        deleted_at: true,
+      },
+    }),
+  ]);
+
+  const allFacilityIds = [...new Set([...facilities, ...allFacilities].map((f) => f.id))];
+  const typeOverrideRows = allFacilityIds.length > 0
+    ? await prisma.$queryRaw<Array<{ facility_id: string; facility_type_override: string | null }>>`
+        SELECT DISTINCT ON ((metadata->>'facility_id'))
+          (metadata->>'facility_id') AS facility_id,
+          (metadata->>'facility_type_override') AS facility_type_override
+        FROM "AuditLog"
+        WHERE action IN ('CREATE_FACILITY', 'UPDATE_FACILITY')
+          AND metadata ? 'facility_type_override'
+          AND (metadata->>'facility_id') IN (${Prisma.join(allFacilityIds)})
+        ORDER BY (metadata->>'facility_id'), created_at DESC
+      `
+    : [];
+
+  const typeOverrideByFacilityId = new Map<string, string | null>(
+    typeOverrideRows.map((row) => [row.facility_id, row.facility_type_override])
+  );
+
+  const resolveFacilityType = (facility: { id: string; name: string; username: string }) => {
+    const override = normalizeFacilityTypeOverride(typeOverrideByFacilityId.get(facility.id));
+    const inferred = inferFacilityTypeFromText(facility.name, facility.username);
+    return {
+      effectiveType: override ?? inferred,
+      overrideType: override,
+    };
+  };
+
+  const canAdd = hasPermission(session, "add_facility");
+  const canEdit = hasPermission(session, "edit_facility");
+  const canDelete = hasPermission(session, "delete_facility");
+  const canExport = hasPermission(session, "export_data");
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+
+  const buildHref = (p: number) => {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (isDeletedView) params.set("view", "deleted");
+    params.set("sort", sortCol);
+    params.set("order", sortDir);
+    params.set("page", String(p));
+    return `/admin/facilities?${params.toString()}`;
+  };
+
+  const sortHref = (col: SortCol) => {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (isDeletedView) params.set("view", "deleted");
+    params.set("sort", col);
+    params.set("order", sortCol === col && sortDir === "asc" ? "desc" : "asc");
+    params.set("page", "1");
+    return `/admin/facilities?${params.toString()}`;
+  };
+
+  return (
+    <Shell facilityName={session.name} session={session}>
+      <div id="printable-report" className="space-y-6 pb-24">
+
+        {/* ترويسة الطباعة فقط */}
+        <div className="hidden print:flex flex-col items-center justify-center mb-6 text-center border-b pb-4 pt-4">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.png" alt="Waha Health Care" className="h-16 w-auto object-contain mb-3" />
+          <h1 className="text-xl font-black text-black">Waha Health Care</h1>
+          <h2 className="text-lg font-bold text-black mt-1">تقرير المرافق الصحية المسجلة</h2>
+          <p className="text-sm text-black mt-1 opacity-75">تاريخ استخراج التقرير: {formatDateTripoli(new Date(), "en-GB")}</p>
+        </div>
+
+        <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center print:hidden">
+          <div>
+            <h1 className="section-title text-2xl font-black text-slate-950 dark:text-white">إدارة المرافق الصحية</h1>
+            <p className="mt-1.5 text-sm text-slate-600 dark:text-slate-400">
+              {isDeletedView
+                ? "قائمة بالمرافق المحذوفة ناعما."
+                : "قائمة بالمرافق الصحية النشطة فقط (غير المحذوفة) في النظام."}
+            </p>
+          </div>
+          <div className="no-print flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+            <Link
+              href={isDeletedView ? "/admin/facilities" : "/admin/facilities?view=deleted"}
+              className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-[#0f2a4a] px-4 py-2 text-sm font-black text-white! transition-colors hover:bg-[#0b1f38] sm:w-auto"
+            >
+              {isDeletedView ? "العودة للنشطين" : "المحذوفات"}
+            </Link>
+            {canExport && (
+              <a
+                href="/api/export/facilities"
+                target="_blank"
+                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-black text-white! transition-colors hover:bg-emerald-700 dark:hover:bg-emerald-600 sm:w-auto"
+              >
+                <Download className="h-4 w-4" />
+                تصدير Excel
+              </a>
+            )}
+            <PrintButton />
+          </div>
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
+          {/* قائمة المرافق */}
+          <div className="space-y-4">
+
+            {/* شريط البحث */}
+            <form method="get" className="flex flex-col gap-2 sm:flex-row print:hidden">
+              <input type="hidden" name="page" value="1" />
+              <Input
+                name="q"
+                defaultValue={q ?? ""}
+                placeholder="ابحث باسم المرفق أو اسم المستخدم..."
+                className="h-10 w-full text-sm"
+                autoComplete="off"
+              />
+              <Button type="submit" className="h-10 w-full px-5 sm:w-auto sm:shrink-0">بحث</Button>
+            </form>
+
+            <Card className="overflow-hidden p-0">
+              {/* عرض الجدول للطباعة والشاشات الكبيرة */}
+              <div className="hidden sm:block overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
+                    <tr>
+                      <th className="px-5 py-3 text-center text-xs font-black text-slate-500 dark:text-slate-400 uppercase w-12">#</th>
+                      <th className="px-5 py-3 text-center text-xs font-black text-slate-500 dark:text-slate-400 uppercase">
+                        <Link href={sortHref("name")} className="inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
+                          اسم المرفق {sortCol === "name" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                        </Link>
+                      </th>
+                      <th className="px-5 py-3 text-center text-xs font-black text-slate-500 dark:text-slate-400 uppercase">
+                        <Link href={sortHref("username")} className="inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
+                          اسم المستخدم {sortCol === "username" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                        </Link>
+                      </th>
+                      <th className="px-5 py-3 text-center text-xs font-black text-slate-500 dark:text-slate-400 uppercase">
+                        <Link href={sortHref("transactions")} className="inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
+                          عدد المعاملات {sortCol === "transactions" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                        </Link>
+                      </th>
+                      <th className="px-5 py-3 text-center text-xs font-black text-slate-500 dark:text-slate-400 uppercase">نوع المرفق</th>
+                      {(canEdit || canDelete || session.is_admin) && <th className="px-5 py-3 text-center text-xs font-black text-slate-500 dark:text-slate-400 uppercase no-print">إجراءات</th>}
+                    </tr>
+                  </thead>
+                  {/* صفوف الشاشة (الصفحة الحالية فقط) */}
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 print:hidden">
+                    {facilities.length === 0 ? (
+                      <tr><td colSpan={6} className="px-5 py-8 text-center text-slate-500 dark:text-slate-400">لا توجد مرافق مسجلة.</td></tr>
+                    ) : (
+                      facilities.map((f, idx) => (
+                        <tr key={f.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                          <td className="px-5 py-3 text-sm font-bold text-slate-500 dark:text-slate-400 text-center font-mono">{(page - 1) * PAGE_SIZE + idx + 1}</td>
+                          <td className="px-5 py-3 text-sm font-bold text-slate-900 dark:text-white text-center">{f.name}</td>
+                          <td className="px-5 py-3 text-sm font-mono text-slate-600 dark:text-slate-300 text-center">{f.username}</td>
+                          <td className="px-5 py-3 text-sm text-slate-900 dark:text-white text-center">{f._count.transactions}</td>
+                          <td className="px-5 py-3 text-center">
+                            {(() => {
+                              const resolved = resolveFacilityType(f);
+                              const isPharmacy = resolved.effectiveType === "PHARMACY";
+                              return (
+                                <span
+                                  className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset ${
+                                    isPharmacy
+                                      ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-900/30 dark:text-emerald-300 dark:ring-emerald-800/60"
+                                      : "bg-sky-50 text-sky-700 ring-sky-600/20 dark:bg-sky-900/30 dark:text-sky-300 dark:ring-sky-800/60"
+                                  }`}
+                                >
+                                  {getFacilityTypeLabel(resolved.effectiveType)}
+                                </span>
+                              );
+                            })()}
+                          </td>
+                          {(canEdit || canDelete || session.is_admin) && (
+                            <td className="px-5 py-3 no-print">
+                              <div className="flex items-center justify-center gap-2">
+                                {!f.is_admin && (
+                                  <>
+                                    {!isDeletedView && canEdit && <FacilityEditModal facility={{ id: f.id, name: f.name, username: f.username, facility_type_override: resolveFacilityType(f).overrideType }} />}
+                                    {!isDeletedView && canDelete && f.id !== session.id && (
+                                      <FacilityDeleteButton
+                                        id={f.id}
+                                        name={f.name}
+                                        transactionCount={f._count.transactions}
+                                      />
+                                    )}
+                                    {isDeletedView && (
+                                      <FacilityRecycleActions
+                                        id={f.id}
+                                        name={f.name}
+                                        transactionCount={f._count.transactions}
+                                      />
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          )}
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                  {/* صفوف الطباعة (كل المرافق) */}
+                  <tbody className="divide-y divide-slate-100 hidden print:table-row-group">
+                    {allFacilities.map((f, idx) => (
+                      <tr key={f.id} className="hover:bg-slate-50">
+                        <td className="px-5 py-3 text-sm font-bold text-slate-500 text-center font-mono">{idx + 1}</td>
+                        <td className="px-5 py-3 text-sm font-bold text-slate-900 dark:text-white text-center">{f.name}</td>
+                        <td className="px-5 py-3 text-sm font-mono text-slate-600 text-center">{f.username}</td>
+                        <td className="px-5 py-3 text-sm text-slate-900 dark:text-white text-center">{f._count.transactions}</td>
+                        <td className="px-5 py-3 text-center">{getFacilityTypeLabel(resolveFacilityType(f).effectiveType)}</td>
+                        <td className="px-5 py-3 no-print"></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* عرض الموبايل (يختفي في الطباعة) */}
+              <div className="sm:hidden divide-y divide-slate-100 dark:divide-slate-800 block no-print">
+                {facilities.length === 0 ? (
+                  <p className="px-5 py-10 text-center text-sm text-slate-500 dark:text-slate-400">لا توجد مرافق مسجلة بعد.</p>
+                ) : (
+                  facilities.map((f) => (
+                    <div key={f.id} className="flex items-center justify-between px-5 py-4 hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
+                          <User className="h-4 w-4 text-slate-500 dark:text-slate-400" />
+                        </div>
+                        <div>
+                          <p className="font-bold text-slate-900 dark:text-white">{f.name}</p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            <span className="font-mono">{f.username}</span>
+                            {" · "}
+                            {f._count.transactions} عملية
+                          </p>
+                          <p className="mt-1 text-[11px] font-bold text-indigo-700 dark:text-indigo-300">
+                            {getFacilityTypeLabel(resolveFacilityType(f).effectiveType)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 no-print">
+                        <Badge variant="default">{getFacilityTypeLabel(resolveFacilityType(f).effectiveType)}</Badge>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </Card>
+          </div>
+
+          {/* استيراد وإنشاء (عمود جانبي) — متاح للمشرف فقط */}
+          <div className="space-y-4 no-print">
+            {(session.is_admin || canAdd) && (
+              <Card className="p-4">
+                <FacilityImportUploader />
+                <div className="mt-4 border-t border-slate-100 dark:border-slate-800 pt-4">
+                  <h3 className="mb-3 text-sm font-black text-slate-900 dark:text-white">إضافة مرفق جديد يدوياً</h3>
+                  <CreateFacilityForm />
+                </div>
+              </Card>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ══ شريط الـ Pagination الثابت في الأسفل ══ */}
+      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm shadow-[0_-1px_8px_rgba(0,0,0,0.06)] print:hidden">
+        <div className="mx-auto max-w-7xl px-3 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between gap-4 py-3">
+            <span className="text-sm text-slate-500 dark:text-slate-400">
+              الإجمالي:{" "}
+              <strong className="font-black text-slate-900 dark:text-white">{totalCount.toLocaleString("ar-LY")}</strong>{" "}
+              مرفق
+              {totalPages > 1 && (
+                <span className="hidden sm:inline text-slate-400 dark:text-slate-500 mr-3">
+                  · صفحة <strong className="text-slate-700 dark:text-slate-300">{page}</strong> من{" "}
+                  <strong className="text-slate-700 dark:text-slate-300">{totalPages}</strong>
+                </span>
+              )}
+            </span>
+
+            <div className="flex gap-2">
+              <PaginationButtons page={page} totalPages={totalPages} hrefForPage={buildHref} />
+            </div>
+          </div>
+        </div>
+      </div>
+    </Shell>
+  );
+}

@@ -1,0 +1,264 @@
+"use server";
+
+import { getSession } from "@/lib/auth";
+import {
+  runDataHygieneSweepAction,
+  runFixInvalidSubunitAmountsAction,
+  runNormalizeImportIntegerDistributionAction,
+  runParentCardPatternFixAction,
+  type DataHygieneMode,
+  type ParentCardPatternFixMode,
+} from "@/app/actions/data-hygiene";
+import { stabilizeLegacyCardsWithBatch } from "@/app/actions/beneficiary";
+import {
+  recalcBalancesAction,
+  fixStatusAnomaliesAction,
+  fixTotalBalanceDriftAction,
+} from "@/app/actions/balance-health-actions";
+import { applyActiveImportDuplicateFix } from "@/lib/import-duplicate-cases";
+import { applyOverdrawnDebtSettlement } from "@/lib/overdrawn-debt-settlement";
+
+export type MaintenanceJobTask =
+  | { kind: "data_hygiene_sweep"; mode: DataHygieneMode }
+  | { kind: "recalc_balances" }
+  | { kind: "fix_total_balance_drift" }
+  | { kind: "fix_status_anomalies" }
+  | { kind: "parent_card_pattern_fix"; mode: ParentCardPatternFixMode }
+  | { kind: "normalize_import_integer_distribution" }
+  | { kind: "fix_invalid_subunit_amounts" }
+  | { kind: "fix_duplicate_import_cases"; facilityId?: string | null }
+  | { kind: "settle_overdrawn_debt"; facilityId?: string | null }
+  | { kind: "stabilize_legacy_with_batch" }
+  | { kind: "purge_legacy_no_payment" };
+
+export type MaintenanceJobState = "queued" | "running" | "succeeded" | "failed";
+
+export type MaintenanceJobProgress = {
+  current: number;
+  total: number;
+  percent: number;
+  message?: string;
+};
+
+export type MaintenanceJobRecord = {
+  id: string;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdBy: string;
+  state: MaintenanceJobState;
+  task: MaintenanceJobTask;
+  progress?: MaintenanceJobProgress;
+  summary?: string;
+  error?: string;
+};
+
+const jobs = new Map<string, MaintenanceJobRecord>();
+
+function generateJobId(): string {
+  const rand = Math.random().toString(36).slice(2, 10);
+  return `mhj_${Date.now()}_${rand}`;
+}
+
+function summarizeResult(task: MaintenanceJobTask, result: unknown): string {
+  const r = (result ?? {}) as Record<string, unknown>;
+  switch (task.kind) {
+    case "data_hygiene_sweep":
+      return `وضع ${task.mode}: تم التنفيذ`;
+    case "recalc_balances":
+      return `إصلاح الأرصدة: ${Number(r.fixed_count ?? 0).toLocaleString("ar-LY")} مستفيد`;
+    case "fix_total_balance_drift":
+      return `إصلاح total_balance: ${Number(r.fixed_count ?? 0).toLocaleString("ar-LY")} مستفيد`;
+    case "fix_status_anomalies":
+      return `تصحيح الحالات: ${Number(r.fixed_count ?? 0).toLocaleString("ar-LY")}`;
+    case "parent_card_pattern_fix":
+      return `تحويل البطاقات: ${Number(r.processed_count ?? 0).toLocaleString("ar-LY")} | دمج: ${Number(r.merged_count ?? 0).toLocaleString("ar-LY")} | تخطٍ: ${Number(r.skipped_count ?? 0).toLocaleString("ar-LY")} | تعارض: ${Number(r.conflict_count ?? 0).toLocaleString("ar-LY")}`;
+    case "normalize_import_integer_distribution":
+      return `تصحيح التوزيع: ${Number(r.processed_families ?? 0).toLocaleString("ar-LY")} عائلة`;
+    case "fix_invalid_subunit_amounts":
+      return `تصحيح الكسور: ${Number(r.fixed_count ?? 0).toLocaleString("ar-LY")}`;
+    case "fix_duplicate_import_cases":
+      return `معالجة تكرار IMPORT: ${Number(r.affectedBeneficiaries ?? 0).toLocaleString("ar-LY")} مستفيد`;
+    case "settle_overdrawn_debt":
+      return `تسوية المديونية: ${Number(r.affectedDebtors ?? 0).toLocaleString("ar-LY")} حالة`;
+    case "stabilize_legacy_with_batch":
+      return `تحويل البطاقات القديمة ذات الدفعة: ${Number(r.updatedCount ?? 0).toLocaleString("ar-LY")} بطاقة`;
+    case "purge_legacy_no_payment":
+      return `تصفية القديمة بدون دفعة: تم حذف ${Number(r.updatedCount ?? 0).toLocaleString("ar-LY")} ونقل ${Number(r.totalDeductedTransferred ?? 0).toLocaleString("ar-LY")} د.ل`;
+    default:
+      return "تم التنفيذ";
+  }
+}
+
+async function executeTask(
+  task: MaintenanceJobTask,
+  actor: { id: string; username: string },
+  onProgress?: (progress: MaintenanceJobProgress) => void,
+): Promise<unknown> {
+  const elevatedActor = { id: actor.id, username: actor.username, isAdmin: true as const };
+
+  switch (task.kind) {
+    case "data_hygiene_sweep":
+      return runDataHygieneSweepAction({ mode: task.mode, dryRun: false }, elevatedActor);
+    case "recalc_balances":
+      return recalcBalancesAction(elevatedActor);
+    case "fix_total_balance_drift":
+      return fixTotalBalanceDriftAction(elevatedActor);
+    case "fix_status_anomalies":
+      return fixStatusAnomaliesAction(elevatedActor);
+    case "parent_card_pattern_fix":
+      return runParentCardPatternFixAction({
+        mode: task.mode,
+        onProgress: (progress) => {
+          const total = Math.max(1, Number(progress.total) || 1);
+          const current = Math.max(0, Math.min(total, Number(progress.examined) || 0));
+          const percent = Math.max(0, Math.min(100, Math.round((current / total) * 100)));
+          onProgress?.({
+            current,
+            total,
+            percent,
+            message: `تمت معالجة ${current}/${total} (نجح: ${progress.processed}، تخطٍ: ${progress.skipped})`,
+          });
+        },
+      }, elevatedActor);
+    case "normalize_import_integer_distribution":
+      return runNormalizeImportIntegerDistributionAction(elevatedActor);
+    case "fix_invalid_subunit_amounts":
+      return runFixInvalidSubunitAmountsAction(elevatedActor);
+    case "fix_duplicate_import_cases":
+      return applyActiveImportDuplicateFix({
+        user: actor.username,
+        facilityId: task.facilityId ?? actor.id,
+      });
+    case "settle_overdrawn_debt":
+      return applyOverdrawnDebtSettlement({
+        user: actor.username,
+        facilityId: task.facilityId ?? actor.id,
+      });
+    case "stabilize_legacy_with_batch": {
+      const result = await stabilizeLegacyCardsWithBatch();
+      if (result.error) {
+        throw new Error(result.error);
+      }
+      return result;
+    }
+    case "purge_legacy_no_payment": {
+      const { purgeLegacyNoPayment } = await import("@/app/actions/beneficiary");
+      const result = await purgeLegacyNoPayment();
+      if (result.error) {
+        throw new Error(result.error);
+      }
+      return result;
+    }
+    default:
+      throw new Error("نوع مهمة غير مدعوم");
+  }
+}
+
+export async function startMaintenanceJobForActor(
+  task: MaintenanceJobTask,
+  actor: { id: string; username: string; isAdmin: boolean },
+): Promise<{ success: boolean; job?: MaintenanceJobRecord; error?: string }> {
+  if (!actor.isAdmin) {
+    return { success: false, error: "غير مصرح" };
+  }
+
+  const id = generateJobId();
+  const record: MaintenanceJobRecord = {
+    id,
+    createdAt: new Date().toISOString(),
+    startedAt: null,
+    completedAt: null,
+    createdBy: actor.username,
+    state: "queued",
+    task,
+  };
+
+  jobs.set(id, record);
+
+  setTimeout(async () => {
+    const queued = jobs.get(id);
+    if (!queued) return;
+
+    queued.state = "running";
+    queued.startedAt = new Date().toISOString();
+    queued.progress = { current: 0, total: 1, percent: 0, message: "بدأ التنفيذ" };
+    jobs.set(id, queued);
+
+    try {
+      const result = await executeTask(task, { id: actor.id, username: actor.username }, (progress) => {
+        const running = jobs.get(id);
+        if (!running) return;
+        running.progress = progress;
+        jobs.set(id, running);
+      });
+      const asObj = (result ?? {}) as Record<string, unknown>;
+      const success = asObj.success !== false;
+
+      const done = jobs.get(id);
+      if (!done) return;
+
+      done.state = success ? "succeeded" : "failed";
+      done.completedAt = new Date().toISOString();
+      done.summary = summarizeResult(task, result);
+      done.error = success ? undefined : String(asObj.error ?? "تعذر تنفيذ المهمة");
+      done.progress = {
+        current: done.progress?.total ?? done.progress?.current ?? 1,
+        total: done.progress?.total ?? done.progress?.current ?? 1,
+        percent: 100,
+        message: success ? "اكتملت المهمة بنجاح" : "فشلت المهمة",
+      };
+      jobs.set(id, done);
+    } catch (error) {
+      const failed = jobs.get(id);
+      if (!failed) return;
+      failed.state = "failed";
+      failed.completedAt = new Date().toISOString();
+      failed.error = error instanceof Error ? error.message : "تعذر تنفيذ المهمة";
+      failed.progress = {
+        current: failed.progress?.current ?? 0,
+        total: failed.progress?.total ?? 1,
+        percent: 100,
+        message: "فشلت المهمة",
+      };
+      jobs.set(id, failed);
+    }
+  }, 0);
+
+  return { success: true, job: record };
+}
+
+export async function startMaintenanceJobAction(task: MaintenanceJobTask): Promise<{
+  success: boolean;
+  job?: MaintenanceJobRecord;
+  error?: string;
+}> {
+  const session = await getSession();
+  if (!session?.is_admin) {
+    return { success: false, error: "غير مصرح" };
+  }
+
+  return startMaintenanceJobForActor(task, {
+    id: session.id,
+    username: session.username,
+    isAdmin: true,
+  });
+}
+
+export async function getMaintenanceJobAction(jobId: string): Promise<{
+  success: boolean;
+  job?: MaintenanceJobRecord;
+  error?: string;
+}> {
+  const session = await getSession();
+  if (!session?.is_admin) {
+    return { success: false, error: "غير مصرح" };
+  }
+
+  const job = jobs.get(String(jobId).trim());
+  if (!job) {
+    return { success: false, error: "المهمة غير موجودة" };
+  }
+
+  return { success: true, job };
+}

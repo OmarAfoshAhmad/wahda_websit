@@ -1,0 +1,68 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: waad-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-waad}
+      POSTGRES_USER: ${DB_USER:-waad}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-waad_change_me}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-waad} -d ${DB_NAME:-waad}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: waad-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:-waad_redis_change_me} --maxmemory 128mb --maxmemory-policy noeviction
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-waad_redis_change_me}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    image: waad-temp-website:prod
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: waad-app
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env.docker
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://${DB_USER:-waad}:${DB_PASSWORD:-waad_change_me}@db:5432/${DB_NAME:-waad}?schema=public
+      REDIS_URL: redis://:${REDIS_PASSWORD:-waad_redis_change_me}@redis:6379
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  postgres_data:
+  redis_data:

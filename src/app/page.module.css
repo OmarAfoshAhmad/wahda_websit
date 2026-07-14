@@ -1,0 +1,444 @@
+.main {
+  position: relative;
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  overflow: hidden;
+  background-color: var(--background);
+}
+
+.bgGradient {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: 
+    radial-gradient(circle at 15% 50%, rgba(20, 155, 129, 0.08), transparent 25%),
+    radial-gradient(circle at 85% 30%, rgba(20, 155, 129, 0.12), transparent 30%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.container {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.header {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 2rem;
+}
+
+.logoContainer {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.logoWrapper {
+  width: 80px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.logoImage {
+  object-fit: contain;
+}
+
+.logoText {
+  display: flex;
+  flex-direction: column;
+}
+
+.logoText h1 {
+  font-size: 2.5rem;
+  font-weight: 800;
+  color: var(--primary);
+  line-height: 1;
+  margin-bottom: -4px;
+}
+
+.logoText span {
+  font-size: 0.85rem;
+  color: var(--secondary);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+/* CARDS */
+.cardContainer {
+  min-height: 400px; /* Prevent layout shift */
+}
+
+.searchCard, .dashboardCard {
+  background: rgba(236, 253, 245, 0.95); /* Light Teal/Mint Tint - clearly not grey */
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 
+    0 10px 30px -5px rgba(20, 155, 129, 0.15),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+  border-radius: 24px;
+  padding: 2.5rem;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  color: #000000; /* Ensure text is black/very dark */
+}
+
+.cardHeader h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #000000; /* Pure black for header */
+  margin-bottom: 0.5rem;
+}
+
+.cardHeader p {
+  color: #334155; /* Dark grey instead of muted */
+  font-weight: 500;
+  font-size: 0.95rem;
+}
+
+/* Search Form */
+.searchForm {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.inputWrapper {
+  position: relative;
+}
+
+.inputIcon {
+  position: absolute;
+  right: 1.25rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.input {
+  width: 100%;
+  height: 3.5rem;
+  padding: 0 3.5rem 0 1.25rem;
+  border-radius: 16px;
+  border: 2px solid var(--border);
+  background: var(--surface-alt);
+  font-family: inherit;
+  font-size: 1rem; /* Prevent zoom on mobile */
+  font-weight: 600;
+  transition: all 0.2s ease;
+  outline: none;
+}
+
+.input:focus {
+  border-color: var(--primary);
+  background: white;
+  box-shadow: 0 0 0 4px var(--ring);
+}
+
+.primaryButton {
+  height: 3.5rem;
+  border-radius: 16px;
+  background: var(--primary);
+  color: white;
+  border: none;
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.primaryButton:hover:not(:disabled) {
+  background: var(--primary-dark);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(20, 155, 129, 0.3);
+}
+
+.primaryButton:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+/* Features Grid */
+.featuresGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.featureItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  text-align: center;
+}
+
+.featureIcon {
+  width: 48px;
+  height: 48px;
+  background: var(--surface-alt);
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary);
+  transition: transform 0.2s;
+}
+
+.featureItem:hover .featureIcon {
+  transform: scale(1.1);
+  background: var(--primary-light);
+}
+
+.featureItem span {
+  font-size: 0.75rem;
+  font-weight: 700; /* Bolder */
+  color: #334155; /* Dark grey instead of muted */
+}
+
+/* Dashboard Styles */
+.dashboardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.backButton {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.5rem;
+  border-radius: 8px;
+}
+
+.backButton:hover {
+  background: var(--surface-alt);
+  color: var(--text-main);
+}
+
+.userInfo {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  text-align: left;
+  flex-direction: row-reverse; /* RTL handled by body, but specific alignment here */
+}
+
+.avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--secondary);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.userInfo h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.userId {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.balanceCard {
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  border-radius: 20px;
+  padding: 1.5rem;
+  color: white;
+  text-align: center;
+  box-shadow: 0 10px 25px -5px rgba(20, 155, 129, 0.4);
+}
+
+.balanceLabel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  opacity: 0.9;
+  margin-bottom: 0.5rem;
+}
+
+.balanceAmount {
+  font-size: 2.5rem;
+  font-weight: 800;
+  letter-spacing: -1px;
+  margin-bottom: 1.5rem;
+}
+
+.currency {
+  font-size: 1rem;
+  opacity: 0.8;
+  font-weight: 500;
+}
+
+.balanceActions {
+  display: flex;
+  gap: 1rem;
+}
+
+.actionButton {
+  flex: 1;
+  height: 44px;
+  border-radius: 12px;
+  border: none;
+  background: white;
+  color: var(--primary);
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.outline {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  backdrop-filter: blur(4px);
+}
+
+.historySection {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.sectionTitle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.historyList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.historyItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem;
+  background: var(--surface-alt);
+  border-radius: 16px;
+  border: 1px solid transparent;
+  transition: all 0.2s;
+}
+
+.historyItem:hover {
+  background: white;
+  border-color: var(--border);
+  box-shadow: var(--shadow-sm);
+}
+
+.historyIcon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 1rem;
+}
+
+.historyIcon[data-type='credit'] {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.historyIcon[data-type='purchase'] {
+  background: #fee2e2;
+  color: #ef4444;
+}
+
+.historyDetails {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.historyType {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--text-main);
+}
+
+.historyDate {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.historyAmount {
+  font-weight: 700;
+  direction: ltr; /* Ensure numbers display correctly */
+}
+
+.historyAmount[data-type='credit'] {
+  color: #16a34a;
+}
+
+.historyAmount[data-type='purchase'] {
+  color: #ef4444;
+}
+
+.footer {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin-top: auto;
+}
+
+@media (max-width: 640px) {
+  .main { padding: 1rem; }
+  .logoText h1 { font-size: 2rem; }
+  .logoIcon { width: 56px; height: 56px; }
+  .searchCard, .dashboardCard { padding: 1.5rem; border-radius: 20px; }
+  .featuresGrid { grid-template-columns: 1fr; }
+  .featureItem { flex-direction: row; text-align: right; background: var(--surface-alt); padding: 1rem; border-radius: 12px; }
+  .featureIcon { background: white; width: 40px; height: 40px; margin-left: 1rem; }
+  .featureItem:hover .featureIcon { transform: none; }
+}

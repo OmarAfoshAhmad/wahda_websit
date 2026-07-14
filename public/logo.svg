@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 215" fill="none" role="img" aria-label="Waha Healthy Care">
+    <defs>
+        <!-- Clip to left half of viewport (for trunk color split) -->
+        <clipPath id="lhc">
+            <rect x="0" y="0" width="100" height="215"/>
+        </clipPath>
+        <!-- Clip to right half of viewport -->
+        <clipPath id="rhc">
+            <rect x="100" y="0" width="100" height="215"/>
+        </clipPath>
+    </defs>
+
+    <!-- ── Shield: left half – Gold ── -->
+    <path d="M28,12 H68 Q78,12 82,22 Q87,32 100,32
+       L100,210
+       Q55,200 12,130
+       V32 Q12,12 28,12 Z" fill="#C49A28"/>
+
+    <!-- ── Shield: right half – Navy ── -->
+    <path d="M100,32
+       Q113,32 118,22 Q122,12 132,12
+       H172 Q188,12 188,32
+       V130
+       Q145,200 100,210 Z" fill="#1B3574"/>
+
+    <!-- ── Shield border outline ── -->
+    <path d="M28,12 H68 Q78,12 82,22 Q87,32 100,32
+       Q113,32 118,22 Q122,12 132,12
+       H172 Q188,12 188,32
+       V130
+       Q145,200 100,210
+       Q55,200 12,130
+       V32 Q12,12 28,12 Z" stroke="#1B3574" stroke-width="4.5" stroke-linejoin="round"/>
+
+    <!-- ── Palm trunk – navy on gold (left half) ── -->
+    <line x1="100" y1="163" x2="100" y2="102" stroke="#1B3574" stroke-width="7" stroke-linecap="round" clip-path="url(#lhc)"/>
+    <!-- ── Palm trunk – gold on navy (right half) ── -->
+    <line x1="100" y1="163" x2="100" y2="102" stroke="#C49A28" stroke-width="7" stroke-linecap="round" clip-path="url(#rhc)"/>
+
+    <!-- ── Left fronds (navy on gold background) ── -->
+    <path d="M100,102 C93,89 77,81 64,77" stroke="#1B3574" stroke-width="5" stroke-linecap="round" fill="none"/>
+    <path d="M100,108 C86,96 68,88 53,84" stroke="#1B3574" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+    <path d="M100,114 C83,104 63,99 46,96" stroke="#1B3574" stroke-width="4" stroke-linecap="round" fill="none"/>
+    <path d="M100,120 C82,114 61,111 44,109" stroke="#1B3574" stroke-width="3.5" stroke-linecap="round" fill="none"/>
+    <path d="M100,127 C82,123 62,121 44,122" stroke="#1B3574" stroke-width="3" stroke-linecap="round" fill="none"/>
+
+    <!-- ── Right fronds (gold on navy background) ── -->
+    <path d="M100,102 C107,89 123,81 136,77" stroke="#C49A28" stroke-width="5" stroke-linecap="round" fill="none"/>
+    <path d="M100,108 C114,96 132,88 147,84" stroke="#C49A28" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+    <path d="M100,114 C117,104 137,99 154,96" stroke="#C49A28" stroke-width="4" stroke-linecap="round" fill="none"/>
+    <path d="M100,120 C118,114 139,111 156,109" stroke="#C49A28" stroke-width="3.5" stroke-linecap="round" fill="none"/>
+    <path d="M100,127 C118,123 138,121 156,122" stroke="#C49A28" stroke-width="3" stroke-linecap="round" fill="none"/>
+
+    <!-- ── 5-pointed star in the top notch ── -->
+    <polygon points="100,5 102,12 110,12 104,16 106,23 100,19 94,23 96,16 90,12 98,12" fill="#C49A28" stroke="#1B3574" stroke-width="1.5" stroke-linejoin="round"/>
+</svg>

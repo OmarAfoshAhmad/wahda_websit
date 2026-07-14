@@ -1,0 +1,100 @@
+"use client";
+
+import React, { useActionState, useState } from "react";
+import { changePassword } from "@/app/actions/auth";
+import { Button, Input, Card } from "@/components/ui";
+import { KeyRound, Loader2, ShieldCheck, Eye, EyeOff } from "lucide-react";
+
+export default function ChangePasswordPage() {
+  const [state, action, isPending] = useActionState(changePassword, undefined);
+  const [showNew, setShowNew] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  return (
+    <div className="flex min-h-screen items-center justify-center px-4 py-10 sm:px-6">
+      <div className="w-full max-w-md">
+        <div className="mb-6 text-center">
+          <div className="mb-4 flex flex-col items-center gap-3">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30">
+              <KeyRound className="h-8 w-8 text-amber-600" />
+            </div>
+            <div>
+              <p className="text-base font-black text-slate-900 dark:text-white">Waha Health Care</p>
+            </div>
+          </div>
+          <h2 className="section-title text-2xl font-black text-slate-950 dark:text-white">تغيير كلمة المرور</h2>
+          <p className="mt-2 text-sm font-medium text-slate-500 dark:text-slate-400">
+            يجب عليك تغيير كلمة المرور الافتراضية قبل المتابعة.
+          </p>
+        </div>
+
+        <Card className="p-6">
+          <form action={action} className="space-y-5">
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
+              <p className="font-bold">⚠ إجراء أمني مطلوب</p>
+              <p className="mt-0.5 text-xs">تم تفعيل حسابك بكلمة مرور افتراضية. يجب تغييرها الآن لحماية بياناتك.</p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-xs font-black uppercase tracking-[0.18em] text-slate-400">
+                كلمة المرور الجديدة
+              </label>
+              <div className="relative">
+                <Input
+                  name="newPassword"
+                  type={showNew ? "text" : "password"}
+                  autoComplete="new-password"
+                  placeholder="8 خانات على الأقل فيها حرف كبير واحد "
+                  className="h-12 pl-12 text-sm"
+                  required
+                  minLength={8}
+                />
+                <button type="button" onClick={() => setShowNew(!showNew)} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300" tabIndex={-1}>
+                  {showNew ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-xs font-black uppercase tracking-[0.18em] text-slate-400">
+                تأكيد كلمة المرور
+              </label>
+              <div className="relative">
+                <Input
+                  name="confirmPassword"
+                  type={showConfirm ? "text" : "password"}
+                  autoComplete="new-password"
+                  placeholder="أعد كتابة كلمة المرور"
+                  className="h-12 pl-12 text-sm"
+                  required
+                  minLength={8}
+                />
+                <button type="button" onClick={() => setShowConfirm(!showConfirm)} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300" tabIndex={-1}>
+                  {showConfirm ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                </button>
+              </div>
+            </div>
+
+            {state?.error && (
+              <div className="rounded-md border border-red-200 bg-red-50 p-3">
+                <p className="text-center text-sm font-bold text-red-600">{state.error}</p>
+              </div>
+            )}
+
+            <Button type="submit" className="h-12 w-full text-base" disabled={isPending}>
+              {isPending ? <Loader2 className="ml-2 h-5 w-5 animate-spin" /> : null}
+              {isPending ? "جارٍ الحفظ..." : "حفظ كلمة المرور"}
+            </Button>
+          </form>
+        </Card>
+
+        <div className="mt-4 rounded-md border border-slate-200 bg-white p-3 text-center text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+          <div className="mb-1 flex items-center justify-center gap-2">
+            <ShieldCheck className="h-4 w-4 text-primary" />
+            <span className="font-bold text-slate-700 dark:text-slate-200">بعد التغيير ستنتقل تلقائياً للوحة التحكم</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
