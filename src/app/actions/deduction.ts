@@ -81,6 +81,9 @@ export async function deductBalance(formData: {
     if (session.facility_type === "OPTICS" && type !== "OPTICS" && type !== "PHYSIOTHERAPY") {
       return { error: "حسابات مراكز البصريات لا يمكنها تنفيذ سوى خدمات العيون والبصريات" };
     }
+    if (session.facility_type === "PHYSIOTHERAPY" && type !== "PHYSIOTHERAPY") {
+      return { error: "حسابات مراكز العلاج الطبيعي لا يمكنها تنفيذ سوى خدمات العلاج الطبيعي" };
+    }
   }
 
   const manualTransactionDate =
@@ -654,6 +657,8 @@ export async function getAvailableServiceTypes(beneficiaryId: string) {
         available = available.filter(t => t === "DENTAL");
       } else if (session.facility_type === "OPTICS") {
         available = available.filter(t => t === "OPTICS");
+      } else if (session.facility_type === "PHYSIOTHERAPY") {
+        available = ["PHYSIOTHERAPY"];
       }
     }
 

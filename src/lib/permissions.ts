@@ -49,7 +49,7 @@ export interface Session {
   is_employee: boolean;
   manager_permissions: ManagerPermissions | null;
   must_change_password: boolean;
-  facility_type?: "HOSPITAL" | "PHARMACY" | "DENTAL" | "OPTICS";
+  facility_type?: "HOSPITAL" | "PHARMACY" | "DENTAL" | "OPTICS" | "PHYSIOTHERAPY";
   expires?: Date;
 }
 

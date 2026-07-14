@@ -59,6 +59,7 @@ export function CreateFacilityForm() {
             <option value="PHARMACY">صيدلية</option>
             <option value="DENTAL">عيادة أسنان</option>
             <option value="OPTICS">مركز بصريات / عيون</option>
+            <option value="PHYSIOTHERAPY">مركز علاج طبيعي</option>
           </select>
         </div>
       </div>

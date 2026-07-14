@@ -56,7 +56,7 @@ function DeductFormInner() {
   );
 }
 
-export function DeductForm({ facilityType }: { facilityType?: "HOSPITAL" | "PHARMACY" | "DENTAL" | "OPTICS" }) {
+export function DeductForm({ facilityType }: { facilityType?: "HOSPITAL" | "PHARMACY" | "DENTAL" | "OPTICS" | "PHYSIOTHERAPY" }) {
   return (
     <DeductProvider facilityType={facilityType}>
       <DeductFormInner />

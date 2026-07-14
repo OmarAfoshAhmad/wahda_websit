@@ -752,11 +752,9 @@ export default async function PhysiotherapyCompanyPage({
                         )}
                         <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400">المستفيد</th>
                         <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400">رقم البطاقة</th>
-                        <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">قيمة الفاتورة</th>
-                        <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">حصة الشركة</th>
-                        <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">حصة المؤمن</th>
+                        <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">عدد الجلسات</th>
                         <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">
-                           {physiotherapyCeiling === null ? "الرصيد المستهلك" : "الرصيد المتبقي"}
+                           {physiotherapyCeiling === null ? "الرصيد المستهلك" : "المتبقي من الجلسات"}
                         </th>
                         <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400">المرفق</th>
                         <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400">التاريخ</th>
@@ -799,19 +797,13 @@ export default async function PhysiotherapyCompanyPage({
                                 {tx.beneficiary?.card_number ?? "—"}
                               </td>
                               <td className="px-4 py-3.5 text-center font-mono font-black text-slate-900 dark:text-white">
-                                {amount.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} جلسة
-                              </td>
-                              <td className="px-4 py-3.5 text-center font-mono font-black text-teal-700 dark:text-teal-400">
-                                {companyShare.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} جلسة
-                              </td>
-                              <td className="px-4 py-3.5 text-center font-mono font-black text-amber-600 dark:text-amber-450">
-                                {patientShare.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} جلسة
+                                {Math.round(amount)} جلسة
                               </td>
                               <td className="px-4 py-3.5 text-center font-mono font-black text-sky-700 dark:text-sky-400">
                                 {remaining !== null && remaining < 99999999 ? (
-                                    `${remaining.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} جلسة`
+                                    `${Math.round(remaining)} جلسة`
                                   ) : (
-                                    `${consumedAccumulated.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} جلسة`
+                                    `${Math.round(consumedAccumulated)} جلسة`
                                   )}
                               </td>
                               <td className="px-4 py-3.5 font-bold text-slate-600 dark:text-slate-450 text-xs">

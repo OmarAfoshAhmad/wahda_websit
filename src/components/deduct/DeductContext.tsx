@@ -40,7 +40,7 @@ export interface BeneficiarySuggestion {
   replacement_beneficiary_id: string | null;
 }
 
-export type DeductType = "MEDICINE" | "SUPPLIES" | "DENTAL" | "OPTICS" | "GENERAL";
+export type DeductType = "MEDICINE" | "SUPPLIES" | "DENTAL" | "OPTICS" | "PHYSIOTHERAPY" | "GENERAL";
 
 export interface SimulationResult {
   isTpa: boolean;
@@ -83,7 +83,7 @@ interface DeductContextValue {
   type: DeductType;
   setType: (v: DeductType) => void;
   availableServiceTypes: string[];
-  facilityType?: "HOSPITAL" | "PHARMACY" | "DENTAL" | "OPTICS";
+  facilityType?: "HOSPITAL" | "PHARMACY" | "DENTAL" | "OPTICS" | "PHYSIOTHERAPY";
   showConfirm: boolean;
   setShowConfirm: (v: boolean) => void;
   deducting: boolean;
@@ -131,7 +131,7 @@ export function DeductProvider({
   facilityType,
 }: {
   children: React.ReactNode;
-  facilityType?: "HOSPITAL" | "PHARMACY" | "DENTAL" | "OPTICS";
+  facilityType?: "HOSPITAL" | "PHARMACY" | "DENTAL" | "OPTICS" | "PHYSIOTHERAPY";
 }) {
   const toast = useToast();
 
@@ -152,6 +152,8 @@ export function DeductProvider({
       ? "DENTAL"
       : facilityType === "OPTICS"
       ? "OPTICS"
+      : facilityType === "PHYSIOTHERAPY"
+      ? "PHYSIOTHERAPY"
       : "GENERAL"
   );
   const [showConfirm, setShowConfirm] = useState(false);
@@ -182,6 +184,8 @@ export function DeductProvider({
       setType("DENTAL");
     } else if (facilityType === "OPTICS" && type !== "OPTICS") {
       setType("OPTICS");
+    } else if (facilityType === "PHYSIOTHERAPY" && type !== "PHYSIOTHERAPY") {
+      setType("PHYSIOTHERAPY");
     }
   }, [facilityType]);
 
@@ -267,6 +271,8 @@ export function DeductProvider({
         ? "DENTAL"
         : facilityType === "OPTICS"
         ? "OPTICS"
+        : facilityType === "PHYSIOTHERAPY"
+        ? "PHYSIOTHERAPY"
         : "SUPPLIES"
     );
     setShowConfirm(false);
@@ -382,9 +388,16 @@ export function DeductProvider({
       toast.error(result.error as string);
     } else {
       const tpaLabel = (result as any).isTpa ? " (معتمد من شركة تأمين)" : "";
-      setSuccess("تمت عملية الخصم بنجاح");
-      toast.success(`تم خصم ${parseFloat(amount).toLocaleString("ar-LY")} د.ل بنجاح${tpaLabel}`);
-      const updatedBeneficiary = { ...beneficiary, remaining_balance: result.newBalance, status: result.newBalance <= 0 ? "FINISHED" : "ACTIVE" };
+      const isPhysiotherapy = type === "PHYSIOTHERAPY";
+      setSuccess(isPhysiotherapy ? "تم تسجيل الجلسات بنجاح" : "تمت عملية الخصم بنجاح");
+      toast.success(isPhysiotherapy
+        ? `تم تسجيل ${parseFloat(amount).toLocaleString("ar-LY")} جلسة بنجاح`
+        : `تم خصم ${parseFloat(amount).toLocaleString("ar-LY")} د.ل بنجاح${tpaLabel}`);
+      const updatedBeneficiary = {
+        ...beneficiary,
+        remaining_balance: result.newBalance,
+        status: isPhysiotherapy ? beneficiary.status : result.newBalance <= 0 ? "FINISHED" : "ACTIVE",
+      };
       setBeneficiary(updatedBeneficiary);
       setAmount("");
       

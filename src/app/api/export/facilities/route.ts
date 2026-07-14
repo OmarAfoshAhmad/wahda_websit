@@ -26,7 +26,7 @@ export async function GET(req: Request) {
 
   try {
     const where: any = { deleted_at: null, role: "FACILITY" };
-    if (type && ["HOSPITAL", "PHARMACY", "DENTAL", "OPTICS"].includes(type)) {
+    if (type && ["HOSPITAL", "PHARMACY", "DENTAL", "OPTICS", "PHYSIOTHERAPY"].includes(type)) {
       where.facility_type = type;
     }
 

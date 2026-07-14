@@ -7,12 +7,11 @@
  */
 
 import React from "react";
-import { CreditCard, DollarSign, Loader2 } from "lucide-react";
+import { CreditCard, Loader2 } from "lucide-react";
 import { Button, Input, Badge, cn } from "@/components/ui";
 import { formatCurrency } from "@/lib/money";
 import { useDeductContext } from "./DeductContext";
 import {
-  isAllowedDeductionAmount,
   MAX_DEDUCTION_AMOUNT,
   MAX_AMOUNT_POLICY_ERROR,
 } from "@/lib/validation";
@@ -20,7 +19,7 @@ import {
 export function DeductionAction() {
   const {
     beneficiary, amount, setAmount,
-    type, setType, availableServiceTypes, facilityType, showConfirm, setShowConfirm,
+    type, setType, availableServiceTypes, facilityType,
     deducting, handleDeduct,
     simulation, simulating
   } = useDeductContext();
@@ -39,6 +38,7 @@ export function DeductionAction() {
     MEDICINE: "أدوية صرف عام",
     DENTAL: "خدمات أسنان",
     OPTICS: "خدمات بصريات / عيون",
+    PHYSIOTHERAPY: "خدمات علاج طبيعي",
     SUPPLIES: "مستلزمات طبية",
   };
 
@@ -55,6 +55,9 @@ export function DeductionAction() {
   } else if (facilityType === "OPTICS") {
     filteredTypes = filteredTypes.filter(t => t === "OPTICS");
     if (filteredTypes.length === 0) filteredTypes = ["OPTICS"];
+  } else if (facilityType === "PHYSIOTHERAPY") {
+    filteredTypes = filteredTypes.filter(t => t === "PHYSIOTHERAPY");
+    if (filteredTypes.length === 0) filteredTypes = ["PHYSIOTHERAPY"];
   } else {
     // For HOSPITAL or general admin view, remove DENTAL unless they are explicitly in a DENTAL facility.
     // The user requested: "في مصرف الوحدة كشف عام و ادوية صرف عام فقط و عندما اكون في وضع الاسنان يظهر فقط قسم الاسنان"
@@ -90,7 +93,7 @@ export function DeductionAction() {
         {/* قيمة الخدمة */}
         <div className="space-y-1.5">
           <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
-            قيمة الخدمة
+            {type === "PHYSIOTHERAPY" ? "عدد الجلسات" : "قيمة الخدمة"}
           </label>
           <div className="relative">
             <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
@@ -98,8 +101,8 @@ export function DeductionAction() {
             </div>
             <Input
               type="number"
-              step="0.25"
-              placeholder="0.00"
+              step={type === "PHYSIOTHERAPY" ? "1" : "0.25"}
+              placeholder={type === "PHYSIOTHERAPY" ? "0" : "0.00"}
               className={cn(
                 "h-11 pr-10 text-base font-black",
                 amountExceedsMax ? "border-red-500 focus-visible:ring-red-500/20" : "focus-visible:ring-primary/20"
@@ -108,7 +111,7 @@ export function DeductionAction() {
               onChange={(e) => setAmount(e.target.value)}
             />
             <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[11px] font-black text-slate-400">
-              د.ل
+              {type === "PHYSIOTHERAPY" ? "جلسة" : "د.ل"}
             </div>
           </div>
         </div>
@@ -123,7 +126,15 @@ export function DeductionAction() {
             ? "bg-blue-50/50 border-blue-100 dark:bg-blue-950/30 dark:border-blue-900/50" 
             : "bg-slate-50 border-slate-200 dark:bg-slate-800/80 dark:border-slate-700"
         )}>
-          {process.env.NEXT_PUBLIC_APP_MODE?.replace(/["']/g, '').toUpperCase() === "WAHDA_ONLY" ? (
+          {type === "PHYSIOTHERAPY" ? (
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">سيتم تسجيل</p>
+                <p className="text-2xl font-black text-teal-700 dark:text-teal-300">{amountValue.toLocaleString("ar-LY")} جلسة</p>
+              </div>
+              <Badge variant="info">بدون خصم مالي</Badge>
+            </div>
+          ) : process.env.NEXT_PUBLIC_APP_MODE?.replace(/["']/g, '').toUpperCase() === "WAHDA_ONLY" ? (
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">قيمة الخصم</p>
@@ -173,7 +184,7 @@ export function DeductionAction() {
           disabled={deducting || simulating}
           className="w-full h-12 text-base font-black shadow-lg shadow-primary/20 bg-teal-600 hover:bg-teal-700 text-white dark:bg-teal-600 dark:hover:bg-teal-500 transition-all"
         >
-          {deducting ? <Loader2 className="h-5 w-5 animate-spin" /> : "تأكيد وخصم الآن"}
+          {deducting ? <Loader2 className="h-5 w-5 animate-spin" /> : type === "PHYSIOTHERAPY" ? "تأكيد تسجيل الجلسات" : "تأكيد وخصم الآن"}
         </Button>
       )}
     </div>

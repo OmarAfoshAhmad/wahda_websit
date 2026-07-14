@@ -291,11 +291,9 @@ export default async function PhysiotherapyCompanyPrintPage({
                     <th className="border border-slate-400 px-2 py-2 text-center font-black w-8">#</th>
                     <th className="border border-slate-400 px-2 py-2 font-black">اسم المستفيد</th>
                     <th className="border border-slate-400 px-2 py-2 font-black">رقم البطاقة</th>
-                    <th className="border border-slate-400 px-2 py-2 text-center font-black">قيمة الفاتورة</th>
-                    <th className="border border-slate-400 px-2 py-2 text-center font-black">حصة الشركة</th>
-                    <th className="border border-slate-400 px-2 py-2 text-center font-black">حصة المؤمن (كاش)</th>
+                    <th className="border border-slate-400 px-2 py-2 text-center font-black">عدد الجلسات</th>
                     <th className="border border-slate-400 px-2 py-2 text-center font-black">
-                       {physiotherapyCeiling === null ? "الرصيد المستهلك" : "الرصيد المتبقي"}
+                       {physiotherapyCeiling === null ? "الرصيد المستهلك" : "المتبقي من الجلسات"}
                      </th>
                     <th className="border border-slate-400 px-2 py-2 font-black">المرفق</th>
                     <th className="border border-slate-400 px-2 py-2 font-black">التاريخ</th>
@@ -316,14 +314,12 @@ export default async function PhysiotherapyCompanyPrintPage({
                         <td className="border border-slate-300 px-2 py-1.5 text-center font-bold text-slate-600">{rowNum}</td>
                         <td className="border border-slate-300 px-2 py-1.5 font-black text-slate-900">{tx.beneficiary?.name || "—"}</td>
                         <td className="border border-slate-300 px-2 py-1.5 font-mono font-bold text-slate-700">{tx.beneficiary?.card_number || "—"}</td>
-                        <td className="border border-slate-300 px-2 py-1.5 text-center font-mono font-black">{amount.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل</td>
-                        <td className="border border-slate-300 px-2 py-1.5 text-center font-mono font-black text-teal-800">{companyShare.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل</td>
-                        <td className="border border-slate-300 px-2 py-1.5 text-center font-mono font-black text-amber-700">{patientShare.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل</td>
+                        <td className="border border-slate-300 px-2 py-1.5 text-center font-mono font-black">{Math.round(amount)} جلسة</td>
                         <td className="border border-slate-300 px-2 py-1.5 text-center font-mono font-black text-sky-800">
                           {remaining !== null && remaining < 99999999 ? (
-                            `${remaining.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل`
+                            `${Math.round(remaining)} جلسة`
                           ) : (
-                            `${consumedAccumulated.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل`
+                            `${Math.round(consumedAccumulated)} جلسة`
                           )}
                         </td>
                         <td className="border border-slate-300 px-2 py-1.5 font-bold text-slate-700">{tx.facility?.name || "—"}</td>
@@ -342,15 +338,9 @@ export default async function PhysiotherapyCompanyPrintPage({
                         الإجمالي الكلي ({shownCount} حركة{isTruncated ? ` من ${totalCount}` : ""})
                       </td>
                       <td className="border border-slate-400 px-2 py-2.5 text-center font-black text-slate-900">
-                        {totalAmount.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل
+                        {Math.round(totalAmount)} جلسة
                       </td>
-                      <td className="border border-slate-400 px-2 py-2.5 text-center font-black text-teal-800">
-                        {totalCompanyShare.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل
-                      </td>
-                      <td className="border border-slate-400 px-2 py-2.5 text-center font-black text-amber-700">
-                        {totalPatientShare.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل
-                      </td>
-                      <td colSpan={2} className="border border-slate-400 px-2 py-2.5" />
+                      <td colSpan={3} className="border border-slate-400 px-2 py-2.5" />
                     </tr>
                   </tfoot>
                 )}

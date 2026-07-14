@@ -497,7 +497,7 @@ export function PhysiotherapyTransactionImportUploader({
                         <td className="px-4 py-3 text-slate-900 dark:text-white font-bold">{g.companyName}</td>
                         <td className="px-4 py-3 font-bold text-slate-700 dark:text-slate-300">{g.facilityName}</td>
                         <td className="px-4 py-3 font-bold">{g.count} حركات</td>
-                        <td className="px-4 py-3 text-teal-600 font-bold">{g.totalAmount.toFixed(2)} جلسة</td>
+                        <td className="px-4 py-3 text-teal-600 font-bold">{Math.round(g.totalAmount)} جلسة</td>
                         <td className="px-4 py-3 text-center">
                           {g.isMatched ? (
                             <span className="inline-flex items-center gap-1 text-emerald-600 bg-emerald-50 dark:bg-emerald-950/20 px-2 py-1 rounded font-bold text-[10px]">
@@ -562,7 +562,7 @@ export function PhysiotherapyTransactionImportUploader({
                           <td className="px-4 py-2 text-slate-900 dark:text-white font-bold">{detail.name || "-"}</td>
                           <td className="px-4 py-2 font-mono font-bold">{detail.card || "-"}</td>
                           <td className="px-4 py-2">{detail.facilityName || "-"}</td>
-                          <td className="px-4 py-2 text-teal-600 font-bold">{detail.amount.toFixed(2)} جلسة</td>
+                          <td className="px-4 py-2 text-teal-600 font-bold">{Math.round(detail.amount)} جلسة</td>
                           <td className="px-4 py-2">
                             <Badge variant="danger" className="font-bold">
                               {detail.reason}
@@ -599,7 +599,7 @@ export function PhysiotherapyTransactionImportUploader({
                           <td className="px-4 py-2 text-slate-900 dark:text-white font-bold">{detail.name || "-"}</td>
                           <td className="px-4 py-2 font-mono font-bold">{detail.card || "-"}</td>
                           <td className="px-4 py-2">{detail.facilityName || "-"}</td>
-                          <td className="px-4 py-2 text-teal-600 font-bold">{detail.amount.toFixed(2)} جلسة</td>
+                          <td className="px-4 py-2 text-teal-600 font-bold">{Math.round(detail.amount)} جلسة</td>
                           <td className="px-4 py-2 text-amber-600 font-bold max-w-[300px] whitespace-normal">
                             {detail.reason}
                           </td>
