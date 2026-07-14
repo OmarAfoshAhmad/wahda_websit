@@ -4,9 +4,10 @@ import prisma from "@/lib/prisma";
 import ExcelJS from "exceljs";
 import { requireActiveFacilitySession } from "@/lib/session-guard";
 import { logger } from "@/lib/logger";
-import { InsuranceEngine } from "@/lib/insurance/engine";
 import { revalidatePath } from "next/cache";
 import bcrypt from "bcryptjs";
+import { updateImportedServiceTransactionDates } from "@/lib/service-transaction-date-update";
+import { calculatePhysiotherapySessions, parsePhysiotherapySessionCount } from "@/lib/physiotherapy-sessions";
 
 export type SkippedRowDetail = {
   rowNumber: number;
@@ -38,6 +39,11 @@ export type ImportResult = {
   ceilingExceededDetails?: SkippedRowDetail[];
   skippedDetails: SkippedRowDetail[];
   groups: SummaryGroup[];
+  operationMode?: "import" | "update_dates";
+  updatedCount?: number;
+  alreadyCorrectCount?: number;
+  missingExistingCount?: number;
+  conflictCount?: number;
 };
 
 function normalizeCardNumber(card: any): string {
@@ -46,7 +52,8 @@ function normalizeCardNumber(card: any): string {
 }
 
 function parseExcelDate(val: any): Date {
-  if (!val) return new Date();
+  const invalidDate = () => new Date(Number.NaN);
+  if (!val) return invalidDate();
   
   // Helper to validate reasonable date range
   const isValidRange = (d: Date) => {
@@ -58,15 +65,15 @@ function parseExcelDate(val: any): Date {
   // 1. If it's already a JS Date object
   if (val instanceof Date) {
     if (isValidRange(val)) {
-      return val;
+      return new Date(Date.UTC(val.getUTCFullYear(), val.getUTCMonth(), val.getUTCDate()));
     }
-    return new Date();
+    return invalidDate();
   }
 
   // 2. If it's an object (like formula result or cell object)
   if (typeof val === "object") {
     if (val.result instanceof Date && isValidRange(val.result)) {
-      return val.result;
+      return new Date(Date.UTC(val.result.getUTCFullYear(), val.result.getUTCMonth(), val.result.getUTCDate()));
     }
     if (val.result !== undefined && val.result !== null) {
       val = val.result;
@@ -90,7 +97,7 @@ function parseExcelDate(val: any): Date {
   // 4. If it's a string
   if (typeof val === "string") {
     const cleaned = val.trim();
-    if (!cleaned) return new Date();
+    if (!cleaned) return invalidDate();
 
     // Check DD/MM/YYYY or D/M/YYYY or with dashes
     const slashMatch = cleaned.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4,})$/);
@@ -98,7 +105,7 @@ function parseExcelDate(val: any): Date {
       const day = parseInt(slashMatch[1], 10);
       const month = parseInt(slashMatch[2], 10) - 1; // 0-indexed
       const year = parseInt(slashMatch[3], 10);
-      const d = new Date(year, month, day);
+      const d = new Date(Date.UTC(year, month, day));
       if (isValidRange(d)) return d;
     }
 
@@ -108,18 +115,18 @@ function parseExcelDate(val: any): Date {
       const year = parseInt(isoMatch[1], 10);
       const month = parseInt(isoMatch[2], 10) - 1; // 0-indexed
       const day = parseInt(isoMatch[3], 10);
-      const d = new Date(year, month, day);
+      const d = new Date(Date.UTC(year, month, day));
       if (isValidRange(d)) return d;
     }
 
     // Try native JS Date parser
     const parsed = new Date(cleaned);
     if (isValidRange(parsed)) {
-      return parsed;
+      return new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate()));
     }
   }
 
-  return new Date();
+  return invalidDate();
 }
 
 export async function importPhysiotherapyTransactionsAction(
@@ -129,7 +136,9 @@ export async function importPhysiotherapyTransactionsAction(
   companyId?: string,
   autoCreateMissing: boolean = true,
   autoCreateMissingFacilities: boolean = true,
-  _deprecated?: boolean
+  _deprecated?: boolean,
+  updateExistingDates: boolean = false,
+  sourceFileName?: string,
 ): Promise<ImportResult> {
   const session = await requireActiveFacilitySession();
   if (!session || !session.is_admin) {
@@ -146,30 +155,28 @@ export async function importPhysiotherapyTransactionsAction(
     }
 
     const rawRows: any[] = [];
+    const invalidDateRows: number[] = [];
+    const invalidSessionRows: number[] = [];
     
     // Dynamically map columns based on header row (check row 1 and row 2)
     let headerRow = ws.getRow(1);
-    let headerText = headerRow.values ? Object.values(headerRow.values).join(" ") : "";
+    const headerText = headerRow.values ? Object.values(headerRow.values).join(" ") : "";
     if (!headerText.includes("اسم") && !headerText.includes("تأمين") && !headerText.includes("مريض")) {
       headerRow = ws.getRow(2);
     }
     
-    let nameCol = 1, cardCol = 2, approvalCol = 3, amountCol = -1, dateCol = 5, facilityCol = 6, notesCol = 7;
+    let nameCol = 1, cardCol = 2, approvalCol = 3, sessionsCol = -1, dateCol = 5, facilityCol = 6, notesCol = 7;
     
     headerRow.eachCell((cell, colNumber) => {
       const val = String(cell.value || "").trim();
       if (val.includes("اسم") || val.includes("المريض")) nameCol = colNumber;
       else if (val.includes("تأمين") || val.includes("تامين") || val.includes("بطاقة")) cardCol = colNumber;
       else if (val.includes("موافقة")) approvalCol = colNumber;
-      else if (val.includes("جلسات") || val.includes("جلسة")) amountCol = colNumber;
-      else if (amountCol === -1 && (val.includes("قيمة") || val.includes("مبلغ") || val.includes("دينار"))) amountCol = colNumber;
+      else if (val.includes("جلسات") || val.includes("جلسة")) sessionsCol = colNumber;
       else if (val.includes("تاريخ")) dateCol = colNumber;
       else if (val.includes("مرفق") || val.includes("جهة") || val.includes("جيهة") || val.includes("مركز")) facilityCol = colNumber;
       else if (val.includes("ملاحظة") || val.includes("ملاحظات")) notesCol = colNumber;
     });
-
-    // If we still didn't find a dedicated sessions column, we will try to extract from notes later
-    if (amountCol === -1) amountCol = 4;
 
     ws.eachRow((row, rowNumber) => {
       if (rowNumber === 1 || (rowNumber === 2 && headerRow.number === 2)) return; // Skip Header rows
@@ -177,7 +184,7 @@ export async function importPhysiotherapyTransactionsAction(
       const nameVal = row.getCell(nameCol).value;
       const cardVal = row.getCell(cardCol).value;
       const approvalVal = row.getCell(approvalCol).value;
-      const amountVal = row.getCell(amountCol).value;
+      const sessionsVal = sessionsCol > 0 ? row.getCell(sessionsCol).value : null;
       const dateVal = row.getCell(dateCol).value;
       const facilityVal = row.getCell(facilityCol).value;
       const notesVal = row.getCell(notesCol).value;
@@ -185,37 +192,23 @@ export async function importPhysiotherapyTransactionsAction(
       const card = normalizeCardNumber(cardVal);
       const name = nameVal ? String(nameVal).trim() : "";
       
-      // Parse amount properly even if it's a string
-      let amount = 0;
-      if (typeof amountVal === "number") {
-        amount = amountVal;
-      } else if (typeof amountVal === "string") {
-        amount = parseFloat(amountVal.replace(/,/g, "").match(/[\d.]+/)?.[0] || "0");
-      } else if (typeof amountVal === "object" && amountVal && "result" in amountVal) {
-        amount = Number((amountVal as any).result || 0);
-      }
-
-      // Special case for Physiotherapy: If notes contain the number of sessions, override the amount
       const notesString = notesVal ? String(notesVal).trim() : "";
-      if (notesString.includes("جلسات") || notesString.includes("جلسة")) {
-        const sessionMatch = notesString.match(/(\d+)\s*جلس/);
-        if (sessionMatch) {
-          amount = parseFloat(sessionMatch[1]);
-        } else {
-          // just grab the first number if "جلس" is present
-          const numMatch = notesString.match(/[\d.]+/);
-          if (numMatch) {
-            amount = parseFloat(numMatch[0]);
-          }
-        }
-      }
-
-      const hasName = Boolean(name);
-      const facilityString = facilityVal ? String(facilityVal).trim() : "";
-      const hasFacility = Boolean(facilityString);
+      // Financial columns are intentionally ignored.
+      const amount = parsePhysiotherapySessionCount(sessionsVal, notesString);
 
       // Skip completely empty rows or junk formula rows (e.g. auto-filled card prefixes with no data)
       if (amount === 0 && !name) return;
+
+      if (!Number.isFinite(amount) || amount <= 0 || !Number.isInteger(amount)) {
+        invalidSessionRows.push(rowNumber);
+        return;
+      }
+
+      const parsedDate = parseExcelDate(dateVal);
+      if (Number.isNaN(parsedDate.getTime())) {
+        invalidDateRows.push(rowNumber);
+        return;
+      }
 
       rawRows.push({
         rowNumber,
@@ -223,15 +216,106 @@ export async function importPhysiotherapyTransactionsAction(
         card,
         approval: approvalVal ? String(approvalVal).trim() : "",
         amount,
-        date: parseExcelDate(dateVal),
+        date: parsedDate,
         notes: notesVal ? String(notesVal).trim() : "",
         facilityName: facilityVal ? String(facilityVal).trim() : "",
       });
     });
 
     const totalRows = rawRows.length;
+    if (invalidSessionRows.length > 0) {
+      const displayedRows = invalidSessionRows.slice(0, 20).join("، ");
+      const remainingRows = invalidSessionRows.length > 20 ? ` و${invalidSessionRows.length - 20} صفوف أخرى` : "";
+      return {
+        success: false,
+        error: `لا يوجد عدد جلسات صحيح وواضح في صفوف Excel: ${displayedRows}${remainingRows}. يجب وضع عدد صحيح في عمود الجلسات أو كتابة «10 جلسات» أو «10» في الملاحظات. عمود القيمة المالية لا يُستخدم. لم يتم إجراء أي تغيير.`,
+        totalRows: totalRows + invalidSessionRows.length,
+        insertedCount: 0,
+        skippedCount: totalRows + invalidSessionRows.length,
+        autoCreatedCount: 0,
+        autoCreatedFacilitiesCount: 0,
+        skippedDetails: [],
+        groups: [],
+        operationMode: updateExistingDates ? "update_dates" : "import",
+        updatedCount: 0,
+        alreadyCorrectCount: 0,
+        missingExistingCount: 0,
+        conflictCount: 0,
+      };
+    }
+    if (invalidDateRows.length > 0) {
+      const displayedRows = invalidDateRows.slice(0, 20).join("، ");
+      const remainingRows = invalidDateRows.length > 20 ? ` و${invalidDateRows.length - 20} صفوف أخرى` : "";
+      return {
+        success: false,
+        error: `توجد تواريخ فارغة أو غير صالحة في صفوف Excel: ${displayedRows}${remainingRows}. صححها قبل المتابعة؛ لم يتم إجراء أي تغيير.`,
+        totalRows: totalRows + invalidDateRows.length,
+        insertedCount: 0,
+        skippedCount: totalRows + invalidDateRows.length,
+        autoCreatedCount: 0,
+        autoCreatedFacilitiesCount: 0,
+        skippedDetails: [],
+        groups: [],
+        operationMode: updateExistingDates ? "update_dates" : "import",
+        updatedCount: 0,
+        alreadyCorrectCount: 0,
+        missingExistingCount: 0,
+        conflictCount: 0,
+      };
+    }
     if (totalRows === 0) {
       return { success: false, error: "لم يتم العثور على أي حركات صالحة في الملف.", totalRows: 0, insertedCount: 0, skippedCount: 0, autoCreatedCount: 0, autoCreatedFacilitiesCount: 0, ceilingExceededCount: 0, ceilingExceededDetails: [], skippedDetails: [], groups: [] };
+    }
+
+    if (updateExistingDates) {
+      if (!companyId) {
+        return {
+          success: false,
+          error: "يجب اختيار شركة التأمين قبل تحديث تواريخ الحركات.",
+          totalRows,
+          insertedCount: 0,
+          skippedCount: totalRows,
+          autoCreatedCount: 0,
+          autoCreatedFacilitiesCount: 0,
+          skippedDetails: [],
+          groups: [],
+          operationMode: "update_dates",
+          updatedCount: 0,
+          alreadyCorrectCount: 0,
+          missingExistingCount: totalRows,
+          conflictCount: 0,
+        };
+      }
+
+      const dateUpdate = await updateImportedServiceTransactionDates({
+        rows: rawRows,
+        transactionType: "PHYSIOTHERAPY",
+        keyPrefix: "import-physiotherapy-tx",
+        companyId,
+        actorId: session.id,
+        actorUsername: session.username,
+        sourceFileName,
+        dryRun,
+      });
+
+      if (!dryRun) revalidatePath("/admin/physiotherapy-transactions");
+      return {
+        success: true,
+        totalRows,
+        insertedCount: dateUpdate.updatedCount,
+        skippedCount: dateUpdate.alreadyCorrectCount + dateUpdate.missingCount + dateUpdate.conflictCount,
+        autoCreatedCount: 0,
+        autoCreatedFacilitiesCount: 0,
+        ceilingExceededCount: 0,
+        ceilingExceededDetails: [],
+        skippedDetails: dateUpdate.issues,
+        groups: [],
+        operationMode: "update_dates",
+        updatedCount: dateUpdate.updatedCount,
+        alreadyCorrectCount: dateUpdate.alreadyCorrectCount,
+        missingExistingCount: dateUpdate.missingCount,
+        conflictCount: dateUpdate.conflictCount,
+      };
     }
 
     // Sort chronologically by date
@@ -619,9 +703,10 @@ export async function importPhysiotherapyTransactionsAction(
             is_cancelled: false,
             created_at: { gte: startDate, lt: r.date },
           },
-          _sum: { ceiling_consumed: true },
+          // amount is the authoritative session count; legacy ceiling_consumed may contain financial fractions.
+          _sum: { amount: true },
         });
-        runningConsumption.set(consumptionKey, Number(agg._sum.ceiling_consumed ?? 0));
+        runningConsumption.set(consumptionKey, Number(agg._sum.amount ?? 0));
       }
 
       const currentConsumed = runningConsumption.get(consumptionKey) || 0;
@@ -637,37 +722,35 @@ export async function importPhysiotherapyTransactionsAction(
           effectiveCeiling = cVal === null ? null : Number(cVal);
         }
 
-        const calcResult = InsuranceEngine.calculate({
-          amount: r.amount,
-          consumedThisYear: currentConsumed,
-          policy: {
-            serviceType: "PHYSIOTHERAPY",
-            annualCeiling: effectiveCeiling,
-            copayPercentage: Number(policy.copay_percentage),
-            allowPartialCoverage: policy.allow_partial_coverage,
-          },
+        const sessionResult = calculatePhysiotherapySessions({
+          sessions: r.amount,
+          consumedBefore: currentConsumed,
+          limit: effectiveCeiling,
         });
 
         tpaData = {
           company_id: beneficiary.company_id,
           service_category: "PHYSIOTHERAPY",
-          original_company_share: calcResult.originalCompanyShare,
-          original_patient_share: calcResult.originalPatientShare,
-          actual_company_share: calcResult.actualCompanyShare,
-          actual_patient_share: calcResult.actualPatientShare,
-          remaining_ceiling_before: calcResult.remainingCeilingBefore,
-          ceiling_consumed: calcResult.ceilingConsumed,
-          remaining_ceiling_after: calcResult.remainingCeilingAfter,
-          consumed_before: calcResult.consumedBefore,
-          consumed_after: calcResult.consumedAfter,
+          original_company_share: r.amount,
+          original_patient_share: 0,
+          actual_company_share: r.amount,
+          actual_patient_share: 0,
+          remaining_ceiling_before: sessionResult.remainingBefore,
+          ceiling_consumed: sessionResult.sessions,
+          remaining_ceiling_after: sessionResult.remainingAfter,
+          consumed_before: sessionResult.consumedBefore,
+          consumed_after: sessionResult.consumedAfter,
           policy_snapshot: JSON.parse(JSON.stringify(policy)),
           calc_metadata: {
-            ...(calcResult.metadata || {}),
+            calculationUnit: "SESSION",
+            financialCoverageApplied: false,
+            sessionLimit: sessionResult.limit,
+            exceededSessions: sessionResult.exceededSessions,
             notes: r.notes || `استيراد حركة سابقة - موافقة ${r.approval || "بدون"}`,
           },
         };
 
-        if (calcResult.actualPatientShare > calcResult.originalPatientShare) {
+        if (sessionResult.exceededSessions > 0) {
           ceilingExceededCount++;
           ceilingExceededDetails.push({
             rowNumber: r.rowNumber,
@@ -675,11 +758,11 @@ export async function importPhysiotherapyTransactionsAction(
             card: r.card,
             facilityName: r.facilityName,
             amount: r.amount,
-            reason: `تجاوز السقف: السقف المتبقي قبل الحركة كان ${calcResult.remainingCeilingBefore?.toFixed(2) || 0} جلسة وتم تحميل ${calcResult.actualPatientShare.toFixed(2)} جلسة على المستفيد`,
+            reason: `تجاوز عدد الجلسات المحدد: المتبقي قبل الحركة ${sessionResult.remainingBefore?.toFixed(2) || 0} جلسة، والزيادة التراكمية ${sessionResult.exceededSessions.toFixed(2)} جلسة. لا يوجد تحميل مالي على المستفيد.`,
           });
         }
 
-        runningConsumption.set(consumptionKey, currentConsumed + Number(calcResult.ceilingConsumed));
+        runningConsumption.set(consumptionKey, sessionResult.consumedAfter);
       } else {
         tpaData = {
           company_id: beneficiary.company_id,
@@ -736,18 +819,6 @@ export async function importPhysiotherapyTransactionsAction(
     }
 
     // Convert map to groups array
-    const groupArray: SummaryGroup[] = Array.from(groupStats.entries()).map(([key, value]) => {
-      const [companyName, facilityName] = key.split(":::");
-      return {
-        companyName,
-        facilityName,
-        count: value.count,
-        totalAmount: value.totalAmount,
-        isMatched: value.isMatched,
-        reason: value.reason,
-      };
-    });
-
     if (!dryRun) {
       revalidatePath("/admin/physiotherapy-transactions");
     }
@@ -767,6 +838,7 @@ export async function importPhysiotherapyTransactionsAction(
       ceilingExceededDetails,
       skippedDetails,
       groups: Array.from(groupStats.values()),
+      operationMode: "import",
     };
   } catch (err: any) {
     logger.error("Failed to import physiotherapy transactions:", { error: String(err), stack: err.stack });
@@ -782,6 +854,11 @@ export async function importPhysiotherapyTransactionsAction(
       ceilingExceededDetails: [],
       skippedDetails: [],
       groups: [],
+      operationMode: updateExistingDates ? "update_dates" : "import",
+      updatedCount: 0,
+      alreadyCorrectCount: 0,
+      missingExistingCount: 0,
+      conflictCount: 0,
     };
   }
 }

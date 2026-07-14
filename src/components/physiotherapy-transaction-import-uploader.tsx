@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Upload, FileSpreadsheet, AlertCircle, Loader2, CheckCircle2, ChevronLeft, Info, Trash2, Check, X, ShieldAlert } from "lucide-react";
+import { Upload, FileSpreadsheet, AlertCircle, Loader2, CheckCircle2, Trash2, Check, X, ShieldAlert, CalendarClock } from "lucide-react";
 import { Button, Card, Badge } from "@/components/ui";
 import { importPhysiotherapyTransactionsAction, type SkippedRowDetail, type SummaryGroup } from "@/app/actions/import-physiotherapy-transactions";
 import Link from "next/link";
@@ -19,6 +19,7 @@ export function PhysiotherapyTransactionImportUploader({
   initialCompanyId?: string;
 }) {
   const [selectedCompanyId, setSelectedCompanyId] = useState(initialCompanyId || "");
+  const [operationMode, setOperationMode] = useState<"import" | "update_dates">("import");
   const [file, setFile] = useState<File | null>(null);
   const [purgeOld, setPurgeOld] = useState(false);
   const [autoCreateMissing, setAutoCreateMissing] = useState(true);
@@ -39,6 +40,11 @@ export function PhysiotherapyTransactionImportUploader({
     ceilingExceededDetails?: SkippedRowDetail[];
     skippedDetails: SkippedRowDetail[];
     groups: SummaryGroup[];
+    operationMode?: "import" | "update_dates";
+    updatedCount?: number;
+    alreadyCorrectCount?: number;
+    missingExistingCount?: number;
+    conflictCount?: number;
   } | null>(null);
 
   // Final result (Commit run)
@@ -53,6 +59,11 @@ export function PhysiotherapyTransactionImportUploader({
     ceilingExceededCount?: number;
     ceilingExceededDetails?: SkippedRowDetail[];
     skippedDetails: SkippedRowDetail[];
+    operationMode?: "import" | "update_dates";
+    updatedCount?: number;
+    alreadyCorrectCount?: number;
+    missingExistingCount?: number;
+    conflictCount?: number;
   } | null>(null);
 
   // File base64 cached for commit run
@@ -97,7 +108,17 @@ export function PhysiotherapyTransactionImportUploader({
         setFileBase64(base64);
 
         // Run dry-run scan
-        const res = await importPhysiotherapyTransactionsAction(base64, purgeOld, true, selectedCompanyId, autoCreateMissing, autoCreateMissingFacilities, false);
+        const res = await importPhysiotherapyTransactionsAction(
+          base64,
+          operationMode === "import" ? purgeOld : false,
+          true,
+          selectedCompanyId,
+          operationMode === "import" ? autoCreateMissing : false,
+          operationMode === "import" ? autoCreateMissingFacilities : false,
+          false,
+          operationMode === "update_dates",
+          file.name,
+        );
         setAnalysis(res);
         setAnalyzing(false);
       };
@@ -141,7 +162,17 @@ export function PhysiotherapyTransactionImportUploader({
     setResult(null);
 
     try {
-      const res = await importPhysiotherapyTransactionsAction(fileBase64, purgeOld, false, selectedCompanyId, autoCreateMissing, autoCreateMissingFacilities, false);
+      const res = await importPhysiotherapyTransactionsAction(
+        fileBase64,
+        operationMode === "import" ? purgeOld : false,
+        false,
+        selectedCompanyId,
+        operationMode === "import" ? autoCreateMissing : false,
+        operationMode === "import" ? autoCreateMissingFacilities : false,
+        false,
+        operationMode === "update_dates",
+        file?.name,
+      );
       setResult(res);
       setImporting(false);
     } catch (err: any) {
@@ -166,7 +197,14 @@ export function PhysiotherapyTransactionImportUploader({
     setPurgeOld(false);
     setAutoCreateMissing(true);
     setAutoCreateMissingFacilities(true);
+    setOperationMode("import");
   };
+
+  const isDateUpdate = operationMode === "update_dates";
+  const analysisReadyCount = analysis?.updatedCount ?? analysis?.insertedCount ?? 0;
+  const dateUpdateHasBlockingIssues = isDateUpdate && (
+    (analysis?.missingExistingCount ?? 0) > 0 || (analysis?.conflictCount ?? 0) > 0
+  );
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -211,6 +249,54 @@ export function PhysiotherapyTransactionImportUploader({
               </div>
             )}
 
+            <div className="space-y-2">
+              <label className="text-sm font-bold text-slate-700 dark:text-slate-300">نوع العملية</label>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => setOperationMode("import")}
+                  disabled={analyzing}
+                  className={`rounded-lg border p-4 text-right transition-colors ${operationMode === "import" ? "border-teal-500 bg-teal-50 dark:bg-teal-950/20" : "border-slate-200 dark:border-slate-700"}`}
+                >
+                  <div className="flex items-center gap-2 font-black text-slate-900 dark:text-white">
+                    <Upload className="h-4 w-4 text-teal-600" />
+                    استيراد حركات جديدة
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">ينشئ الحركات ويحسب عدد الجلسات فقط، دون تطبيق مبالغ أو نسب تغطية مالية.</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOperationMode("update_dates");
+                    setPurgeOld(false);
+                  }}
+                  disabled={analyzing}
+                  className={`rounded-lg border p-4 text-right transition-colors ${operationMode === "update_dates" ? "border-blue-500 bg-blue-50 dark:bg-blue-950/20" : "border-slate-200 dark:border-slate-700"}`}
+                >
+                  <div className="flex items-center gap-2 font-black text-slate-900 dark:text-white">
+                    <CalendarClock className="h-4 w-4 text-blue-600" />
+                    تحديث تواريخ حركات موجودة
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">يغيّر التاريخ فقط، دون إنشاء حركة أو خصم أو إعادة حساب السقف.</p>
+                </button>
+              </div>
+            </div>
+
+            {operationMode === "update_dates" && (
+              <Card className="border-blue-200 bg-blue-50/40 p-4 dark:border-blue-900/40 dark:bg-blue-950/20">
+                <div className="flex gap-3">
+                  <CalendarClock className="mt-0.5 h-5 w-5 shrink-0 text-blue-600" />
+                  <div>
+                    <p className="text-sm font-black text-blue-900 dark:text-blue-200">وضع تصحيح التاريخ الآمن</p>
+                    <p className="mt-1 text-xs leading-6 text-slate-600 dark:text-slate-400">
+                      يجب أن يكون الملف نسخة مصححة من ملف الشركة الذي استُورد سابقاً مع بقاء ترتيب الصفوف والبطاقات والمبالغ كما هي.
+                      ستتوقف العملية كاملة إذا وُجدت حركة مفقودة أو متعارضة.
+                    </p>
+                  </div>
+                </div>
+              </Card>
+            )}
+
             {/* File Picker */}
             <div className="space-y-2">
               <label className="text-sm font-bold text-slate-700 dark:text-slate-300">ملف حركات العلاج الطبيعي (.xlsx)</label>
@@ -233,7 +319,7 @@ export function PhysiotherapyTransactionImportUploader({
             </div>
 
             {/* Auto Create Missing Option */}
-            <Card className="p-4 border-teal-200 bg-teal-50/20 dark:border-teal-900/30">
+            {operationMode === "import" && <Card className="p-4 border-teal-200 bg-teal-50/20 dark:border-teal-900/30">
               <div className="flex items-start gap-3">
                 <input
                   id="autoCreateMissing"
@@ -252,10 +338,10 @@ export function PhysiotherapyTransactionImportUploader({
                   </p>
                 </div>
               </div>
-            </Card>
+            </Card>}
 
             {/* Auto Create Missing Facilities Option */}
-            <Card className="p-4 border-indigo-200 bg-indigo-50/20 dark:border-indigo-900/30">
+            {operationMode === "import" && <Card className="p-4 border-indigo-200 bg-indigo-50/20 dark:border-indigo-900/30">
               <div className="flex items-start gap-3">
                 <input
                   id="autoCreateMissingFacilities"
@@ -274,10 +360,10 @@ export function PhysiotherapyTransactionImportUploader({
                   </p>
                 </div>
               </div>
-            </Card>
+            </Card>}
 
             {/* Purge Old Option */}
-            <Card className="p-4 border-amber-200 bg-amber-50/20 dark:border-amber-900/30">
+            {operationMode === "import" && <Card className="p-4 border-amber-200 bg-amber-50/20 dark:border-amber-900/30">
               <div className="flex items-start gap-3">
                 <input
                   id="purgeOld"
@@ -296,7 +382,7 @@ export function PhysiotherapyTransactionImportUploader({
                   </p>
                 </div>
               </div>
-            </Card>
+            </Card>}
 
             <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
               <Link href="/admin/physiotherapy-transactions">
@@ -331,7 +417,9 @@ export function PhysiotherapyTransactionImportUploader({
               <div>
                 <h2 className="text-lg font-black text-slate-900 dark:text-white">نتائج تحليل ومطابقة الملف المرفوع</h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  تم تجميع البيانات ومطابقتها للتأكد من دقة الأسماء والمرافق قبل إتمام الحفظ.
+                  {isDateUpdate
+                    ? "تمت مطابقة كل صف بالحركة المستوردة سابقاً. لن تتغير المبالغ أو الأرصدة."
+                    : "تم تجميع البيانات ومطابقتها للتأكد من دقة الأسماء والمرافق قبل إتمام الحفظ."}
                 </p>
               </div>
               <Button variant="outline" onClick={resetAll} disabled={importing}>
@@ -357,23 +445,40 @@ export function PhysiotherapyTransactionImportUploader({
                 <p className="mt-1 text-2xl font-black text-slate-800 dark:text-white">{analysis.totalRows}</p>
               </Card>
               <Card className="p-4 text-center bg-emerald-50/50 dark:bg-emerald-900/10 border-emerald-100 dark:border-emerald-950">
-                <p className="text-xs text-emerald-600">حركات جاهزة للاستيراد</p>
-                <p className="mt-1 text-2xl font-black text-emerald-800 dark:text-emerald-300">{analysis.insertedCount}</p>
+                <p className="text-xs text-emerald-600">{isDateUpdate ? "تواريخ جاهزة للتحديث" : "حركات جاهزة للاستيراد"}</p>
+                <p className="mt-1 text-2xl font-black text-emerald-800 dark:text-emerald-300">{analysisReadyCount}</p>
               </Card>
               <Card className="p-4 text-center bg-red-50/50 dark:bg-red-900/10 border-red-100 dark:border-red-950">
-                <p className="text-xs text-red-600">حركات غير مطابقة (ستتخطى)</p>
+                <p className="text-xs text-red-600">{isDateUpdate ? "صحيحة مسبقاً أو تحتاج مراجعة" : "حركات غير مطابقة (ستتخطى)"}</p>
                 <p className="mt-1 text-2xl font-black text-red-800 dark:text-red-300">{analysis.skippedCount}</p>
               </Card>
               {analysis.ceilingExceededCount !== undefined && analysis.ceilingExceededCount > 0 && (
                 <Card className="p-4 text-center bg-amber-50/50 dark:bg-amber-900/10 border-amber-100 dark:border-amber-950">
-                  <p className="text-xs text-amber-600">حركات تجاوزت السقف</p>
+                  <p className="text-xs text-amber-600">حركات تجاوزت عدد الجلسات</p>
                   <p className="mt-1 text-2xl font-black text-amber-800 dark:text-amber-300">{analysis.ceilingExceededCount}</p>
                 </Card>
               )}
             </div>
 
+            {isDateUpdate && (
+              <div className="mb-6 grid gap-3 sm:grid-cols-3">
+                <Card className="p-3 text-center">
+                  <p className="text-xs text-slate-500">صحيحة مسبقاً</p>
+                  <p className="mt-1 text-xl font-black">{analysis.alreadyCorrectCount ?? 0}</p>
+                </Card>
+                <Card className="p-3 text-center">
+                  <p className="text-xs text-slate-500">غير موجودة</p>
+                  <p className="mt-1 text-xl font-black text-red-600">{analysis.missingExistingCount ?? 0}</p>
+                </Card>
+                <Card className="p-3 text-center">
+                  <p className="text-xs text-slate-500">متعارضة</p>
+                  <p className="mt-1 text-xl font-black text-red-600">{analysis.conflictCount ?? 0}</p>
+                </Card>
+              </div>
+            )}
+
             {/* Aggregated Group Statistics */}
-            <div className="space-y-3 mb-6">
+            {!isDateUpdate && <div className="space-y-3 mb-6">
               <h3 className="text-sm font-black text-slate-800 dark:text-white">إحصائيات التجميع حسب الشركة والمرفق</h3>
               <div className="border border-slate-100 dark:border-slate-800 rounded-lg overflow-hidden">
                 <table className="min-w-full divide-y divide-slate-100 dark:divide-slate-800 text-right text-xs">
@@ -409,16 +514,24 @@ export function PhysiotherapyTransactionImportUploader({
                   </tbody>
                 </table>
               </div>
-            </div>
+            </div>}
 
             {/* Warnings Alert */}
             {analysis.skippedCount > 0 && (
               <Card className="p-4 border-red-200 bg-red-50/20 dark:border-red-900/30 flex gap-3 mb-6">
                 <ShieldAlert className="h-5 w-5 text-red-600 shrink-0" />
                 <div className="space-y-1">
-                  <p className="text-xs font-black text-red-800 dark:text-red-300">يوجد {analysis.skippedCount} حركة غير مطابقة بالكامل!</p>
+                  <p className="text-xs font-black text-red-800 dark:text-red-300">
+                    {isDateUpdate
+                      ? `يوجد ${analysis.skippedCount} صف لن يحتاج أو لن يقبل تحديث التاريخ.`
+                      : `يوجد ${analysis.skippedCount} حركة غير مطابقة بالكامل!`}
+                  </p>
                   <p className="text-[11px] text-slate-500">
-                    إذا قمت بمتابعة الاستيراد الآن، سيتم استيراد الحركات المكتملة والمطابقة فقط ({analysis.insertedCount} حركة)، وسيتم تلقائياً تخطي الحركات غير المطابقة.
+                    {isDateUpdate
+                      ? dateUpdateHasBlockingIssues
+                        ? "لن يسمح بالتنفيذ حتى تصبح الحركات المفقودة والمتعارضة صفراً."
+                        : `سيتم تحديث ${analysisReadyCount} حركة، أما الصحيحة مسبقاً فلن تتغير.`
+                      : `إذا قمت بمتابعة الاستيراد الآن، سيتم استيراد الحركات المكتملة والمطابقة فقط (${analysis.insertedCount} حركة)، وسيتم تلقائياً تخطي الحركات غير المطابقة.`}
                   </p>
                 </div>
               </Card>
@@ -427,7 +540,9 @@ export function PhysiotherapyTransactionImportUploader({
             {/* Warnings list */}
             {analysis.skippedCount > 0 && (
               <div className="space-y-3 mb-6">
-                <h3 className="text-sm font-black text-red-800 dark:text-red-300">تفاصيل الحركات غير المطابقة (سيتم تخطيها)</h3>
+                <h3 className="text-sm font-black text-red-800 dark:text-red-300">
+                  {isDateUpdate ? "تفاصيل مطابقة تحديث التاريخ" : "تفاصيل الحركات غير المطابقة (سيتم تخطيها)"}
+                </h3>
                 <div className="border border-slate-100 dark:border-slate-800 rounded-lg overflow-hidden max-h-60 overflow-y-auto">
                   <table className="min-w-full divide-y divide-slate-100 dark:divide-slate-800 text-right text-xs">
                     <thead className="bg-slate-50 dark:bg-slate-900 sticky top-0">
@@ -464,7 +579,7 @@ export function PhysiotherapyTransactionImportUploader({
             {/* Ceiling Exceeded Warnings list */}
             {analysis.ceilingExceededCount !== undefined && analysis.ceilingExceededCount > 0 && (
               <div className="space-y-3 mb-6">
-                <h3 className="text-sm font-black text-amber-800 dark:text-amber-300">تنبيه: حركات تتجاوز سقف المستفيد (سيتم استيرادها مع تحميل الفرق للمستفيد)</h3>
+                <h3 className="text-sm font-black text-amber-800 dark:text-amber-300">تنبيه: حركات تتجاوز عدد الجلسات المحدد (ستُستورد للتوثيق دون أي تحميل مالي على المستفيد)</h3>
                 <div className="border border-slate-100 dark:border-slate-800 rounded-lg overflow-hidden max-h-60 overflow-y-auto">
                   <table className="min-w-full divide-y divide-slate-100 dark:divide-slate-800 text-right text-xs">
                     <thead className="bg-slate-50 dark:bg-slate-900 sticky top-0">
@@ -497,7 +612,7 @@ export function PhysiotherapyTransactionImportUploader({
             )}
 
             {/* Confirm Purge Caution */}
-            {purgeOld && (
+            {!isDateUpdate && purgeOld && (
               <Card className="p-4 border-amber-300 bg-amber-50/30 dark:border-amber-800/40 mb-6 flex gap-3">
                 <Trash2 className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
                 <div>
@@ -515,7 +630,7 @@ export function PhysiotherapyTransactionImportUploader({
               </Button>
               <Button
                 onClick={handleCommitImport}
-                disabled={analysis.insertedCount === 0 || importing}
+                disabled={analysisReadyCount === 0 || dateUpdateHasBlockingIssues || importing}
                 className="bg-emerald-600 hover:bg-emerald-700 text-white min-w-[160px]"
               >
                 {importing ? (
@@ -524,7 +639,7 @@ export function PhysiotherapyTransactionImportUploader({
                     جاري كتابة البيانات...
                   </>
                 ) : (
-                  "تأكيد وحفظ الحركات"
+                  isDateUpdate ? "تأكيد تحديث التواريخ" : "تأكيد وحفظ الحركات"
                 )}
               </Button>
             </div>
@@ -543,7 +658,9 @@ export function PhysiotherapyTransactionImportUploader({
             )}
             <div>
               <h3 className="text-lg font-black text-slate-900 dark:text-white">
-                {result.success ? "تمت عملية الحفظ بنجاح باهر" : "فشل استيراد الحركات"}
+                {result.success
+                  ? result.operationMode === "update_dates" ? "تم تحديث تواريخ الحركات بنجاح" : "تمت عملية الحفظ بنجاح"
+                  : result.operationMode === "update_dates" ? "فشل تحديث تواريخ الحركات" : "فشل استيراد الحركات"}
               </h3>
               {result.error && <p className="text-sm text-red-600 dark:text-red-400 mt-1">{result.error}</p>}
             </div>
@@ -552,9 +669,11 @@ export function PhysiotherapyTransactionImportUploader({
           {result.success && (
             <div className="space-y-6">
               <p className="text-sm text-slate-500">
-                {purgeOld
-                  ? "تم مسح حركات العلاج الطبيعي القديمة بالكامل، واستيراد حركات الملف الجديد بنجاح."
-                  : "تم استيراد وحفظ حركات ملف Excel بنجاح وتحديث أسقف العلاج الطبيعي التراكمية للمستفيدين."}
+                {result.operationMode === "update_dates"
+                  ? "تم تغيير التاريخ ومفتاح منع التكرار فقط. لم تُنشأ حركات جديدة ولم تتغير الأرصدة أو استهلاك السقف."
+                  : purgeOld
+                    ? "تم مسح حركات العلاج الطبيعي القديمة بالكامل، واستيراد حركات الملف الجديد بنجاح."
+                    : "تم استيراد وحفظ حركات ملف Excel بنجاح وتحديث أسقف العلاج الطبيعي التراكمية للمستفيدين."}
               </p>
 
               <div className="grid gap-3 grid-cols-3">
@@ -563,11 +682,11 @@ export function PhysiotherapyTransactionImportUploader({
                   <p className="mt-1 text-2xl font-black text-slate-800 dark:text-white">{result.totalRows}</p>
                 </Card>
                 <Card className="p-4 bg-emerald-50/50 dark:bg-emerald-900/10 text-center border-emerald-100 dark:border-emerald-950">
-                  <p className="text-xs text-emerald-600">تم حفظها بنجاح</p>
-                  <p className="mt-1 text-2xl font-black text-emerald-800 dark:text-emerald-300">{result.insertedCount}</p>
+                  <p className="text-xs text-emerald-600">{result.operationMode === "update_dates" ? "تم تحديث تاريخها" : "تم حفظها بنجاح"}</p>
+                  <p className="mt-1 text-2xl font-black text-emerald-800 dark:text-emerald-300">{result.updatedCount ?? result.insertedCount}</p>
                 </Card>
                 <Card className="p-4 bg-amber-50/50 dark:bg-amber-900/10 text-center border-amber-100 dark:border-amber-950">
-                  <p className="text-xs text-amber-600 font-bold">تم تخطيها</p>
+                  <p className="text-xs text-amber-600 font-bold">{result.operationMode === "update_dates" ? "صحيحة مسبقاً" : "تم تخطيها"}</p>
                   <p className="mt-1 text-2xl font-black text-amber-800 dark:text-amber-300">{result.skippedCount}</p>
                 </Card>
               </div>

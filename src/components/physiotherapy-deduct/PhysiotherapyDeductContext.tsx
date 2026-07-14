@@ -118,7 +118,6 @@ export function PhysiotherapyDeductProvider({
   const [recentHydrated, setRecentHydrated] = useState(false);
 
   const searchBoxRef = useRef<HTMLDivElement | null>(null);
-  const amountRef = useRef<HTMLInputElement | null>(null);
 
   const RECENT_KEY = `wahda_recent_physiotherapy_${companyId}`;
 
@@ -326,16 +325,7 @@ export function PhysiotherapyDeductProvider({
         setSuccess("تمت عملية الاقتطاع بنجاح");
         toast.success(`تم تسجيل خصم بقيمة ${amountNum.toLocaleString("ar-LY")} جلسة بنجاح!`);
         
-        let categoryCoverage = 100 - copayPercentage; // default coverage
-
-        const effectiveCopay = 100 - categoryCoverage;
-        const originalCompanyShare = amountNum;
-        const remaining = annualCeiling !== null ? Math.max(0, annualCeiling - yearlyConsumed) : Infinity;
-        const addedCompanyShare = annualCeiling === null
-          ? originalCompanyShare
-          : Math.min(originalCompanyShare, remaining);
-          
-        setYearlyConsumed((prev) => prev + addedCompanyShare);
+        setYearlyConsumed((prev) => prev + amountNum);
         setAmount("");
         setTimeout(() => setSuccess(null), 5000);
       }
@@ -344,7 +334,7 @@ export function PhysiotherapyDeductProvider({
       setShowConfirm(false);
       setError("حدث خطأ في الاتصال. حاول مرة أخرى.");
     }
-  }, [beneficiary, amount, yearlyConsumed, annualCeiling, copayPercentage, toast]);
+  }, [beneficiary, amount, toast]);
 
   const remainingCeiling = annualCeiling !== null ? Math.max(0, annualCeiling - yearlyConsumed) : null;
 

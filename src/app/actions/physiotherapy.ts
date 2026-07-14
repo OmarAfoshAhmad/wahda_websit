@@ -1,7 +1,7 @@
 "use server";
 
 import prisma from "@/lib/prisma";
-import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
+import { requireActiveFacilitySession } from "@/lib/session-guard";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getArabicNormalization } from "@/lib/normalize";
 import { logger } from "@/lib/logger";
@@ -22,9 +22,6 @@ export async function searchCompanyBeneficiaries(query: string, companyId: strin
 
   try {
     const normalizedQ = getArabicNormalization(q);
-    const likePattern = `%${q}%`;
-    const normalizedPattern = `%${normalizedQ}%`;
-
     // البحث عن مستفيدي هذه الشركة فقط
     const rows = await prisma.beneficiary.findMany({
       where: {
@@ -150,10 +147,11 @@ export async function getPhysiotherapyBeneficiaryDetail(beneficiaryId: string, c
         is_cancelled: false,
         created_at: { gte: startDate, lte: endDate },
       },
-      _sum: { ceiling_consumed: true },
+      // amount is the authoritative number of sessions. Ignore legacy fractional financial consumption.
+      _sum: { amount: true },
     });
 
-    const yearlyConsumed = Number(agg._sum.ceiling_consumed ?? 0);
+    const yearlyConsumed = Number(agg._sum.amount ?? 0);
 
     let physiotherapyCeiling = policy?.ceiling_amount !== null && policy?.ceiling_amount !== undefined
       ? Number(policy.ceiling_amount)

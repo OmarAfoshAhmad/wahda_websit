@@ -3,17 +3,13 @@
 import React from "react";
 import { AlertCircle, Shield, Calendar, ArrowLeftRight } from "lucide-react";
 import { Card, Badge } from "@/components/ui";
-import { formatCurrency } from "@/lib/money";
 import { usePhysiotherapyDeductContext } from "./PhysiotherapyDeductContext";
 
 export function PhysiotherapyBeneficiaryCard() {
   const {
     beneficiary,
     resetSearchState,
-    annualCeiling,
-    copayPercentage,
     yearlyConsumed,
-    remainingCeiling,
   } = usePhysiotherapyDeductContext();
 
   if (!beneficiary) return null;
@@ -54,12 +50,12 @@ export function PhysiotherapyBeneficiaryCard() {
         </button>
       </div>
 
-      {/* ─── السياسة المالية للبصريات (4 كروت صغيرة) ─── */}
-      <div className="grid grid-cols-2 gap-3 mb-4 sm:grid-cols-4">
+      {/* سياسة عدد جلسات العلاج الطبيعي */}
+      <div className="grid grid-cols-1 gap-3 mb-4 sm:grid-cols-3">
         <div className="rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 p-3 text-center">
           <p className="text-[9px] font-black uppercase tracking-wider text-slate-400">السقف السنوي</p>
           <p className="mt-1.5 text-base font-black text-slate-800 dark:text-slate-200">
-            {annualCeiling !== null ? `${Math.round(annualCeiling).toLocaleString("ar-LY")} جلسة` : "مفتوح"}
+            {beneficiary.total_balance !== null ? `${Math.round(beneficiary.total_balance).toLocaleString("ar-LY")} جلسة` : "مفتوح"}
           </p>
         </div>
 
@@ -73,16 +69,10 @@ export function PhysiotherapyBeneficiaryCard() {
         <div className="rounded-xl border border-teal-100 dark:border-teal-900 bg-teal-50/20 dark:bg-teal-900/10 p-3 text-center">
           <p className="text-[9px] font-black uppercase tracking-wider text-teal-600 dark:text-teal-400">المتبقي في السقف</p>
           <p className="mt-1.5 text-base font-black text-teal-700 dark:text-teal-400">
-            {remainingCeiling !== null ? `${Math.round(remainingCeiling).toLocaleString("ar-LY")} جلسة` : "∞ مفتوح"}
+            {beneficiary.remaining_balance !== null ? `${Math.round(Math.max(0, beneficiary.total_balance! - yearlyConsumed)).toLocaleString("ar-LY")} جلسة` : "∞ مفتوح"}
           </p>
         </div>
 
-        <div className="rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 p-3 text-center">
-          <p className="text-[9px] font-black uppercase tracking-wider text-slate-400">تحمل المؤمن</p>
-          <p className="mt-1.5 text-base font-black text-slate-800 dark:text-slate-200">
-            {copayPercentage}%
-          </p>
-        </div>
       </div>
 
       <div className="flex items-center gap-1.5 rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/20 px-3 py-2 text-[11px] font-bold text-slate-500">

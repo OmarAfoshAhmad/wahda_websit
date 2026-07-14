@@ -3,7 +3,6 @@
 import React from "react";
 import { CreditCard, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 import { Button, Input, Card } from "@/components/ui";
-import { formatCurrency } from "@/lib/money";
 import { usePhysiotherapyDeductContext } from "./PhysiotherapyDeductContext";
 
 export function PhysiotherapyDeductionAction() {
@@ -11,15 +10,10 @@ export function PhysiotherapyDeductionAction() {
     beneficiary,
     amount,
     setAmount,
-    showConfirm,
     setShowConfirm,
     deducting,
     handleDeduct,
     yearlyConsumed,
-    annualCeiling,
-    copayPercentage,
-    remainingCeiling,
-    companyName,
     error,
     success,
     resetSearchState,
@@ -33,24 +27,15 @@ export function PhysiotherapyDeductionAction() {
   const amountNum = parseFloat(amount) || 0;
   const hasAmount = amountNum > 0;
 
-  // حساب فوري للحصص
+  // العلاج الطبيعي يُحسب بعدد الجلسات فقط، بلا نسب تغطية مالية.
   const serviceAliases = beneficiary?.company?.service_aliases ? (beneficiary.company.service_aliases as any) : null;
   const physiotherapyLabel = serviceAliases?.PHYSIOTHERAPY || "خدمات العلاج الطبيعي";
-  let categoryCoverage = 100 - copayPercentage; // default coverage
-
-  const effectiveCopayPercentage = 100 - categoryCoverage;
-  const originalCompanyShare = amountNum;
-  const originalPatientShare = 0;
-
   const actualAnnualCeiling = beneficiary.total_balance;
 
   // تطبيق السقف السنوي
   const remaining = actualAnnualCeiling !== null ? Math.max(0, actualAnnualCeiling - yearlyConsumed) : Infinity;
-  const actualCompanyShare = actualAnnualCeiling === null
-    ? originalCompanyShare
-    : Math.min(originalCompanyShare, remaining);
-  const actualPatientShare = amountNum - actualCompanyShare;
-  const isPartial = actualAnnualCeiling !== null && originalCompanyShare > remaining && remaining > 0;
+  const exceededSessions = actualAnnualCeiling === null ? 0 : Math.max(0, amountNum - remaining);
+  const isPartial = exceededSessions > 0 && remaining > 0;
   const isCeilingExhausted = actualAnnualCeiling !== null && remaining <= 0;
 
   if (success) {
@@ -79,7 +64,7 @@ export function PhysiotherapyDeductionAction() {
       <div className="pb-3 border-b border-slate-100 dark:border-slate-800 flex justify-between items-start">
         <div>
           <h3 className="font-black text-slate-900 dark:text-white">اقتطاع {physiotherapyLabel}</h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">تطبيق خصم الجلسات حسب نسب التحمل</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">تسجيل عدد الجلسات فقط دون أي حساب مالي</p>
         </div>
         {beneficiary.hasCustomCeiling && (
           <div className="flex items-center gap-1.5 bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 px-2.5 py-1 rounded-md border border-amber-200 dark:border-amber-800/50">
@@ -103,7 +88,7 @@ export function PhysiotherapyDeductionAction() {
           <Input
             id="physiotherapy-amount-input"
             type="number"
-            step="0.25"
+            step="1"
             min="0"
             placeholder="0.00"
             className="h-11 pr-10 text-base font-black focus-visible:ring-teal-500/30 dark:bg-slate-950"
@@ -138,29 +123,25 @@ export function PhysiotherapyDeductionAction() {
             <>
               {isPartial && (
                 <div className="text-[10px] font-bold text-amber-700 dark:text-amber-400 bg-amber-100/50 dark:bg-amber-900/30 rounded px-2.5 py-1 flex items-center gap-1">
-                  ⚠️ سقف العلاج الطبيعي غير كافٍ لتغطية كامل حصة الشركة. سيتم تطبيق تغطية جزئية.
+                  ⚠️ العدد المطلوب يزيد عن المتبقي بمقدار {exceededSessions.toLocaleString("ar-LY")} جلسة.
                 </div>
               )}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">
-                    تحمل {companyName}
-                  </p>
-                  <p className="text-2xl font-black text-teal-700 dark:text-teal-400 leading-tight">{categoryCoverage}%</p>
-                  <p className="text-[10px] text-slate-400 mt-0.5">من التكلفة المادية</p>
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">الجلسات المطلوبة</p>
+                  <p className="text-2xl font-black text-teal-700 dark:text-teal-400 leading-tight">{amountNum.toLocaleString("ar-LY")}</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">جلسة</p>
                 </div>
                 <div className="border-r border-slate-200 dark:border-slate-800 pr-4">
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">
-                    تحمل المؤمن
-                  </p>
-                  <p className="text-2xl font-black text-amber-600 dark:text-amber-450 leading-tight">{effectiveCopayPercentage}%</p>
-                  <p className="text-[10px] text-slate-400 mt-0.5">من التكلفة المادية</p>
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">المتبقي قبل التسجيل</p>
+                  <p className="text-2xl font-black text-amber-600 dark:text-amber-450 leading-tight">{remaining === Infinity ? "∞" : remaining.toLocaleString("ar-LY")}</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">جلسة</p>
                 </div>
               </div>
               {actualAnnualCeiling !== null && (
                 <div className="pt-2.5 border-t border-slate-200/50 dark:border-slate-850 text-xs text-slate-500 dark:text-slate-400">
                   عدد الجلسات المتبقية بعد الاقتطاع: <span className="font-black text-slate-700 dark:text-slate-355">
-                    {Math.max(0, remaining - actualCompanyShare).toLocaleString("ar-LY")} جلسة
+                    {Math.max(0, remaining - amountNum).toLocaleString("ar-LY")} جلسة
                   </span>
                 </div>
               )}
@@ -185,7 +166,7 @@ export function PhysiotherapyDeductionAction() {
             disabled={deducting}
             className="w-full h-12 bg-teal-600 hover:bg-teal-700 text-white font-black text-base shadow-lg shadow-teal-600/20 rounded-lg transition-all"
           >
-            {deducting ? <Loader2 className="h-5 w-5 animate-spin" /> : "تأكيد وخصم الآن"}
+            {deducting ? <Loader2 className="h-5 w-5 animate-spin" /> : "تأكيد تسجيل الجلسات"}
           </Button>
         </>
       )}

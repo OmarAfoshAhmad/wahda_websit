@@ -4,7 +4,6 @@ import prisma from "@/lib/prisma";
 import { deductionSchema } from "@/lib/validation";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { revalidatePath } from "next/cache";
-import { TransactionType } from "@prisma/client";
 import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 import { logger } from "@/lib/logger";
 import { emitNotification } from "@/lib/sse-notifications";
@@ -15,6 +14,7 @@ import { InsuranceEngine } from "@/lib/insurance/engine";
 import { findCompanyByCardNumber, getServiceTypeMapping } from "@/lib/insurance/company-matcher";
 import type { TpaValidation } from "@/lib/insurance/shadow-mode";
 import { WAHDA_BANK_COMPANY_ID } from "@/lib/constants";
+import { calculatePhysiotherapySessions } from "@/lib/physiotherapy-sessions";
 
 export async function deductBalance(formData: {
   beneficiary_id?: string;
@@ -198,9 +198,11 @@ export async function deductBalance(formData: {
             { service_category: null, type: policyServiceType as any }
           ]
         },
-        _sum: { ceiling_consumed: true }
+        _sum: { ceiling_consumed: true, amount: true }
       });
-      const consumedThisYear = Number(consumption._sum.ceiling_consumed || 0);
+      const consumedThisYear = type === "PHYSIOTHERAPY"
+        ? Number(consumption._sum.amount || 0)
+        : Number(consumption._sum.ceiling_consumed || 0);
 
       // [TPA] Fetch Company (Policy consolidated on InsuranceCompany)
       const company = companyId ? await tx.insuranceCompany.findUnique({
@@ -262,9 +264,8 @@ export async function deductBalance(formData: {
             annual_ceiling = pPolicy && pPolicy.ceiling_amount !== null ? Number(pPolicy.ceiling_amount) : null;
           }
           
-          let categoryCoverage = pPolicy ? Number(pPolicy.coverage_percent) : 100;
-          
-          copay_percentage = Math.max(0, 100 - categoryCoverage);
+          // العلاج الطبيعي يعتمد عدد الجلسات فقط، ولا توجد نسبة تحمل مالية.
+          copay_percentage = 0;
           isConfigured = !!pPolicy;
         } else if (policyServiceType === "OPTICS") {
           const opticsPolicy = (company as any).service_policies?.find((p: any) => p.service_type?.code === "OPTICS");
@@ -276,7 +277,7 @@ export async function deductBalance(formData: {
             annual_ceiling = opticsPolicy && opticsPolicy.ceiling_amount !== null ? Number(opticsPolicy.ceiling_amount) : null;
           }
           
-          let categoryCoverage = opticsPolicy ? Number(opticsPolicy.coverage_percent) : 100;
+          const categoryCoverage = opticsPolicy ? Number(opticsPolicy.coverage_percent) : 100;
           
           copay_percentage = Math.max(0, 100 - categoryCoverage);
           isConfigured = !!opticsPolicy;
@@ -323,42 +324,71 @@ export async function deductBalance(formData: {
       if (policyRecord) {
         const effectiveCeiling = policyRecord.annual_ceiling;
 
-        const calcResult = InsuranceEngine.calculate({
-          amount,
-          consumedThisYear,
-          policy: {
-            serviceType: policyRecord.service_type,
-            annualCeiling: effectiveCeiling,
-            copayPercentage: policyRecord.copay_percentage,
-            allowPartialCoverage: true
-          }
-        });
+        if (type === "PHYSIOTHERAPY") {
+          const sessionResult = calculatePhysiotherapySessions({
+            sessions: amount,
+            consumedBefore: consumedThisYear,
+            limit: effectiveCeiling,
+          });
 
-        // Validate: patient share must not exceed remaining balance
-        const patientShare = Number(calcResult.actualPatientShare);
-        const remainingBalance = Number(beneficiary.remaining_balance);
-        const tpaValidation: TpaValidation = {
-          patientShareAffordable: patientShare <= remainingBalance,
-          patientShare,
-          remainingBalance,
-          amount,
-        };
+          tpaData = {
+            company_id: companyId,
+            service_category: "PHYSIOTHERAPY",
+            original_company_share: amount,
+            original_patient_share: 0,
+            actual_company_share: amount,
+            actual_patient_share: 0,
+            remaining_ceiling_before: sessionResult.remainingBefore,
+            ceiling_consumed: sessionResult.sessions,
+            remaining_ceiling_after: sessionResult.remainingAfter,
+            consumed_before: sessionResult.consumedBefore,
+            consumed_after: sessionResult.consumedAfter,
+            policy_snapshot: JSON.parse(JSON.stringify(policyRecord)),
+            calc_metadata: {
+              calculationUnit: "SESSION",
+              financialCoverageApplied: false,
+              sessionLimit: sessionResult.limit,
+              exceededSessions: sessionResult.exceededSessions,
+            },
+          };
+        } else {
+          const calcResult = InsuranceEngine.calculate({
+            amount,
+            consumedThisYear,
+            policy: {
+              serviceType: policyRecord.service_type,
+              annualCeiling: effectiveCeiling,
+              copayPercentage: policyRecord.copay_percentage,
+              allowPartialCoverage: true
+            }
+          });
 
-        tpaData = {
-          company_id: companyId,
-          service_category: type === "DENTAL" && dentalSubCategory ? dentalSubCategory : policyServiceType,
-          original_company_share: calcResult.originalCompanyShare,
-          original_patient_share: calcResult.originalPatientShare,
-          actual_company_share: calcResult.actualCompanyShare,
-          actual_patient_share: calcResult.actualPatientShare,
-          remaining_ceiling_before: calcResult.remainingCeilingBefore,
-          ceiling_consumed: calcResult.ceilingConsumed,
-          remaining_ceiling_after: calcResult.remainingCeilingAfter,
-          consumed_before: calcResult.consumedBefore,
-          consumed_after: calcResult.consumedAfter,
-          policy_snapshot: JSON.parse(JSON.stringify(policyRecord)),
-          calc_metadata: { ...calcResult.metadata, tpaValidation },
-        };
+          // Validate: patient share must not exceed remaining balance
+          const patientShare = Number(calcResult.actualPatientShare);
+          const remainingBalance = Number(beneficiary.remaining_balance);
+          const tpaValidation: TpaValidation = {
+            patientShareAffordable: patientShare <= remainingBalance,
+            patientShare,
+            remainingBalance,
+            amount,
+          };
+
+          tpaData = {
+            company_id: companyId,
+            service_category: type === "DENTAL" && dentalSubCategory ? dentalSubCategory : policyServiceType,
+            original_company_share: calcResult.originalCompanyShare,
+            original_patient_share: calcResult.originalPatientShare,
+            actual_company_share: calcResult.actualCompanyShare,
+            actual_patient_share: calcResult.actualPatientShare,
+            remaining_ceiling_before: calcResult.remainingCeilingBefore,
+            ceiling_consumed: calcResult.ceilingConsumed,
+            remaining_ceiling_after: calcResult.remainingCeilingAfter,
+            consumed_before: calcResult.consumedBefore,
+            consumed_after: calcResult.consumedAfter,
+            policy_snapshot: JSON.parse(JSON.stringify(policyRecord)),
+            calc_metadata: { ...calcResult.metadata, tpaValidation },
+          };
+        }
       } else if (companyId) {
         // Silent fallback tracked: company found but no policy — store basic info
         tpaData = {
@@ -429,11 +459,15 @@ export async function deductBalance(formData: {
       });
 
       // 3.1 Create in-app notification
+      const notificationTitle = type === "PHYSIOTHERAPY" ? "تم تسجيل جلسات علاج طبيعي" : "تم خصم من رصيدك";
+      const notificationMessage = type === "PHYSIOTHERAPY"
+        ? `تم تسجيل ${Number(amount).toLocaleString("ar-LY")} جلسة علاج طبيعي لدى ${effectiveFacilityName}`
+        : `تم خصم ${formatCurrency(Number(amount))} د.ل من رصيدك لدى ${effectiveFacilityName}`;
       const notification = await tx.notification.create({
         data: {
           beneficiary_id: beneficiary.id,
-          title: "تم خصم من رصيدك",
-          message: `تم خصم ${formatCurrency(Number(amount))} د.ل من رصيدك لدى ${effectiveFacilityName}`,
+          title: notificationTitle,
+          message: notificationMessage,
           amount,
         },
       });
@@ -480,10 +514,14 @@ export async function deductBalance(formData: {
     });
 
     if (!result.duplicated) {
+      const notificationTitle = type === "PHYSIOTHERAPY" ? "تم تسجيل جلسات علاج طبيعي" : "تم خصم من رصيدك";
+      const notificationMessage = type === "PHYSIOTHERAPY"
+        ? `تم تسجيل ${Number(amount).toLocaleString("ar-LY")} جلسة علاج طبيعي لدى ${effectiveFacilityName}`
+        : `تم خصم ${formatCurrency(Number(amount))} د.ل من رصيدك لدى ${effectiveFacilityName}`;
       emitNotification(result.beneficiaryId, {
         id: result.notificationId,
-        title: "تم خصم من رصيدك",
-        message: `تم خصم ${formatCurrency(Number(amount))} د.ل من رصيدك لدى ${effectiveFacilityName}`,
+        title: notificationTitle,
+        message: notificationMessage,
         amount,
         remaining_balance: result.newBalance,
         created_at: new Date().toISOString(),
@@ -717,7 +755,7 @@ export async function getPolicyInfo(beneficiaryId: string, serviceType: string, 
       },
       _sum: { ceiling_consumed: true }
     });
-    let consumed = Number(sum._sum.ceiling_consumed || 0);
+    const consumed = Number(sum._sum.ceiling_consumed || 0);
 
     return {
       isTpa: true,
@@ -856,7 +894,7 @@ export async function simulateDeduction(data: {
       companyName: beneficiary.company?.name || ""
     };
 
-  } catch (error) {
+  } catch (_error) {
     return { error: "خطأ في المحاكاة" };
   }
 }

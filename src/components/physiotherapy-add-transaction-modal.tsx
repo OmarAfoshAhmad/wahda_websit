@@ -35,7 +35,6 @@ export function PhysiotherapyAddTransactionModal({
   facilities,
   defaultFacilityId,
   canChooseFacility,
-  copayPercentage,
   annualCeiling,
   physiotherapySettings,
 }: Props) {
@@ -233,27 +232,16 @@ export function PhysiotherapyAddTransactionModal({
     }
   };
 
-  // Financial calculations
+  // العلاج الطبيعي يُحسب بعدد الجلسات فقط، بلا نسب تغطية مالية.
   const amountNum = parseFloat(amount) || 0;
   const hasAmount = amountNum > 0;
-  let categoryCoverage = 100 - copayPercentage; // default coverage
-
-
-  const effectiveCopayPercentage = 100 - categoryCoverage;
-  const copayFactor = effectiveCopayPercentage / 100;
-  const originalCompanyShare = amountNum * (1 - copayFactor);
-  const originalPatientShare = amountNum * copayFactor;
 
   const remainingCeiling = annualCeiling !== null ? Math.max(0, annualCeiling - yearlyConsumed) : null;
   const remaining = remainingCeiling !== null ? remainingCeiling : Infinity;
-
-  const actualCompanyShare = annualCeiling === null
-    ? originalCompanyShare
-    : Math.min(originalCompanyShare, remaining);
-  const actualPatientShare = amountNum - actualCompanyShare;
+  const exceededSessions = annualCeiling === null ? 0 : Math.max(0, amountNum - remaining);
 
   const isCeilingExhausted = annualCeiling !== null && remaining <= 0;
-  const isPartial = annualCeiling !== null && originalCompanyShare > remaining && remaining > 0;
+  const isPartial = exceededSessions > 0 && remaining > 0;
 
   const handleSubmit = async () => {
     if (!beneficiary || !amount) return;
@@ -519,7 +507,7 @@ export function PhysiotherapyAddTransactionModal({
             {/* Amount Input */}
             <div className="space-y-1.5">
               <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
-                قيمة فاتورة العلاج الطبيعي
+                عدد جلسات العلاج الطبيعي
               </label>
               <div className="relative">
                 <div className="absolute right-3 top-1/2 -translate-y-1/2 text-teal-600 dark:text-teal-400">
@@ -527,7 +515,7 @@ export function PhysiotherapyAddTransactionModal({
                 </div>
                 <Input
                   type="number"
-                  step="0.25"
+                  step="1"
                   min="0"
                   placeholder="0.00"
                   className="h-11 pr-10 text-base font-black focus-visible:ring-teal-500/30 dark:bg-slate-900"
@@ -568,18 +556,18 @@ export function PhysiotherapyAddTransactionModal({
                 <>
                   {isPartial && (
                     <div className="text-[10px] font-bold text-amber-700 dark:text-amber-400 bg-amber-100/50 dark:bg-amber-900/30 rounded px-2.5 py-1 flex items-center gap-1">
-                      ⚠️ سقف العلاج الطبيعي غير كافٍ لتغطية كامل حصة الشركة. سيتم تطبيق تغطية جزئية.
+                      ⚠️ العدد المطلوب يزيد عن المتبقي بمقدار {exceededSessions.toLocaleString("ar-LY")} جلسة.
                     </div>
                   )}
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">على الشركة</p>
-                      <p className="text-2xl font-black text-teal-700 dark:text-teal-400 leading-tight">{formatCurrency(actualCompanyShare)}</p>
+                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">الجلسات المطلوبة</p>
+                      <p className="text-2xl font-black text-teal-700 dark:text-teal-400 leading-tight">{amountNum.toLocaleString("ar-LY")}</p>
                       <p className="text-[10px] text-slate-400 mt-0.5">جلسة</p>
                     </div>
                     <div className="border-r border-slate-200 dark:border-slate-800 pr-4">
-                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">على المؤمن (كاش)</p>
-                      <p className="text-2xl font-black text-amber-600 dark:text-amber-400 leading-tight">{formatCurrency(actualPatientShare)}</p>
+                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">المتبقي قبل التسجيل</p>
+                      <p className="text-2xl font-black text-amber-600 dark:text-amber-400 leading-tight">{remaining === Infinity ? "∞" : remaining.toLocaleString("ar-LY")}</p>
                       <p className="text-[10px] text-slate-400 mt-0.5">جلسة</p>
                     </div>
                   </div>
