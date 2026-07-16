@@ -70,16 +70,11 @@ export function validateEnv() {
     console.warn("⚠️  BENEFICIARY_JWT_SECRET مطابق لـ JWT_SECRET — يُنصح باستخدام مفتاح مختلف لمنع Token Substitution");
   }
 
-  // Redis إجباري في الإنتاج
-  if (isProduction && !process.env.REDIS_URL?.trim()) {
-    console.warn("🔴 REDIS_URL غير معيّن في الإنتاج — Rate Limiting لن يعمل بشكل صحيح مع عدة instances");
-  }
-
   for (const key of OPTIONAL_VARS) {
     if (!process.env[key]?.trim()) {
       switch (key) {
         case "REDIS_URL":
-          if (!isProduction) console.warn("⚠️  REDIS_URL غير معيّن — سيتم استخدام الذاكرة المحلية لـ Rate Limiting و SSE");
+          if (!isProduction) console.warn("⚠️  REDIS_URL غير معيّن — SSE سيعمل داخل نسخة التطبيق الحالية فقط");
           break;
         case "WAAD_FACILITY_ID":
           console.warn("⚠️  WAAD_FACILITY_ID غير معيّن — سيتعطل استيراد المعاملات إذا استُخدم");

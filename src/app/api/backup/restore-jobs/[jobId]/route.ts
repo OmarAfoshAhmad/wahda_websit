@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireActiveFacilitySession } from "@/lib/session-guard";
+import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 import { cancelRestoreJob, resumeRestoreJobIfNeeded } from "@/lib/restore-jobs";
 
 export const dynamic = "force-dynamic";
@@ -9,7 +9,7 @@ export async function GET(
   { params }: { params: Promise<{ jobId: string }> }
 ) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || (!session.is_admin && !hasPermission(session, "manage_backup"))) {
     return new NextResponse("Unauthorized", { status: 401 });
   }
 
@@ -28,7 +28,7 @@ export async function POST(
   { params }: { params: Promise<{ jobId: string }> }
 ) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || (!session.is_admin && !hasPermission(session, "manage_backup"))) {
     return new NextResponse("Unauthorized", { status: 401 });
   }
 

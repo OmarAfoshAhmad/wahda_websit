@@ -15,6 +15,7 @@ import { BatchMergeButton } from "@/components/batch-merge-button";
 import { AutoMergeAllZeroVariantsButton } from "@/components/auto-merge-all-zero-variants-button";
 import { DataHealthContent } from "@/components/admin";
 import { DebtSettlementBackgroundButton } from "@/components/debt-settlement-background-button";
+import { LegacyCardResolutionPanel } from "@/components/admin/legacy-card-resolution-panel";
 import {
   mergeGroupAction,
   mergeManualAction,
@@ -63,7 +64,7 @@ export default async function DuplicatesAdminPage({
 }) {
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
-  if (!session.is_admin) redirect("/dashboard");
+  if (!hasPermission(session, "manage_db_anomalies")) redirect("/dashboard");
 
   const { q, pz, pn, pr, ok, err, audit: _audit, undone: _undone, tab, htab, merged, before, after, debtAudit, debtCardMode: debtCardModeParam, dp, rp, np, rcity, rbatch } = await searchParams;
   const isBatchSuccess = (ok ?? "").startsWith("success_batch");
@@ -1344,9 +1345,12 @@ export default async function DuplicatesAdminPage({
         )}
 
         {activeTab === "legacycards" && (
-          <Card className="p-4 sm:p-6">
-            <DataHealthContent withinDuplicatesTab searchQuery={searchQuery} legacyMode={true} />
-          </Card>
+          <div className="space-y-6">
+            <LegacyCardResolutionPanel searchQuery={searchQuery} />
+            <Card className="p-4 sm:p-6">
+              <DataHealthContent withinDuplicatesTab searchQuery={searchQuery} legacyMode={true} />
+            </Card>
+          </div>
         )}
 
         {activeTab === "nozero2025" && (

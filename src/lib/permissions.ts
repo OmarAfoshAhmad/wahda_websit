@@ -1,3 +1,6 @@
+import { normalizeManagerPermissionsForRole } from "./permission-catalog";
+import type { FacilityType } from "./facility-type";
+
 export type ManagerPermissions = {
   import_beneficiaries: boolean;
   add_beneficiary: boolean;
@@ -18,21 +21,27 @@ export type ManagerPermissions = {
   deduct_balance: boolean;
   delete_transaction: boolean;
   cash_claim: boolean;
+  cash_claim_import: boolean;
   manage_card_numbering: boolean;
   migrate_card_numbering: boolean;
   manage_users: boolean;
+  manage_db_anomalies: boolean;
+  manage_backup: boolean;
 };
+
+export type UserRole = "ADMIN" | "MANAGER" | "EMPLOYEE" | "FACILITY";
 
 export interface Session {
   id: string;
   name: string;
   username: string;
+  role: UserRole;
   is_admin: boolean;
   is_manager: boolean;
   is_employee: boolean;
   manager_permissions: ManagerPermissions | null;
   must_change_password: boolean;
-  facility_type?: "HOSPITAL" | "PHARMACY";
+  facility_type?: FacilityType;
   expires?: Date;
 }
 
@@ -45,28 +54,24 @@ export function canAccessAdmin(session: Session): boolean {
 
 /**
  * صحيح إذا كان للمستخدم صلاحية تنفيذ عملية معينة.
- * - المشرف (is_admin) دائماً لديه جميع الصلاحيات.
- * - المدير (is_manager) أو الموظف (is_employee) يملكان فقط الصلاحيات التي فُعِّلت لهما.
+ * - المشرف (ADMIN) دائماً لديه جميع الصلاحيات.
+ * - المدير (MANAGER) أو الموظف (EMPLOYEE) يملكان فقط الصلاحيات التي فُعِّلت لهما.
+ * - المرفق العادي (FACILITY) يملك صلاحيات مقيدة جداً وفق سياسة الدور الرسمية.
  */
 export function hasPermission(
   session: Session,
   permission: keyof ManagerPermissions
 ): boolean {
   if (!session) return false;
-  if (session.is_admin === true) return true;
-  
-  if (session.is_manager || session.is_employee) {
-    let perms = session.manager_permissions;
-    if (!perms) return false;
+  if (session.is_admin || session.role === "ADMIN") return true;
 
-    try {
-      const permsObj = typeof perms === "string" ? JSON.parse(perms) : perms;
-      const val = permsObj[permission];
-      return !!val && (val === true || val === "true" || val === 1 || val === "1");
-    } catch (e) {
-      console.error("Error parsing permissions:", e);
-      return false;
-    }
+  const effectiveRole: UserRole =
+    session.is_manager ? "MANAGER" : session.is_employee ? "EMPLOYEE" : session.role;
+
+  if (effectiveRole !== "MANAGER" && effectiveRole !== "EMPLOYEE" && effectiveRole !== "FACILITY") {
+    return false;
   }
-  return false;
+
+  const perms = normalizeManagerPermissionsForRole(effectiveRole, session.manager_permissions);
+  return perms[permission] === true;
 }

@@ -2,7 +2,8 @@
 
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
-import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
+import { getSessionWithFreshPermissions, requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
+import { resolvePermissionRole, normalizeManagerPermissionsForRole, getDefaultPermissionsForRole } from "@/lib/permission-catalog";
 import { revalidatePath } from "next/cache";
 import type { ManagerPermissions } from "@/lib/auth";
 
@@ -13,56 +14,6 @@ function isManagementOrEmployeeAccount(account: {
 }) {
   return account.is_manager || account.is_admin || account.manager_permissions !== null;
 }
-
-const DEFAULT_PERMISSIONS: ManagerPermissions = {
-  import_beneficiaries: false,
-  add_beneficiary: false,
-  edit_beneficiary: false,
-  delete_beneficiary: false,
-  add_facility: false,
-  edit_facility: false,
-  delete_facility: false,
-  cancel_transactions: false,
-  correct_transactions: false,
-  manage_recycle_bin: false,
-  export_data: false,
-  print_cards: false,
-  view_audit_log: false,
-  view_reports: false,
-  view_facilities: false,
-  view_beneficiaries: true,
-  deduct_balance: true,
-  delete_transaction: false,
-  cash_claim: false,
-  manage_card_numbering: false,
-  migrate_card_numbering: false,
-  manage_users: false,
-};
-
-const EMPLOYEE_PERMISSIONS: ManagerPermissions = {
-  import_beneficiaries: false,
-  add_beneficiary: false,
-  edit_beneficiary: false,
-  delete_beneficiary: false,
-  add_facility: false,
-  edit_facility: false,
-  delete_facility: false,
-  cancel_transactions: false,
-  correct_transactions: false,
-  manage_recycle_bin: false,
-  export_data: false,
-  print_cards: false,
-  view_audit_log: false,
-  view_reports: false,
-  view_facilities: true,
-  view_beneficiaries: true,
-  deduct_balance: false,
-  delete_transaction: false,
-  cash_claim: true,
-  manage_card_numbering: false,
-  migrate_card_numbering: false,
-  manage_users: false,
-};
 
 // ── إنشاء حساب مدير جديد (المبرمج فقط) ──────────────────────────────
 export async function createManager(prevState: unknown, formData: FormData) {
@@ -101,7 +52,7 @@ export async function createManager(prevState: unknown, formData: FormData) {
       password_hash,
       is_admin: false,
       is_manager: true,
-      manager_permissions: DEFAULT_PERMISSIONS as unknown as Record<string, boolean>,
+      manager_permissions: getDefaultPermissionsForRole("MANAGER") as unknown as Record<string, boolean>,
       must_change_password: true,
     },
   });
@@ -131,37 +82,15 @@ export async function updateManagerPermissions(
 
   const manager = await prisma.facility.findUnique({
     where: { id: managerId },
-    select: { id: true, is_manager: true, is_admin: true, manager_permissions: true, deleted_at: true },
+    select: { id: true, is_manager: true, is_admin: true, is_employee: true, manager_permissions: true, deleted_at: true },
   });
 
   if (!manager || !isManagementOrEmployeeAccount(manager) || manager.deleted_at) {
-    return { error: "الحساب غير موجود أو ليس حساب مدير" };
+    return { error: "الحساب غير موجود أو ليس حساب مدير/موظف" };
   }
 
-  const safePermissions: ManagerPermissions = {
-    import_beneficiaries: permissions.import_beneficiaries === true,
-    add_beneficiary: permissions.add_beneficiary === true,
-    edit_beneficiary: permissions.edit_beneficiary === true,
-    delete_beneficiary: permissions.delete_beneficiary === true,
-    add_facility: permissions.add_facility === true,
-    edit_facility: permissions.edit_facility === true,
-    delete_facility: permissions.delete_facility === true,
-    cancel_transactions: permissions.cancel_transactions === true,
-    correct_transactions: permissions.correct_transactions === true,
-    manage_recycle_bin: permissions.manage_recycle_bin === true,
-    export_data: permissions.export_data === true,
-    print_cards: permissions.print_cards === true,
-    view_audit_log: permissions.view_audit_log === true,
-    view_reports: permissions.view_reports === true,
-    view_facilities: permissions.view_facilities === true,
-    view_beneficiaries: permissions.view_beneficiaries === true,
-    deduct_balance: permissions.deduct_balance === true,
-    delete_transaction: permissions.delete_transaction === true,
-    cash_claim: permissions.cash_claim === true,
-    manage_card_numbering: permissions.manage_card_numbering === true,
-    migrate_card_numbering: permissions.migrate_card_numbering === true,
-    manage_users: permissions.manage_users === true,
-  };
+  const role = resolvePermissionRole(manager);
+  const safePermissions = normalizeManagerPermissionsForRole(role, permissions);
 
   await prisma.facility.update({
     where: { id: managerId },
@@ -369,7 +298,7 @@ export async function createEmployee(prevState: unknown, formData: FormData) {
       is_admin: false,
       is_manager: false,
       is_employee: true,
-      manager_permissions: EMPLOYEE_PERMISSIONS as unknown as Record<string, boolean>,
+      manager_permissions: getDefaultPermissionsForRole("EMPLOYEE") as unknown as Record<string, boolean>,
       must_change_password: true,
     },
   });
@@ -380,6 +309,60 @@ export async function createEmployee(prevState: unknown, formData: FormData) {
       user: session.username,
       action: "CREATE_EMPLOYEE",
       metadata: { employee_username: username, name },
+    },
+  });
+
+  revalidatePath("/admin/managers");
+  return { success: true, tempPassword };
+}
+
+// ── تصفير كلمة مرور حساب مدير/موظف (المبرمج أو مدير بصلاحيات) ──────────────────────────────
+export async function resetManagerPassword(
+  managerId: string
+): Promise<{ error?: string; success?: boolean; tempPassword?: string }> {
+  const session = await requireActiveFacilitySession();
+  if (!session || !hasPermission(session, "manage_users")) {
+    return { error: "غير مصرح بهذه العملية" };
+  }
+
+  const manager = await prisma.facility.findUnique({
+    where: { id: managerId },
+    select: {
+      id: true,
+      is_manager: true,
+      is_admin: true,
+      manager_permissions: true,
+      deleted_at: true,
+      name: true,
+      username: true,
+    },
+  });
+
+  if (!manager || !isManagementOrEmployeeAccount(manager)) {
+    return { error: "الحساب غير موجود أو ليس حساب إدارة/موظف" };
+  }
+
+  if (manager.deleted_at) {
+    return { error: "لا يمكن تصفير كلمة مرور حساب محذوف" };
+  }
+
+  const tempPassword = "123456";
+  const password_hash = await bcrypt.hash(tempPassword, 10);
+
+  await prisma.facility.update({
+    where: { id: managerId },
+    data: {
+      password_hash,
+      must_change_password: true,
+    },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      facility_id: session.id,
+      user: session.username,
+      action: "RESET_MANAGER_PASSWORD",
+      metadata: { manager_id: managerId, name: manager.name, manager_username: manager.username },
     },
   });
 

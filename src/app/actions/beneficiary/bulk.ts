@@ -457,7 +457,7 @@ export async function bulkRestoreBeneficiaries(formData: FormData) {
 
 export async function bulkRenewBalance(formData: FormData) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || (!session.is_admin && !hasPermission(session, "manage_db_anomalies"))) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -568,7 +568,7 @@ export async function bulkRenewBalance(formData: FormData) {
 
 export async function undoBulkRenewal(auditLogId: string) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || (!session.is_admin && !hasPermission(session, "manage_db_anomalies"))) {
     return { error: "غير مصرح بهذه العملية" };
   }
 

@@ -318,7 +318,7 @@ function summarizeMetadata(action: string, metadata: unknown): string {
   }
 
   if (action === "CARD_NUMBERING_MIGRATION") {
-    const report = m.report as any;
+    const report = m.report && typeof m.report === "object" ? m.report as Record<string, unknown> : {};
     return `إجمالي: ${report?.total} · إضافة: ${report?.added} · تحديث: ${report?.updated} · فشل: ${report?.failed}`;
   }
 
@@ -327,6 +327,20 @@ function summarizeMetadata(action: string, metadata: unknown): string {
   }
 
   return "-";
+}
+
+function flattenMetadata(value: unknown, prefix = "metadata"): Array<{ field: string; value: string }> {
+  if (value === null || value === undefined) return [{ field: prefix, value: "" }];
+  if (Array.isArray(value)) {
+    if (value.length === 0) return [{ field: prefix, value: "[]" }];
+    return value.flatMap((item, index) => flattenMetadata(item, `${prefix}[${index}]`));
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length === 0) return [{ field: prefix, value: "{}" }];
+    return entries.flatMap(([key, item]) => flattenMetadata(item, `${prefix}.${key}`));
+  }
+  return [{ field: prefix, value: String(value) }];
 }
 
 function getImportAppliedRows(action: string, metadata: unknown): ImportAppliedRow[] {
@@ -594,6 +608,26 @@ export async function GET(request: NextRequest) {
         });
       });
     }
+
+    const metadataRows = rows.flatMap((row) => flattenMetadata(row.metadata).map((item) => ({
+      logId: row.id,
+      action: actionLabel(row.action),
+      user: row.user,
+      field: item.field,
+      value: item.value,
+    })));
+    const metadataSheet = workbook.addWorksheet("بيانات العملية صفياً");
+    metadataSheet.views = [{ rightToLeft: true }];
+    metadataSheet.columns = [
+      { header: "#", key: "index", width: 8 },
+      { header: "معرّف السجل", key: "logId", width: 34 },
+      { header: "العملية", key: "action", width: 28 },
+      { header: "المنفذ", key: "user", width: 20 },
+      { header: "مسار الحقل", key: "field", width: 48 },
+      { header: "القيمة", key: "value", width: 60 },
+    ];
+    metadataSheet.getRow(1).font = { bold: true, size: 12 };
+    metadataRows.forEach((row, index) => metadataSheet.addRow({ index: index + 1, ...row }));
 
     const buffer = await workbook.xlsx.writeBuffer();
 

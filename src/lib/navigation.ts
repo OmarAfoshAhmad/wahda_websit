@@ -9,8 +9,7 @@ import {
   UserCog, 
   Banknote, 
   Home,
-  Activity,
-  CreditCard
+  Activity
 } from "lucide-react";
 import type { ManagerPermissions } from "./permissions";
 
@@ -31,10 +30,10 @@ export const SUPER_ADMIN_NAV = [
 
 export const MAINTENANCE_NAV = [
   { name: "ترقيم البطاقات", href: "/admin/card-numbering", icon: ListOrdered, perms: ["manage_card_numbering", "migrate_card_numbering"] as Array<keyof ManagerPermissions> },
-  { name: "النسخ الاحتياطي", href: "/admin/backup", icon: DatabaseBackup, perms: [] },
-  { name: "إدارة المشاكل", href: "/admin/duplicates", icon: TriangleAlert, perms: [] },
-  { name: "جدول الحقيقة", href: "/admin/truth-registry", icon: ClipboardList, perms: [] },
+  { name: "النسخ الاحتياطي", href: "/admin/backup", icon: DatabaseBackup, perms: ["manage_backup"] as Array<keyof ManagerPermissions> },
+  { name: "إدارة المشاكل", href: "/admin/duplicates", icon: TriangleAlert, perms: ["manage_db_anomalies"] as Array<keyof ManagerPermissions> },
+  { name: "جدول الحقيقة", href: "/admin/truth-registry", icon: ClipboardList, perms: ["manage_db_anomalies"] as Array<keyof ManagerPermissions> },
 ];
 
-export const CASH_CLAIM_NAV = { name: "كاش", href: "/cash-claim", icon: Banknote };
+export const CASH_CLAIM_NAV = { name: "كاش كليم", href: "/cash-claim", icon: Banknote };
 export const EMPLOYEE_HOME_NAV = { name: "الرئيسية", href: "/cash-claim", icon: Home };

@@ -1,7 +1,7 @@
 "use server";
 
 import prisma from "@/lib/prisma";
-import { requireActiveFacilitySession } from "@/lib/session-guard";
+import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
 import * as utils from "./utils";
@@ -16,7 +16,7 @@ export async function mergeDuplicateBeneficiaries(
   },
 ) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || (!session.is_admin && !hasPermission(session, "manage_db_anomalies"))) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -378,7 +378,7 @@ export async function mergeDuplicateGroupByCanonicalAction(formData: FormData) {
   const strategy = String(formData.get("strategy") ?? "ZERO_PRIORITY") as utils.MergeStrategy;
 
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || (!session.is_admin && !hasPermission(session, "manage_db_anomalies"))) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -425,7 +425,7 @@ export async function mergeDuplicateGroupByCanonicalAction(formData: FormData) {
 
 export async function mergeDuplicateManualSelectionAction(formData: FormData) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || (!session.is_admin && !hasPermission(session, "manage_db_anomalies"))) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -486,7 +486,7 @@ export const mergeNeedsReviewGroupAction = mergeDuplicateManualSelectionAction;
 
 export async function mergeNeedsReviewBatchAction(formData: FormData) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || (!session.is_admin && !hasPermission(session, "manage_db_anomalies"))) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -586,7 +586,7 @@ export async function mergeNeedsReviewBatchAction(formData: FormData) {
 
 export async function mergeAllGlobalZeroVariantsAction() {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || (!session.is_admin && !hasPermission(session, "manage_db_anomalies"))) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -651,7 +651,7 @@ export async function mergeAllGlobalZeroVariantsAction() {
 
 export async function mergeDuplicateBatchByConditionAction(formData: FormData) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || (!session.is_admin && !hasPermission(session, "manage_db_anomalies"))) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -720,7 +720,7 @@ export async function mergeDuplicateBatchByConditionAction(formData: FormData) {
 
 export async function undoMergeDuplicateBeneficiariesByAuditId(formData: FormData) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || (!session.is_admin && !hasPermission(session, "manage_db_anomalies"))) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -851,7 +851,7 @@ export async function undoMergeDuplicateBeneficiariesByAuditId(formData: FormDat
 
 export async function ignoreDuplicatePairAction(formData: FormData) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || (!session.is_admin && !hasPermission(session, "manage_db_anomalies"))) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -881,7 +881,7 @@ export async function ignoreDuplicatePairAction(formData: FormData) {
 
 export async function purgeLegacyNoPayment() {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || (!session.is_admin && !hasPermission(session, "manage_db_anomalies"))) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -1015,7 +1015,7 @@ export async function purgeLegacyNoPayment() {
 
 export async function rollbackPurgeLegacyAction(auditId: string) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || (!session.is_admin && !hasPermission(session, "manage_db_anomalies"))) {
     return { error: "غير مصرح" };
   }
 

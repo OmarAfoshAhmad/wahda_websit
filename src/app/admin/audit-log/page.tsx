@@ -14,6 +14,7 @@ import { TransactionRollbackButton } from "@/components/admin";
 import { BulkBeneficiaryRollbackButton } from "@/components/admin";
 import { MigrationRollbackButton } from "@/components/admin/migration-rollback-button";
 import { PurgeRollbackButton } from "@/components/admin/purge-rollback-button";
+import { AuditRowActions } from "@/components/admin/audit-row-actions";
 import { formatDateTimeTripoli, getStartOfDayTripoli, getEndOfDayTripoli } from "@/lib/datetime";
 
 type TargetFilter = "all" | "beneficiaries" | "transactions" | "facilities" | "completed" | "merges" | "security";
@@ -72,6 +73,8 @@ const TARGET_ACTIONS: Record<TargetFilter, string[]> = {
     "UPDATE_MANAGER",
     "DELETE_MANAGER",
     "PURGE_LEGACY_NO_PAYMENT",
+    "UNDO_AUDIT_OPERATION",
+    "REDO_AUDIT_OPERATION",
   ],
   beneficiaries: [
     "CREATE_BENEFICIARY",
@@ -226,6 +229,10 @@ function actionLabel(action: string) {
       return "تراجع عن ترحيل البطاقات";
     case "PURGE_LEGACY_NO_PAYMENT":
       return "تصفية بطاقة قديمة";
+    case "UNDO_AUDIT_OPERATION":
+      return "تراجع عن عملية مراقبة";
+    case "REDO_AUDIT_OPERATION":
+      return "إعادة عملية مراقبة";
     default:
       return action;
   }
@@ -1384,6 +1391,7 @@ export default async function AuditLogPage({
                       <th className="px-5 py-3 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">المستفيد/البطاقة</th>
                       <th className="px-5 py-3 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">التفاصيل</th>
                       <th className="px-5 py-3 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">التاريخ</th>
+                      <th className="px-5 py-3 text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">الإجراءات</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -1421,6 +1429,13 @@ export default async function AuditLogPage({
                             timeStyle: "short",
                           })}
                         </td>
+                        <td className="px-5 py-3">
+                          <AuditRowActions
+                            logId={row.id}
+                            action={row.action}
+                            historyState={String(((row.metadata || {}) as Record<string, unknown>).history_state ?? "applied")}
+                          />
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1450,6 +1465,11 @@ export default async function AuditLogPage({
                   <div className="text-sm text-slate-600 dark:text-slate-400">
                     {summarizeMetadata(row.action, row.metadata, row.id, lookups)}
                   </div>
+                  <AuditRowActions
+                    logId={row.id}
+                    action={row.action}
+                    historyState={String(((row.metadata || {}) as Record<string, unknown>).history_state ?? "applied")}
+                  />
                 </Card>
               ))}
             </div>

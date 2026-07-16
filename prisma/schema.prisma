@@ -20,10 +20,12 @@ model Facility {
   is_manager           Boolean       @default(false)
   manager_permissions  Json?
   is_employee          Boolean       @default(false)
+  facility_type        String?
   transactions         Transaction[]
 
   @@index([deleted_at])
   @@index([is_manager], map: "idx_facility_is_manager_fixed")
+  @@index([facility_type])
 }
 
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
@@ -216,6 +218,34 @@ model FamilyImportArchive {
   @@index([last_imported_at(sort: Desc)], map: "idx_family_import_archive_last_imported_at")
 }
 
+model MaintenanceJob {
+  id                String   @id
+  kind              String
+  task              Json
+  created_by        String
+  actor_facility_id String
+  state             String   @default("queued")
+  progress          Json?
+  summary           String?
+  error_message     String?
+  created_at        DateTime @default(now())
+  started_at        DateTime?
+  completed_at      DateTime?
+  updated_at        DateTime @updatedAt
+
+  @@index([created_by, created_at])
+  @@index([state, updated_at])
+}
+
+model RateLimitBucket {
+  key        String   @id
+  count      Int      @default(1)
+  reset_at   DateTime
+  updated_at DateTime @updatedAt
+
+  @@index([reset_at])
+}
+
 enum BeneficiaryStatus {
   ACTIVE
   FINISHED
@@ -228,6 +258,7 @@ enum TransactionType {
   CANCELLATION
   IMPORT
   SETTLEMENT
+  GENERAL
 }
 
 enum ImportJobStatus {

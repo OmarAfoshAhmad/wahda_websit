@@ -219,14 +219,8 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
         throw new Error("المرفق المحدد غير موجود");
       }
 
-      // غير المشرف لا يغير مصدر الحركة ولا يعدّل حركات خارج مرفقه.
-      if (!session.is_admin && transaction.facility_id !== session.id) {
-        throw new Error("غير مصرح لك بتعديل حركة خارج مرفقك");
-      }
-
-      if (!session.is_admin && targetFacilityId !== transaction.facility_id) {
-        throw new Error("غير مصرح لك بتغيير مرفق الحركة");
-      }
+      // الوصول إلى هذه النقطة يتطلب correct_transactions؛ وهي صلاحية صريحة
+      // يمنحها المشرف لرئيس القسم كي يصحح القيمة والنوع والمرفق لأي حركة.
 
       const locked = await tx.$queryRaw<Array<{ id: string; remaining_balance: number; status: string }>>`
         SELECT id, remaining_balance, status FROM "Beneficiary"

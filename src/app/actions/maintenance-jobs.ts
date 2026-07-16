@@ -17,6 +17,8 @@ import {
 } from "@/app/actions/balance-health-actions";
 import { applyActiveImportDuplicateFix } from "@/lib/import-duplicate-cases";
 import { applyOverdrawnDebtSettlement } from "@/lib/overdrawn-debt-settlement";
+import prisma from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 
 export type MaintenanceJobTask =
   | { kind: "data_hygiene_sweep"; mode: DataHygieneMode }
@@ -53,7 +55,53 @@ export type MaintenanceJobRecord = {
   error?: string;
 };
 
-const jobs = new Map<string, MaintenanceJobRecord>();
+type MaintenanceJobRow = {
+  id: string;
+  kind: string;
+  task: MaintenanceJobTask;
+  created_by: string;
+  actor_facility_id: string;
+  state: MaintenanceJobState;
+  progress: MaintenanceJobProgress | null;
+  summary: string | null;
+  error_message: string | null;
+  created_at: Date;
+  started_at: Date | null;
+  completed_at: Date | null;
+  updated_at: Date;
+};
+
+function toRecord(row: MaintenanceJobRow): MaintenanceJobRecord {
+  return {
+    id: row.id,
+    createdAt: row.created_at.toISOString(),
+    startedAt: row.started_at?.toISOString() ?? null,
+    completedAt: row.completed_at?.toISOString() ?? null,
+    createdBy: row.created_by,
+    state: row.state,
+    task: row.task,
+    progress: row.progress ?? undefined,
+    summary: row.summary ?? undefined,
+    error: row.error_message ?? undefined,
+  };
+}
+
+async function loadJob(jobId: string): Promise<MaintenanceJobRow | null> {
+  const rows = await prisma.$queryRaw<MaintenanceJobRow[]>`
+    SELECT id, kind, task, created_by, actor_facility_id, state, progress, summary,
+           error_message, created_at, started_at, completed_at, updated_at
+    FROM "MaintenanceJob" WHERE id = ${jobId} LIMIT 1
+  `;
+  return rows[0] ?? null;
+}
+
+async function saveProgress(jobId: string, progress: MaintenanceJobProgress) {
+  await prisma.$executeRaw`
+    UPDATE "MaintenanceJob"
+    SET progress = ${JSON.stringify(progress)}::jsonb, updated_at = NOW()
+    WHERE id = ${jobId} AND state = 'running'
+  `;
+}
 
 function generateJobId(): string {
   const rand = Math.random().toString(36).slice(2, 10);
@@ -164,68 +212,63 @@ export async function startMaintenanceJobForActor(
   }
 
   const id = generateJobId();
-  const record: MaintenanceJobRecord = {
-    id,
-    createdAt: new Date().toISOString(),
-    startedAt: null,
-    completedAt: null,
-    createdBy: actor.username,
-    state: "queued",
-    task,
-  };
-
-  jobs.set(id, record);
-
-  setTimeout(async () => {
-    const queued = jobs.get(id);
-    if (!queued) return;
-
-    queued.state = "running";
-    queued.startedAt = new Date().toISOString();
-    queued.progress = { current: 0, total: 1, percent: 0, message: "بدأ التنفيذ" };
-    jobs.set(id, queued);
-
-    try {
-      const result = await executeTask(task, { id: actor.id, username: actor.username }, (progress) => {
-        const running = jobs.get(id);
-        if (!running) return;
-        running.progress = progress;
-        jobs.set(id, running);
-      });
-      const asObj = (result ?? {}) as Record<string, unknown>;
-      const success = asObj.success !== false;
-
-      const done = jobs.get(id);
-      if (!done) return;
-
-      done.state = success ? "succeeded" : "failed";
-      done.completedAt = new Date().toISOString();
-      done.summary = summarizeResult(task, result);
-      done.error = success ? undefined : String(asObj.error ?? "تعذر تنفيذ المهمة");
-      done.progress = {
-        current: done.progress?.total ?? done.progress?.current ?? 1,
-        total: done.progress?.total ?? done.progress?.current ?? 1,
-        percent: 100,
-        message: success ? "اكتملت المهمة بنجاح" : "فشلت المهمة",
-      };
-      jobs.set(id, done);
-    } catch (error) {
-      const failed = jobs.get(id);
-      if (!failed) return;
-      failed.state = "failed";
-      failed.completedAt = new Date().toISOString();
-      failed.error = error instanceof Error ? error.message : "تعذر تنفيذ المهمة";
-      failed.progress = {
-        current: failed.progress?.current ?? 0,
-        total: failed.progress?.total ?? 1,
-        percent: 100,
-        message: "فشلت المهمة",
-      };
-      jobs.set(id, failed);
+  try {
+    await prisma.$executeRaw`
+      INSERT INTO "MaintenanceJob" (id, kind, task, created_by, actor_facility_id, state, created_at, updated_at)
+      VALUES (${id}, ${task.kind}, ${JSON.stringify(task)}::jsonb, ${actor.username}, ${actor.id}, 'queued', NOW(), NOW())
+    `;
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return { success: false, error: "توجد مهمة من النوع نفسه قيد التنفيذ؛ انتظر اكتمالها" };
     }
-  }, 0);
+    // Raw PostgreSQL unique violations are surfaced as P2010 by Prisma.
+    if (String(error).includes("MaintenanceJob_one_active_kind_idx") || String(error).includes("23505")) {
+      return { success: false, error: "توجد مهمة من النوع نفسه قيد التنفيذ؛ انتظر اكتمالها" };
+    }
+    throw error;
+  }
 
-  return { success: true, job: record };
+  const queued = await loadJob(id);
+  if (!queued) return { success: false, error: "تعذر إنشاء سجل المهمة" };
+  setTimeout(() => { void runPersistedMaintenanceJob(id); }, 0);
+  return { success: true, job: toRecord(queued) };
+}
+
+async function runPersistedMaintenanceJob(jobId: string): Promise<void> {
+  const claimed = await prisma.$executeRaw`
+    UPDATE "MaintenanceJob"
+    SET state = 'running', started_at = NOW(), updated_at = NOW(),
+        progress = ${JSON.stringify({ current: 0, total: 1, percent: 0, message: "بدأ التنفيذ" })}::jsonb
+    WHERE id = ${jobId} AND state = 'queued'
+  `;
+  if (claimed !== 1) return;
+
+  const job = await loadJob(jobId);
+  if (!job) return;
+  try {
+    const result = await executeTask(job.task, { id: job.actor_facility_id, username: job.created_by }, (progress) => {
+      void saveProgress(jobId, progress);
+    });
+    const asObj = (result ?? {}) as Record<string, unknown>;
+    const success = asObj.success !== false;
+    const finalProgress = { current: 1, total: 1, percent: 100, message: success ? "اكتملت المهمة بنجاح" : "فشلت المهمة" };
+    await prisma.$executeRaw`
+      UPDATE "MaintenanceJob"
+      SET state = ${success ? "succeeded" : "failed"}, completed_at = NOW(), updated_at = NOW(),
+          summary = ${summarizeResult(job.task, result)},
+          error_message = ${success ? null : String(asObj.error ?? "تعذر تنفيذ المهمة")},
+          progress = ${JSON.stringify(finalProgress)}::jsonb
+      WHERE id = ${jobId} AND state = 'running'
+    `;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "تعذر تنفيذ المهمة";
+    await prisma.$executeRaw`
+      UPDATE "MaintenanceJob"
+      SET state = 'failed', completed_at = NOW(), updated_at = NOW(), error_message = ${message},
+          progress = ${JSON.stringify({ current: 0, total: 1, percent: 100, message: "فشلت المهمة" })}::jsonb
+      WHERE id = ${jobId} AND state = 'running'
+    `;
+  }
 }
 
 export async function startMaintenanceJobAction(task: MaintenanceJobTask): Promise<{
@@ -255,10 +298,22 @@ export async function getMaintenanceJobAction(jobId: string): Promise<{
     return { success: false, error: "غير مصرح" };
   }
 
-  const job = jobs.get(String(jobId).trim());
+  const normalizedId = String(jobId).trim();
+  let job = await loadJob(normalizedId);
   if (!job) {
     return { success: false, error: "المهمة غير موجودة" };
   }
 
-  return { success: true, job };
+  if (job.state === "queued") {
+    setTimeout(() => { void runPersistedMaintenanceJob(normalizedId); }, 0);
+  } else if (job.state === "running" && job.updated_at.getTime() < Date.now() - 30 * 60 * 1000) {
+    await prisma.$executeRaw`
+      UPDATE "MaintenanceJob" SET state = 'failed', completed_at = NOW(), updated_at = NOW(),
+        error_message = 'توقف الخادم أثناء التنفيذ؛ لم تُعد المهمة تلقائياً لمنع تكرار الأثر المالي'
+      WHERE id = ${normalizedId} AND state = 'running' AND updated_at < NOW() - INTERVAL '30 minutes'
+    `;
+    job = await loadJob(normalizedId) ?? job;
+  }
+
+  return { success: true, job: toRecord(job) };
 }

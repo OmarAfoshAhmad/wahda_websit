@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { UserCog } from "lucide-react";
-import { Prisma } from "@prisma/client";
 import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-guard";
 import prisma from "@/lib/prisma";
 import { Shell } from "@/components/shell";
@@ -9,250 +8,94 @@ import { ManagerCreateForm } from "@/components/manager-create-form";
 import { ManagerPermissionsModal } from "@/components/manager-permissions-modal";
 import { ManagerDeleteButton } from "@/components/manager-delete-button";
 import { ManagerRecycleActions } from "@/components/manager-recycle-actions";
-import type { ManagerPermissions } from "@/lib/auth";
+import { ManagersSearch } from "@/components/managers-search";
+import { ManagerResetPasswordButton } from "@/components/manager-reset-password-button";
+import { PaginationButtons } from "@/components/pagination-buttons";
+import { normalizeManagerPermissionsForRole, resolvePermissionRole } from "@/lib/permission-catalog";
 import { formatDateTripoli } from "@/lib/datetime";
 
-const PERMISSION_LABELS: Record<keyof ManagerPermissions, string> = {
-  import_beneficiaries: "استيراد مستفيدين",
-  add_beneficiary: "إضافة مستفيد",
-  edit_beneficiary: "تعديل مستفيد",
-  delete_beneficiary: "حذف مستفيد",
-  add_facility: "إضافة مرفق",
-  edit_facility: "تعديل مرفق",
-  delete_facility: "حذف مرفق",
-  cancel_transactions: "إلغاء حركات",
-  correct_transactions: "تصحيح حركات",
-  manage_recycle_bin: "سلة المحذوفات",
-  export_data: "تصدير بيانات",
-  print_cards: "طباعة كروت",
-  view_audit_log: "سجل المراقبة",
-  view_reports: "التقارير",
-  view_facilities: "المرافق",
-  view_beneficiaries: "المستفيدون",
-  deduct_balance: "نقطة بيع",
-  delete_transaction: "حذف حركات",
-  cash_claim: "كاش عائلي",
-  manage_card_numbering: "ترقيم البطاقات",
-  migrate_card_numbering: "ترحيل البطاقات",
-  manage_users: "إدارة الحسابات",
-};
+const PAGE_SIZE = 15;
 
-export default async function ManagersPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ view?: string }>;
+export default async function ManagersPage({ searchParams }: {
+  searchParams: Promise<{ view?: string; q?: string; page?: string }>;
 }) {
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
-  const canView = hasPermission(session, "manage_users");
-  if (!canView) redirect("/dashboard");
+  if (!hasPermission(session, "manage_users")) redirect("/dashboard");
 
-  const { view } = await searchParams;
+  const { view, q, page: pageRaw } = await searchParams;
   const isDeletedView = view === "deleted";
+  const page = Math.max(1, Number.parseInt(pageRaw ?? "1", 10) || 1);
+  const query = q?.trim() ?? "";
+  const where = {
+    OR: [{ is_admin: true }, { is_manager: true }, { is_employee: true }],
+    deleted_at: isDeletedView ? { not: null } : null,
+    ...(query ? { AND: [{ OR: [
+      { name: { contains: query, mode: "insensitive" as const } },
+      { username: { contains: query, mode: "insensitive" as const } },
+    ] }] } : {}),
+  };
 
-  const managers = await prisma.facility.findMany({
-    where: {
-      OR: [{ is_manager: true }, { is_admin: true }, { manager_permissions: { not: Prisma.JsonNull } }],
-      deleted_at: isDeletedView ? { not: null } : null,
-    },
-    select: {
-      id: true,
-      name: true,
-      username: true,
-      is_admin: true,
-      is_manager: true,
-      manager_permissions: true,
-      must_change_password: true,
-      created_at: true,
-      _count: { select: { transactions: true } },
-    },
-    orderBy: { created_at: "desc" },
-  });
+  const [accounts, total] = await Promise.all([
+    prisma.facility.findMany({
+      where,
+      select: {
+        id: true, name: true, username: true, is_admin: true, is_manager: true, is_employee: true,
+        manager_permissions: true, must_change_password: true, created_at: true,
+        _count: { select: { transactions: true } },
+      },
+      orderBy: [{ is_admin: "desc" }, { is_manager: "desc" }, { created_at: "desc" }],
+      skip: (page - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
+    }),
+    prisma.facility.count({ where }),
+  ]);
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pageHref = (nextPage: number) => `/admin/managers?${new URLSearchParams({
+    ...(query ? { q: query } : {}), ...(isDeletedView ? { view: "deleted" } : {}), page: String(nextPage),
+  })}`;
 
   return (
     <Shell facilityName={session.name} session={session}>
-      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-        {/* رأس الصفحة */}
-        <div className="mb-6 flex flex-col items-start gap-3 sm:flex-row sm:items-center">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-100 dark:bg-violet-900/30 text-violet-600 dark:text-violet-400">
-            <UserCog className="h-5 w-5" />
+      <div className="mx-auto max-w-7xl space-y-5 px-4 py-6 sm:px-6 lg:px-8">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-100 text-violet-600 dark:bg-violet-900/30"><UserCog className="h-5 w-5" /></div>
+          <div><h1 className="text-lg font-black text-slate-900 dark:text-white">المشرفون والمديرون والموظفون</h1><p className="text-xs text-slate-500">{total.toLocaleString("ar-LY")} حساب — منفصلة عن المرافق الصحية</p></div>
+          <div className="flex w-full flex-col gap-2 sm:mr-auto sm:w-auto sm:flex-row">
+            <ManagersSearch initialQuery={query} />
+            <Link href={isDeletedView ? "/admin/managers" : "/admin/managers?view=deleted"} className="inline-flex h-10 items-center justify-center rounded-md bg-[#0f2a4a] px-4 text-sm font-black text-white!">{isDeletedView ? "العودة للنشطين" : "المحذوفات"}</Link>
           </div>
-          <div>
-            <h1 className="text-lg font-black text-slate-900 dark:text-white">إدارة الحسابات</h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              {managers.length === 0
-                ? isDeletedView
-                  ? "لا يوجد أي حساب إدارة/موظف محذوف"
-                  : "لا يوجد أي حساب إدارة مسجّل"
-                : isDeletedView
-                  ? `${managers.length} حساب إدارة/موظف محذوف`
-                  : `${managers.length} حساب إدارة مسجّل`}
-            </p>
-          </div>
-          <Link
-            href={isDeletedView ? "/admin/managers" : "/admin/managers?view=deleted"}
-            className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-[#0f2a4a] px-4 py-2 text-sm font-black text-white! transition-colors hover:bg-[#0b1f38] sm:mr-auto sm:w-auto"
-          >
-            {isDeletedView ? "العودة للنشطين" : "المحذوفات"}
-          </Link>
         </div>
 
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          {/* قائمة المديرين — تأخذ ثلثي العرض على الشاشات الكبيرة */}
-          <div className="lg:col-span-2">
-            {managers.length === 0 ? (
-              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 py-16 text-center">
-                <UserCog className="mb-3 h-10 w-10 text-slate-300 dark:text-slate-600" />
-                <p className="text-sm font-bold text-slate-500 dark:text-slate-400">لا توجد حسابات مدراء أو موظفين بعد</p>
-                <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
-                  استخدم النموذج لإنشاء أول حساب (مدير أو موظف)
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {managers.map((mgr) => {
-                  const perms = (mgr.manager_permissions ?? {}) as Partial<ManagerPermissions>;
-
-                  const fullPerms: ManagerPermissions = {
-                    import_beneficiaries: perms.import_beneficiaries ?? false,
-                    add_beneficiary: perms.add_beneficiary ?? false,
-                    edit_beneficiary: perms.edit_beneficiary ?? false,
-                    delete_beneficiary: perms.delete_beneficiary ?? false,
-                    add_facility: perms.add_facility ?? false,
-                    edit_facility: perms.edit_facility ?? false,
-                    delete_facility: perms.delete_facility ?? false,
-                    cancel_transactions: perms.cancel_transactions ?? false,
-                    correct_transactions: perms.correct_transactions ?? false,
-                    manage_recycle_bin: perms.manage_recycle_bin ?? false,
-                    export_data: perms.export_data ?? false,
-                    print_cards: perms.print_cards ?? false,
-                    view_audit_log: perms.view_audit_log ?? false,
-                    view_reports: perms.view_reports ?? false,
-                    view_facilities: perms.view_facilities ?? false,
-                    view_beneficiaries: perms.view_beneficiaries ?? true,
-                    deduct_balance: perms.deduct_balance ?? false,
-                    delete_transaction: perms.delete_transaction ?? false,
-                    cash_claim: perms.cash_claim ?? false,
-                    manage_card_numbering: perms.manage_card_numbering ?? false,
-                    migrate_card_numbering: perms.migrate_card_numbering ?? false,
-                    manage_users: perms.manage_users ?? false,
-                  };
-
-                  return (
-                    <div
-                      key={mgr.id}
-                      className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 shadow-sm"
-                    >
-                      {/* رأس بطاقة المدير */}
-                      <div className="mb-3 flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="font-black text-sm text-slate-900 dark:text-white truncate">
-                              {mgr.name}
-                            </p>
-                            {mgr.is_admin ? (
-                              <span className="inline-flex items-center rounded-full bg-violet-100 dark:bg-violet-900/30 px-2 py-0.5 text-xs font-bold text-violet-700 dark:text-violet-400">
-                                المبرمج
-                              </span>
-                            ) : mgr.is_manager ? (
-                              <span className="inline-flex items-center rounded-full bg-blue-100 dark:bg-blue-900/30 px-2 py-0.5 text-xs font-bold text-blue-700 dark:text-blue-400">
-                                مدير
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center rounded-full bg-teal-100 dark:bg-teal-900/30 px-2 py-0.5 text-xs font-bold text-teal-700 dark:text-teal-400">
-                                موظف
-                              </span>
-                            )}
-                            {mgr.must_change_password && (
-                              <span className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 text-xs font-bold text-amber-700 dark:text-amber-400">
-                                كلمة المرور مؤقتة
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-mono">
-                            @{mgr.username}
-                          </p>
-                        </div>
-                        <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:shrink-0">
-                          {!isDeletedView && !mgr.is_admin && (
-                            <ManagerPermissionsModal
-                              managerId={mgr.id}
-                              managerName={mgr.name}
-                              permissions={fullPerms}
-                            />
-                          )}
-                          {!isDeletedView && mgr.id !== session.id && (
-                            <ManagerDeleteButton id={mgr.id} name={mgr.name} />
-                          )}
-                          {isDeletedView && mgr.id !== session.id && (
-                            <ManagerRecycleActions
-                              id={mgr.id}
-                              name={mgr.name}
-                              transactionCount={mgr._count.transactions}
-                            />
-                          )}
-                        </div>
-                      </div>
-
-                      {/* الصلاحيات الممنوحة */}
-                      {/* الصلاحيات */}
-                      <div className="mb-2 flex flex-wrap gap-1.5">
-                        {mgr.is_admin ? (
-                          /* المبرمج: كل الصلاحيات مفعلة + صلاحيات حصرية */
-                          <>
-                            {(Object.keys(PERMISSION_LABELS) as Array<keyof ManagerPermissions>).map((k) => (
-                              <span
-                                key={k}
-                                className="inline-flex items-center rounded-full bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 text-xs font-bold text-emerald-700 dark:text-emerald-400"
-                              >
-                                ✓ {PERMISSION_LABELS[k]}
-                              </span>
-                            ))}
-                            <span className="inline-flex items-center rounded-full bg-violet-100 dark:bg-violet-900/30 px-2 py-0.5 text-xs font-bold text-violet-700 dark:text-violet-400">
-                              ✓ نسخ احتياطي
-                            </span>
-                            <span className="inline-flex items-center rounded-full bg-violet-100 dark:bg-violet-900/30 px-2 py-0.5 text-xs font-bold text-violet-700 dark:text-violet-400">
-                              ✓ استعادة احتياطي
-                            </span>
-                            <span className="inline-flex items-center rounded-full bg-violet-100 dark:bg-violet-900/30 px-2 py-0.5 text-xs font-bold text-violet-700 dark:text-violet-400">
-                              ✓ استيراد حركات
-                            </span>
-                            <span className="inline-flex items-center rounded-full bg-violet-100 dark:bg-violet-900/30 px-2 py-0.5 text-xs font-bold text-violet-700 dark:text-violet-400">
-                              ✓ إدارة المديرين
-                            </span>
-                          </>
-                        ) : (
-                          /* المدير: صلاحيات حسب التفعيل */
-                          (Object.keys(PERMISSION_LABELS) as Array<keyof ManagerPermissions>).map((k) => (
-                            <span
-                              key={k}
-                              className={
-                                perms[k] === true
-                                  ? "inline-flex items-center rounded-full bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 text-xs font-bold text-emerald-700 dark:text-emerald-400"
-                                  : "inline-flex items-center rounded-full bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-xs font-bold text-slate-400 dark:text-slate-500 line-through"
-                              }
-                            >
-                              {perms[k] === true ? "✓" : "✗"} {PERMISSION_LABELS[k]}
-                            </span>
-                          ))
-                        )}
-                      </div>
-
-                      {/* تاريخ الإنشاء */}
-                      <p className="mt-3 text-xs text-slate-400 dark:text-slate-600 text-end">
-                        أُنشئ في {formatDateTripoli(mgr.created_at, "en-GB")}
-                      </p>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+        <div className="grid gap-6 xl:grid-cols-[1fr_340px]">
+          <div className="overflow-hidden rounded-xl border bg-white dark:bg-slate-900">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-245 text-right text-sm">
+                <thead className="bg-slate-50 text-xs text-slate-500 dark:bg-slate-800/60"><tr><th className="p-3">الاسم</th><th className="p-3">المستخدم</th><th className="p-3">الدور</th><th className="p-3">الحالة</th><th className="p-3">الحركات</th><th className="p-3">تاريخ الإنشاء</th><th className="p-3">الإجراءات</th></tr></thead>
+                <tbody>
+                  {accounts.length === 0 ? <tr><td colSpan={7} className="p-10 text-center text-slate-500">لا توجد حسابات مطابقة.</td></tr> : accounts.map((account) => {
+                    const role = resolvePermissionRole(account);
+                    const permissions = normalizeManagerPermissionsForRole(role, account.manager_permissions);
+                    const roleLabel = account.is_admin ? "مشرف" : account.is_manager ? "مدير" : "موظف";
+                    return <tr key={account.id} className="border-t dark:border-slate-800">
+                      <td className="p-3 font-black">{account.name}</td><td className="p-3 font-mono" dir="ltr">@{account.username}</td>
+                      <td className="p-3"><span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700 dark:bg-blue-950">{roleLabel}</span></td>
+                      <td className="p-3">{account.must_change_password ? <span className="text-xs font-bold text-amber-700">كلمة مرور مؤقتة</span> : <span className="text-xs font-bold text-emerald-700">نشط</span>}</td>
+                      <td className="p-3">{account._count.transactions.toLocaleString("ar-LY")}</td><td className="p-3 text-xs">{formatDateTripoli(account.created_at, "en-GB")}</td>
+                      <td className="p-3"><div className="flex flex-wrap gap-2">
+                        {!isDeletedView && !account.is_admin ? <ManagerPermissionsModal managerId={account.id} managerName={account.name} permissions={permissions} accountRole={role} /> : null}
+                        {!isDeletedView ? <ManagerResetPasswordButton id={account.id} name={account.name} /> : null}
+                        {!isDeletedView && account.id !== session.id ? <ManagerDeleteButton id={account.id} name={account.name} /> : null}
+                        {isDeletedView && account.id !== session.id ? <ManagerRecycleActions id={account.id} name={account.name} transactionCount={account._count.transactions} /> : null}
+                      </div></td>
+                    </tr>;
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {pages > 1 ? <div className="border-t p-3"><PaginationButtons page={page} totalPages={pages} hrefForPage={pageHref} /></div> : null}
           </div>
-
-          {/* نموذج إنشاء مدير جديد */}
-          <div>
-            {!isDeletedView && <ManagerCreateForm />}
-          </div>
+          {!isDeletedView ? <ManagerCreateForm /> : null}
         </div>
       </div>
     </Shell>

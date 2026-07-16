@@ -1,6 +1,7 @@
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
+import type { FacilityType } from "@/lib/facility-type";
 
 function getJwtKey() {
   const secretKey = process.env.JWT_SECRET;
@@ -27,19 +28,20 @@ export async function decrypt(input: string): Promise<Record<string, unknown>> {
   return payload;
 }
 
-import type { ManagerPermissions, Session } from "./permissions";
-export type { ManagerPermissions, Session };
+import type { ManagerPermissions, Session, UserRole } from "./permissions";
+export type { ManagerPermissions, Session, UserRole };
 
 export async function login(user: {
   id: string;
   name: string;
   username: string;
+  role: UserRole;
   is_admin: boolean;
   is_manager: boolean;
   is_employee: boolean;
   manager_permissions: ManagerPermissions | null;
   must_change_password: boolean;
-  facility_type?: "HOSPITAL" | "PHARMACY";
+  facility_type?: FacilityType;
 }) {
   const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
   // SEC-FIX: حفظ وقت إنشاء الجلسة الأصلي لفرض absolute timeout

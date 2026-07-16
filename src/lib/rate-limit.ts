@@ -1,9 +1,9 @@
 /**
- * Redis-backed rate limiter مع fallback داخل الذاكرة.
- * يضمن حد موحد عبر جميع instances عند توفر Redis.
+ * PostgreSQL-backed rate limiter.
+ * مشترك بين جميع نسخ التطبيق ولا يحتاج Redis أو خدمة خارجية.
  */
 
-import { getRedisPublisherClient } from "@/lib/redis";
+import prisma from "@/lib/prisma";
 
 interface Bucket {
   count: number;
@@ -63,58 +63,49 @@ function checkRateLimitInMemory(key: string, config: RateLimitConfig): string | 
 /** يُرجع null إذا مسموح، أو رسالة خطأ إذا تجاوز الحد */
 export async function checkRateLimit(key: string, category: string = "login"): Promise<string | null> {
   const config = RATE_LIMITS[category] ?? DEFAULT_CONFIG;
+  const bucketKey = `${category}:${key}`;
 
-  const redis = await getRedisPublisherClient();
-  if (redis) {
-    try {
-      const redisKey = `rate-limit:${category}:${key}`;
-      const count = await redis.incr(redisKey);
+  try {
+    const rows = await prisma.$queryRaw<Array<{ count: number; reset_at: Date }>>`
+      INSERT INTO "RateLimitBucket" ("key", "count", "reset_at", "updated_at")
+      VALUES (${bucketKey}, 1, NOW() + (${config.windowMs} * INTERVAL '1 millisecond'), NOW())
+      ON CONFLICT ("key") DO UPDATE SET
+        "count" = CASE
+          WHEN "RateLimitBucket"."reset_at" <= NOW() THEN 1
+          ELSE "RateLimitBucket"."count" + 1
+        END,
+        "reset_at" = CASE
+          WHEN "RateLimitBucket"."reset_at" <= NOW()
+            THEN NOW() + (${config.windowMs} * INTERVAL '1 millisecond')
+          ELSE "RateLimitBucket"."reset_at"
+        END,
+        "updated_at" = NOW()
+      RETURNING "count", "reset_at"
+    `;
 
-      if (count === 1) {
-        await redis.pExpire(redisKey, config.windowMs);
-      }
-
-      if (count > config.maxAttempts) {
-        const ttlMs = await redis.pTTL(redisKey);
-        const remainingSec = Math.max(1, Math.ceil((ttlMs > 0 ? ttlMs : config.windowMs) / 1000));
-        return formatRateLimitMessage(remainingSec);
-      }
-
-      return null;
-    } catch (err) {
-      console.warn("[RATE-LIMIT] Redis error, falling back", String(err));
-      // إذا فشل Redis — اسقط للـ fallback فقط في التطوير
+    const bucket = rows[0];
+    if (bucket && bucket.count > config.maxAttempts) {
+      const remainingSec = Math.max(1, Math.ceil((bucket.reset_at.getTime() - Date.now()) / 1000));
+      return formatRateLimitMessage(remainingSec);
     }
+    return null;
+  } catch (err) {
+    console.error("[RATE-LIMIT] PostgreSQL limiter failed", String(err));
+    if (process.env.NODE_ENV === "production") {
+      return "خدمة التحقق غير متاحة مؤقتاً. يرجى المحاولة لاحقاً.";
+    }
+    return checkRateLimitInMemory(bucketKey, config);
   }
-
-  // ── في بيئة الإنتاج بدون Redis: نرفض الطلب بشكل آمن ──
-  // منع Bypass هجمات عبر خوادم متعددة (Multi-Instance Attack)
-  if (process.env.NODE_ENV === "production") {
-    console.error(
-      `[RATE-LIMIT] CRITICAL: Redis unavailable in production for key="${category}:${key}". ` +
-      `Blocking request to prevent multi-instance rate-limit bypass.`
-    );
-    return "خدمة التحقق غير متاحة مؤقتاً. يرجى المحاولة لاحقاً.";
-  }
-
-  // بيئة التطوير: fallback للذاكرة مع تحذير
-  console.warn(`[RATE-LIMIT] Using in-memory fallback (dev-only) for key="${category}:${key}"`);
-  return checkRateLimitInMemory(key, config);
 }
 
 export async function resetRateLimit(key: string, category: string = "login"): Promise<void> {
-  store.delete(key);
-
-  const redis = await getRedisPublisherClient();
-  if (!redis) {
-    return;
-  }
+  const bucketKey = `${category}:${key}`;
+  store.delete(bucketKey);
 
   try {
-    await redis.del(`rate-limit:${category}:${key}`);
+    await prisma.$executeRaw`DELETE FROM "RateLimitBucket" WHERE "key" = ${bucketKey}`;
   } catch (err) {
-    console.warn("[RATE-LIMIT] Redis reset failed", String(err));
-    // best effort
+    console.warn("[RATE-LIMIT] PostgreSQL reset failed", String(err));
   }
 }
 

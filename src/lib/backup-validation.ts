@@ -98,6 +98,7 @@ const userSchema = z.object({
   is_manager: z.boolean().optional().default(false),
   manager_permissions: z.any().optional(),
   must_change_password: z.boolean().optional().default(false),
+  facility_type: z.enum(["HOSPITAL", "PHARMACY", "DENTAL_CLINIC", "PHYSIOTHERAPY_CENTER", "SPECIALTY_CLINIC", "OPTICAL_CENTER"]).nullable().optional(),
   deleted_at: z.string().nullable().optional(),
   created_at: z.string(),
 });
@@ -107,9 +108,13 @@ const providerSchema = z.object({
   card_number: z.string(),
   name: z.string(),
   birth_date: z.string().nullable().optional(),
+  city: z.string().nullable().optional(),
+  batch_number: z.string().nullable().optional(),
   total_balance: z.number(),
   remaining_balance: z.number(),
   status: z.enum(["ACTIVE", "FINISHED", "SUSPENDED"]),
+  completed_via: z.string().nullable().optional(),
+  is_legacy_card: z.boolean().optional().default(false),
   pin_hash: z.string().nullable().optional(),
   failed_attempts: z.number().optional().default(0),
   locked_until: z.string().nullable().optional(),
@@ -122,9 +127,10 @@ const transactionSchema = z.object({
   beneficiary_id: z.string(),
   facility_id: z.string(),
   amount: z.number(),
-  type: z.preprocess(normalizeTransactionType, z.enum(["MEDICINE", "SUPPLIES", "IMPORT", "CANCELLATION", "SETTLEMENT"])),
+  type: z.preprocess(normalizeTransactionType, z.enum(["MEDICINE", "SUPPLIES", "IMPORT", "CANCELLATION", "SETTLEMENT", "GENERAL"])),
   is_cancelled: z.boolean().optional().default(false),
   original_transaction_id: z.string().nullable().optional(),
+  idempotency_key: z.string().nullable().optional(),
   created_at: z.string(),
 });
 
@@ -147,17 +153,39 @@ const notificationSchema = z.object({
   created_at: z.string(),
 });
 
+const familyImportArchiveSchema = z.object({
+  family_base_card: z.string(),
+  family_count_from_file: z.number().int().nonnegative(),
+  total_balance_from_file: z.number(),
+  used_balance_from_file: z.number(),
+  source_row_number: z.number().int().nullable().optional(),
+  imported_by: z.string().nullable().optional(),
+  last_imported_at: z.string(),
+  created_at: z.string(),
+  updated_at: z.string(),
+  source_file_name: z.string().nullable().optional(),
+});
+
 export const backupSchema = z.object({
-  version: z.literal("1.0"),
+  version: z.enum(["1.0", "1.1"]),
   exported_at: z.string(),
   created_by: z.string().optional(),
   includes_sensitive: z.boolean(),
+  manifest: z.object({
+    facilities: z.number().int().nonnegative(),
+    beneficiaries: z.number().int().nonnegative(),
+    transactions: z.number().int().nonnegative(),
+    transaction_amount: z.number(),
+    family_import_archive: z.number().int().nonnegative(),
+    family_used_balance: z.number(),
+  }).optional(),
   data: z.object({
     users: z.array(userSchema),
     providers: z.array(providerSchema),
     transactions: z.array(transactionSchema),
     audit_logs: z.array(auditLogSchema),
     notifications: z.array(notificationSchema),
+    family_import_archive: z.array(familyImportArchiveSchema).optional(),
   }),
 });
 

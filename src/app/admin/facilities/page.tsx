@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { User, Download } from "lucide-react";
 import prisma from "@/lib/prisma";
-import { Prisma } from "@prisma/client";
 import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-guard";
 import { getArabicSearchTerms } from "@/lib/search";
 import { getFacilityTypeLabel, inferFacilityTypeFromText, normalizeFacilityTypeOverride } from "@/lib/facility-type";
@@ -12,10 +11,13 @@ import { CreateFacilityForm } from "./create-form";
 import { FacilityEditModal } from "@/components/facility-edit-modal";
 import { FacilityDeleteButton } from "@/components/facility-delete-button";
 import { FacilityRecycleActions } from "@/components/facility-recycle-actions";
+import { ManagerPermissionsModal } from "@/components/manager-permissions-modal";
+import { normalizeManagerPermissionsForRole } from "@/lib/permission-catalog";
 import { FacilityImportUploader } from "@/components/facility-import-uploader";
 import { PaginationButtons } from "@/components/pagination-buttons";
 import { PrintButton } from "@/components/print-button";
 import { formatDateTripoli } from "@/lib/datetime";
+import { FacilityBulkPermissions } from "@/components/facility-bulk-permissions";
 
 const PAGE_SIZE = 8;
 
@@ -43,6 +45,7 @@ export default async function FacilitiesPage({
     deleted_at: isDeletedView ? { not: null } : null,
     is_admin: false,
     is_manager: false,
+    is_employee: false,
     ...(q && q.trim()
       ? {
         OR: getArabicSearchTerms(q.trim()).flatMap(t => [
@@ -57,6 +60,7 @@ export default async function FacilitiesPage({
     deleted_at: isDeletedView ? { not: null } : null,
     is_admin: false,
     is_manager: false,
+    is_employee: false,
   };
 
   const [facilities, totalCount, allFacilities] = await Promise.all([
@@ -72,8 +76,12 @@ export default async function FacilitiesPage({
         name: true,
         username: true,
         is_admin: true,
+        is_manager: true,
+        is_employee: true,
+        manager_permissions: true,
         must_change_password: true,
         created_at: true,
+        facility_type: true,
         _count: { select: { transactions: true } },
         deleted_at: true,
       },
@@ -87,33 +95,19 @@ export default async function FacilitiesPage({
         name: true,
         username: true,
         is_admin: true,
+        is_manager: true,
+        is_employee: true,
+        manager_permissions: true,
         created_at: true,
+        facility_type: true,
         _count: { select: { transactions: true } },
         deleted_at: true,
       },
     }),
   ]);
 
-  const allFacilityIds = [...new Set([...facilities, ...allFacilities].map((f) => f.id))];
-  const typeOverrideRows = allFacilityIds.length > 0
-    ? await prisma.$queryRaw<Array<{ facility_id: string; facility_type_override: string | null }>>`
-        SELECT DISTINCT ON ((metadata->>'facility_id'))
-          (metadata->>'facility_id') AS facility_id,
-          (metadata->>'facility_type_override') AS facility_type_override
-        FROM "AuditLog"
-        WHERE action IN ('CREATE_FACILITY', 'UPDATE_FACILITY')
-          AND metadata ? 'facility_type_override'
-          AND (metadata->>'facility_id') IN (${Prisma.join(allFacilityIds)})
-        ORDER BY (metadata->>'facility_id'), created_at DESC
-      `
-    : [];
-
-  const typeOverrideByFacilityId = new Map<string, string | null>(
-    typeOverrideRows.map((row) => [row.facility_id, row.facility_type_override])
-  );
-
-  const resolveFacilityType = (facility: { id: string; name: string; username: string }) => {
-    const override = normalizeFacilityTypeOverride(typeOverrideByFacilityId.get(facility.id));
+  const resolveFacilityType = (facility: { id: string; name: string; username: string; facility_type: string | null }) => {
+    const override = normalizeFacilityTypeOverride(facility.facility_type);
     const inferred = inferFacilityTypeFromText(facility.name, facility.username);
     return {
       effectiveType: override ?? inferred,
@@ -125,6 +119,7 @@ export default async function FacilitiesPage({
   const canEdit = hasPermission(session, "edit_facility");
   const canDelete = hasPermission(session, "delete_facility");
   const canExport = hasPermission(session, "export_data");
+  const canManagePermissions = hasPermission(session, "manage_users");
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
@@ -190,6 +185,8 @@ export default async function FacilitiesPage({
             <PrintButton />
           </div>
         </div>
+
+        {canManagePermissions && !isDeletedView ? <FacilityBulkPermissions /> : null}
 
         <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
           {/* قائمة المرافق */}
@@ -268,6 +265,14 @@ export default async function FacilitiesPage({
                                 {!f.is_admin && (
                                   <>
                                     {!isDeletedView && canEdit && <FacilityEditModal facility={{ id: f.id, name: f.name, username: f.username, facility_type_override: resolveFacilityType(f).overrideType }} />}
+                                    {!isDeletedView && canEdit && (
+                                      <ManagerPermissionsModal
+                                        managerId={f.id}
+                                        managerName={f.name}
+                                        permissions={normalizeManagerPermissionsForRole("FACILITY", f.manager_permissions)}
+                                        accountRole="FACILITY"
+                                      />
+                                    )}
                                     {!isDeletedView && canDelete && f.id !== session.id && (
                                       <FacilityDeleteButton
                                         id={f.id}

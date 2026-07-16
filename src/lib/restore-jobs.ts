@@ -172,10 +172,9 @@ async function updateProgress(jobId: string, input: {
   });
 }
 
-async function ensureNoActiveRestore(username: string): Promise<string | null> {
+async function ensureNoActiveRestore(): Promise<string | null> {
   const active = await prisma.restoreJob.findFirst({
     where: {
-      created_by: username,
       status: {
         in: ["PENDING", "PROCESSING"],
       },
@@ -191,7 +190,7 @@ async function ensureNoActiveRestore(username: string): Promise<string | null> {
 }
 
 export async function createRestoreJob(input: CreateRestoreJobInput) {
-  const activeRestoreError = await ensureNoActiveRestore(input.username);
+  const activeRestoreError = await ensureNoActiveRestore();
   if (activeRestoreError) {
     return { error: activeRestoreError };
   }
@@ -200,14 +199,22 @@ export async function createRestoreJob(input: CreateRestoreJobInput) {
     return { error: "حجم الملف كبير جداً (الحد الأقصى 100MB)" as const };
   }
 
-  const job = await prisma.restoreJob.create({
-    data: {
-      created_by: input.username,
-      encrypted_payload: input.payload,
-      status: "PENDING",
-      current_phase: "PENDING",
-    },
-  });
+  let job;
+  try {
+    job = await prisma.restoreJob.create({
+      data: {
+        created_by: input.username,
+        encrypted_payload: input.payload,
+        status: "PENDING",
+        current_phase: "PENDING",
+      },
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return { error: "توجد عملية استعادة أخرى قيد التنفيذ حالياً." };
+    }
+    throw error;
+  }
 
   return { job: toSnapshot(job) };
 }
@@ -372,6 +379,8 @@ export async function processRestoreJob(jobId: string, username: string) {
 
     const backup = parsed.data;
     const { users, providers, transactions, audit_logs, notifications } = backup.data;
+    const familyImportArchive = backup.data.family_import_archive ?? [];
+    const restoresFamilyImportArchive = backup.version === "1.1";
 
     await throwIfCancelled(currentJob.id);
 
@@ -381,7 +390,7 @@ export async function processRestoreJob(jobId: string, username: string) {
     const auditLogChunks = chunkRows(audit_logs, BATCH_SIZE);
     const notificationChunks = chunkRows(notifications, BATCH_SIZE);
 
-    const totalSteps = userChunks.length + providerChunks.length + 1 + transactionChunks.length + auditLogChunks.length + notificationChunks.length + 1;
+    const totalSteps = userChunks.length + providerChunks.length + 1 + transactionChunks.length + auditLogChunks.length + notificationChunks.length + (restoresFamilyImportArchive ? 1 : 0) + 1;
 
     await prisma.restoreJob.update({
       where: { id: currentJob.id },
@@ -429,6 +438,7 @@ export async function processRestoreJob(jobId: string, username: string) {
               is_manager: user.is_manager,
               ...(user.manager_permissions ? { manager_permissions: user.manager_permissions } : {}),
               must_change_password: user.password_hash ? user.must_change_password : true,
+              facility_type: user.facility_type ?? null,
               deleted_at: user.deleted_at ? new Date(user.deleted_at) : null,
             },
           });
@@ -445,6 +455,7 @@ export async function processRestoreJob(jobId: string, username: string) {
               is_manager: user.is_manager,
               manager_permissions: user.manager_permissions ?? null,
               must_change_password: user.password_hash ? user.must_change_password : true,
+              facility_type: user.facility_type ?? null,
               deleted_at: user.deleted_at ? new Date(user.deleted_at) : null,
               created_at: new Date(user.created_at),
             },
@@ -532,7 +543,11 @@ export async function processRestoreJob(jobId: string, username: string) {
               card_number: normalizedCardNumber,
               name: normalizedProviderName,
               birth_date: providerBirthDate,
+              city: provider.city ?? null,
+              batch_number: provider.batch_number ?? null,
               status: normalizedStatus,
+              completed_via: provider.completed_via ?? null,
+              is_legacy_card: provider.is_legacy_card,
               total_balance: totalBalance,
               remaining_balance: remainingBalance,
               ...(provider.pin_hash && !existing.pin_hash ? { pin_hash: provider.pin_hash } : {}),
@@ -548,9 +563,13 @@ export async function processRestoreJob(jobId: string, username: string) {
               card_number: normalizedCardNumber,
               name: normalizedProviderName,
               birth_date: providerBirthDate,
+              city: provider.city ?? null,
+              batch_number: provider.batch_number ?? null,
               total_balance: totalBalance,
               remaining_balance: remainingBalance,
               status: normalizedStatus,
+              completed_via: provider.completed_via ?? null,
+              is_legacy_card: provider.is_legacy_card,
               pin_hash: provider.pin_hash ?? null,
               failed_attempts: provider.failed_attempts ?? 0,
               locked_until: provider.locked_until ? new Date(provider.locked_until) : null,
@@ -617,6 +636,13 @@ export async function processRestoreJob(jobId: string, username: string) {
 
     await updateProgress(currentJob.id, { currentPhase: "RESTORING_TRANSACTIONS" });
 
+    // النسخة الاحتياطية تمثل لقطة كاملة: احذف أي حركة لا تنتمي إليها.
+    // هذا يمنع بقاء حركات أحدث من النسخة وظهور أرصدة ومديونية مختلفة بعد الاستعادة.
+    const backupTransactionIds = transactions.map((row) => row.id);
+    await prisma.transaction.deleteMany({
+      where: backupTransactionIds.length > 0 ? { id: { notIn: backupTransactionIds } } : {},
+    });
+
     for (const chunk of transactionChunks) {
       await throwIfCancelled(currentJob.id);
 
@@ -640,6 +666,7 @@ export async function processRestoreJob(jobId: string, username: string) {
       const originalSet = new Set(existingOriginals.map((item) => item.id));
 
       const rowsToInsert: Prisma.TransactionCreateManyInput[] = [];
+      const rowsToUpdate: Array<{ id: string; data: Prisma.TransactionUncheckedUpdateInput }> = [];
 
       for (const t of chunk) {
         const mappedFacilityId = userIdMap.get(t.facility_id) ?? t.facility_id;
@@ -650,16 +677,12 @@ export async function processRestoreJob(jobId: string, username: string) {
           continue;
         }
 
-        if (existingSet.has(t.id)) {
-          continue;
-        }
-
         let mappedOriginalTransactionId: string | null = t.original_transaction_id ?? null;
         if (mappedOriginalTransactionId && !originalSet.has(mappedOriginalTransactionId)) {
           mappedOriginalTransactionId = null;
         }
 
-        rowsToInsert.push({
+        const restoredData = {
           id: t.id,
           beneficiary_id: mappedBeneficiaryId,
           facility_id: mappedFacilityId,
@@ -667,17 +690,27 @@ export async function processRestoreJob(jobId: string, username: string) {
           type: t.type,
           is_cancelled: t.is_cancelled,
           original_transaction_id: mappedOriginalTransactionId,
+          idempotency_key: t.idempotency_key ?? null,
           created_at: new Date(t.created_at),
-        });
+        } satisfies Prisma.TransactionCreateManyInput;
+
+        if (existingSet.has(t.id)) {
+          const { id: _id, ...updateData } = restoredData;
+          rowsToUpdate.push({
+            id: t.id,
+            data: updateData,
+          });
+        } else {
+          rowsToInsert.push(restoredData);
+        }
       }
 
-      if (rowsToInsert.length > 0) {
-        const result = await prisma.transaction.createMany({
-          data: rowsToInsert,
-          skipDuplicates: true,
-        });
-        restoredTransactions += result.count;
-      }
+      const operations: Prisma.PrismaPromise<unknown>[] = rowsToUpdate.map((row) =>
+        prisma.transaction.update({ where: { id: row.id }, data: row.data })
+      );
+      if (rowsToInsert.length > 0) operations.push(prisma.transaction.createMany({ data: rowsToInsert, skipDuplicates: true }));
+      if (operations.length > 0) await prisma.$transaction(operations);
+      restoredTransactions += rowsToInsert.length + rowsToUpdate.length;
 
       completedSteps++;
       await updateProgress(currentJob.id, {
@@ -783,6 +816,68 @@ export async function processRestoreJob(jobId: string, username: string) {
       });
     }
 
+    if (restoresFamilyImportArchive) {
+      await throwIfCancelled(currentJob.id);
+      await updateProgress(currentJob.id, { currentPhase: "RESTORING_FAMILY_IMPORT_ARCHIVE" });
+      await prisma.$transaction(async (tx) => {
+        await tx.familyImportArchive.deleteMany();
+        if (familyImportArchive.length > 0) {
+          await tx.familyImportArchive.createMany({
+            data: familyImportArchive.map((row) => ({
+              family_base_card: row.family_base_card,
+              family_count_from_file: row.family_count_from_file,
+              total_balance_from_file: row.total_balance_from_file,
+              used_balance_from_file: row.used_balance_from_file,
+              source_row_number: row.source_row_number ?? null,
+              imported_by: row.imported_by ?? null,
+              last_imported_at: new Date(row.last_imported_at),
+              created_at: new Date(row.created_at),
+              updated_at: new Date(row.updated_at),
+              source_file_name: row.source_file_name ?? null,
+            })),
+          });
+        }
+      });
+      completedSteps++;
+      await updateProgress(currentJob.id, { completedSteps });
+    }
+
+    await updateProgress(currentJob.id, { currentPhase: "VERIFYING_RESTORED_DATA" });
+    await recalcBalancesAfterRestore();
+
+    if (providerIdMap.size !== providers.length) {
+      throw new Error(`فشل التحقق: ${providers.length - providerIdMap.size} مستفيد في النسخة اندمج مع سجل آخر أثناء الاستعادة`);
+    }
+    if (userIdMap.size !== users.length) {
+      throw new Error("فشل التحقق: عدد حسابات المرافق المستعادة لا يطابق النسخة");
+    }
+    if (skippedTransactions > 0) {
+      throw new Error(`فشل التحقق: تم تخطي ${skippedTransactions} حركة لغياب المرفق أو المستفيد المرتبط`);
+    }
+
+    const [transactionCheck, archiveCheck] = await Promise.all([
+      prisma.transaction.aggregate({ _count: { id: true }, _sum: { amount: true } }),
+      prisma.familyImportArchive.aggregate({ _count: { family_base_card: true }, _sum: { used_balance_from_file: true } }),
+    ]);
+    const expectedTransactionCount = backup.manifest?.transactions ?? transactions.length;
+    const expectedTransactionAmount = roundCurrency(
+      backup.manifest?.transaction_amount ?? transactions.reduce((sum, row) => sum + row.amount, 0),
+    );
+    const actualTransactionAmount = roundCurrency(Number(transactionCheck._sum.amount ?? 0));
+    if (transactionCheck._count.id !== expectedTransactionCount || actualTransactionAmount !== expectedTransactionAmount) {
+      throw new Error(`فشل التحقق المالي: المتوقع ${expectedTransactionCount} حركة بقيمة ${expectedTransactionAmount}، والمستعاد ${transactionCheck._count.id} بقيمة ${actualTransactionAmount}`);
+    }
+    if (restoresFamilyImportArchive) {
+      const expectedArchiveCount = backup.manifest?.family_import_archive ?? familyImportArchive.length;
+      const expectedArchiveAmount = roundCurrency(
+        backup.manifest?.family_used_balance ?? familyImportArchive.reduce((sum, row) => sum + row.used_balance_from_file, 0),
+      );
+      const actualArchiveAmount = roundCurrency(Number(archiveCheck._sum.used_balance_from_file ?? 0));
+      if (archiveCheck._count.family_base_card !== expectedArchiveCount || actualArchiveAmount !== expectedArchiveAmount) {
+        throw new Error("فشل التحقق من أرشيف العائلات بعد الاستعادة");
+      }
+    }
+
     completedSteps++;
 
     const completedJob = await prisma.restoreJob.update({
@@ -823,6 +918,7 @@ export async function processRestoreJob(jobId: string, username: string) {
           restored_password_hashes: hasFacilityPasswordHashes,
           restored: buildSummary(completedJob),
           restore_job_id: completedJob.id,
+          restored_family_import_archive: restoresFamilyImportArchive ? familyImportArchive.length : null,
         },
       },
     });
@@ -832,13 +928,6 @@ export async function processRestoreJob(jobId: string, username: string) {
       where: { id: currentJob.id },
       data: { encrypted_payload: Buffer.alloc(0) },
     });
-
-    // إعادة حساب الأرصدة لضمان التطابق بين remaining_balance والحركات الفعلية
-    try {
-      await recalcBalancesAfterRestore();
-    } catch (recalcErr) {
-      logger.error("Recalc balances after restore failed", { error: String(recalcErr) });
-    }
 
     try {
       revalidateTag("beneficiary-counts", "max");

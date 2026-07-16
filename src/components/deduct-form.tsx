@@ -1,5 +1,7 @@
 "use client";
 
+import type { FacilityType } from "@/lib/facility-type";
+
 /**
  * DeductForm (Refactored)
  * =======================
@@ -43,7 +45,7 @@ function DeductFormInner() {
   );
 }
 
-export function DeductForm({ facilityType }: { facilityType?: "HOSPITAL" | "PHARMACY" }) {
+export function DeductForm({ facilityType }: { facilityType?: FacilityType }) {
   return (
     <DeductProvider facilityType={facilityType}>
       <DeductFormInner />

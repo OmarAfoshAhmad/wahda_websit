@@ -57,6 +57,10 @@ export function CreateFacilityForm() {
             <option value="AUTO">تلقائي (استنتاج من الاسم)</option>
             <option value="HOSPITAL">مشفى</option>
             <option value="PHARMACY">صيدلية</option>
+            <option value="DENTAL_CLINIC">عيادة أسنان</option>
+            <option value="PHYSIOTHERAPY_CENTER">مركز علاج طبيعي</option>
+            <option value="SPECIALTY_CLINIC">عيادة تخصصية</option>
+            <option value="OPTICAL_CENTER">مركز بصريات</option>
           </select>
         </div>
       </div>

@@ -17,6 +17,7 @@ export * from "./legacy-card-batch-tools";
 export * from "./legacy-card-inline-toggle-button";
 export * from "./legacy-no-payment-purge-button";
 export * from "./legacy-with-batch-stabilize-button";
+export * from "./legacy-card-resolution-panel";
 export * from "./transaction-import-uploader";
 export * from "./import-rollback-button";
 export * from "./bulk-beneficiary-rollback-button";

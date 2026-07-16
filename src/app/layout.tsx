@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import Script from "next/script";
-import { Tajawal } from "next/font/google";
+import localFont from "next/font/local";
 import { ToastProvider } from "@/components/toast";
 import { ThemeProvider } from "@/components/theme-provider";
 import { validateEnv } from "@/lib/env";
@@ -8,10 +7,16 @@ import "./globals.css";
 
 validateEnv();
 
-const tajawal = Tajawal({
-  subsets: ["arabic", "latin"],
-  weight: ["300", "400", "500", "700", "800"],
+const tajawal = localFont({
+  src: [
+    { path: "../../public/fonts/Tajawal-Regular.ttf", weight: "400", style: "normal" },
+    { path: "../../public/fonts/Tajawal-Medium.ttf", weight: "500", style: "normal" },
+    { path: "../../public/fonts/Tajawal-Bold.ttf", weight: "700", style: "normal" },
+    { path: "../../public/fonts/Tajawal-ExtraBold.ttf", weight: "800", style: "normal" },
+  ],
   variable: "--font-tajawal",
+  display: "swap",
+  fallback: ["Tahoma", "Arial", "sans-serif"],
 });
 
 export const viewport: Viewport = {

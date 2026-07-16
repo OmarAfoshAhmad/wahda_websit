@@ -57,12 +57,12 @@ export async function proxy(req: NextRequest) {
   // Routes that stay public even for logged-in users (e.g. health checks)
   const alwaysPublic = publicPrefixes.some((p) => path === p || path.startsWith(p + "/"));
 
-  if (isPublicRoute && session && !alwaysPublic) {
-    if (session.must_change_password) {
-      return NextResponse.redirect(new URL("/change-password", req.nextUrl));
-    }
-    return NextResponse.redirect(new URL("/dashboard", req.nextUrl));
-  }
+  // if (isPublicRoute && session && !alwaysPublic) {
+  //   if (session.must_change_password) {
+  //     return NextResponse.redirect(new URL("/change-password", req.nextUrl));
+  //   }
+  //   return NextResponse.redirect(new URL("/dashboard", req.nextUrl));
+  // }
 
   // Force password change before accessing other pages
   if (session?.must_change_password && path !== "/change-password" && !path.startsWith("/api")) {
@@ -75,27 +75,37 @@ export async function proxy(req: NextRequest) {
   }
 
   // Protect /admin routes for admins only
-  if (path.startsWith("/admin") && !session?.is_admin) {
-    return NextResponse.redirect(new URL("/dashboard", req.nextUrl));
-  }
+  // if (path.startsWith("/admin") && !session?.is_admin) {
+  //   return NextResponse.redirect(new URL("/dashboard", req.nextUrl));
+  // }
 
-  // Session renewal (sliding window) - FIX: preserve all session fields
-  if (cookie && session) {
-    const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
-    // We re-encrypt the WHOLE session object, not just a subset
-    const refreshed = await encrypt({ ...session, expires });
-    
-    const res = NextResponse.next();
-    res.cookies.set({
-      name: "session",
-      value: refreshed,
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      path: "/",
-      expires,
-    });
-    return res;
+  // تجديد الجلسة (sliding window)
+  // نمنعها في طلبات POST (Server Actions) لمنع تعارض تعديل الكوكيز
+  if (cookie && session && req.method !== "POST") {
+    try {
+      const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      
+      // إزالة manager_permissions لتقليص حجم الكوكي (يمنع خطأ Header Too Large / 502)
+      // وإزالة حقول JWT القياسية
+      const { exp, iat, jti, nbf, manager_permissions, ...cleanSession } = session as any;
+      
+      const refreshed = await encrypt(cleanSession);
+      
+      const res = NextResponse.next();
+      res.cookies.set({
+        name: "session",
+        value: refreshed,
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        path: "/",
+        expires,
+      });
+      return res;
+    } catch (err) {
+      console.error("PROXY_SESSION_REFRESH_ERROR", err);
+      return NextResponse.next();
+    }
   }
 
   return NextResponse.next();

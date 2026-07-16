@@ -11,6 +11,7 @@ import {
   Wrench,
   ChevronDown
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { logout } from "@/app/actions/auth";
 import { ThemeSwitcher } from "./theme-switcher";
 import { hasPermission } from "@/lib/permissions";
@@ -28,7 +29,9 @@ const safeLogout = async () => {
   try { await logout(); } catch { window.location.href = "/login"; }
 };
 
-function NavLink({ item, isActive }: { item: any, isActive: boolean }) {
+type NavItem = { name: string; href: string; icon: LucideIcon };
+
+function NavLink({ item, isActive }: { item: NavItem, isActive: boolean }) {
   const Icon = item.icon;
   return (
     <Link
@@ -61,9 +64,7 @@ export function Shell({
   const isAdmin = session.is_admin;
   const isManager = session.is_manager;
   const isEmployee = session.is_employee;
-  const canUseCashClaim = (isEmployee || isManager) && hasPermission(session, "cash_claim");
-
-  const permsHash = useMemo(() => JSON.stringify(session.manager_permissions), [session.manager_permissions]);
+  const canUseCashClaim = hasPermission(session, "cash_claim") || hasPermission(session, "cash_claim_import");
 
   const allNav = useMemo(() => {
     const filteredManagerNav = MANAGER_NAV.filter(item => hasPermission(session, item.perm));
@@ -82,8 +83,11 @@ export function Shell({
       ];
     }
 
-    return BASE_NAV;
-  }, [isAdmin, isManager, isEmployee, canUseCashClaim, permsHash]);
+    return [
+      ...BASE_NAV,
+      ...(canUseCashClaim ? [CASH_CLAIM_NAV] : [])
+    ];
+  }, [isAdmin, isManager, isEmployee, canUseCashClaim, session]);
 
   const filteredMaintenanceNav = useMemo(() => {
     return MAINTENANCE_NAV.filter(item => {
@@ -91,7 +95,7 @@ export function Shell({
       if (item.perms.length === 0) return false;
       return item.perms.some(p => hasPermission(session, p));
     });
-  }, [isAdmin, permsHash]);
+  }, [isAdmin, session]);
 
   const showMaintenance = filteredMaintenanceNav.length > 0;
   const roleLabel = isAdmin ? "المبرمج" : isManager ? "مدير" : isEmployee ? "موظف" : "مرفق";

@@ -3,11 +3,12 @@ import { requireActiveFacilitySession } from "@/lib/session-guard";
 import prisma from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { encryptBackup } from "@/lib/backup-crypto";
+import { hasPermission } from "@/lib/permissions";
 
 export async function GET(request: NextRequest) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
-    return new NextResponse("Unauthorized", { status: 401 });
+  if (!session || (!session.is_admin && !hasPermission(session, "manage_backup"))) {
+    return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
   }
 
   const forwardedProto = request.headers.get("x-forwarded-proto");
@@ -18,19 +19,28 @@ export async function GET(request: NextRequest) {
   const includeSensitive = true;
 
   try {
-    const [facilities, beneficiaries, transactions, auditLogs, notifications] = await Promise.all([
+    const [facilities, beneficiaries, transactions, auditLogs, notifications, familyImportArchive] = await Promise.all([
       prisma.facility.findMany({ orderBy: { created_at: "asc" } }),
       prisma.beneficiary.findMany({ orderBy: { created_at: "asc" } }),
       prisma.transaction.findMany({ orderBy: { created_at: "asc" } }),
       prisma.auditLog.findMany({ orderBy: { created_at: "asc" } }),
       prisma.notification.findMany({ orderBy: { created_at: "asc" } }),
+      prisma.familyImportArchive.findMany({ orderBy: { family_base_card: "asc" } }),
     ]);
 
     const backup = {
-      version: "1.0" as const,
+      version: "1.1" as const,
       exported_at: new Date().toISOString(),
       created_by: session.username,
       includes_sensitive: includeSensitive,
+      manifest: {
+        facilities: facilities.length,
+        beneficiaries: beneficiaries.length,
+        transactions: transactions.length,
+        transaction_amount: transactions.reduce((sum, row) => sum + Number(row.amount), 0),
+        family_import_archive: familyImportArchive.length,
+        family_used_balance: familyImportArchive.reduce((sum, row) => sum + Number(row.used_balance_from_file), 0),
+      },
       data: {
         users: facilities.map((f) => ({
           id: f.id,
@@ -41,6 +51,7 @@ export async function GET(request: NextRequest) {
           is_manager: f.is_manager,
           manager_permissions: f.manager_permissions,
           must_change_password: f.must_change_password,
+          facility_type: f.facility_type,
           deleted_at: f.deleted_at?.toISOString() ?? null,
           created_at: f.created_at.toISOString(),
         })),
@@ -49,9 +60,13 @@ export async function GET(request: NextRequest) {
           card_number: b.card_number,
           name: b.name,
           birth_date: b.birth_date?.toISOString() ?? null,
+          city: b.city,
+          batch_number: b.batch_number,
           total_balance: Number(b.total_balance),
           remaining_balance: Number(b.remaining_balance),
           status: b.status,
+          completed_via: b.completed_via,
+          is_legacy_card: b.is_legacy_card,
           pin_hash: includeSensitive ? (b.pin_hash ?? null) : null,
           failed_attempts: b.failed_attempts,
           locked_until: b.locked_until?.toISOString() ?? null,
@@ -66,6 +81,7 @@ export async function GET(request: NextRequest) {
           type: t.type,
           is_cancelled: t.is_cancelled,
           original_transaction_id: t.original_transaction_id,
+          idempotency_key: t.idempotency_key,
           created_at: t.created_at.toISOString(),
         })),
         audit_logs: auditLogs.map((a) => ({
@@ -85,6 +101,18 @@ export async function GET(request: NextRequest) {
           is_read: n.is_read,
           created_at: n.created_at.toISOString(),
         })),
+        family_import_archive: familyImportArchive.map((row) => ({
+          family_base_card: row.family_base_card,
+          family_count_from_file: row.family_count_from_file,
+          total_balance_from_file: Number(row.total_balance_from_file),
+          used_balance_from_file: Number(row.used_balance_from_file),
+          source_row_number: row.source_row_number,
+          imported_by: row.imported_by,
+          last_imported_at: row.last_imported_at.toISOString(),
+          created_at: row.created_at.toISOString(),
+          updated_at: row.updated_at.toISOString(),
+          source_file_name: row.source_file_name,
+        })),
       },
     };
 
@@ -100,6 +128,7 @@ export async function GET(request: NextRequest) {
           transactions: transactions.length,
           audit_logs: auditLogs.length,
           notifications: notifications.length,
+          family_import_archive: familyImportArchive.length,
         },
       },
     });
@@ -114,7 +143,7 @@ export async function GET(request: NextRequest) {
         "Content-Disposition": `attachment; filename="${filename}"`,
         "X-Backup-Records": String(
           facilities.length + beneficiaries.length + transactions.length +
-          auditLogs.length + notifications.length
+          auditLogs.length + notifications.length + familyImportArchive.length
         ),
       },
     });

@@ -14,7 +14,8 @@
   --radius-xl: 1.5rem;
   --radius-2xl: 2rem;
 
-  --font-cairo: var(--font-tajawal), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-tajawal: "Tahoma", "Arial", ui-sans-serif, system-ui, sans-serif;
+  --font-cairo: var(--font-tajawal);
 }
 
 :root {

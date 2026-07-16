@@ -8,6 +8,7 @@
  */
 
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
+import type { FacilityType } from "@/lib/facility-type";
 import { getBeneficiaryByCard, searchBeneficiaries } from "@/app/actions/beneficiary";
 import { deductBalance } from "@/app/actions/deduction";
 import { useToast } from "@/components/toast";
@@ -72,7 +73,7 @@ interface DeductContextValue {
   setAmount: (v: string) => void;
   type: DeductType;
   setType: (v: DeductType) => void;
-  facilityType?: "HOSPITAL" | "PHARMACY";
+  facilityType?: FacilityType;
   showConfirm: boolean;
   setShowConfirm: (v: boolean) => void;
   deducting: boolean;
@@ -106,7 +107,7 @@ export function DeductProvider({
   facilityType,
 }: {
   children: React.ReactNode;
-  facilityType?: "HOSPITAL" | "PHARMACY";
+  facilityType?: FacilityType;
 }) {
   const toast = useToast();
 

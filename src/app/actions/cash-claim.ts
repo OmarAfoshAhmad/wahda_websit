@@ -29,7 +29,7 @@ export async function lookupFamily(query: string): Promise<{
   baseCard?: string;
 }> {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_employee || !hasPermission(session, "cash_claim")) {
+  if (!session || !(session.is_employee || session.is_manager || session.is_admin) || !hasPermission(session, "cash_claim")) {
     return { error: "غير مصرح لك بهذه العملية" };
   }
 
@@ -120,7 +120,7 @@ export async function executeCashClaim(input: {
   requestId?: string;
 }): Promise<{ error?: string; success?: string }> {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_employee || !hasPermission(session, "cash_claim")) {
+  if (!session || !(session.is_employee || session.is_manager || session.is_admin) || !hasPermission(session, "cash_claim")) {
     return { error: "غير مصرح لك بهذه العملية" };
   }
 
@@ -176,7 +176,7 @@ export async function executeCashClaim(input: {
   const requestedFacilityId = typeof input.facilityId === "string" ? input.facilityId.trim() : "";
 
   if (requestedFacilityId) {
-    if (!session.is_admin && !session.is_manager && !session.is_employee && requestedFacilityId !== session.id) {
+    if (requestedFacilityId !== session.id && !hasPermission(session, "correct_transactions")) {
       return { error: "غير مصرح لك باختيار هذا المرفق" };
     }
 

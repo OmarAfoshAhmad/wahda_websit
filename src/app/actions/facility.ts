@@ -5,8 +5,11 @@ import prisma from "@/lib/prisma";
 import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 import { createFacilitySchema, updateFacilitySchema } from "@/lib/validation";
 import { inferFacilityTypeFromText, normalizeFacilityTypeOverride } from "@/lib/facility-type";
+import type { FacilityType } from "@/lib/facility-type";
 import ExcelJS from "exceljs";
 import { revalidatePath } from "next/cache";
+import type { ManagerPermissions } from "@/lib/permissions";
+import { normalizeManagerPermissionsForRole, PERMISSION_KEYS, type PermissionKey } from "@/lib/permission-catalog";
 
 export async function createFacility(prevState: unknown, formData: FormData) {
   const session = await requireActiveFacilitySession();
@@ -32,16 +35,16 @@ export async function createFacility(prevState: unknown, formData: FormData) {
   const tempPassword = "123456";
   const password_hash = await bcrypt.hash(tempPassword, 10);
 
-  const createdFacility = await prisma.facility.create({
-    data: { name, username, password_hash, is_admin: false, must_change_password: true },
-    select: { id: true },
-  });
-
   const inferredFacilityType = inferFacilityTypeFromText(name, username);
   const normalizedOverride =
     facility_type === "AUTO"
       ? null
       : normalizeFacilityTypeOverride(facility_type);
+
+  const createdFacility = await prisma.facility.create({
+    data: { name, username, password_hash, is_admin: false, must_change_password: true, facility_type: normalizedOverride },
+    select: { id: true },
+  });
 
   await prisma.auditLog.create({
     data: {
@@ -71,7 +74,7 @@ export async function updateFacility(data: {
   id: string;
   name: string;
   username: string;
-  facility_type?: "AUTO" | "HOSPITAL" | "PHARMACY";
+  facility_type?: "AUTO" | FacilityType;
   resetPassword?: boolean;
 }) {
   const session = await requireActiveFacilitySession();
@@ -104,6 +107,7 @@ export async function updateFacility(data: {
     facility_type === "AUTO"
       ? null
       : normalizeFacilityTypeOverride(facility_type);
+  updateData.facility_type = normalizedOverride;
 
   if (data.resetPassword) {
     const tempPassword = "123456";
@@ -387,6 +391,7 @@ export async function importFacilitiesFromExcel(formData: FormData): Promise<{
     password_hash: defaultPasswordHash,
     is_admin: false,
     must_change_password: true,
+    facility_type: inferFacilityTypeFromText(f.name, f.username),
   }));
 
   // ── 4. إدراج دفعي (createMany) ──────────────────────────────────────────
@@ -414,3 +419,98 @@ export async function importFacilitiesFromExcel(formData: FormData): Promise<{
   return { created, skipped, errors };
 }
 
+export async function updateFacilityPermissions(
+  facilityId: string,
+  permissions: ManagerPermissions
+): Promise<{ error?: string; success?: boolean }> {
+  const session = await requireActiveFacilitySession();
+  if (!session || !hasPermission(session, "manage_users")) {
+    return { error: "غير مصرح بهذه العملية" };
+  }
+
+  const facility = await prisma.facility.findUnique({
+    where: { id: facilityId },
+    select: { id: true, deleted_at: true },
+  });
+
+  if (!facility || facility.deleted_at) {
+    return { error: "المرفق غير موجود" };
+  }
+
+  const safePermissions = normalizeManagerPermissionsForRole("FACILITY", permissions);
+
+  await prisma.facility.update({
+    where: { id: facilityId },
+    data: { manager_permissions: safePermissions as unknown as Record<string, boolean> },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      facility_id: session.id,
+      user: session.username,
+      action: "UPDATE_FACILITY_PERMISSIONS",
+      metadata: { facility_id: facilityId, permissions: safePermissions },
+    },
+  });
+
+  revalidatePath("/admin/facilities");
+  return { success: true };
+}
+
+export async function bulkUpdateFacilityPermission(input: {
+  facilityType: FacilityType;
+  permission: PermissionKey;
+  operation: "GRANT" | "REVOKE";
+}): Promise<{ success?: string; error?: string; matched?: number; changed?: number }> {
+  const session = await requireActiveFacilitySession();
+  if (!session || !hasPermission(session, "manage_users")) return { error: "غير مصرح بهذه العملية" };
+  if (!PERMISSION_KEYS.includes(input.permission)) return { error: "الصلاحية المحددة غير صالحة" };
+  if (!normalizeFacilityTypeOverride(input.facilityType)) return { error: "نوع المرفق غير صالح" };
+
+  const enabled = input.operation === "GRANT";
+  const result = await prisma.$transaction(async (tx) => {
+    const facilities = await tx.facility.findMany({
+      where: { deleted_at: null, is_admin: false, is_manager: false, is_employee: false },
+      select: { id: true, name: true, username: true, facility_type: true, manager_permissions: true },
+    });
+    const targets = facilities.filter((facility) => (
+      normalizeFacilityTypeOverride(facility.facility_type)
+        ?? inferFacilityTypeFromText(facility.name, facility.username)
+    ) === input.facilityType);
+    const changedRows = targets.map((facility) => {
+      const before = normalizeManagerPermissionsForRole("FACILITY", facility.manager_permissions);
+      const after = normalizeManagerPermissionsForRole("FACILITY", { ...before, [input.permission]: enabled });
+      return { facility, after, changed: before[input.permission] !== enabled };
+    }).filter((item) => item.changed);
+
+    for (const item of changedRows) {
+      await tx.facility.update({
+        where: { id: item.facility.id },
+        data: { manager_permissions: item.after as unknown as Record<string, boolean> },
+      });
+    }
+    await tx.auditLog.create({
+      data: {
+        facility_id: session.id,
+        user: session.username,
+        action: "BULK_UPDATE_FACILITY_PERMISSION",
+        metadata: {
+          facility_type: input.facilityType,
+          permission: input.permission,
+          operation: input.operation,
+          matched_count: targets.length,
+          changed_count: changedRows.length,
+          facility_ids: changedRows.map((item) => item.facility.id),
+        },
+      },
+    });
+    return { matched: targets.length, changed: changedRows.length };
+  }, { isolationLevel: "Serializable", timeout: 60_000 });
+
+  revalidatePath("/admin/facilities");
+  return {
+    success: `تم ${enabled ? "منح" : "سحب"} الصلاحية ${enabled ? "لـ" : "من"} ${result.changed.toLocaleString("ar-LY")} مرفق`,
+    matched: result.matched,
+    changed: result.changed,
+  };
+}

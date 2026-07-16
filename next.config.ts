@@ -34,9 +34,9 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  turbopack: { root: process.cwd() },
   output: "standalone",
   poweredByHeader: false,
-  serverExternalPackages: ["bullmq", "ioredis"],
   compiler: {
     removeConsole: isProduction ? {
       exclude: ["error"], // نحتفظ بالأخطاء فقط لأغراض التتبع إذا حدثت مشكلة حرجة

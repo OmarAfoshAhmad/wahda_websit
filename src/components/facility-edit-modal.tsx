@@ -4,13 +4,14 @@ import React, { useState } from "react";
 import { Pencil, X, Loader2, RotateCcw } from "lucide-react";
 import { Button, Input, Card } from "./ui";
 import { updateFacility } from "@/app/actions/facility";
+import type { FacilityType } from "@/lib/facility-type";
 
 interface Props {
   facility: {
     id: string;
     name: string;
     username: string;
-    facility_type_override?: "HOSPITAL" | "PHARMACY" | null;
+    facility_type_override?: FacilityType | null;
   };
 }
 
@@ -18,7 +19,7 @@ export function FacilityEditModal({ facility }: Props) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(facility.name);
   const [username, setUsername] = useState(facility.username);
-  const [facilityType, setFacilityType] = useState<"AUTO" | "HOSPITAL" | "PHARMACY">(
+  const [facilityType, setFacilityType] = useState<"AUTO" | FacilityType>(
     facility.facility_type_override ?? "AUTO"
   );
   const [resetPassword, setResetPassword] = useState(false);
@@ -119,12 +120,16 @@ export function FacilityEditModal({ facility }: Props) {
                 <label className="mb-1.5 block text-sm font-bold text-slate-700 dark:text-slate-300">نوع المرفق</label>
                 <select
                   value={facilityType}
-                  onChange={(e) => setFacilityType(e.target.value as "AUTO" | "HOSPITAL" | "PHARMACY")}
+                  onChange={(e) => setFacilityType(e.target.value as "AUTO" | FacilityType)}
                   className="flex h-10 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
                 >
                   <option value="AUTO">تلقائي (استنتاج من الاسم)</option>
                   <option value="HOSPITAL">مشفى</option>
                   <option value="PHARMACY">صيدلية</option>
+                  <option value="DENTAL_CLINIC">عيادة أسنان</option>
+                  <option value="PHYSIOTHERAPY_CENTER">مركز علاج طبيعي</option>
+                  <option value="SPECIALTY_CLINIC">عيادة تخصصية</option>
+                  <option value="OPTICAL_CENTER">مركز بصريات</option>
                 </select>
               </div>
 

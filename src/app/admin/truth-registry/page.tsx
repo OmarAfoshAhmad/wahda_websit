@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { getSessionWithFreshPermissions } from "@/lib/session-guard";
+import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-guard";
 import { Shell } from "@/components/shell";
 import { Card, Button, Input } from "@/components/ui";
 import prisma from "@/lib/prisma";
@@ -46,7 +46,7 @@ export default async function TruthRegistryPage({
 }) {
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
-  if (!session.is_admin) redirect("/dashboard");
+  if (!hasPermission(session, "manage_db_anomalies")) redirect("/dashboard");
 
   const { q, city, batch, multi, page } = await searchParams;
 

@@ -2,22 +2,26 @@ import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-gua
 import { redirect } from "next/navigation";
 import { Shell } from "@/components/shell";
 import { CashClaimForm } from "@/components/cash-claim-form";
+import { CashClaimBulkImport } from "@/components/cash-claim-bulk-import";
 import prisma from "@/lib/prisma";
 import { ListOrdered } from "lucide-react";
 import { Card } from "@/components/ui";
 import { formatDateTripoli, formatTimeTripoli } from "@/lib/datetime";
 import Link from "next/link";
 
-export default async function CashClaimPage() {
+export default async function CashClaimPage(props: { searchParams: Promise<{ tab?: string }> }) {
+  const searchParams = await props.searchParams;
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
 
   const canUseCashClaim = hasPermission(session, "cash_claim");
+  const canImportBulk = hasPermission(session, "cash_claim_import");
+  const canActForAnyFacility = hasPermission(session, "correct_transactions");
   const hasAdminNav = hasPermission(session, "view_facilities") || 
                       hasPermission(session, "view_beneficiaries") ||
                       hasPermission(session, "manage_card_numbering");
 
-  if (!session.is_employee || (!canUseCashClaim && !hasAdminNav)) {
+  if (!canUseCashClaim && !hasAdminNav && !canImportBulk) {
     redirect("/dashboard");
   }
 
@@ -28,6 +32,13 @@ export default async function CashClaimPage() {
     orderBy: { created_at: "desc" },
     include: { beneficiary: { select: { name: true, card_number: true } } },
   });
+  const facilities = canActForAnyFacility
+    ? await prisma.facility.findMany({
+        where: { deleted_at: null, is_admin: false, is_manager: false, is_employee: false },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true },
+      })
+    : [];
 
   return (
     <Shell facilityName={session.name} session={session}>
@@ -39,10 +50,31 @@ export default async function CashClaimPage() {
           </p>
         </div>
         
-        <CashClaimForm
-          facilities={[]}
-          showFacilityPicker={false}
-        />
+        {canImportBulk && (
+          <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg w-fit mb-6">
+            <Link 
+              href="/cash-claim?tab=manual" 
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${searchParams.tab !== 'bulk' ? 'bg-white shadow text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              الإدخال اليدوي
+            </Link>
+            <Link 
+              href="/cash-claim?tab=bulk" 
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${searchParams.tab === 'bulk' ? 'bg-white shadow text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              الاستيراد الجماعي
+            </Link>
+          </div>
+        )}
+        
+        {searchParams.tab === 'bulk' && canImportBulk ? (
+          <CashClaimBulkImport />
+        ) : (
+          <CashClaimForm
+            facilities={facilities}
+            showFacilityPicker={canActForAnyFacility}
+          />
+        )}
 
         {/* قائمة الحركات الأخيرة */}
         <div className="mt-8">

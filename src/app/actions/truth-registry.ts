@@ -1,7 +1,7 @@
 "use server";
 
 import prisma from "@/lib/prisma";
-import { getSessionWithFreshPermissions } from "@/lib/session-guard";
+import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-guard";
 import { revalidatePath } from "next/cache";
 
 export type RegistryImportItem = {
@@ -17,7 +17,7 @@ export type RegistryImportItem = {
 
 export async function importTruthRegistryAction(items: RegistryImportItem[]) {
   const session = await getSessionWithFreshPermissions();
-  if (!session || !session.is_admin) return { error: "غير مصرح" };
+  if (!session || (!session.is_admin && !hasPermission(session, "manage_db_anomalies"))) return { error: "غير مصرح" };
 
   if (!items || items.length === 0) return { error: "لا توجد بيانات للاستيراد" };
 
