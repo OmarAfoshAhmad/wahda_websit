@@ -88,9 +88,9 @@ export function Shell({
     };
   }, []);
 
-  const isAdmin = session.role_v2 === "SUPER_ADMIN";
-  const isManager = session.role_v2 === "MANAGER" || session.role_v2 === "COMPANY_ADMIN";
-  const isEmployee = session.role_v2 === "EMPLOYEE";
+  const isAdmin = session.role_v2 === "SUPER_ADMIN" || (!session.role_v2 && session.is_admin);
+  const isManager = session.role_v2 === "MANAGER" || session.role_v2 === "COMPANY_ADMIN" || (!session.role_v2 && session.is_manager);
+  const isEmployee = session.role_v2 === "EMPLOYEE" || (!session.role_v2 && session.is_employee);
   const canUseCashClaim = hasPermission(session, "cash_claim");
 
   const permsHash = useMemo(() => JSON.stringify(session.manager_permissions), [session.manager_permissions]);
