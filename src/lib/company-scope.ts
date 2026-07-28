@@ -49,6 +49,10 @@ async function getFreshAccountScope(accountId: string) {
     where: { id: accountId, deleted_at: null },
     select: {
       role_v2: true,
+      role: true,
+      is_admin: true,
+      is_manager: true,
+      is_employee: true,
       company_accesses: {
         where: { company: { deleted_at: null } },
         select: { company_id: true },
@@ -60,12 +64,21 @@ async function getFreshAccountScope(accountId: string) {
     },
   });
   if (!account) throw new ScopeAccessError("الحساب غير موجود أو محذوف", 401);
-  return account;
+
+  let computedRole = account.role_v2;
+  if (!computedRole) {
+    if (account.is_admin || account.role === "ADMIN" || account.role === "SUPER_ADMIN") computedRole = "SUPER_ADMIN";
+    else if (account.is_manager || account.role === "MANAGER" || account.role === "COMPANY_ADMIN") computedRole = "MANAGER";
+    else if (account.is_employee || account.role === "EMPLOYEE") computedRole = "EMPLOYEE";
+    else computedRole = "FACILITY";
+  }
+
+  return { ...account, computedRole };
 }
 
 export async function getAllowedCompanyIds(session: Pick<Session, "id">): Promise<string[]> {
   const account = await getFreshAccountScope(session.id);
-  if (account.role_v2 === "SUPER_ADMIN") {
+  if (account.computedRole === "SUPER_ADMIN" || account.computedRole === "FACILITY") {
     const companies = await prisma.insuranceCompany.findMany({
       where: { deleted_at: null },
       select: { id: true },
@@ -77,7 +90,7 @@ export async function getAllowedCompanyIds(session: Pick<Session, "id">): Promis
 
 export async function getAllowedServiceTypeIds(session: Pick<Session, "id">): Promise<string[]> {
   const account = await getFreshAccountScope(session.id);
-  if (account.role_v2 === "SUPER_ADMIN") {
+  if (account.computedRole === "SUPER_ADMIN") {
     const services = await prisma.serviceType.findMany({
       where: { is_active: true },
       select: { id: true },
