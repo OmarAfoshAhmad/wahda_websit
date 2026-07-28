@@ -19,6 +19,7 @@ type DeletedImportTransactionSnapshot = {
   id: string;
   beneficiaryId: string;
   facilityId: string;
+  companyId: string | null;
   amount: number;
   type: "IMPORT";
   isCancelled: boolean;
@@ -28,12 +29,13 @@ type DeletedImportTransactionSnapshot = {
 };
 
 type FamilyArchiveBeforeSnapshot = {
+  companyId: string;
   familyBaseCard: string;
   familyCountFromFile: number;
   totalBalanceFromFile: number;
   usedBalanceFromFile: number;
   sourceRowNumber: number | null;
-  importedBy: string | null;
+  importedBy: string;
   lastImportedAt: string;
   createdAt: string;
   updatedAt: string;
@@ -71,14 +73,14 @@ export async function POST(
   { params }: { params: Promise<{ logId: string }> },
 ) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || session.role_v2 !== "SUPER_ADMIN") {
     return NextResponse.json({ error: "ممنوع - المبرمجون فقط" }, { status: 403 });
   }
 
   const { logId } = await params;
   const importLog = await prisma.auditLog.findUnique({
     where: { id: logId },
-    select: { id: true, action: true, metadata: true },
+    select: { id: true, action: true, metadata: true, company_id: true },
   });
 
   if (!importLog) {
@@ -141,6 +143,7 @@ export async function POST(
           id: oldTx.id,
           beneficiary_id: oldTx.beneficiaryId,
           facility_id: oldTx.facilityId,
+          company_id: oldTx.companyId,
           amount: oldTx.amount,
           type: "IMPORT" as const,
           is_cancelled: Boolean(oldTx.isCancelled),
@@ -184,67 +187,34 @@ export async function POST(
       }
 
       const beforeArchiveRows = Array.isArray(snapshot.familyArchiveBefore) ? snapshot.familyArchiveBefore : [];
-      const beforeArchiveMap = new Map(beforeArchiveRows.map((r) => [r.familyBaseCard, r]));
-
-      const rowsToUpsert = affectedFamilies
-        .map((familyBaseCard) => beforeArchiveMap.get(familyBaseCard))
-        .filter((row): row is FamilyArchiveBeforeSnapshot => Boolean(row));
-      const familiesToDelete = affectedFamilies.filter((familyBaseCard) => !beforeArchiveMap.has(familyBaseCard));
+      const rowsToUpsert = beforeArchiveRows.filter((row): row is FamilyArchiveBeforeSnapshot =>
+        Boolean(row?.companyId && affectedFamilies.includes(row.familyBaseCard)),
+      );
 
       let restoredArchiveRows = 0;
       let deletedArchiveRows = 0;
 
-      for (const archiveChunk of chunkArray(rowsToUpsert, 900)) {
-        if (archiveChunk.length === 0) continue;
-        const archiveValues = archiveChunk.map((row) =>
-          Prisma.sql`(
-            ${row.familyBaseCard},
-            ${row.familyCountFromFile},
-            ${row.totalBalanceFromFile},
-            ${row.usedBalanceFromFile},
-            ${row.sourceRowNumber},
-            ${row.importedBy},
-            ${new Date(row.lastImportedAt)},
-            ${new Date(row.createdAt)},
-            ${new Date(row.updatedAt)}
-          )`,
-        );
+      const deleted = await tx.familyImportArchive.deleteMany({
+        where: { family_base_card: { in: affectedFamilies } },
+      });
+      deletedArchiveRows = deleted.count;
 
-        await tx.$executeRaw(Prisma.sql`
-          INSERT INTO "FamilyImportArchive" (
-            family_base_card,
-            family_count_from_file,
-            total_balance_from_file,
-            used_balance_from_file,
-            source_row_number,
-            imported_by,
-            last_imported_at,
-            created_at,
-            updated_at
-          )
-          VALUES ${Prisma.join(archiveValues)}
-          ON CONFLICT (family_base_card)
-          DO UPDATE SET
-            family_count_from_file = EXCLUDED.family_count_from_file,
-            total_balance_from_file = EXCLUDED.total_balance_from_file,
-            used_balance_from_file = EXCLUDED.used_balance_from_file,
-            source_row_number = EXCLUDED.source_row_number,
-            imported_by = EXCLUDED.imported_by,
-            last_imported_at = EXCLUDED.last_imported_at,
-            created_at = EXCLUDED.created_at,
-            updated_at = EXCLUDED.updated_at
-        `);
-
-        restoredArchiveRows += archiveChunk.length;
-      }
-
-      for (const deleteChunk of chunkArray(familiesToDelete, 5000)) {
-        if (deleteChunk.length === 0) continue;
-        const deleted = await tx.$executeRaw(Prisma.sql`
-          DELETE FROM "FamilyImportArchive"
-          WHERE family_base_card IN (${Prisma.join(deleteChunk)})
-        `);
-        deletedArchiveRows += Number(deleted) || 0;
+      for (const row of rowsToUpsert) {
+        await tx.familyImportArchive.create({
+          data: {
+            company_id: row.companyId,
+            family_base_card: row.familyBaseCard,
+            family_count_from_file: row.familyCountFromFile,
+            total_balance_from_file: row.totalBalanceFromFile,
+            used_balance_from_file: row.usedBalanceFromFile,
+            source_row_number: row.sourceRowNumber,
+            imported_by: row.importedBy,
+            last_imported_at: new Date(row.lastImportedAt),
+            created_at: new Date(row.createdAt),
+            updated_at: new Date(row.updatedAt),
+          },
+        });
+        restoredArchiveRows++;
       }
 
       const postRollbackMembers = await tx.beneficiary.findMany({
@@ -293,6 +263,7 @@ export async function POST(
       const rollbackAudit = await tx.auditLog.create({
         data: {
           facility_id: session.id,
+          company_id: importLog.company_id,
           user: session.username,
           action: "ROLLBACK_IMPORT",
           metadata: rollbackReport,

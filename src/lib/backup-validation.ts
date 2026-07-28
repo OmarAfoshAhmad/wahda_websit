@@ -80,11 +80,49 @@ function normalizeTransactionType(value: unknown): unknown {
     "تسوية مديونية",
   ]);
 
+  const dentalAliases = new Set([
+    "DENTAL",
+    "DENTISTRY",
+    "TEETH",
+    "اسنان",
+    "أسنان",
+    "خدمات الأسنان",
+  ]);
+
+  const opticsAliases = new Set([
+    "OPTICS",
+    "OPTIC",
+    "VISION",
+    "EYE",
+    "بصريات",
+    "نظارات",
+    "عيون",
+  ]);
+
+  const generalAliases = new Set([
+    "GENERAL",
+    "GENERAL_SERVICE",
+    "عام",
+    "كشف عام",
+  ]);
+
+  const physiotherapyAliases = new Set([
+    "PHYSIOTHERAPY",
+    "PHYSIO",
+    "PHYSICAL_THERAPY",
+    "علاج طبيعي",
+    "العلاج الطبيعي",
+  ]);
+
   if (medicineAliases.has(v)) return "MEDICINE";
   if (suppliesAliases.has(v)) return "SUPPLIES";
   if (importAliases.has(v)) return "IMPORT";
   if (cancellationAliases.has(v)) return "CANCELLATION";
   if (settlementAliases.has(v)) return "SETTLEMENT";
+  if (dentalAliases.has(v)) return "DENTAL";
+  if (opticsAliases.has(v)) return "OPTICS";
+  if (generalAliases.has(v)) return "GENERAL";
+  if (physiotherapyAliases.has(v)) return "PHYSIOTHERAPY";
 
   return value;
 }
@@ -122,7 +160,17 @@ const transactionSchema = z.object({
   beneficiary_id: z.string(),
   facility_id: z.string(),
   amount: z.number(),
-  type: z.preprocess(normalizeTransactionType, z.enum(["MEDICINE", "SUPPLIES", "IMPORT", "CANCELLATION", "SETTLEMENT"])),
+  type: z.preprocess(normalizeTransactionType, z.enum([
+    "MEDICINE",
+    "SUPPLIES",
+    "IMPORT",
+    "CANCELLATION",
+    "SETTLEMENT",
+    "DENTAL",
+    "OPTICS",
+    "GENERAL",
+    "PHYSIOTHERAPY",
+  ])),
   is_cancelled: z.boolean().optional().default(false),
   original_transaction_id: z.string().nullable().optional(),
   created_at: z.string(),

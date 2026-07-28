@@ -2,38 +2,42 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireActiveFacilitySession } from "@/lib/session-guard";
 import { exportOverdrawnDebtCasesExcel, getOverdrawnDebtCases, type OverdrawnDebtCase } from "@/lib/overdrawn-debt-settlement";
+import { assertCompanyAccessForSession } from "@/lib/company-scope";
 
 export async function GET(request: Request) {
   const session = await requireActiveFacilitySession();
   if (!session) {
     return new NextResponse("Unauthorized", { status: 401 });
   }
-  if (!session.is_admin) {
+  if (session.role_v2 !== "SUPER_ADMIN") {
     return NextResponse.json({ error: "ممنوع — المبرمجون فقط" }, { status: 403 });
   }
 
   const { searchParams } = new URL(request.url);
   const mode = searchParams.get("mode") === "after" ? "after" : "before";
   const auditId = searchParams.get("auditId") ?? "";
+  const companyId = (searchParams.get("companyId") ?? "").trim();
+  if (!companyId) return NextResponse.json({ error: "يجب تحديد الشركة" }, { status: 400 });
+  await assertCompanyAccessForSession(session, companyId);
 
   let cases: OverdrawnDebtCase[] = [];
   let title = "تقرير قبل المعالجة";
 
   if (mode === "before") {
-    cases = await getOverdrawnDebtCases();
+    cases = await getOverdrawnDebtCases({ companyId });
     title = "تقرير قبل المعالجة";
   } else {
     let audit = null;
     if (auditId) {
       audit = await prisma.auditLog.findFirst({
-        where: { id: auditId, action: "SETTLE_OVERDRAWN_FAMILY_DEBT" },
+        where: { id: auditId, action: "SETTLE_OVERDRAWN_FAMILY_DEBT", company_id: companyId },
         select: { metadata: true, created_at: true },
       });
     }
 
     if (!audit) {
       audit = await prisma.auditLog.findFirst({
-        where: { action: "SETTLE_OVERDRAWN_FAMILY_DEBT" },
+        where: { action: "SETTLE_OVERDRAWN_FAMILY_DEBT", company_id: companyId },
         select: { metadata: true, created_at: true },
         orderBy: { created_at: "desc" },
       });
@@ -41,7 +45,7 @@ export async function GET(request: Request) {
 
     const metadata = (audit?.metadata ?? {}) as Record<string, unknown>;
     const afterCases = Array.isArray(metadata.afterCases) ? metadata.afterCases : [];
-    cases = afterCases as OverdrawnDebtCase[];
+    cases = (afterCases as OverdrawnDebtCase[]).filter((item) => item.companyId === companyId);
     title = "تقرير بعد المعالجة";
   }
 

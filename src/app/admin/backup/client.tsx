@@ -6,6 +6,12 @@ import { Button, Card } from "@/components/ui";
 import { Download, Upload, Loader2, CheckCircle2, AlertTriangle, Database, Shield } from "lucide-react";
 import { ConfirmationModal } from "@/components/confirmation-modal";
 
+type CompanyOption = {
+  id: string;
+  name: string;
+  code: string;
+};
+
 type RestoreSummary = {
   users: { added: number; updated: number; addedAdmins: number; updatedAdmins: number };
   providers: { added: number; updated: number; removed?: number };
@@ -24,6 +30,8 @@ type RestoreJob = {
   errorMessage: string | null;
   summary: RestoreSummary;
 };
+
+type RestoreMode = "full" | "company";
 
 function phaseLabel(phase: string | null) {
   switch (phase) {
@@ -86,14 +94,17 @@ function isCancelMessage(message: string | null | undefined) {
   return typeof message === "string" && message.includes("إلغاء مهمة الاستعادة");
 }
 
-export function BackupClient() {
+export function BackupClient({ companies }: { companies: CompanyOption[] }) {
   const router = useRouter();
   const [exportLoading, setExportLoading] = useState(false);
+  const [exportMode, setExportMode] = useState<"full" | "company">("full");
+  const [exportCompanyId, setExportCompanyId] = useState(companies[0]?.id ?? "");
   const [importLoading, setImportLoading] = useState(false);
   const [cancelLoading, setCancelLoading] = useState(false);
   const [result, setResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [confirmRestore, setConfirmRestore] = useState(false);
   const [restoreText, setRestoreText] = useState("");
+  const [restoreMode, setRestoreMode] = useState<RestoreMode>("full");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [restoreJob, setRestoreJob] = useState<RestoreJob | null>(null);
   const [confirmCancelRestore, setConfirmCancelRestore] = useState(false);
@@ -113,14 +124,23 @@ export function BackupClient() {
     setExportLoading(true);
     setResult(null);
     try {
-      const res = await fetch(`/api/backup/export`);
+      const params = new URLSearchParams();
+      params.set("scope", exportMode);
+      if (exportMode === "company") {
+        if (!exportCompanyId) throw new Error("يجب اختيار الشركة أولاً");
+        params.set("companyId", exportCompanyId);
+      }
+
+      const res = await fetch(`/api/backup/export?${params.toString()}`);
       if (!res.ok) {
         const message = await parseErrorFromResponse(res, "تعذر تحميل النسخة الاحتياطية");
         throw new Error(message);
       }
 
       const blob = await res.blob();
-      const filename = `wahda-backup-${new Date().toISOString().slice(0, 10)}.wbk`;
+      const disposition = res.headers.get("content-disposition") ?? "";
+      const filenameMatch = /filename="([^"]+)"/.exec(disposition);
+      const filename = filenameMatch?.[1] ?? `wahda-backup-${new Date().toISOString().slice(0, 10)}.wbk`;
 
       const safeBlob = new Blob([blob], { type: "application/octet-stream" });
       const url = URL.createObjectURL(safeBlob);
@@ -130,7 +150,7 @@ export function BackupClient() {
       a.click();
       URL.revokeObjectURL(url);
 
-      setResult({ type: "success", message: "تم تحميل النسخة الاحتياطية بنجاح" });
+      setResult({ type: "success", message: exportMode === "company" ? "تم تحميل نسخة الشركة بنجاح" : "تم تحميل النسخة الكاملة بنجاح" });
     } catch (error) {
       setResult({ type: "error", message: error instanceof Error ? error.message : "خطأ غير متوقع" });
     } finally {
@@ -160,6 +180,15 @@ export function BackupClient() {
   const handleRestore = async () => {
     if (!selectedFile) return;
 
+    if (restoreMode === "company") {
+      setConfirmRestore(false);
+      setResult({
+        type: "error",
+        message: "استعادة شركة واحدة لا تتم من ملف WBK الحالي. استخدم أداة Snapshot المخصصة حتى لا تختلط بيانات الشركات.",
+      });
+      return;
+    }
+
     setImportLoading(true);
     setResult(null);
     setConfirmRestore(false);
@@ -170,7 +199,10 @@ export function BackupClient() {
 
       const res = await fetch("/api/backup/restore-jobs", {
         method: "POST",
-        headers: { "Content-Type": "application/octet-stream" },
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "x-restore-mode": restoreMode,
+        },
         body: buffer,
       });
 
@@ -207,6 +239,7 @@ export function BackupClient() {
   const cancelRestore = () => {
     setConfirmRestore(false);
     setRestoreText("");
+    setRestoreMode("full");
     setSelectedFile(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
@@ -357,15 +390,47 @@ export function BackupClient() {
 
           <div className="mb-4 rounded-md border border-sky-200 dark:border-sky-900/50 bg-sky-50 dark:bg-sky-900/20 p-3">
             <p className="text-xs font-bold text-sky-700 dark:text-sky-400">
-              الملف الناتج مشفّر بصيغة WBK (AES-256 + GZIP).
-              يشمل users, providers, transactions, notifications, audit_logs.
+              اختر نسخة كاملة لكل المنظومة أو نسخة شركة واحدة. الملف الناتج مشفّر بصيغة WBK.
               يتم تصدير كلمات المرور والرموز السرية (PIN) بشكل آمن ومشفر.
             </p>
           </div>
 
+          <div className="mb-4 grid gap-3">
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setExportMode("full")}
+                className={`rounded-md border px-3 py-2 text-sm font-black ${exportMode === "full" ? "border-primary bg-primary/10 text-primary" : "border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300"}`}
+              >
+                نسخة كاملة
+              </button>
+              <button
+                type="button"
+                onClick={() => setExportMode("company")}
+                className={`rounded-md border px-3 py-2 text-sm font-black ${exportMode === "company" ? "border-primary bg-primary/10 text-primary" : "border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300"}`}
+              >
+                نسخة شركة
+              </button>
+            </div>
+
+            {exportMode === "company" && (
+              <select
+                value={exportCompanyId}
+                onChange={(event) => setExportCompanyId(event.target.value)}
+                className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm font-bold text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+              >
+                {companies.map((company) => (
+                  <option key={company.id} value={company.id}>
+                    {company.name} ({company.code})
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
           <Button onClick={handleExport} disabled={exportLoading} className="w-full gap-2">
             {exportLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-            {exportLoading ? "جاري التحميل..." : "تحميل النسخة الاحتياطية"}
+            {exportLoading ? "جاري التحميل..." : exportMode === "company" ? "تحميل نسخة الشركة" : "تحميل النسخة الكاملة"}
           </Button>
         </Card>
 
@@ -383,8 +448,7 @@ export function BackupClient() {
 
           <div className="mb-4 rounded-md border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-900/20 p-3">
             <p className="text-xs font-bold text-amber-700 dark:text-amber-400">
-              الاستعادة تعمل بالخلفية وتضيف البيانات غير الموجودة فقط — لا تحذف أو تستبدل أي بيانات حالية.
-              يتم استعادة كلمات المرور بحيث يمكن تسجيل الدخول بنفس البيانات السابقة.
+              ملف WBK الحالي مخصص للاستعادة الكاملة فقط. استعادة شركة واحدة تتم من Snapshot عبر أداة منفصلة حتى لا تختلط بيانات الشركات.
             </p>
           </div>
 
@@ -504,16 +568,50 @@ export function BackupClient() {
               {selectedFile?.name}
             </p>
             <p className="mb-4 text-xs text-slate-500 dark:text-slate-400">
-              سيتم إضافة البيانات غير الموجودة فقط. لن يتم حذف أو تعديل أي بيانات حالية.
+              اختر نوع الاستعادة قبل المتابعة. لا تستخدم الاستعادة الكاملة إلا عند رغبتك بمطابقة النسخة مع النظام الحالي.
             </p>
 
+            <div className="mb-4 grid gap-2">
+              <label className={`flex cursor-pointer gap-3 rounded-md border p-3 text-sm ${restoreMode === "full" ? "border-primary bg-primary/5" : "border-slate-200 dark:border-slate-700"}`}>
+                <input
+                  type="radio"
+                  name="restoreMode"
+                  value="full"
+                  checked={restoreMode === "full"}
+                  onChange={() => setRestoreMode("full")}
+                  className="mt-1"
+                />
+                <span>
+                  <span className="block font-black text-slate-900 dark:text-white">استعادة كاملة</span>
+                  <span className="block text-xs text-slate-500 dark:text-slate-400">تطبق ملف WBK على كامل المنظومة.</span>
+                </span>
+              </label>
+
+              <label className={`flex cursor-pointer gap-3 rounded-md border p-3 text-sm ${restoreMode === "company" ? "border-amber-400 bg-amber-50 dark:bg-amber-900/20" : "border-slate-200 dark:border-slate-700"}`}>
+                <input
+                  type="radio"
+                  name="restoreMode"
+                  value="company"
+                  checked={restoreMode === "company"}
+                  onChange={() => setRestoreMode("company")}
+                  className="mt-1"
+                />
+                <span>
+                  <span className="block font-black text-slate-900 dark:text-white">شركة واحدة</span>
+                  <span className="block text-xs text-slate-500 dark:text-slate-400">غير متاح من WBK الحالي. يتم عبر Snapshot وأداة استعادة شركة واحدة.</span>
+                </span>
+              </label>
+            </div>
+
             <div className="mb-4">
-              <label className="mb-1 block text-xs font-black text-slate-500 dark:text-slate-400">للتأكيد اكتب: RESTORE</label>
+              <label className="mb-1 block text-xs font-black text-slate-500 dark:text-slate-400">
+                للتأكيد اكتب: {restoreMode === "full" ? "RESTORE_FULL" : "RESTORE_COMPANY"}
+              </label>
               <input
                 value={restoreText}
                 onChange={(e) => setRestoreText(e.target.value)}
                 className="flex h-10 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
-                placeholder="RESTORE"
+                placeholder={restoreMode === "full" ? "RESTORE_FULL" : "RESTORE_COMPANY"}
                 dir="ltr"
               />
             </div>
@@ -522,8 +620,12 @@ export function BackupClient() {
               <Button variant="outline" className="flex-1" onClick={cancelRestore}>
                 إلغاء
               </Button>
-              <Button className="flex-1" onClick={handleRestore} disabled={restoreText !== "RESTORE"}>
-                تأكيد الاستعادة
+              <Button
+                className="flex-1"
+                onClick={handleRestore}
+                disabled={restoreText !== (restoreMode === "full" ? "RESTORE_FULL" : "RESTORE_COMPANY")}
+              >
+                {restoreMode === "full" ? "تأكيد الاستعادة الكاملة" : "عرض طريقة استعادة شركة"}
               </Button>
             </div>
           </div>

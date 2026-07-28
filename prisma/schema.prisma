@@ -9,22 +9,22 @@ datasource db {
 }
 
 model InsuranceCompany {
-  id                    String               @id @default(cuid())
+  id                    String                 @id @default(cuid())
   name                  String
-  code                  String               @unique
+  code                  String                 @unique
   card_pattern          String?
-  is_active             Boolean              @default(true)
-  created_at            DateTime             @default(now())
-  updated_at            DateTime             @updatedAt
+  is_active             Boolean                @default(true)
+  created_at            DateTime               @default(now())
+  updated_at            DateTime               @updatedAt
   deleted_at            DateTime?
   service_type_mappings Json?
   logo                  String?
-  dental_ceiling        Decimal?             @db.Decimal(12, 2)
-  dental_coverage       Decimal              @default(100.00) @db.Decimal(5, 2)
-  general_ceiling       Decimal?             @db.Decimal(12, 2)
-  general_coverage      Decimal              @default(80.00) @db.Decimal(5, 2)
-  medicine_ceiling      Decimal?             @db.Decimal(12, 2)
-  medicine_coverage     Decimal              @default(80.00) @db.Decimal(5, 2)
+  dental_ceiling        Decimal?               @db.Decimal(12, 2)
+  dental_coverage       Decimal                @default(100.00) @db.Decimal(5, 2)
+  general_ceiling       Decimal?               @db.Decimal(12, 2)
+  general_coverage      Decimal                @default(80.00) @db.Decimal(5, 2)
+  medicine_ceiling      Decimal?               @db.Decimal(12, 2)
+  medicine_coverage     Decimal                @default(80.00) @db.Decimal(5, 2)
   dental_settings       Json?
   service_aliases       Json?
   beneficiaries         Beneficiary[]
@@ -33,29 +33,99 @@ model InsuranceCompany {
   service_mappings      ServiceTypeMapping[]
   transactions          Transaction[]
   wallet_consumptions   WalletConsumption[]
+  account_accesses      AccountCompanyAccess[]
+  audit_logs            AuditLog[]
+  import_jobs           ImportJob[]
+  restore_jobs          RestoreJob[]
+  family_import_archives FamilyImportArchive[]
 
   @@index([code])
 }
 
 model Facility {
-  id                   String        @id @default(cuid())
-  name                 String
-  username             String        @unique
-  password_hash        String
-  created_at           DateTime      @default(now())
-  is_admin             Boolean       @default(false)
-  deleted_at           DateTime?
-  must_change_password Boolean       @default(false)
-  is_manager           Boolean       @default(false)
-  manager_permissions  Json?
-  is_employee          Boolean       @default(false)
-  facility_type        String?
-  role                 String        @default("FACILITY")
-  transactions         Transaction[]
+  id                           String                      @id @default(cuid())
+  name                         String
+  username                     String                      @unique
+  password_hash                String
+  created_at                   DateTime                    @default(now())
+  is_admin                     Boolean                     @default(false)
+  deleted_at                   DateTime?
+  must_change_password         Boolean                     @default(false)
+  is_manager                   Boolean                     @default(false)
+  manager_permissions          Json?
+  is_employee                  Boolean                     @default(false)
+  facility_type                String?
+  role                         String                      @default("FACILITY")
+  role_v2                      AccountRole?
+  parent_manager_id            String?
+  created_by_id                String?
+  transactions                 Transaction[]
+  parent_manager               Facility?                   @relation("ManagerEmployees", fields: [parent_manager_id], references: [id], onDelete: SetNull)
+  employees                    Facility[]                  @relation("ManagerEmployees")
+  created_by                   Facility?                   @relation("AccountCreator", fields: [created_by_id], references: [id], onDelete: SetNull)
+  created_accounts             Facility[]                  @relation("AccountCreator")
+  company_accesses             AccountCompanyAccess[]      @relation("AccountCompanyAccessAccount")
+  company_accesses_created     AccountCompanyAccess[]      @relation("AccountCompanyAccessCreator")
+  service_accesses             AccountServiceAccess[]      @relation("AccountServiceAccessAccount")
+  service_accesses_created     AccountServiceAccess[]      @relation("AccountServiceAccessCreator")
+  service_capabilities         FacilityServiceCapability[] @relation("FacilityServiceCapabilityFacility")
+  service_capabilities_created FacilityServiceCapability[] @relation("FacilityServiceCapabilityCreator")
 
   @@index([deleted_at])
   @@index([is_manager], map: "idx_facility_is_manager_fixed")
   @@index([role])
+  @@index([role_v2])
+  @@index([parent_manager_id, deleted_at])
+  @@index([created_by_id])
+}
+
+model AccountCompanyAccess {
+  id            String           @id @default(cuid())
+  account_id    String
+  company_id    String
+  created_by_id String?
+  permissions   Json?
+  created_at    DateTime         @default(now())
+  updated_at    DateTime         @updatedAt
+  account       Facility         @relation("AccountCompanyAccessAccount", fields: [account_id], references: [id], onDelete: Cascade)
+  company       InsuranceCompany @relation(fields: [company_id], references: [id], onDelete: Cascade)
+  created_by    Facility?        @relation("AccountCompanyAccessCreator", fields: [created_by_id], references: [id], onDelete: SetNull)
+
+  @@unique([account_id, company_id])
+  @@index([company_id, account_id])
+  @@index([created_by_id])
+}
+
+model AccountServiceAccess {
+  id              String      @id @default(cuid())
+  account_id      String
+  service_type_id String
+  created_by_id   String?
+  created_at      DateTime    @default(now())
+  updated_at      DateTime    @updatedAt
+  account         Facility    @relation("AccountServiceAccessAccount", fields: [account_id], references: [id], onDelete: Cascade)
+  service_type    ServiceType @relation(fields: [service_type_id], references: [id], onDelete: Cascade)
+  created_by      Facility?   @relation("AccountServiceAccessCreator", fields: [created_by_id], references: [id], onDelete: SetNull)
+
+  @@unique([account_id, service_type_id])
+  @@index([service_type_id, account_id])
+  @@index([created_by_id])
+}
+
+model FacilityServiceCapability {
+  id              String      @id @default(cuid())
+  facility_id     String
+  service_type_id String
+  created_by_id   String?
+  created_at      DateTime    @default(now())
+  updated_at      DateTime    @updatedAt
+  facility        Facility    @relation("FacilityServiceCapabilityFacility", fields: [facility_id], references: [id], onDelete: Cascade)
+  service_type    ServiceType @relation(fields: [service_type_id], references: [id], onDelete: Cascade)
+  created_by      Facility?   @relation("FacilityServiceCapabilityCreator", fields: [created_by_id], references: [id], onDelete: SetNull)
+
+  @@unique([facility_id, service_type_id])
+  @@index([service_type_id, facility_id])
+  @@index([created_by_id])
 }
 
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
@@ -136,39 +206,45 @@ model Transaction {
 }
 
 model AuditLog {
-  id          String   @id @default(cuid())
+  id          String            @id @default(cuid())
   user        String
   action      String
   metadata    Json?
-  created_at  DateTime @default(now())
+  created_at  DateTime          @default(now())
   facility_id String?
   ip_address  String?
+  company_id  String?
+  company     InsuranceCompany? @relation(fields: [company_id], references: [id], onDelete: SetNull)
 
   @@index([facility_id, created_at])
   @@index([action, created_at])
   @@index([user])
+  @@index([company_id, created_at])
 }
 
 model ImportJob {
-  id                  String          @id @default(cuid())
+  id                  String            @id @default(cuid())
   created_by          String
-  status              ImportJobStatus @default(PENDING)
+  status              ImportJobStatus   @default(PENDING)
   payload             Json
-  total_rows          Int             @default(0)
-  processed_rows      Int             @default(0)
-  inserted_rows       Int             @default(0)
-  duplicate_rows      Int             @default(0)
-  failed_rows         Int             @default(0)
+  total_rows          Int               @default(0)
+  processed_rows      Int               @default(0)
+  inserted_rows       Int               @default(0)
+  duplicate_rows      Int               @default(0)
+  failed_rows         Int               @default(0)
   error_message       String?
   started_at          DateTime?
   completed_at        DateTime?
-  created_at          DateTime        @default(now())
+  created_at          DateTime          @default(now())
   skipped_rows_report Json?
   options             Json?
   rollback_data       Json?
+  company_id          String?
+  company             InsuranceCompany? @relation(fields: [company_id], references: [id], onDelete: SetNull)
 
   @@index([created_by, created_at])
   @@index([status])
+  @@index([company_id, created_at])
 }
 
 model OtpCode {
@@ -227,14 +303,16 @@ model CardIssuanceRegistryAll {
 }
 
 model ServiceType {
-  id           String          @id @default(cuid())
-  code         String          @unique
-  name         String
-  is_active    Boolean         @default(true)
-  created_at   DateTime        @default(now())
-  updated_at   DateTime        @updatedAt
-  policies     ServicePolicy[]
-  transactions Transaction[]
+  id                    String                      @id @default(cuid())
+  code                  String                      @unique
+  name                  String
+  is_active             Boolean                     @default(true)
+  created_at            DateTime                    @default(now())
+  updated_at            DateTime                    @updatedAt
+  policies              ServicePolicy[]
+  transactions          Transaction[]
+  account_accesses      AccountServiceAccess[]
+  facility_capabilities FacilityServiceCapability[]
 
   @@index([code])
 }
@@ -349,7 +427,10 @@ model SystemSetting {
 }
 
 model FamilyImportArchive {
-  family_base_card        String   @id
+  id                      String   @id @default(cuid())
+  company_id              String
+  company                 InsuranceCompany @relation(fields: [company_id], references: [id], onDelete: Cascade)
+  family_base_card        String
   family_count_from_file  Int?
   total_balance_from_file Decimal? @db.Decimal(12, 2)
   used_balance_from_file  Decimal? @db.Decimal(12, 2)
@@ -359,36 +440,42 @@ model FamilyImportArchive {
   last_imported_at        DateTime
   created_at              DateTime @default(now())
   updated_at              DateTime @updatedAt
+
+  @@unique([company_id, family_base_card])
+  @@index([family_base_card])
 }
 
 model RestoreJob {
-  id                    String           @id @default(cuid())
+  id                    String            @id @default(cuid())
   created_by            String
-  status                RestoreJobStatus @default(PENDING)
+  status                RestoreJobStatus  @default(PENDING)
   encrypted_payload     Bytes
-  total_steps           Int              @default(0)
-  completed_steps       Int              @default(0)
+  total_steps           Int               @default(0)
+  completed_steps       Int               @default(0)
   current_phase         String?
-  added_facilities      Int              @default(0)
-  updated_facilities    Int              @default(0)
-  added_beneficiaries   Int              @default(0)
-  updated_beneficiaries Int              @default(0)
-  added_transactions    Int              @default(0)
-  skipped_transactions  Int              @default(0)
-  added_audit_logs      Int              @default(0)
-  added_notifications   Int              @default(0)
-  skipped_notifications Int              @default(0)
+  added_facilities      Int               @default(0)
+  updated_facilities    Int               @default(0)
+  added_beneficiaries   Int               @default(0)
+  updated_beneficiaries Int               @default(0)
+  added_transactions    Int               @default(0)
+  skipped_transactions  Int               @default(0)
+  added_audit_logs      Int               @default(0)
+  added_notifications   Int               @default(0)
+  skipped_notifications Int               @default(0)
   error_message         String?
   started_at            DateTime?
   completed_at          DateTime?
-  created_at            DateTime         @default(now())
-  updated_at            DateTime         @updatedAt
-  added_admins          Int              @default(0)
-  updated_admins        Int              @default(0)
-  removed_beneficiaries Int              @default(0)
+  created_at            DateTime          @default(now())
+  updated_at            DateTime          @updatedAt
+  added_admins          Int               @default(0)
+  updated_admins        Int               @default(0)
+  removed_beneficiaries Int               @default(0)
+  company_id            String?
+  company               InsuranceCompany? @relation(fields: [company_id], references: [id], onDelete: SetNull)
 
   @@index([created_by, created_at])
   @@index([status])
+  @@index([company_id, created_at])
 }
 
 model CardNumberingArchive {
@@ -424,6 +511,14 @@ enum ClaimStatus {
   APPROVED
   PARTIAL
   REJECTED
+}
+
+enum AccountRole {
+  SUPER_ADMIN
+  COMPANY_ADMIN
+  MANAGER
+  EMPLOYEE
+  FACILITY
 }
 
 enum BeneficiaryStatus {

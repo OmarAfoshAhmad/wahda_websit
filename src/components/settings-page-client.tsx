@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useActionState, useState } from "react";
+import React, { useActionState, useEffect, useState } from "react";
 import Link from "next/link";
 import { KeyRound, Loader2, CheckCircle2, Eye, EyeOff, Wallet, MessageSquare } from "lucide-react";
 import { voluntaryChangePassword } from "@/app/actions/auth";
-import { updateInitialBalance, updateOtpSettings } from "@/app/actions/system-settings";
+import { updateInitialBalance, updateOtpSettings, updateWahdaAllocationWindow } from "@/app/actions/system-settings";
 import { Button, Input, Card } from "@/components/ui";
 import { formatCurrency } from "@/lib/money";
 
@@ -12,17 +12,29 @@ type SettingsPageClientProps = {
   initialBalance: number;
   otpSettings: { provider: string; apiKey: string; senderId: string; apiUrl: string; otpLength: number; otpExpiry: number; facilityName: string };
   canManageInitialBalance: boolean;
+  canManageSystemFeatures: boolean;
+  wahdaAllocationWindowEnabled: boolean;
 };
 
-export function SettingsPageClient({ initialBalance, otpSettings, canManageInitialBalance }: SettingsPageClientProps) {
+export function SettingsPageClient({ initialBalance, otpSettings, canManageInitialBalance, canManageSystemFeatures, wahdaAllocationWindowEnabled }: SettingsPageClientProps) {
   const [passwordState, passwordAction, isPasswordPending] = useActionState(voluntaryChangePassword, undefined);
   const [balanceState, balanceAction, isBalancePending] = useActionState(updateInitialBalance, undefined);
   const [otpState, otpAction, isOtpPending] = useActionState(updateOtpSettings, undefined);
+  const [featureState, featureAction, isFeaturePending] = useActionState(updateWahdaAllocationWindow, undefined);
 
   const [showCurrent, setShowCurrent] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const currentBalance = typeof balanceState?.value === "number" ? balanceState.value : initialBalance;
+  const allocationEnabled = typeof featureState?.enabled === "boolean" ? featureState.enabled : wahdaAllocationWindowEnabled;
+
+  useEffect(() => {
+    if (typeof featureState?.enabled === "boolean") {
+      window.dispatchEvent(new CustomEvent("wahda-allocation-setting-changed", {
+        detail: { enabled: featureState.enabled },
+      }));
+    }
+  }, [featureState?.enabled]);
 
   return (
     <div className="flex min-h-screen items-center justify-center px-4 py-10 sm:px-6">
@@ -86,6 +98,30 @@ export function SettingsPageClient({ initialBalance, otpSettings, canManageIniti
                 ) : (
                   "حفظ الرصيد الابتدائي"
                 )}
+              </Button>
+            </form>
+          </Card>
+        ) : null}
+
+        {canManageSystemFeatures ? (
+          <Card className="p-6">
+            <div className="mb-4 flex items-center gap-2">
+              <Wallet className="h-5 w-5 text-blue-600" />
+              <h3 className="text-lg font-black text-slate-900 dark:text-white">مخصص مصرف الوحدة</h3>
+            </div>
+            <p className="mb-4 text-sm text-slate-600 dark:text-slate-300">
+              المنظومة موحدة دائمًا وتعرض جميع الخدمات. هذا الخيار يتحكم في إظهار أو إخفاء رابط ونافذة مخصص مصرف الوحدة بالكامل.
+            </p>
+            {featureState?.error ? <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{featureState.error}</div> : null}
+            {featureState?.success ? <div className="mb-3 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">{featureState.success}</div> : null}
+            <form action={featureAction} className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-bold text-slate-900 dark:text-white">الحالة الحالية: {allocationEnabled ? "ظاهرة" : "مخفية"}</p>
+                <p className="text-xs text-slate-500">لا يؤثر الإخفاء على البيانات أو الحركات السابقة أو خدمات الأسنان والبصريات والعلاج الطبيعي، لكنه يخفي مدخل المخصص كاملًا.</p>
+              </div>
+              <input type="hidden" name="enabled" value={allocationEnabled ? "false" : "true"} />
+              <Button type="submit" disabled={isFeaturePending} variant={allocationEnabled ? "outline" : "primary"}>
+                {isFeaturePending ? "جارٍ الحفظ..." : allocationEnabled ? "إخفاء النافذة" : "إظهار النافذة"}
               </Button>
             </form>
           </Card>

@@ -4,6 +4,7 @@ import prisma from "@/lib/prisma";
 import ExcelJS from "exceljs";
 import { Prisma } from "@prisma/client";
 import { getServiceAlias } from "@/lib/service-aliases";
+import { getAllowedCompanyIds } from "@/lib/company-scope";
 
 export async function GET(request: Request) {
   const session = await requireActiveFacilitySession();
@@ -16,6 +17,10 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const companyId = url.searchParams.get("company") ?? undefined;
+  const allowedCompanyIds = await getAllowedCompanyIds(session);
+  if (companyId && !allowedCompanyIds.includes(companyId)) {
+    return NextResponse.json({ error: "لا تملك صلاحية الوصول إلى الشركة المطلوبة" }, { status: 403 });
+  }
   const searchQuery = url.searchParams.get("q") ?? "";
   const fromDate = url.searchParams.get("from") ?? "";
   const toDate = url.searchParams.get("to") ?? "";
@@ -31,7 +36,7 @@ export async function GET(request: Request) {
     where.facility_id = session.id;
   }
 
-  if (companyId) where.company_id = companyId;
+  where.company_id = companyId ?? { in: allowedCompanyIds };
 
   if (fromDate) {
     const from = new Date(fromDate);

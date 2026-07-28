@@ -8,5 +8,6 @@
 export * from "./data-hygiene/types";
 export * from "./data-hygiene/sweep";
 export * from "./data-hygiene/parent-pattern";
+export * from "./data-hygiene/demographic-pattern";
 export * from "./data-hygiene/integer-distribution";
 export * from "./data-hygiene/subunit-fix";

@@ -38,6 +38,14 @@ import {
 import { findCompanyByCardNumber } from "@/lib/insurance/company-matcher";
 import { getCurrentInitialBalance } from "@/lib/initial-balance";
 
+async function requireFamilyCompanyId(baseCard: string): Promise<string> {
+  const company = await findCompanyByCardNumber(baseCard);
+  if (!company?.id) {
+    throw new Error(`تعذر تحديد شركة الأسرة ${baseCard}؛ أوقف الاستيراد لمنع خلط بيانات الشركات`);
+  }
+  return company.id;
+}
+
 /**
  * يحول رقم البطاقة الخام إلى صيغة WAB2025XXXX الكاملة لإنشاء مستفيد جديد.
  */
@@ -330,10 +338,28 @@ export async function processTransactionImport(
       cleanupPurgedMissingFamilies = missingBaseCards.length;
     }
 
+    const replaceAffectedRows = replaceOldImports
+      ? await prisma.$queryRaw<Array<{ family_base_card: string }>>`
+          SELECT DISTINCT regexp_replace(b.card_number, '([WSDMFHV][0-9]*)$', '') AS family_base_card
+          FROM "Transaction" t
+          JOIN "Beneficiary" b ON b.id = t.beneficiary_id
+          WHERE t.type = 'IMPORT'
+            AND b.deleted_at IS NULL
+        `
+      : [];
+    const replaceAffectedBaseCards = replaceAffectedRows
+      .map((row) => String(row.family_base_card ?? "").trim())
+      .filter(Boolean);
+
     const affectedBaseCards = Array.from(new Set([
       ...targetBaseCards,
       ...missingBaseCards,
+      ...replaceAffectedBaseCards,
     ]));
+    const companyByBaseCard = new Map<string, string>();
+    for (const baseCard of new Set([...targetBaseCards, ...missingBaseCards])) {
+      companyByBaseCard.set(baseCard, await requireFamilyCompanyId(baseCard));
+    }
 
     const existingImportFamiliesBefore = new Set<string>();
     if (toImport.length > 0) {
@@ -358,6 +384,39 @@ export async function processTransactionImport(
       : [];
     const snapshotBeforeArchive = affectedBaseCards.length > 0
       ? await loadFamilyArchiveSnapshot(affectedBaseCards)
+      : [];
+    const snapshotMemberIds = snapshotBeforeMembers.map((member) => member.beneficiaryId);
+    const importTransactionsBefore = snapshotMemberIds.length > 0
+      ? await prisma.transaction.findMany({
+          where: {
+            beneficiary_id: { in: snapshotMemberIds },
+            type: "IMPORT",
+            is_cancelled: false,
+          },
+          select: {
+            id: true,
+            beneficiary_id: true,
+            facility_id: true,
+            company_id: true,
+            amount: true,
+            is_cancelled: true,
+            created_at: true,
+            original_transaction_id: true,
+            idempotency_key: true,
+          },
+          orderBy: [{ created_at: "asc" }, { id: "asc" }],
+        }).then((transactions): DeletedImportTransactionSnapshot[] => transactions.map((transaction) => ({
+          id: transaction.id,
+          beneficiaryId: transaction.beneficiary_id,
+          facilityId: transaction.facility_id,
+          companyId: transaction.company_id,
+          amount: Number(transaction.amount) || 0,
+          type: "IMPORT",
+          isCancelled: transaction.is_cancelled,
+          createdAt: transaction.created_at.toISOString(),
+          originalTransactionId: transaction.original_transaction_id,
+          idempotencyKey: transaction.idempotency_key,
+        })))
       : [];
 
     let cleanupDeletedImportTransactions = 0;
@@ -389,7 +448,12 @@ export async function processTransactionImport(
       cleanupTouchedBeneficiaries = cleanupAffectedMemberIds.size;
 
       if (missingBaseCards.length > 0) {
-        cleanupDeletedMissingFamilyArchiveRows = await deleteFamilyImportArchiveRows(missingBaseCards);
+        cleanupDeletedMissingFamilyArchiveRows = await deleteFamilyImportArchiveRows(
+          missingBaseCards.map((familyBaseCard) => ({
+            familyBaseCard,
+            companyId: companyByBaseCard.get(familyBaseCard)!,
+          })),
+        );
       }
     }
 
@@ -397,7 +461,7 @@ export async function processTransactionImport(
     let skippedAlreadySuspended = 0;
 
     for (const { baseCard } of toSuspend) {
-      const suspendResult = await suspendFamily(baseCard);
+      const suspendResult = await suspendFamily(baseCard, companyByBaseCard.get(baseCard)!);
       if (suspendResult === "already_suspended") {
         skippedAlreadySuspended++;
       } else {
@@ -417,7 +481,7 @@ export async function processTransactionImport(
     let skippedAlreadyCorrect = 0;
 
     for (const { row, baseCard } of toSetBalance) {
-      const setResult = await setFamilyBalance(baseCard, row.totalBalance, row.familyCount);
+      const setResult = await setFamilyBalance(baseCard, row.totalBalance, companyByBaseCard.get(baseCard)!, row.familyCount);
       if (setResult === "already_correct") {
         skippedAlreadyCorrect++;
       } else {
@@ -446,7 +510,7 @@ export async function processTransactionImport(
       const hadExistingImportBefore = existingImportFamiliesBefore.has(baseCard);
 
       if (row.totalBalance > 0) {
-        const setResult = await setFamilyBalance(baseCard, row.totalBalance, row.familyCount);
+        const setResult = await setFamilyBalance(baseCard, row.totalBalance, companyByBaseCard.get(baseCard)!, row.familyCount);
         if (setResult === "already_correct") {
           preImportBalanceAlreadyCorrect++;
         } else {
@@ -455,15 +519,15 @@ export async function processTransactionImport(
       }
 
       // Detect company from base card for TPA tracking
-      const companyMatch = await findCompanyByCardNumber(baseCard);
+      const companyId = companyByBaseCard.get(baseCard)!;
 
       const familyResult = await importFamilyTransactions(
         baseCard,
         row.usedBalance,
         importFacilityId,
+        companyId,
         row.familyCount,
         replaceOldImports,
-        companyMatch?.id,
         personalDeduction, // الخصم الشخصي: لا يوزع على الأسرة
       );
       appliedRows.push(...familyResult.appliedRows);
@@ -488,6 +552,7 @@ export async function processTransactionImport(
 
     for (const [baseCard, row] of archiveByBaseCard.entries()) {
       await upsertFamilyImportArchive({
+        companyId: companyByBaseCard.get(baseCard)!,
         familyBaseCard: baseCard,
         familyCount: row.familyCount,
         totalBalanceFromFile: row.totalBalance,
@@ -506,6 +571,7 @@ export async function processTransactionImport(
     const snapshotAfterArchive = affectedBaseCards.length > 0
       ? await loadFamilyArchiveSnapshot(affectedBaseCards)
       : [];
+    const affectedMemberIds = Array.from(new Set(snapshotBeforeMembers.map((m) => m.beneficiaryId)));
 
     const detailedReport: ImportDetailedReport = {
       snapshotBefore: {
@@ -529,9 +595,9 @@ export async function processTransactionImport(
       },
       rollbackSnapshot: {
         affectedFamilies: affectedBaseCards,
-        affectedMemberIds: Array.from(new Set(snapshotBeforeMembers.map((m) => m.beneficiaryId))),
+        affectedMemberIds,
         membersBefore: snapshotBeforeMembers,
-        deletedOldImportTransactions: deletedImportTransactions,
+        deletedOldImportTransactions: replaceOldImports ? deletedImportTransactions : importTransactionsBefore,
         familyArchiveBefore: snapshotBeforeArchive,
       },
     };
@@ -540,9 +606,22 @@ export async function processTransactionImport(
     const autoDebtSettledDebtors = 0;
     const autoDebtUnresolvedDebtors = 0;
 
+    const affectedCompanyRows = await prisma.beneficiary.findMany({
+      where: { id: { in: affectedMemberIds } },
+      select: { company_id: true },
+      distinct: ["company_id"],
+    });
+    const affectedCompanyIds = affectedCompanyRows
+      .map((row) => row.company_id)
+      .filter((companyId): companyId is string => Boolean(companyId));
+    const auditCompanyId = affectedCompanyIds.length === 1 && affectedCompanyRows.length === 1
+      ? affectedCompanyIds[0]
+      : null;
+
     const auditLog = await prisma.auditLog.create({
       data: {
         facility_id: importFacilityId,
+        company_id: auditCompanyId,
         user: username,
         action: "IMPORT_TRANSACTIONS",
         metadata: {

@@ -3,6 +3,8 @@ import prisma from "@/lib/prisma";
 import { requireActiveFacilitySession } from "@/lib/session-guard";
 import { extractBaseCard } from "@/lib/normalize";
 import { roundCurrency } from "@/lib/money";
+import { assertCompanyAccessForSession, ScopeAccessError } from "@/lib/company-scope";
+import { hasPermission } from "@/lib/permissions";
 
 // تم استخدام roundCurrency من lib/money.ts و ensureFamilyImportArchiveTable من lib/prisma-utils.ts
 
@@ -14,7 +16,7 @@ export async function GET(
   if (!session) {
     return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
   }
-  if (!session.is_admin) {
+  if (!hasPermission(session, "view_transactions")) {
     return NextResponse.json({ error: "ممنوع" }, { status: 403 });
   }
 
@@ -33,6 +35,7 @@ export async function GET(
         type: true,
         amount: true,
         created_at: true,
+        company_id: true,
         beneficiary: {
           select: {
             id: true,
@@ -49,6 +52,12 @@ export async function GET(
 
     if (tx.type !== "IMPORT") {
       return NextResponse.json({ error: "هذه الحركة ليست استيراد" }, { status: 400 });
+    }
+
+    if (tx.company_id) {
+      await assertCompanyAccessForSession(session, tx.company_id);
+    } else if (session.role_v2 !== "SUPER_ADMIN") {
+      return NextResponse.json({ error: "حركة تاريخية بلا شركة محددة؛ متاحة للمبرمج فقط" }, { status: 403 });
     }
 
     const familyBaseCard = extractBaseCard(tx.beneficiary.card_number);
@@ -77,13 +86,14 @@ export async function GET(
       FROM "Beneficiary" b
       LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id
       WHERE b.deleted_at IS NULL
+        AND b.company_id IS NOT DISTINCT FROM ${tx.company_id}
         AND b.card_number LIKE ${familyBaseCard + "%"}
       GROUP BY b.id, b.name, b.card_number, b.status, b.total_balance, b.remaining_balance
       ORDER BY b.card_number ASC
     `;
 
     const archive = await prisma.familyImportArchive.findFirst({
-      where: { family_base_card: familyBaseCard },
+      where: { company_id: tx.company_id!, family_base_card: familyBaseCard },
       select: {
         family_count_from_file: true,
         total_balance_from_file: true,
@@ -148,6 +158,9 @@ export async function GET(
       { status: 200 },
     );
   } catch (error) {
+    if (error instanceof ScopeAccessError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error("[import-details] failed", error);
     return NextResponse.json({ error: "تعذر جلب تفاصيل الاستيراد" }, { status: 500 });
   }

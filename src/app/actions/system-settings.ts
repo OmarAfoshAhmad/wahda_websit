@@ -1,14 +1,14 @@
 "use server";
 
 import { revalidatePath, revalidateTag } from "next/cache";
-import { getSession } from "@/lib/auth";
+import { getSessionWithFreshPermissions } from "@/lib/session-guard";
 import prisma from "@/lib/prisma";
 import { updateInitialBalanceSchema } from "@/lib/validation";
-import { setSystemSetting } from "@/lib/system-settings";
+import { setSystemSetting, SHOW_WAHDA_ALLOCATION_WINDOW_KEY } from "@/lib/system-settings";
 
 export async function updateInitialBalance(prevState: unknown, formData: FormData) {
-  const session = await getSession();
-  if (!session || !session.is_admin) {
+  const session = await getSessionWithFreshPermissions();
+  if (!session || session.role_v2 !== "SUPER_ADMIN") {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -43,8 +43,8 @@ export async function updateInitialBalance(prevState: unknown, formData: FormDat
 }
 
 export async function updateOtpSettings(prevState: unknown, formData: FormData) {
-  const session = await getSession();
-  if (!session || !session.is_admin) {
+  const session = await getSessionWithFreshPermissions();
+  if (!session || session.role_v2 !== "SUPER_ADMIN") {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -86,5 +86,30 @@ export async function updateOtpSettings(prevState: unknown, formData: FormData) 
   revalidatePath("/settings");
 
   return { success: "تم تحديث إعدادات OTP بنجاح" };
+}
+
+export async function updateWahdaAllocationWindow(prevState: unknown, formData: FormData) {
+  const session = await getSessionWithFreshPermissions();
+  if (!session || session.role_v2 !== "SUPER_ADMIN") {
+    return { error: "هذا الإعداد متاح للمبرمج فقط" };
+  }
+
+  const enabled = formData.get("enabled") === "true";
+  await setSystemSetting(
+    SHOW_WAHDA_ALLOCATION_WINDOW_KEY,
+    enabled ? "true" : "false",
+    "إظهار رابط ونافذة مخصص مصرف الوحدة داخل المنظومة الموحدة",
+  );
+  await prisma.auditLog.create({
+    data: {
+      facility_id: session.id,
+      user: session.username,
+      action: "UPDATE_WAHDA_ALLOCATION_WINDOW",
+      metadata: { enabled },
+    },
+  });
+  revalidatePath("/settings");
+  revalidatePath("/dashboard");
+  return { success: enabled ? "تم إظهار رابط ونافذة مخصص مصرف الوحدة" : "تم إخفاء رابط ونافذة مخصص مصرف الوحدة بالكامل", enabled };
 }
 

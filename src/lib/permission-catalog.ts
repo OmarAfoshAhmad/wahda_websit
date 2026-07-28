@@ -2,7 +2,7 @@ import type { ManagerPermissions, UserRole } from "./permissions";
 
 export type PermissionKey = keyof ManagerPermissions;
 export type PermissionPolicyRole = UserRole | "FACILITY";
-export type ManagedPermissionRole = Exclude<PermissionPolicyRole, "ADMIN">;
+export type ManagedPermissionRole = Exclude<PermissionPolicyRole, "ADMIN" | "SUPER_ADMIN">;
 export type PermissionGroupId =
   | "beneficiaries"
   | "facilities"
@@ -134,9 +134,11 @@ const FACILITY_ALLOWED_PERMISSION_KEYS = [
 
 const ROLE_ALLOWED_PERMISSION_KEYS: Record<PermissionPolicyRole, ReadonlyArray<PermissionKey>> = {
   ADMIN: PERMISSION_KEYS,
+  SUPER_ADMIN: PERMISSION_KEYS,
+  COMPANY_ADMIN: PERMISSION_KEYS,
   MANAGER: PERMISSION_KEYS,
-  EMPLOYEE: PERMISSION_KEYS,
-  FACILITY: PERMISSION_KEYS,
+  EMPLOYEE: EMPLOYEE_ALLOWED_PERMISSION_KEYS,
+  FACILITY: FACILITY_ALLOWED_PERMISSION_KEYS,
 };
 
 const ROLE_DEFAULT_ENABLED_PERMISSION_KEYS: Record<
@@ -144,6 +146,8 @@ const ROLE_DEFAULT_ENABLED_PERMISSION_KEYS: Record<
   ReadonlyArray<PermissionKey>
 > = {
   ADMIN: PERMISSION_KEYS,
+  SUPER_ADMIN: PERMISSION_KEYS,
+  COMPANY_ADMIN: PERMISSION_KEYS,
   MANAGER: [
     "view_dashboard",
     "view_transactions",
@@ -181,6 +185,8 @@ const ROLE_DEFAULT_ENABLED_PERMISSION_KEYS: Record<
 
 export const ROLE_LABELS: Record<PermissionPolicyRole, string> = {
   ADMIN: "مبرمج",
+  SUPER_ADMIN: "المبرمج",
+  COMPANY_ADMIN: "مدير شركة",
   MANAGER: "مدير",
   EMPLOYEE: "موظف",
   FACILITY: "مرفق",
@@ -195,7 +201,7 @@ export function getAllPermissionsEnabled(): ManagerPermissions {
 }
 
 function getRoleAsPolicyRole(role: PermissionPolicyRole): PermissionPolicyRole {
-  if (role === "ADMIN" || role === "MANAGER" || role === "EMPLOYEE" || role === "FACILITY") {
+  if (role === "SUPER_ADMIN" || role === "ADMIN" || role === "COMPANY_ADMIN" || role === "MANAGER" || role === "EMPLOYEE" || role === "FACILITY") {
     return role;
   }
   return "FACILITY";
@@ -262,7 +268,7 @@ export function normalizeManagerPermissionsForRole(
     fallback ?? getDefaultPermissionsForRole(policyRole),
   );
 
-  if (policyRole === "ADMIN") {
+  if (policyRole === "ADMIN" || policyRole === "SUPER_ADMIN") {
     return getAllPermissionsEnabled();
   }
 
@@ -280,6 +286,8 @@ export function resolvePermissionRole(account: {
   is_manager?: boolean | null;
   is_employee?: boolean | null;
 }): PermissionPolicyRole {
+  if (account.role === "SUPER_ADMIN") return "SUPER_ADMIN";
+  if (account.role === "COMPANY_ADMIN") return "COMPANY_ADMIN";
   if (account.role === "ADMIN" || account.is_admin) return "ADMIN";
   if (account.role === "MANAGER" || account.is_manager) return "MANAGER";
   if (account.role === "EMPLOYEE" || account.is_employee) return "EMPLOYEE";
@@ -308,6 +316,8 @@ export const PERMISSION_PRESETS: ReadonlyArray<{
 
 const PRESET_IDS_BY_ROLE: Record<PermissionPolicyRole, ReadonlyArray<PermissionPresetId>> = {
   ADMIN: ["full_access", "none"],
+  SUPER_ADMIN: ["full_access", "none"],
+  COMPANY_ADMIN: ["manager_basic", "full_access", "none"],
   MANAGER: ["manager_basic", "full_access", "none"],
   EMPLOYEE: ["employee_cash", "full_access", "none"],
   FACILITY: ["facility_basic", "full_access", "none"],

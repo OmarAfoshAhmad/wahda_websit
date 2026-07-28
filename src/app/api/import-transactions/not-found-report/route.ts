@@ -7,7 +7,7 @@ export async function POST(request: Request) {
   if (!session) {
     return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
   }
-  if (!session.is_admin) {
+  if (session.role_v2 !== "SUPER_ADMIN") {
     return NextResponse.json({ error: "ممنوع — المبرمجون فقط" }, { status: 403 });
   }
 

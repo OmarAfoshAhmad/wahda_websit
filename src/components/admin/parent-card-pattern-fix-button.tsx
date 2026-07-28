@@ -8,26 +8,25 @@ import { type ParentCardPatternFixMode } from "@/app/actions/data-hygiene";
 import { getMaintenanceJobAction, startMaintenanceJobAction } from "@/app/actions/maintenance-jobs";
 
 type Props = {
+  companyId: string;
   totalCount: number;
   visibleCount: number;
-  invalidH2Count: number;
   wifePlainCount: number;
   motherPlainCount: number;
   fatherPlainCount: number;
 };
 
 const MODE_LABELS: Record<ParentCardPatternFixMode, string> = {
-  all_to_numbered: "تحويل الكل إلى W1/M1/F1/H1",
+  all_to_numbered: "ترقيم W/M/F إلى W1/M1/F1",
   all_to_plain: "تحويل الكل إلى W/M/F",
-  h2_to_h1_only: "تصحيح H2 إلى H1 فقط",
 };
 
 const ACTIVE_PARENT_CARD_JOB_KEY = "active_parent_card_pattern_fix_job";
 
 export function ParentCardPatternFixButton({
+  companyId,
   totalCount,
   visibleCount,
-  invalidH2Count,
   wifePlainCount,
   motherPlainCount,
   fatherPlainCount,
@@ -139,7 +138,7 @@ export function ParentCardPatternFixButton({
   const runFix = () => {
     setError(null);
     startTransition(async () => {
-      const queued = await startMaintenanceJobAction({ kind: "parent_card_pattern_fix", mode });
+      const queued = await startMaintenanceJobAction({ kind: "parent_card_pattern_fix", mode, companyId });
       if (!queued.success || !queued.job) {
         setError(queued.error ?? "تعذر بدء المعالجة بالخلفية");
         return;
@@ -165,9 +164,6 @@ export function ParentCardPatternFixButton({
         <span className="rounded border border-slate-200 bg-slate-50 px-2 py-1 dark:border-slate-700 dark:bg-slate-800/60">
           الظاهر في الجدول: <strong>{visibleCount.toLocaleString("ar-LY")}</strong>
         </span>
-        <span className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-amber-700 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
-          H2 غير صالح: <strong>{invalidH2Count.toLocaleString("ar-LY")}</strong>
-        </span>
         <span className="rounded border border-orange-200 bg-orange-50 px-2 py-1 text-orange-700 dark:border-orange-800 dark:bg-orange-900/30 dark:text-orange-400">
           W بدون رقم: <strong>{wifePlainCount.toLocaleString("ar-LY")}</strong>
         </span>
@@ -186,9 +182,8 @@ export function ParentCardPatternFixButton({
           disabled={isRunning}
           className="h-10 min-w-55 rounded-md border border-slate-300 bg-white px-3 text-sm font-bold text-slate-700 outline-none ring-0 transition-colors focus:border-slate-500 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
         >
-          <option value="all_to_numbered">تحويل W/M/F إلى W1/M1/F1 + تصحيح H2 إلى H1</option>
-          <option value="all_to_plain">تحويل W1/M1/F1 إلى W/M/F + تصحيح H2 إلى H1</option>
-          <option value="h2_to_h1_only">تصحيح H2 إلى H1 فقط</option>
+          <option value="all_to_numbered">تحويل W/M/F إلى W1/M1/F1</option>
+          <option value="all_to_plain">تحويل W1/M1/F1 إلى W/M/F</option>
         </select>
 
         <button
@@ -208,16 +203,13 @@ export function ParentCardPatternFixButton({
       <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300">
         أمثلة: <strong>WAB2025123W</strong> ⇄ <strong>WAB2025123W1</strong>،
         <strong> WAB2025123M</strong> ⇄ <strong>WAB2025123M1</strong>،
-        <strong> WAB2025123F</strong> ⇄ <strong>WAB2025123F1</strong>،
-        <strong> WAB2025123H</strong> → <strong>WAB2025123H1</strong> (يُحوَّل في all_to_numbered فقط)،
-        <strong> WAB2025123H2</strong> ← غير صالح وسيُصحح إلى <strong>WAB2025123H1</strong>.
+        <strong> WAB2025123F</strong> ⇄ <strong>WAB2025123F1</strong>. أما H فيُعالج في قسم الزوجات المستقل إلى W مع حفظ الرقم.
       </p>
 
       <p className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
         ماذا يفعل كل خيار:
-        {" "}<strong>all_to_numbered</strong> يحول W/M/F/H إلى W1/M1/F1/H1 ويصحح H2 إلى H1،
-        {" "}<strong>all_to_plain</strong> يحول W1/M1/F1 إلى W/M/F ويصحح H2 إلى H1 (H بدون رقم لا يتغير)،
-        {" "}<strong>h2_to_h1_only</strong> يصحح H2 إلى H1 دون تغيير W/M/F/H.
+        {" "}<strong>all_to_numbered</strong> يحول W/M/F إلى W1/M1/F1،
+        {" "}<strong>all_to_plain</strong> يحول W1/M1/F1 إلى W/M/F.
       </p>
 
       {(isRunning || statusMessage) && (

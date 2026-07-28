@@ -10,12 +10,17 @@ const MAX_BACKUP_SIZE = 100 * 1024 * 1024; // 100 MB
 
 export async function POST(request: NextRequest) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || session.role_v2 !== "SUPER_ADMIN") {
     return new NextResponse("Unauthorized", { status: 401 });
   }
 
-  const forwardedProto = request.headers.get("x-forwarded-proto");
-  // Check removed to allow local backups behind HTTP proxies
+  const restoreMode = request.headers.get("x-restore-mode");
+  if (restoreMode !== "full") {
+    return NextResponse.json(
+      { error: "يجب تحديد نوع الاستعادة. استعادة ملف WBK الحالية تدعم الاستعادة الكاملة فقط." },
+      { status: 400 },
+    );
+  }
 
   const contentLength = request.headers.get("content-length");
   if (contentLength && parseInt(contentLength, 10) > MAX_BACKUP_SIZE) {
@@ -46,7 +51,7 @@ export async function POST(request: NextRequest) {
 
 export async function GET() {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || session.role_v2 !== "SUPER_ADMIN") {
     return new NextResponse("Unauthorized", { status: 401 });
   }
 

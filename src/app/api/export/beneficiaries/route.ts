@@ -7,6 +7,8 @@ import { logger } from "@/lib/logger";
 import { getArabicSearchTerms } from "@/lib/search";
 import { formatDateTripoli } from "@/lib/datetime";
 import { getLedgerRemainingByBeneficiaryIds } from "@/lib/ledger-balance";
+import { getAllowedCompanyIds } from "@/lib/company-scope";
+import type { Prisma } from "@prisma/client";
 
 const EXPORT_LIMIT = 50_000;
 
@@ -15,7 +17,7 @@ export async function GET(request: NextRequest) {
   if (!session) {
     return new NextResponse("Unauthorized", { status: 401 });
   }
-  const canExport = session.is_admin || hasPermission(session, "export_data");
+  const canExport = hasPermission(session, "export_data");
   if (!canExport) {
     return new NextResponse("Forbidden", { status: 403 });
   }
@@ -36,6 +38,10 @@ export async function GET(request: NextRequest) {
   const isDeletedView = view === "deleted";
   const companyIdParam = searchParams.get("company_id")?.trim() ?? "";
   const isDental = searchParams.get("is_dental") === "1";
+  const allowedCompanyIds = await getAllowedCompanyIds(session);
+  if (companyIdParam && !allowedCompanyIds.includes(companyIdParam)) {
+    return NextResponse.json({ error: "لا تملك صلاحية الوصول إلى الشركة المطلوبة" }, { status: 403 });
+  }
 
   const ALLOWED_STATUS = ["ACTIVE", "SUSPENDED", "FINISHED"] as const;
   const statusFilter = ALLOWED_STATUS.includes((statusParam ?? "") as (typeof ALLOWED_STATUS)[number])
@@ -65,14 +71,11 @@ export async function GET(request: NextRequest) {
 
   const hasExplicitSelection = selectedIds.length > 0;
 
-  const companyCondition = companyIdParam
+  const companyCondition: Prisma.BeneficiaryWhereInput = companyIdParam
     ? { company_id: companyIdParam }
-    : {
-        OR: [
-          { company_id: "cmp7ha2km0000u9v8jse4ib5x" },
-          { company_id: null }
-        ]
-      };
+    : session.role_v2 === "SUPER_ADMIN"
+      ? { OR: [{ company_id: { in: allowedCompanyIds } }, { company_id: null }] }
+      : { company_id: { in: allowedCompanyIds } };
 
   const where: any = hasExplicitSelection
     ? {

@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation";
-import { Building2, Plus, Edit2, Power, PowerOff } from "lucide-react";
+import { Building2, Power, PowerOff } from "lucide-react";
 import prisma from "@/lib/prisma";
 import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-guard";
 import { Shell } from "@/components/shell";
-import { Card, Badge, Button } from "@/components/ui";
+import { Card, Badge } from "@/components/ui";
 import { CompanyForm } from "./company-form";
 import { DeleteCompany } from "./delete-company";
 import { PurgeBeneficiaries } from "./purge-beneficiaries";
@@ -15,10 +15,6 @@ export default async function CompaniesPage() {
   if (!session.is_admin && !hasPermission(session, "manage_companies")) {
     redirect("/dashboard");
   }
-
-  const appMode = process.env.NEXT_PUBLIC_APP_MODE?.replace(/["']/g, '').toUpperCase() || "BOTH";
-  const primaryServiceCode = appMode === "OPTICS" ? "OPTICS" : "DENTAL";
-  const primaryLabel = primaryServiceCode === "OPTICS" ? "البصريات" : "الأسنان";
 
   const companies = await prisma.insuranceCompany.findMany({
     where: { deleted_at: null },
@@ -53,7 +49,8 @@ export default async function CompaniesPage() {
   const deletedMap = new Map(deletedCounts.map(r => [r.company_id, r._count._all]));
 
   const companiesWithStats = companies.map((c: any) => {
-    const primaryPolicy = c.service_policies?.find((p: any) => p.service_type?.code === primaryServiceCode);
+    const dentalPolicy = c.service_policies?.find((p: any) => p.service_type?.code === "DENTAL");
+    const opticsPolicy = c.service_policies?.find((p: any) => p.service_type?.code === "OPTICS");
     return {
       id: c.id,
       name: c.name,
@@ -62,8 +59,10 @@ export default async function CompaniesPage() {
       logo: c.logo,
       is_active: c.is_active,
       _count: c._count,
-      primary_ceiling: primaryPolicy && primaryPolicy.ceiling_amount !== null ? Number(primaryPolicy.ceiling_amount) : null,
-      primary_coverage: primaryPolicy ? Number(primaryPolicy.coverage_percent) : 100,
+      dental_ceiling: dentalPolicy?.ceiling_amount !== null && dentalPolicy ? Number(dentalPolicy.ceiling_amount) : null,
+      dental_coverage: dentalPolicy ? Number(dentalPolicy.coverage_percent) : 100,
+      optics_ceiling: opticsPolicy?.ceiling_amount !== null && opticsPolicy ? Number(opticsPolicy.ceiling_amount) : null,
+      optics_coverage: opticsPolicy ? Number(opticsPolicy.coverage_percent) : 100,
       general_ceiling: c.general_ceiling ? Number(c.general_ceiling) : null,
       general_coverage: c.general_coverage ? Number(c.general_coverage) : 80,
       medicine_ceiling: c.medicine_ceiling ? Number(c.medicine_ceiling) : null,
@@ -133,9 +132,12 @@ export default async function CompaniesPage() {
                             <div className="flex flex-col">
                               <span className="font-black text-slate-900 dark:text-white leading-tight">{company.name}</span>
                               <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-0.5">
-                                {primaryLabel}: {company.primary_ceiling !== null ? `${Number(company.primary_ceiling).toLocaleString("ar-LY")} د.ل` : "مفتوح"} | تغطية {Number(company.primary_coverage)}%
+                                الأسنان: {company.dental_ceiling !== null ? `${Number(company.dental_ceiling).toLocaleString("ar-LY")} د.ل` : "مفتوح"} | تغطية {Number(company.dental_coverage)}%
                               </span>
-                              {primaryServiceCode === "DENTAL" && company.dental_settings && (() => {
+                              <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                                البصريات: {company.optics_ceiling !== null ? `${Number(company.optics_ceiling).toLocaleString("ar-LY")} د.ل` : "مفتوح"} | تغطية {Number(company.optics_coverage)}%
+                              </span>
+                              {company.dental_settings && (() => {
                                 const settings = company.dental_settings;
                                 const activePolicies = [];
                                 if (settings.ortho?.enabled) {
@@ -180,10 +182,10 @@ export default async function CompaniesPage() {
                           </div>
                         </td>
                         <td className="px-5 py-4 text-center font-mono font-black text-sm text-slate-900 dark:text-white">
-                          {company.primary_ceiling !== null ? `${Number(company.primary_ceiling).toLocaleString("ar-LY")} د.ل` : "مفتوح"}
+                          {company.dental_ceiling !== null ? `${Number(company.dental_ceiling).toLocaleString("ar-LY")} د.ل` : "مفتوح"}
                         </td>
                         <td className="px-5 py-4 text-center font-mono font-black text-sm text-teal-700 dark:text-teal-400">
-                          {company.primary_coverage !== null ? `${Number(company.primary_coverage)}%` : "0%"}
+                          {company.dental_coverage !== null ? `${Number(company.dental_coverage)}%` : "0%"}
                         </td>
                         <td className="px-5 py-4 text-center">
                           <Badge variant={company.is_active ? "success" : "danger"}>

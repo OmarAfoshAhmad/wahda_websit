@@ -3,11 +3,13 @@
 import prisma from "@/lib/prisma";
 import { requireActiveFacilitySession } from "@/lib/session-guard";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { getLedgerRemainingByBeneficiaryId, getLedgerRemainingByBeneficiaryIds } from "@/lib/ledger-balance";
+import { getLedgerRemainingByBeneficiaryIds } from "@/lib/ledger-balance";
 import { logger } from "@/lib/logger";
 import { getArabicNormalization } from "@/lib/normalize";
 import { roundCurrency } from "@/lib/money";
 import * as utils from "./utils";
+import { getAllowedCompanyIds, resolveAllowedScope } from "@/lib/company-scope";
+import { Prisma } from "@prisma/client";
 
 export async function searchBeneficiaries(query: string) {
   type SearchBeneficiaryItem = {
@@ -39,6 +41,10 @@ export async function searchBeneficiaries(query: string) {
   }
 
   try {
+    const allowedCompanyIds = resolveAllowedScope(await getAllowedCompanyIds(session)).allowedIds;
+    const companySql = session.role_v2 === "SUPER_ADMIN"
+      ? Prisma.sql`("company_id" IN (${Prisma.join(allowedCompanyIds)}) OR "company_id" IS NULL)`
+      : Prisma.sql`"company_id" IN (${Prisma.join(allowedCompanyIds)})`;
     const normalizedQ = getArabicNormalization(q);
     const likePattern = `%${q}%`;
     const normalizedPattern = `%${normalizedQ}%`;
@@ -79,7 +85,7 @@ export async function searchBeneficiaries(query: string) {
         ) AS has_import_deduction
       FROM "Beneficiary"
       WHERE deleted_at IS NULL
-        AND ("company_id" = 'cmp7ha2km0000u9v8jse4ib5x' OR "company_id" IS NULL)
+        AND ${companySql}
         AND (
           name ILIKE ${likePattern}
           OR name ILIKE ${normalizedPattern}
@@ -107,6 +113,7 @@ export async function searchBeneficiaries(query: string) {
           SELECT id, card_number
           FROM "Beneficiary"
           WHERE deleted_at IS NULL
+            AND ${companySql}
             AND regexp_replace(UPPER(BTRIM(card_number)), '^WAB2025(0*)([0-9]+)([A-Z0-9]*)$', 'WAB2025\\2\\3') = ANY(${canonicalCards}::text[])
         `
       : [];
@@ -167,18 +174,18 @@ export async function getBeneficiaryFamilyImportInsights(beneficiaryId: string) 
   }
 
   try {
+    const allowedCompanyIds = resolveAllowedScope(await getAllowedCompanyIds(session)).allowedIds;
     // ensureFamilyImportArchiveTable: no-op — الجدول الآن في Prisma Schema
 
     const beneficiary = await prisma.beneficiary.findFirst({
       where: {
         id: cleanId,
         deleted_at: null,
-        OR: [
-          { company_id: "cmp7ha2km0000u9v8jse4ib5x" },
-          { company_id: null }
-        ]
+        ...(session.role_v2 === "SUPER_ADMIN"
+          ? { OR: [{ company_id: { in: allowedCompanyIds } }, { company_id: null }] }
+          : { company_id: { in: allowedCompanyIds } })
       },
-      select: { id: true, card_number: true },
+      select: { id: true, card_number: true, company_id: true },
     });
 
     if (!beneficiary) {
@@ -211,13 +218,13 @@ export async function getBeneficiaryFamilyImportInsights(beneficiaryId: string) 
       FROM "Beneficiary" b
       LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id
       WHERE b.deleted_at IS NULL
-        AND (b.company_id = 'cmp7ha2km0000u9v8jse4ib5x' OR b.company_id IS NULL)
+        AND b.company_id IS NOT DISTINCT FROM ${beneficiary.company_id}
         AND b.card_number LIKE ${familyBaseCard + "%"}
       GROUP BY b.id, b.name, b.card_number, b.status, b.total_balance, b.remaining_balance
       ORDER BY b.card_number ASC
     `;
 
-    const archiveRows = await prisma.$queryRaw<Array<{
+    const archiveRows = session.role_v2 === "SUPER_ADMIN" ? await prisma.$queryRaw<Array<{
       family_count_from_file: number;
       total_balance_from_file: number;
       used_balance_from_file: number;
@@ -228,8 +235,9 @@ export async function getBeneficiaryFamilyImportInsights(beneficiaryId: string) 
         "used_balance_from_file"::float8 AS used_balance_from_file
       FROM "FamilyImportArchive"
       WHERE "family_base_card" = ${familyBaseCard}
+        AND "company_id" = ${beneficiary.company_id}
       LIMIT 1
-    `;
+    ` : [];
 
     const archive = archiveRows[0];
     const familyImportTotal = archive
@@ -242,6 +250,7 @@ export async function getBeneficiaryFamilyImportInsights(beneficiaryId: string) 
       FROM "AuditLog" a,
       LATERAL jsonb_array_elements(COALESCE(a.metadata->'appliedRows', '[]'::jsonb)) AS elem
       WHERE a.action = 'IMPORT_TRANSACTIONS'
+        AND a.company_id IS NOT DISTINCT FROM ${beneficiary.company_id}
         AND (elem->>'familyBaseCard') = ${familyBaseCard}
       ORDER BY a.created_at DESC
       LIMIT 1

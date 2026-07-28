@@ -37,13 +37,15 @@ export type ManagerPermissions = {
   edit_any_facility_transaction: boolean; // تعديل حركات خارج المرفق
 };
 
-export type UserRole = "ADMIN" | "MANAGER" | "EMPLOYEE" | "FACILITY";
+export type UserRole = "SUPER_ADMIN" | "ADMIN" | "COMPANY_ADMIN" | "MANAGER" | "EMPLOYEE" | "FACILITY";
+export type ScopedAccountRole = "SUPER_ADMIN" | "COMPANY_ADMIN" | "MANAGER" | "EMPLOYEE" | "FACILITY";
 
 export interface Session {
   id: string;
   name: string;
   username: string;
   role: UserRole;
+  role_v2?: ScopedAccountRole | null;
   is_admin: boolean;
   is_manager: boolean;
   is_employee: boolean;
@@ -57,6 +59,7 @@ export interface Session {
  * صحيح إذا كان المستخدم مشرفاً أو مديراً أو موظفاً (يحق له الوصول لصفحات الإدارة)
  */
 export function canAccessAdmin(session: Session): boolean {
+  if (session.role_v2) return session.role_v2 !== "FACILITY";
   return session.is_admin || session.is_manager || session.is_employee;
 }
 
@@ -71,10 +74,12 @@ export function hasPermission(
   permission: keyof ManagerPermissions
 ): boolean {
   if (!session) return false;
-  if (session.is_admin || session.role === "ADMIN") return true;
+  if (session.role_v2 === "SUPER_ADMIN") return true;
+  if (!session.role_v2 && (session.is_admin || session.role === "ADMIN" || session.role === "SUPER_ADMIN")) return true;
 
   const effectiveRole: UserRole =
-    session.is_manager ? "MANAGER" : session.is_employee ? "EMPLOYEE" : session.role;
+    session.role_v2 === "COMPANY_ADMIN" ? "MANAGER"
+      : session.role_v2 ?? (session.is_manager ? "MANAGER" : session.is_employee ? "EMPLOYEE" : session.role);
 
   if (effectiveRole !== "MANAGER" && effectiveRole !== "EMPLOYEE" && effectiveRole !== "FACILITY") {
     return false;

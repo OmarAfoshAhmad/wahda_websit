@@ -7,7 +7,6 @@ import {
   Search, 
   Trash2, 
   ShieldCheck, 
-  ShieldAlert, 
   BadgeAlert, 
   BadgeCheck, 
   Activity, 
@@ -190,7 +189,7 @@ export function LegacyCardsUnifiedManager({ legacyWithBatchRows, legacyNoPayment
         batchNumber: bulkBatchInput.trim()
       });
 
-      if (res.error) {
+      if ("error" in res) {
         alert(res.error);
       } else {
         alert(`تم بنجاح تعيين رقم الدفعة ${bulkBatchInput.trim()} لـ ${res.updatedCount} مستفيد.`);
@@ -216,7 +215,7 @@ export function LegacyCardsUnifiedManager({ legacyWithBatchRows, legacyNoPayment
         batchNumber: editBatchInput.trim()
       });
 
-      if (res.error) {
+      if ("error" in res) {
         alert(res.error);
       } else {
         setEditingRow(null);

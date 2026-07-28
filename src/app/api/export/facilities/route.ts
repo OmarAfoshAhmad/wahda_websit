@@ -12,7 +12,7 @@ export async function GET(req: Request) {
   if (!session) {
     return new NextResponse("Unauthorized", { status: 401 });
   }
-  if (!session.is_admin) {
+  if (session.role_v2 !== "SUPER_ADMIN") {
     return new NextResponse("Forbidden", { status: 403 });
   }
 

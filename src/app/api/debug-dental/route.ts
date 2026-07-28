@@ -1,14 +1,21 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getSessionWithFreshPermissions } from "@/lib/session-guard";
+import type { Prisma } from "@prisma/client";
 
-export async function GET(req: NextRequest) {
+export async function GET() {
+  if (process.env.ENABLE_DEBUG_DENTAL !== "true") {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
   try {
     const session = await getSessionWithFreshPermissions();
-    if (!session) return NextResponse.json({ error: "No session" });
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (session.role_v2 !== "SUPER_ADMIN") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     const isFacility = session.role === "FACILITY" || (!session.is_admin && !session.is_manager && !session.is_employee);
-    const transactionFilter: any = { is_cancelled: false, service_category: "DENTAL" };
+    const transactionFilter: Prisma.TransactionWhereInput = { is_cancelled: false, service_category: "DENTAL" };
     if (isFacility) {
       transactionFilter.facility_id = session.id;
     }
@@ -35,12 +42,10 @@ export async function GET(req: NextRequest) {
       isFacility,
       transactionFilter,
       companiesCount: companies.length,
-      sampleCompany: companies[0] || null,
-      session_keys: Object.keys(session),
-      session_role: session.role,
+      sampleCompanyId: companies[0]?.id ?? null,
     });
-  } catch (error: any) {
-    console.error("DEBUG API ERROR:", error);
-    return NextResponse.json({ error: error.message, stack: error.stack }, { status: 500 });
+  } catch (error: unknown) {
+    console.error("DEBUG API ERROR", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

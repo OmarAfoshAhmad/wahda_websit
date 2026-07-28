@@ -1,21 +1,26 @@
 import { redirect } from "next/navigation";
-import { getSession } from "@/lib/auth";
+import { getSessionWithFreshPermissions } from "@/lib/session-guard";
 import { getCurrentInitialBalance } from "@/lib/initial-balance";
-import { getOtpSettings } from "@/lib/system-settings";
+import { getOtpSettings, getWahdaAllocationWindowEnabled } from "@/lib/system-settings";
 import { SettingsPageClient } from "@/components/settings-page-client";
 
 export default async function SettingsPage() {
-  const session = await getSession();
+  const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
 
   const initialBalance = await getCurrentInitialBalance();
-  const otpSettings = await getOtpSettings();
+  const [otpSettings, wahdaAllocationWindowEnabled] = await Promise.all([
+    getOtpSettings(),
+    getWahdaAllocationWindowEnabled(),
+  ]);
 
   return (
     <SettingsPageClient
       initialBalance={initialBalance}
       otpSettings={otpSettings}
-      canManageInitialBalance={Boolean(session.is_admin)}
+      canManageInitialBalance={session.role_v2 === "SUPER_ADMIN"}
+      canManageSystemFeatures={session.role_v2 === "SUPER_ADMIN"}
+      wahdaAllocationWindowEnabled={wahdaAllocationWindowEnabled}
     />
   );
 }

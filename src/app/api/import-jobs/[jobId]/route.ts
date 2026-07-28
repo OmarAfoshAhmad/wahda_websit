@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireActiveFacilitySession } from "@/lib/session-guard";
 import { getImportJobSnapshot } from "@/lib/import-jobs";
+import { requireImportJobAccess, ScopeAccessError } from "@/lib/company-scope";
 
 export async function GET(
   _request: Request,
@@ -12,10 +13,16 @@ export async function GET(
   }
 
   const { jobId } = await params;
+  try {
+    await requireImportJobAccess(session, jobId);
+  } catch (error) {
+    const status = error instanceof ScopeAccessError ? error.status : 403;
+    return NextResponse.json({ error: error instanceof Error ? error.message : "ممنوع" }, { status });
+  }
   // المشرف يرى أي job — المرافق ترى فقط jobs حسابها
   const job = await getImportJobSnapshot(
     jobId,
-    session.is_admin ? undefined : session.username
+    session.role_v2 === "SUPER_ADMIN" ? undefined : session.username
   );
   if (!job) {
     return NextResponse.json({ error: "Job not found" }, { status: 404 });

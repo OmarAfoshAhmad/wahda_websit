@@ -162,6 +162,6 @@ export async function undoMergeAction(formData: FormData) {
 
 export async function ignoreAction(formData: FormData) {
   const res = await ignoreDuplicatePairAction(formData);
-  if (res.error) return { error: res.error };
+  if ("error" in res) return { error: res.error };
   return { ok: "تم تعليم السجلين كأشخاص مختلفين" };
 }

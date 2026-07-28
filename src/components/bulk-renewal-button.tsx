@@ -63,7 +63,7 @@ export function BulkRenewalButton({ formId }: Props) {
 
       const result = await bulkRenewBalance(formData);
 
-      if (result?.error) {
+      if ("error" in result) {
         setFeedbackType("error");
         setFeedback(result.error);
         return;

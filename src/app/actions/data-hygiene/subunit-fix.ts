@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { getSession } from "@/lib/auth";
+import { resolveVerifiedSuperAdminActor } from "@/lib/super-admin-actor";
 import prisma from "@/lib/prisma";
 import { AUDIT_ACTIONS } from "@/lib/constants";
 import { 
@@ -17,11 +17,9 @@ function normalizeSubunitAmountToAllowed(amount: number): number {
 export async function runFixInvalidSubunitAmountsAction(
   actor?: BackgroundActor,
 ): Promise<InvalidSubunitAmountFixResult> {
-  const session = actor
-    ? { id: actor.id, username: actor.username, is_admin: actor.isAdmin }
-    : await getSession();
+  const session = await resolveVerifiedSuperAdminActor(actor);
     
-  if (!session?.is_admin) {
+  if (!session) {
     return {
       success: false,
       candidates_count: 0,

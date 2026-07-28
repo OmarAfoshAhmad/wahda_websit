@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { requireActiveFacilitySession } from "@/lib/session-guard";
 import { processImportJob } from "@/lib/import-jobs";
 import { logger } from "@/lib/logger";
+import { requireImportJobAccess, ScopeAccessError } from "@/lib/company-scope";
+import { hasPermission } from "@/lib/permissions";
 
 export async function POST(
   _request: Request,
@@ -11,11 +13,17 @@ export async function POST(
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (!session.is_admin) {
+  if (!hasPermission(session, "import_beneficiaries")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const { jobId } = await params;
+  try {
+    await requireImportJobAccess(session, jobId);
+  } catch (error) {
+    const status = error instanceof ScopeAccessError ? error.status : 403;
+    return NextResponse.json({ error: error instanceof Error ? error.message : "ممنوع" }, { status });
+  }
 
   try {
     // البدء في معالجة المهمة في الخلفية مباشرة بدون طابور

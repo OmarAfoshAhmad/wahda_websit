@@ -3,6 +3,7 @@ import ExcelJS from "exceljs";
 import prisma from "@/lib/prisma";
 import { requireActiveFacilitySession } from "@/lib/session-guard";
 import { roundCurrency } from "@/lib/money";
+import { assertCompanyAccessForSession } from "@/lib/company-scope";
 
 /**
  * يُصدّر تقرير Excel بالمستفيدين الذين تجاوز إجمالي حركاتهم الفردية 600 دينار.
@@ -10,20 +11,23 @@ import { roundCurrency } from "@/lib/money";
  * الحساب: مجموع مبالغ الحركات الفعلية (غير الملغاة وغير حركات الإلغاء)
  * لكل مستفيد على حدة. يظهر فقط من تجاوز 600 كفرد مستقل.
  */
-export async function GET() {
+export async function GET(request: Request) {
   const session = await requireActiveFacilitySession();
   if (!session) {
     return new NextResponse("Unauthorized", { status: 401 });
   }
-  if (!session.is_admin) {
+  if (session.role_v2 !== "SUPER_ADMIN") {
     return NextResponse.json({ error: "ممنوع — المبرمجون فقط" }, { status: 403 });
   }
+  const companyId = (new URL(request.url).searchParams.get("companyId") ?? "").trim();
+  if (!companyId) return NextResponse.json({ error: "يجب تحديد الشركة" }, { status: 400 });
+  await assertCompanyAccessForSession(session, companyId);
 
   const LIMIT = 600;
 
   // 1) جلب كل المستفيدين مع مجموع حركاتهم الفردية
   const allBeneficiaries = await prisma.beneficiary.findMany({
-    where: { deleted_at: null },
+    where: { deleted_at: null, company_id: companyId },
     select: {
       id: true,
       name: true,

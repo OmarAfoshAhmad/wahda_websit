@@ -39,3 +39,10 @@ export async function getOtpSettings() {
     facilityName
   };
 }
+
+export const SHOW_WAHDA_ALLOCATION_WINDOW_KEY = "SHOW_WAHDA_ALLOCATION_WINDOW";
+
+export async function getWahdaAllocationWindowEnabled(): Promise<boolean> {
+  const value = await getSystemSetting(SHOW_WAHDA_ALLOCATION_WINDOW_KEY, "true");
+  return value.trim().toLowerCase() !== "false";
+}

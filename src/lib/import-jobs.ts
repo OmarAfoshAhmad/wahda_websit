@@ -162,7 +162,7 @@ function toJsonValue(value: unknown) {
 const EXCEL_SERIAL_MIN = 1;
 const EXCEL_SERIAL_MAX = 2958465;
 
-function parseBirthDate(value: unknown): Date | null {
+export function parseImportBirthDate(value: unknown): Date | null {
   if (value == null || value === "") return null;
 
   if (value instanceof Date) {
@@ -189,7 +189,12 @@ function parseBirthDate(value: unknown): Date | null {
     let year = Number(y);
     if (y.length === 2) year += year <= 30 ? 2000 : 1900;
     const candidate = new Date(Date.UTC(year, Number(m) - 1, Number(d)));
-    if (!Number.isNaN(candidate.getTime()) && candidate.getUTCFullYear() === year) {
+    if (
+      !Number.isNaN(candidate.getTime()) &&
+      candidate.getUTCFullYear() === year &&
+      candidate.getUTCMonth() === Number(m) - 1 &&
+      candidate.getUTCDate() === Number(d)
+    ) {
       return normalizeDateOnly(candidate);
     }
   }
@@ -200,7 +205,9 @@ function parseBirthDate(value: unknown): Date | null {
     const year = Number(y);
     if (year >= 1 && year <= 9999) {
       const candidate = new Date(Date.UTC(year, Number(m) - 1, Number(d)));
-      return Number.isNaN(candidate.getTime()) ? null : normalizeDateOnly(candidate);
+      return Number.isNaN(candidate.getTime()) || candidate.getUTCFullYear() !== year || candidate.getUTCMonth() !== Number(m) - 1 || candidate.getUTCDate() !== Number(d)
+        ? null
+        : normalizeDateOnly(candidate);
     }
   }
 
@@ -208,7 +215,20 @@ function parseBirthDate(value: unknown): Date | null {
 }
 
 function extractBirthDate(row: Record<string, unknown>) {
-  return row.birth_date ?? row.date_of_birth ?? row.birthDate ?? row["تاريخ_الميلاد"] ?? row["تاريخ الميلاد"] ?? row.DOB ?? row.dob;
+  return getField(
+    row,
+    "birth_date",
+    "date_of_birth",
+    "birthDate",
+    "تاريخ_الميلاد",
+    "تاريخ الميلاد",
+    "تاريخ الملاد",
+    "الميلاد",
+    "المواليد",
+    "مواليد",
+    "DOB",
+    "dob",
+  );
 }
 
 function getField(row: Record<string, unknown>, ...keys: string[]): unknown {
@@ -250,10 +270,10 @@ function normalizeImportRow(row: unknown): { data?: NormalizedImportRow; error?:
     return { error: "excluded_deceased_appendix" };
   }
 
-  // تم الغاء حقن تاريخ الميلاد من الاستيرادات العامة بناء على طلب المستخدم
-  // const birthDateValue = extractBirthDate(parsed.data);
-  // const birthDate = parseBirthDate(birthDateValue);
-  const birthDate = null;
+  // تاريخ الميلاد جزء من هوية المستفيد: نحفظه عندما يكون صالحاً، ونتركه
+  // فارغاً فقط عند غيابه أو عند وجود تنسيق غير مدعوم.
+  const birthDateValue = extractBirthDate(parsed.data);
+  const birthDate = parseImportBirthDate(birthDateValue);
 
   let parsedStatus: "ACTIVE" | "SUSPENDED" | null = null;
   if (statusVal) {
@@ -346,6 +366,7 @@ export async function createImportJob(data: unknown[], username: string, options
       payload: toJsonValue(data),
       total_rows: data.length,
       options: options ? toJsonValue(options) : undefined,
+      company_id: options?.company_id ?? null,
     },
   });
 
@@ -388,7 +409,7 @@ export async function processImportJob(jobId: string, username: string) {
         if (regex.test(upper)) {
           return company;
         }
-      } catch (e) {
+      } catch (_e) {
         continue;
       }
     }
@@ -877,7 +898,7 @@ export async function processImportJob(jobId: string, username: string) {
               deleted_at: null,
               card_number: row.data.card_number, // تحديث رقم البطاقة للتنسيق المعتمد بالإكسيل
               name: row.data.name,
-              birth_date: row.data.birth_date,
+              ...(row.data.birth_date ? { birth_date: row.data.birth_date } : {}),
               status: targetStatus as "ACTIVE" | "SUSPENDED" | "FINISHED",
               ...(rowCompanyId ? { company_id: rowCompanyId } : {}),
               ...(opts.updateBalance ? {
@@ -940,7 +961,7 @@ export async function processImportJob(jobId: string, username: string) {
           const updateData: Record<string, any> = {
             card_number: row.data.card_number, // تحديث رقم البطاقة للتنسيق المعتمد بالإكسيل
             name: row.data.name,
-            birth_date: row.data.birth_date,
+            ...(row.data.birth_date ? { birth_date: row.data.birth_date } : {}),
             status: targetStatus,
             ...(rowCompanyId ? { company_id: rowCompanyId } : {}),
           };
@@ -1007,7 +1028,7 @@ export async function processImportJob(jobId: string, username: string) {
           const updateData: Record<string, any> = {
             card_number: row.data.card_number,
             name: row.data.name,
-            birth_date: row.data.birth_date,
+            ...(row.data.birth_date ? { birth_date: row.data.birth_date } : {}),
             status: targetStatus,
             ...(rowCompanyId ? { company_id: rowCompanyId } : {}),
           };

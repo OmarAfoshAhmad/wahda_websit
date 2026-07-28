@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { getSession } from "@/lib/auth";
+import { resolveVerifiedSuperAdminActor } from "@/lib/super-admin-actor";
 import prisma from "@/lib/prisma";
 import { AUDIT_ACTIONS } from "@/lib/constants";
 import { 
@@ -13,11 +13,9 @@ import { roundCurrency } from "@/lib/money";
 export async function runNormalizeImportIntegerDistributionAction(
   actor?: BackgroundActor,
 ): Promise<ImportIntegerDistributionFixResult> {
-  const session = actor
-    ? { id: actor.id, username: actor.username, is_admin: actor.isAdmin }
-    : await getSession();
+  const session = await resolveVerifiedSuperAdminActor(actor);
     
-  if (!session?.is_admin) {
+  if (!session) {
     return {
       success: false,
       processed_families: 0,

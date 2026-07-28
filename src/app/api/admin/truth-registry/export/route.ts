@@ -34,7 +34,7 @@ function formatDateTime(value: Date | null): string {
 export async function GET(request: Request) {
   const session = await requireActiveFacilitySession();
   if (!session) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
-  if (!session.is_admin) return NextResponse.json({ error: "ممنوع — للمدير فقط" }, { status: 403 });
+  if (session.role_v2 !== "SUPER_ADMIN") return NextResponse.json({ error: "ممنوع — المبرمجون فقط" }, { status: 403 });
 
   const { searchParams } = new URL(request.url);
   const query = (searchParams.get("q") ?? "").trim().slice(0, 100);

@@ -14,7 +14,7 @@ type MergeBatchResponse = {
   firstAuditId?: string | null;
 };
 
-export function AutoMergeAllZeroVariantsButton() {
+export function AutoMergeAllZeroVariantsButton({ companyId }: { companyId: string }) {
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState({
     mergedGroups: 0,
@@ -56,6 +56,7 @@ export function AutoMergeAllZeroVariantsButton() {
         const response = await fetch("/api/admin/duplicates/merge-all-safe", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ companyId }),
         });
 
         const data = (await response.json().catch(() => null)) as MergeBatchResponse | null;

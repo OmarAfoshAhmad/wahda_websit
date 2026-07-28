@@ -17,22 +17,6 @@ export default async function OpticsServicesPage({
   
   const canAccess = hasPermission(session, "optics_services") || hasPermission(session, "view_optics_beneficiaries");
   if (!canAccess) {
-    const appMode = process.env.NEXT_PUBLIC_APP_MODE?.replace(/["']/g, '').toUpperCase() || "";
-    if (appMode.includes("OPTICS")) {
-      return (
-        <Shell facilityName={session.name} session={session}>
-          <div className="flex items-center justify-center min-h-[50vh]">
-            <Card className="p-8 text-center max-w-md w-full border-red-200 bg-red-50 dark:bg-red-900/10 dark:border-red-900/50">
-              <ShieldCheck className="h-12 w-12 text-red-500 mx-auto mb-4" />
-              <h2 className="text-xl font-bold text-red-700 dark:text-red-400 mb-2">صلاحية غير كافية</h2>
-              <p className="text-red-600 dark:text-red-500 text-sm">
-                حسابك لا يملك صلاحية الدخول لخدمات البصريات. يرجى مراجعة مبرمج النظام لتفعيل صلاحية (optics_services).
-              </p>
-            </Card>
-          </div>
-        </Shell>
-      );
-    }
     redirect("/dashboard");
   }
   const canImport = session.is_admin || hasPermission(session, "import_beneficiaries");

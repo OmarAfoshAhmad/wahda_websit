@@ -4,7 +4,6 @@ import { formatDateTripoli } from "@/lib/datetime";
 import { AlertTriangle } from "lucide-react";
 import fs from "fs";
 import path from "path";
-import { DataHygieneSweepButton } from "./data-hygiene-sweep-button";
 import { UnlinkedCorrectionsFixButton } from "./unlinked-corrections-fix-button";
 import { DuplicateMovementsFixButton } from "./duplicate-movements-fix-button";
 import { InvalidPasswordFacilitiesFixButton } from "./invalid-password-facilities-fix-button";
@@ -26,6 +25,9 @@ import { FixInvalidSubunitAmountsButton } from "./fix-invalid-subunit-amounts-bu
 import { PharmacySuppliesFixSection, PharmacySupplyAnomalyRow } from "./pharmacy-supplies-fix-section";
 import { TruthRegistryAlignmentTool } from "./truth-registry-alignment-tool";
 import { LegacyCardsUnifiedManager } from "./legacy-cards-unified-manager";
+import { DemographicRepairSection, type DemographicRepairRow } from "./demographic-repair-section";
+import { loadLatestImportDemographicEvidence, replaceCardSuffix, shouldTreatAsSoleEmployee, stripCardMemberSuffix } from "@/lib/import-demographic-evidence";
+import { normalizeCardNumber } from "@/lib/normalize";
 
 
 
@@ -233,10 +235,14 @@ export async function DataHealthContent({
   withinDuplicatesTab = false,
   searchQuery = "",
   legacyMode = false,
+  companyId,
+  companyName,
 }: {
   withinDuplicatesTab?: boolean;
   searchQuery?: string;
   legacyMode?: boolean;
+  companyId: string;
+  companyName: string;
 }) {
   let unlinkedCorrections: UnlinkedCorrectionRow[] = [];
   let duplicateImports: DuplicateImportRow[] = [];
@@ -285,6 +291,7 @@ export async function DataHealthContent({
         const existingBens = await prisma.beneficiary.findMany({
           where: {
             deleted_at: null,
+            company_id: companyId,
             card_number: {
               in: csvCards
             }
@@ -357,6 +364,7 @@ export async function DataHealthContent({
         LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id AND t.is_cancelled = false
         LEFT JOIN "InsuranceCompany" c ON c.id = b.company_id
         WHERE b.deleted_at IS NULL
+          AND b.company_id = ${companyId}
           AND (
             b.card_number ~ '\\s'
             OR b.card_number !~ '^WAB2025[0-9]+([WHSDMFV][0-9]*)?$'
@@ -384,6 +392,7 @@ export async function DataHealthContent({
           ON t.beneficiary_id = b.id
          AND t.is_cancelled = false
         WHERE b.deleted_at IS NULL
+          AND b.company_id = ${companyId}
           AND b.is_legacy_card = true
           AND r.batch_number IS NOT NULL
           AND BTRIM(r.batch_number) <> ''
@@ -408,6 +417,7 @@ export async function DataHealthContent({
         LEFT JOIN "CardIssuanceRegistry" r ON UPPER(BTRIM(b.card_number)) = r.card_number_upper
         LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id AND t.is_cancelled = false
         WHERE b.deleted_at IS NULL
+          AND b.company_id = ${companyId}
           AND b.is_legacy_card = true
           AND (r.id IS NULL OR r.batch_number IS NULL OR BTRIM(r.batch_number) = '')
         GROUP BY b.id, b.name, b.card_number, b.status, b.is_legacy_card, b.total_balance, b.remaining_balance
@@ -436,6 +446,7 @@ export async function DataHealthContent({
         JOIN "Beneficiary" b ON b.id = t.beneficiary_id
         JOIN "Facility" f ON f.id = t.facility_id
         WHERE t.type = 'CANCELLATION'
+          AND t.company_id = ${companyId}
           AND t.original_transaction_id IS NULL
           AND t.is_cancelled = false
         ORDER BY t.created_at DESC
@@ -454,6 +465,7 @@ export async function DataHealthContent({
         FROM "Transaction" t
         JOIN "Beneficiary" b ON b.id = t.beneficiary_id
         WHERE t.type = 'IMPORT'
+          AND t.company_id = ${companyId}
           AND t.is_cancelled = false
         GROUP BY t.beneficiary_id, b.name, b.card_number
         HAVING COUNT(*) > 1
@@ -475,6 +487,7 @@ export async function DataHealthContent({
         FROM "Transaction" t
         JOIN "Beneficiary" b ON b.id = t.beneficiary_id
         WHERE t.is_cancelled = false
+          AND t.company_id = ${companyId}
           AND t.type <> 'CANCELLATION'
         GROUP BY
           t.beneficiary_id,
@@ -592,6 +605,7 @@ export async function DataHealthContent({
         FROM "Beneficiary" b
         LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id
         WHERE b.deleted_at IS NULL
+          AND b.company_id = ${companyId}
         GROUP BY b.id, b.name, b.card_number, b.status, b.total_balance, b.remaining_balance
         HAVING ABS(
           b.remaining_balance - GREATEST(0,
@@ -625,8 +639,9 @@ export async function DataHealthContent({
             WHEN status = 'FINISHED' AND remaining_balance > 0.01  THEN 'مكتمل برصيد موجب (يجب مراجعة)'
             ELSE 'غير معروف'
           END AS anomaly_type
-        FROM "Beneficiary"
-        WHERE deleted_at IS NULL
+        FROM "Beneficiary" b
+        WHERE b.deleted_at IS NULL
+          AND b.company_id = ${companyId}
           AND (
             (status = 'ACTIVE'   AND remaining_balance <= 0.01)
             OR (status = 'FINISHED' AND remaining_balance > 0.01)
@@ -649,6 +664,7 @@ export async function DataHealthContent({
         FROM "Beneficiary" b
         LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id
         WHERE b.deleted_at IS NULL
+          AND b.company_id = ${companyId}
           AND b.remaining_balance > 0.01
         GROUP BY b.id, b.name, b.card_number, b.status, b.total_balance, b.remaining_balance
         HAVING (b.remaining_balance + COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END), 0)) - b.total_balance > 0.01
@@ -677,6 +693,7 @@ export async function DataHealthContent({
         FROM "Notification" n
         JOIN "Beneficiary" b ON b.id = n.beneficiary_id
         WHERE b.deleted_at IS NOT NULL
+          AND b.company_id = ${companyId}
         ORDER BY n.created_at DESC
         LIMIT 200
       `,
@@ -688,12 +705,14 @@ export async function DataHealthContent({
         WHERE n.is_read = true
           AND n.created_at < NOW() - INTERVAL '90 days'
           AND b.deleted_at IS NULL
+          AND b.company_id = ${companyId}
       `,
 
       prisma.$queryRaw<OldLoginAuditSummary[]>`
         SELECT COUNT(*)::int AS old_login_count
         FROM "AuditLog"
         WHERE action IN ('LOGIN', 'LOGOUT')
+          AND company_id = ${companyId}
           AND created_at < NOW() - INTERVAL '180 days'
       `,
 
@@ -701,6 +720,7 @@ export async function DataHealthContent({
         SELECT COUNT(*)::int AS old_import_jobs_count
         FROM "ImportJob"
         WHERE status IN ('COMPLETED', 'FAILED', 'ROLLED_BACK')
+          AND company_id = ${companyId}
           AND created_at < NOW() - INTERVAL '30 days'
       `,
     ]);
@@ -720,6 +740,7 @@ export async function DataHealthContent({
         SELECT COUNT(*)::int AS old_restore_jobs_count
         FROM "RestoreJob"
         WHERE status IN ('COMPLETED', 'FAILED')
+          AND company_id = ${companyId}
           AND created_at < NOW() - INTERVAL '30 days'
       `,
 
@@ -729,19 +750,18 @@ export async function DataHealthContent({
           b.name,
           b.card_number,
           CASE
-            WHEN b.card_number ~ '^WAB2025[0-9]+W$' THEN 'زوجة بدون ترقيم (W)'
-            WHEN b.card_number ~ '^WAB2025[0-9]+H2$' THEN 'زوج ثاني غير صالح (H2)'
-            WHEN b.card_number ~ '^WAB2025[0-9]+M$' THEN 'أم بدون ترقيم (M)'
-            WHEN b.card_number ~ '^WAB2025[0-9]+F$' THEN 'أب بدون ترقيم (F)'
+            WHEN b.card_number ~ '^[A-Za-z]+[0-9]+W$' THEN 'زوجة بدون ترقيم (W)'
+            WHEN b.card_number ~ '^[A-Za-z]+[0-9]+M$' THEN 'أم بدون ترقيم (M)'
+            WHEN b.card_number ~ '^[A-Za-z]+[0-9]+F$' THEN 'أب بدون ترقيم (F)'
             ELSE 'أخرى'
           END AS pattern_type
         FROM "Beneficiary" b
         WHERE b.deleted_at IS NULL
+          AND b.company_id = ${companyId}
           AND (
-            b.card_number ~ '^WAB2025[0-9]+W$'
-            OR b.card_number ~ '^WAB2025[0-9]+H2$'
-            OR b.card_number ~ '^WAB2025[0-9]+M$'
-            OR b.card_number ~ '^WAB2025[0-9]+F$'
+            b.card_number ~ '^[A-Za-z]+[0-9]+W$'
+            OR b.card_number ~ '^[A-Za-z]+[0-9]+M$'
+            OR b.card_number ~ '^[A-Za-z]+[0-9]+F$'
           )
         ORDER BY b.card_number
         LIMIT 400
@@ -758,6 +778,7 @@ export async function DataHealthContent({
         WHERE t.type = 'IMPORT'
           AND t.is_cancelled = false
           AND b.deleted_at IS NULL
+          AND b.company_id = ${companyId}
           AND ABS(t.amount - ROUND(t.amount)) > 0.000001
         GROUP BY COALESCE(SUBSTRING(b.card_number FROM '^(WAB2025[0-9]+)'), b.card_number)
         ORDER BY family_total_import_amount DESC
@@ -779,6 +800,7 @@ export async function DataHealthContent({
         WHERE t.type = 'IMPORT'
           AND t.is_cancelled = false
           AND b.deleted_at IS NULL
+          AND b.company_id = ${companyId}
           AND ABS(t.amount - ROUND(t.amount)) > 0.000001
         GROUP BY
           COALESCE(SUBSTRING(b.card_number FROM '^(WAB2025[0-9]+)'), b.card_number),
@@ -810,6 +832,7 @@ export async function DataHealthContent({
         JOIN "Beneficiary" b ON b.id = t.beneficiary_id
         JOIN "Facility" f ON f.id = t.facility_id
         WHERE t.type = 'SUPPLIES'
+          AND t.company_id = ${companyId}
           AND t.is_cancelled = false
           AND f.name LIKE '%صيدل%'
         ORDER BY t.created_at DESC
@@ -826,6 +849,44 @@ export async function DataHealthContent({
     acc[row.family_base_card].push(row);
     return acc;
   }, {});
+
+  // الأدلة الديموغرافية تأتي من آخر ملفات الاستيراد المكتملة للشركة نفسها.
+  // لا نعتمد الاسم وحده، بل رقم البطاقة الدقيق كما حُفظ في payload.
+  const [demographicEvidence, demographicBeneficiaries] = await Promise.all([
+    loadLatestImportDemographicEvidence(companyId),
+    prisma.beneficiary.findMany({
+      where: { company_id: companyId, deleted_at: null },
+      select: { id: true, name: true, card_number: true, birth_date: true },
+    }),
+  ]);
+  const employeeRepairRows: DemographicRepairRow[] = [];
+  const spouseRepairRows: DemographicRepairRow[] = [];
+  const childRepairRows: DemographicRepairRow[] = [];
+  const birthRepairRows: DemographicRepairRow[] = [];
+  const familyCounts = new Map<string, number>();
+  for (const row of demographicBeneficiaries) {
+    const base = stripCardMemberSuffix(row.card_number) ?? normalizeCardNumber(row.card_number).toUpperCase();
+    familyCounts.set(base, (familyCounts.get(base) ?? 0) + 1);
+  }
+  for (const beneficiary of demographicBeneficiaries) {
+    const card = normalizeCardNumber(beneficiary.card_number).toUpperCase();
+    const evidence = demographicEvidence.get(card);
+    const baseCard = stripCardMemberSuffix(card);
+    const familyCount = baseCard ? (familyCounts.get(baseCard) ?? 0) : 0;
+    if (baseCard && shouldTreatAsSoleEmployee(familyCount, evidence)) {
+      const proposed = baseCard;
+      if (proposed && proposed !== card) employeeRepairRows.push({ id: beneficiary.id, name: beneficiary.name, cardNumber: card, proposedValue: proposed, evidence: evidence?.isEmployee ? `صلة القرابة في ملف الاستيراد: ${evidence.relationship}` : "فرد وحيد في أصل العائلة دون دليل تابع" });
+    } else if (/H$/i.test(card) && familyCount > 1) {
+      spouseRepairRows.push({ id: beneficiary.id, name: beneficiary.name, cardNumber: card, proposedValue: `${card}1`, evidence: "H دون تسلسل يُصحح إلى H1؛ H1/H2 لا يتغيران" });
+    }
+    if (evidence?.childCode) {
+      const proposed = replaceCardSuffix(card, evidence.childCode);
+      if (proposed && proposed !== card) childRepairRows.push({ id: beneficiary.id, name: beneficiary.name, cardNumber: card, proposedValue: proposed, evidence: `صلة القرابة في ملف الاستيراد: ${evidence.relationship}` });
+    }
+    if (!beneficiary.birth_date && evidence?.birthDate) {
+      birthRepairRows.push({ id: beneficiary.id, name: beneficiary.name, cardNumber: card, proposedValue: evidence.birthDate.toISOString().slice(0, 10), evidence: `تطابق بطاقة دقيق من مهمة الاستيراد ${evidence.sourceJobId}` });
+    }
+  }
 
   const familyAggregateBalanceByBaseCard = Object.entries(legacyMembersByFamily).reduce<Record<string, { total: number; remaining: number }>>((acc, [baseCard, members]) => {
     acc[baseCard] = {
@@ -909,7 +970,6 @@ export async function DataHealthContent({
         row.card_number.toLowerCase().includes(normalizedSearchQuery)
     )
     : parentCardPatternRows;
-  const invalidH2Count = parentCardPatternRows.filter((row) => /H2$/i.test(row.card_number)).length;
   const wifePlainCount = parentCardPatternRows.filter((row) => /W$/i.test(row.card_number)).length;
   const motherPlainCount = parentCardPatternRows.filter((row) => /M$/i.test(row.card_number)).length;
   const fatherPlainCount = parentCardPatternRows.filter((row) => /F$/i.test(row.card_number)).length;
@@ -962,7 +1022,7 @@ export async function DataHealthContent({
       <header className="space-y-1">
         <h1 className="text-2xl font-black">نافذة صحة البيانات وتنظيف القاعدة</h1>
         <p className="text-sm text-slate-600">
-          نافذة فحص وتشخيص مباشر مع تنظيف آمن للسجلات اليتيمة والقديمة.
+          الفحوص المعروضة تخص شركة <strong>{companyName}</strong> فقط، وتتغير مباشرة عند تغيير فلتر الشركة.
         </p>
         {!withinDuplicatesTab && (
           <p className="text-xs text-slate-500">
@@ -984,17 +1044,9 @@ export async function DataHealthContent({
           <p>وظائف استيراد قديمة: <strong>{oldImportJobs.toLocaleString("ar-LY")}</strong></p>
           <p>وظائف استعادة قديمة: <strong>{oldRestoreJobs.toLocaleString("ar-LY")}</strong></p>
         </div>
-        <div className="pt-2">
-          <DataHygieneSweepButton
-            counts={{
-              orphaned_notifications: orphanedNotificationRows.length,
-              old_read_notifications: oldReadNotifications,
-              old_login_audit_logs: oldLoginAuditLogs,
-              old_import_jobs: oldImportJobs,
-              old_restore_jobs: oldRestoreJobs,
-            }}
-          />
-        </div>
+        <p className="pt-2 text-xs text-amber-700 dark:text-amber-300">
+          التنفيذ الشامل لتنظيف سجلات النظام متاح من نافذة صيانة قاعدة البيانات؛ هذه النافذة تعرض نطاق الشركة المختارة فقط.
+        </p>
       </Section>
       )}
 
@@ -1431,7 +1483,10 @@ export async function DataHealthContent({
       )}
 
       {showGeneralSections && (
-      <Section title="مرافق فعالة بكلمة مرور غير صالحة" count={invalidPasswordFacilities.length}>
+      <Section title="مرافق فعالة بكلمة مرور غير صالحة — فحص عام للنظام" count={invalidPasswordFacilities.length}>
+        <p className="text-xs text-slate-600 dark:text-slate-300">
+          هذا الفحص أمني عام ولا يتبع شركة بعينها، لأن حساب المرفق قد يخدم أكثر من شركة.
+        </p>
         <InvalidPasswordFacilitiesFixButton initialCount={invalidPasswordFacilities.length} />
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-sm">
@@ -1459,7 +1514,10 @@ export async function DataHealthContent({
       )}
 
       {showGeneralSections && (
-      <Section title="مرافق محذوفة (لا يمكنها تسجيل الدخول)" count={deletedFacilities.length}>
+      <Section title="مرافق محذوفة (لا يمكنها تسجيل الدخول) — فحص عام للنظام" count={deletedFacilities.length}>
+        <p className="text-xs text-slate-600 dark:text-slate-300">
+          هذا الفحص عام على حسابات المرافق ولا يدخل ضمن إحصاءات الشركة المختارة.
+        </p>
         <DeletedFacilitiesFixButton initialCount={deletedFacilities.length} />
         <p className="text-xs text-slate-600">
           هذه القائمة تعرض مرافق محذوفة بالفعل (deleted_at != null)، لذلك لن تظهر في شاشة إدارة المرافق أو المديرين لأنها مخصصة للحسابات النشطة فقط.
@@ -1488,14 +1546,23 @@ export async function DataHealthContent({
       )}
 
       {showGeneralSections && (
+      <div className="space-y-4">
+        <DemographicRepairSection title="1. إزالة ترميز الموظف الوحيد" description="الفرد الوحيد تحت أصل البطاقة يُعامل كموظف أساسي وتزال لاحقته، ما لم يثبت المصدر أنه زوج/زوجة أو ابن/ابنة، مع منع تعارض الرقم." companyId={companyId} mode="employee_base" rows={employeeRepairRows} />
+        <DemographicRepairSection title="2. استكمال ترميز H الناقص" description="يصحح H فقط إلى H1. لا يغير H1 أو H2، ولا يحول H إلى W." companyId={companyId} mode="complete_plain_h" rows={spouseRepairRows} />
+        <DemographicRepairSection title="3. تصحيح الأبناء حسب صلة القرابة" description="الذكور S (Son) والإناث D (Daughter). لا يظهر إلا من لديه دليل صريح في ملف الاستيراد المحفوظ." companyId={companyId} mode="children_sd" rows={childRepairRows} />
+        <DemographicRepairSection title="4. استعادة تواريخ الميلاد من الاستيراد" description="يملأ التاريخ المفقود عند تطابق رقم البطاقة بدقة، ولا يستبدل تاريخاً موجوداً." companyId={companyId} mode="restore_birth_dates" rows={birthRepairRows} />
+      </div>
+      )}
+
+      {showGeneralSections && (
       <Section title="حالات ترميز غير طبيعي في اللاحقة" count={filteredParentCardPatternRows.length}>
         <p className="text-xs text-slate-600 dark:text-slate-300">
-          الإحصائيات بالأعلى تمثل كل النظام، بينما "الظاهر في الجدول" يتأثر بالبحث الحالي فقط.
+          الإحصائيات بالأعلى تمثل كل النظام، بينما &quot;الظاهر في الجدول&quot; يتأثر بالبحث الحالي فقط.
         </p>
         <ParentCardPatternFixButton
+          companyId={companyId}
           totalCount={parentCardPatternRows.length}
           visibleCount={filteredParentCardPatternRows.length}
-          invalidH2Count={invalidH2Count}
           wifePlainCount={wifePlainCount}
           motherPlainCount={motherPlainCount}
           fatherPlainCount={fatherPlainCount}

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getSession } from "@/lib/auth";
+import { getSessionWithFreshPermissions } from "@/lib/session-guard";
+import prisma from "@/lib/prisma";
 import { Shell } from "@/components/shell";
 import { Card, Button, Badge } from "@/components/ui";
 import { getActiveImportDuplicateCases } from "@/lib/import-duplicate-cases";
@@ -9,15 +10,26 @@ import { AlertCircle, CheckCircle2 } from "lucide-react";
 export default async function ImportDuplicateCasesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ok?: string; err?: string; importView?: string }>;
+  searchParams: Promise<{ ok?: string; err?: string; importView?: string; companyId?: string }>;
 }) {
-  const session = await getSession();
+  const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
-  if (!session.is_admin) redirect("/dashboard");
+  if (session.role_v2 !== "SUPER_ADMIN") redirect("/dashboard");
 
-  const { ok, err, importView: importViewParam } = await searchParams;
+  const { ok, err, importView: importViewParam, companyId: requestedCompanyId } = await searchParams;
+  const companies = await prisma.insuranceCompany.findMany({
+    where: { deleted_at: null, is_active: true },
+    select: { id: true, name: true, code: true },
+    orderBy: { name: "asc" },
+  });
+  if (companies.length === 0) redirect("/admin/companies");
+  const selectedCompany = companies.find((company) => company.id === requestedCompanyId) ?? companies[0];
+  if (requestedCompanyId !== selectedCompany.id) {
+    redirect(`/admin/duplicates/import-cases?companyId=${encodeURIComponent(selectedCompany.id)}`);
+  }
+  const companyId = selectedCompany.id;
   const importView = importViewParam === "all" ? "all" : "actionable";
-  const allCases = await getActiveImportDuplicateCases();
+  const allCases = await getActiveImportDuplicateCases({ companyId });
   const isActionableImportCase = (row: (typeof allCases)[number]) =>
     row.caseType === "ACTIVE_IMPORT_DUPLICATE" && row.extraAmount > 0;
   const actionableCount = allCases.filter(isActionableImportCase).length;
@@ -25,8 +37,8 @@ export default async function ImportDuplicateCasesPage({
   const cases = importView === "all" ? allCases : allCases.filter(isActionableImportCase);
 
   const totalExtra = cases.reduce((sum, row) => sum + row.extraAmount, 0);
-  const importViewActionableHref = `/admin/duplicates/import-cases?${new URLSearchParams({ importView: "actionable" }).toString()}`;
-  const importViewAllHref = `/admin/duplicates/import-cases?${new URLSearchParams({ importView: "all" }).toString()}`;
+  const importViewActionableHref = `/admin/duplicates/import-cases?${new URLSearchParams({ companyId, importView: "actionable" }).toString()}`;
+  const importViewAllHref = `/admin/duplicates/import-cases?${new URLSearchParams({ companyId, importView: "all" }).toString()}`;
 
   return (
     <Shell facilityName={session.name} session={session}>
@@ -35,14 +47,15 @@ export default async function ImportDuplicateCasesPage({
           <div>
             <h1 className="section-title text-2xl font-black text-slate-950 dark:text-white">حالات تكرار الاستيراد</h1>
             <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-              عرض كل المستفيدين الذين لديهم أكثر من حركة IMPORT فعّالة، مع المبلغ الزائد المتوقع إرجاعه.
+              حالات شركة <strong>{selectedCompany.name}</strong> فقط، مع المبلغ الزائد المتوقع إرجاعه.
             </p>
           </div>
           <div className="flex gap-2">
-            <Link href="/admin/duplicates" className="inline-flex">
+            <Link href={`/admin/duplicates?companyId=${encodeURIComponent(companyId)}`} className="inline-flex">
               <Button type="button" variant="outline" className="h-10">العودة للتكرارات</Button>
             </Link>
             <form method="post" action="/api/admin/duplicates/import-cases/fix-all">
+              <input type="hidden" name="companyId" value={companyId} />
               <Button type="submit" className="h-10 bg-red-600 hover:bg-red-700 text-white">
                 معالجة دفعة واحدة
               </Button>
@@ -62,6 +75,16 @@ export default async function ImportDuplicateCasesPage({
         )}
 
         <Card className="p-4">
+          <form method="get" className="mb-4 flex flex-wrap items-end gap-2">
+            <input type="hidden" name="importView" value={importView} />
+            <label className="min-w-64 flex-1 text-xs font-black text-slate-500">
+              الشركة
+              <select name="companyId" defaultValue={companyId} className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-900">
+                {companies.map((company) => <option key={company.id} value={company.id}>{company.name} ({company.code})</option>)}
+              </select>
+            </label>
+            <Button type="submit" className="h-10">عرض الشركة</Button>
+          </form>
           <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
             <div className="flex flex-wrap items-center gap-3">
               <Badge variant="warning">القابلة للمعالجة: {actionableCount}</Badge>

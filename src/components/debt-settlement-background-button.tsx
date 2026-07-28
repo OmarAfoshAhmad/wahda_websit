@@ -10,9 +10,10 @@ const ACTIVE_DEBT_SETTLEMENT_JOB_KEY = "active_debt_settlement_job";
 
 type Props = {
   totalCases: number;
+  companyId: string;
 };
 
-export function DebtSettlementBackgroundButton({ totalCases }: Props) {
+export function DebtSettlementBackgroundButton({ totalCases, companyId }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [jobId, setJobId] = useState<string | null>(null);
@@ -23,13 +24,15 @@ export function DebtSettlementBackgroundButton({ totalCases }: Props) {
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(ACTIVE_DEBT_SETTLEMENT_JOB_KEY);
-    if (stored) {
+    const stored = window.localStorage.getItem(`${ACTIVE_DEBT_SETTLEMENT_JOB_KEY}:${companyId}`);
+    if (!stored) return;
+    const timer = window.setTimeout(() => {
       setJobId(stored);
       setStatusMessage(`تم استئناف متابعة المهمة ${stored} من المتصفح.`);
       setProgress(8);
-    }
-  }, []);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [companyId]);
 
   useEffect(() => {
     if (!jobId) return;
@@ -68,7 +71,7 @@ export function DebtSettlementBackgroundButton({ totalCases }: Props) {
       if (job.state === "succeeded") {
         setProgress(100);
         setStatusMessage(job.summary ?? `اكتملت المهمة ${job.id} بنجاح.`);
-        window.localStorage.removeItem(ACTIVE_DEBT_SETTLEMENT_JOB_KEY);
+        window.localStorage.removeItem(`${ACTIVE_DEBT_SETTLEMENT_JOB_KEY}:${companyId}`);
         setJobId(null);
         router.refresh();
         return;
@@ -77,7 +80,7 @@ export function DebtSettlementBackgroundButton({ totalCases }: Props) {
       setProgress(100);
       setError(job.error ?? `فشلت المهمة ${job.id}.`);
       setStatusMessage(`فشلت المهمة ${job.id}.`);
-      window.localStorage.removeItem(ACTIVE_DEBT_SETTLEMENT_JOB_KEY);
+      window.localStorage.removeItem(`${ACTIVE_DEBT_SETTLEMENT_JOB_KEY}:${companyId}`);
       setJobId(null);
     };
 
@@ -90,12 +93,12 @@ export function DebtSettlementBackgroundButton({ totalCases }: Props) {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [jobId, router]);
+  }, [companyId, jobId, router]);
 
   const runSettlement = () => {
     setError(null);
     startTransition(async () => {
-      const queued = await startMaintenanceJobAction({ kind: "settle_overdrawn_debt" });
+      const queued = await startMaintenanceJobAction({ kind: "settle_overdrawn_debt", companyId });
       if (!queued.success || !queued.job) {
         setError(queued.error ?? "تعذر بدء التسوية بالخلفية.");
         return;
@@ -106,7 +109,7 @@ export function DebtSettlementBackgroundButton({ totalCases }: Props) {
       setProgress(10);
       setElapsedSeconds(0);
       setStatusMessage(`تم بدء تسوية المديونية بالخلفية (رقم المهمة: ${queued.job.id}).`);
-      window.localStorage.setItem(ACTIVE_DEBT_SETTLEMENT_JOB_KEY, queued.job.id);
+      window.localStorage.setItem(`${ACTIVE_DEBT_SETTLEMENT_JOB_KEY}:${companyId}`, queued.job.id);
     });
   };
 

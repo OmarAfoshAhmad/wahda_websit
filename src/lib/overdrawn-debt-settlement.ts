@@ -26,6 +26,7 @@ const IMPORT_GAP_SETTLE_DEBTOR_CREDIT_PREFIX = "IMPORT_GAP_SETTLE_DEBTOR_CREDIT"
 type DebtCaseSource = "OVERDRAWN" | "IMPORT_GAP";
 
 export type OverdrawnDebtCase = {
+  companyId: string;
   sourceType: DebtCaseSource;
   debtorId: string;
   debtorName: string;
@@ -132,10 +133,14 @@ function planSharesByAvailability(
   return shares;
 }
 
-export async function getOverdrawnDebtCases(): Promise<OverdrawnDebtCase[]> {
+export async function getOverdrawnDebtCases(filter?: {
+  companyId?: string;
+  familyBaseCard?: string;
+}): Promise<OverdrawnDebtCase[]> {
   // استعلام SQL مُحسَّن: يجلب فقط المستفيدين الذين تجاوزوا رصيدهم
   // مع كامل مجموعاتهم العائلية — بدلاً من جلب كل المستفيدين في الذاكرة
   const debtorRows = await prisma.$queryRaw<Array<{
+    company_id: string;
     id: string;
     name: string;
     card_number: string;
@@ -154,6 +159,7 @@ export async function getOverdrawnDebtCases(): Promise<OverdrawnDebtCase[]> {
       GROUP BY t.beneficiary_id
     )
     SELECT
+      b.company_id,
       b.id,
       b.name,
       b.card_number,
@@ -169,11 +175,13 @@ export async function getOverdrawnDebtCases(): Promise<OverdrawnDebtCase[]> {
   `;
 
   const archiveRows = await prisma.$queryRaw<Array<{
+    company_id: string;
     family_base_card: string;
     family_count_from_file: number;
     used_balance_from_file: number;
   }>>`
     SELECT
+      "company_id",
       "family_base_card",
       "family_count_from_file"::int AS family_count_from_file,
       "used_balance_from_file"::float8 AS used_balance_from_file
@@ -194,6 +202,7 @@ export async function getOverdrawnDebtCases(): Promise<OverdrawnDebtCase[]> {
 
   // جلب جميع أفراد العائلات المرتبطة بالمدينين (استعلام واحد فقط)
   const familyRows = await prisma.$queryRaw<Array<{
+    company_id: string;
     id: string;
     name: string;
     card_number: string;
@@ -204,6 +213,7 @@ export async function getOverdrawnDebtCases(): Promise<OverdrawnDebtCase[]> {
     import_spent: number;
   }>>`
     SELECT
+      b.company_id,
       b.id,
       b.name,
       b.card_number,
@@ -211,14 +221,21 @@ export async function getOverdrawnDebtCases(): Promise<OverdrawnDebtCase[]> {
       b.status::text,
       b.completed_via,
       COALESCE(SUM(CASE WHEN t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END), 0)::float8 AS spent,
-      COALESCE(SUM(CASE WHEN t.type = 'IMPORT' THEN t.amount ELSE 0 END), 0)::float8 AS import_spent
+      COALESCE(SUM(CASE
+        WHEN t.type = 'IMPORT' THEN t.amount
+        WHEN t.type = 'SETTLEMENT'
+          AND t.idempotency_key LIKE 'IMPORT_GAP_SETTLE:%'
+          AND t.amount > 0
+        THEN t.amount
+        ELSE 0
+      END), 0)::float8 AS import_spent
     FROM "Beneficiary" b
     LEFT JOIN "Transaction" t
       ON t.beneficiary_id = b.id
       AND t.is_cancelled = false
     WHERE b.deleted_at IS NULL
       AND regexp_replace(b.card_number, '([WSDMFHV][0-9]*)$', '') = ANY(${familyBasePrefixes}::text[])
-    GROUP BY b.id, b.name, b.card_number, b.total_balance, b.status, b.completed_via
+    GROUP BY b.company_id, b.id, b.name, b.card_number, b.total_balance, b.status, b.completed_via
     ORDER BY b.card_number
   `;
 
@@ -234,9 +251,10 @@ export async function getOverdrawnDebtCases(): Promise<OverdrawnDebtCase[]> {
   const membersByBaseCard = new Map<string, typeof allRows>();
   for (const b of allRows) {
     const base = extractBaseCard(b.card_number);
-    const arr = membersByBaseCard.get(base) ?? [];
+    const key = `${b.company_id}:${base}`;
+    const arr = membersByBaseCard.get(key) ?? [];
     arr.push(b);
-    membersByBaseCard.set(base, arr);
+    membersByBaseCard.set(key, arr);
   }
 
   const debtCases: OverdrawnDebtCase[] = [];
@@ -252,7 +270,7 @@ export async function getOverdrawnDebtCases(): Promise<OverdrawnDebtCase[]> {
     const debtAmount = debtAmountRaw;
 
     const baseCard = extractBaseCard(b.card_number);
-    const allFamilyMembers = membersByBaseCard.get(baseCard) ?? [];
+    const allFamilyMembers = membersByBaseCard.get(`${b.company_id}:${baseCard}`) ?? [];
 
     const familyMembers = allFamilyMembers
       .filter((m) => m.id !== b.id)
@@ -275,6 +293,7 @@ export async function getOverdrawnDebtCases(): Promise<OverdrawnDebtCase[]> {
     const residualDebtAfterDistribution = roundCurrency(Math.max(0, debtAmount - plannedDistributed));
 
     debtCases.push({
+      companyId: b.company_id,
       sourceType: "OVERDRAWN",
       debtorId: b.id,
       debtorName: b.name,
@@ -299,7 +318,7 @@ export async function getOverdrawnDebtCases(): Promise<OverdrawnDebtCase[]> {
     const expectedUsed = roundCurrency(Math.max(0, Number(archive.used_balance_from_file) || 0));
     if (expectedUsed <= 0) continue;
 
-    const allFamilyMembers = (membersByBaseCard.get(familyBaseCard) ?? []).slice().sort((a, b) => a.card_number.localeCompare(b.card_number));
+    const allFamilyMembers = (membersByBaseCard.get(`${archive.company_id}:${familyBaseCard}`) ?? []).slice().sort((a, b) => a.card_number.localeCompare(b.card_number));
     if (allFamilyMembers.length === 0) continue;
 
     const familyImportTotal = roundCurrency(allFamilyMembers.reduce((sum, m) => sum + (Number(m.import_spent ?? 0) || 0), 0));
@@ -308,8 +327,9 @@ export async function getOverdrawnDebtCases(): Promise<OverdrawnDebtCase[]> {
     if (gapDebtAmount <= 0) continue;
 
     const debtor = allFamilyMembers[0];
+    // فجوة المخصص ليست ديناً على فرد بعينه؛ كل أفراد الأسرة، بما فيهم
+    // صاحب البطاقة، مؤهلون للمساهمة حسب رصيدهم المتاح.
     const familyMembers = allFamilyMembers
-      .filter((m) => m.id !== debtor.id)
       .map((m) => ({
         id: m.id,
         name: m.name,
@@ -329,6 +349,7 @@ export async function getOverdrawnDebtCases(): Promise<OverdrawnDebtCase[]> {
     const residualDebtAfterDistribution = roundCurrency(Math.max(0, gapDebtAmount - plannedDistributed));
 
     debtCases.push({
+      companyId: archive.company_id,
       sourceType: "IMPORT_GAP",
       debtorId: debtor.id,
       debtorName: debtor.name,
@@ -346,12 +367,17 @@ export async function getOverdrawnDebtCases(): Promise<OverdrawnDebtCase[]> {
     });
   }
 
-  return debtCases.sort((a, b) => b.debtorDebtAmount - a.debtorDebtAmount);
+  return debtCases
+    .filter((debtCase) => !filter?.companyId || debtCase.companyId === filter.companyId)
+    .filter((debtCase) => !filter?.familyBaseCard || debtCase.familyBaseCard === filter.familyBaseCard)
+    .sort((a, b) => b.debtorDebtAmount - a.debtorDebtAmount);
 }
 
 export async function applyOverdrawnDebtSettlement(params: {
   user: string;
   facilityId?: string | null;
+  companyId?: string;
+  familyBaseCard?: string;
 }): Promise<DebtSettlementRun> {
   const settlementEnumExistsRows = await prisma.$queryRaw<Array<{ exists: boolean }>>`
     SELECT EXISTS (
@@ -368,7 +394,8 @@ export async function applyOverdrawnDebtSettlement(params: {
     throw new Error("نوع الحركة تسوية غير متاح بعد. طبّق ترحيل قاعدة البيانات أولاً.");
   }
 
-  const beforeCases = await getOverdrawnDebtCases();
+  const caseFilter = { companyId: params.companyId, familyBaseCard: params.familyBaseCard };
+  const beforeCases = await getOverdrawnDebtCases(caseFilter);
 
   const requestedFacilityId = typeof params.facilityId === "string" ? params.facilityId.trim() : "";
   let effectiveFacilityId: string | null = null;
@@ -415,11 +442,13 @@ export async function applyOverdrawnDebtSettlement(params: {
             // في التشغيلات اللاحقة لا نعيد توزيع نفس الفرد؛ لكن upsert يحمي من السباقات.
             amount: share.deductedAmount,
             facility_id: effectiveFacilityId,
+            company_id: c.companyId,
             is_cancelled: false,
           },
           create: {
             beneficiary_id: share.memberId,
             facility_id: effectiveFacilityId,
+            company_id: c.companyId,
             amount: share.deductedAmount,
             idempotency_key: idempotencyKey,
             type: TransactionType.SETTLEMENT,
@@ -444,18 +473,20 @@ export async function applyOverdrawnDebtSettlement(params: {
 
       // نسجّل قيدًا عكسيًا واحدًا مجمّعًا على المدين لكل دفعة/حالة
       // بدل قيد لكل فرد، حتى تظهر الحركة بشكل أوضح في كشف المدين.
-      if (debtorCreditTotal > 0) {
+      if (debtorCreditTotal > 0 && c.sourceType === "OVERDRAWN") {
         const debtorCreditIdempotencyKey = `${debtorCreditPrefixBySource(c.sourceType)}:${c.debtorId}:BATCH:${runId}`;
         await tx.transaction.upsert({
           where: { idempotency_key: debtorCreditIdempotencyKey },
           update: {
             amount: -debtorCreditTotal,
             facility_id: effectiveFacilityId,
+            company_id: c.companyId,
             is_cancelled: false,
           },
           create: {
             beneficiary_id: c.debtorId,
             facility_id: effectiveFacilityId,
+            company_id: c.companyId,
             amount: -debtorCreditTotal,
             idempotency_key: debtorCreditIdempotencyKey,
             type: TransactionType.SETTLEMENT,
@@ -516,7 +547,7 @@ export async function applyOverdrawnDebtSettlement(params: {
     }
   });
 
-  const afterCases = await getOverdrawnDebtCases();
+  const afterCases = await getOverdrawnDebtCases(caseFilter);
 
   const totalDebtBefore = roundCurrency(beforeCases.reduce((sum, c) => sum + c.debtorDebtAmount, 0));
   const totalDistributed = roundCurrency(beforeCases.reduce((sum, c) => sum + c.plannedDistributed, 0));
@@ -527,6 +558,7 @@ export async function applyOverdrawnDebtSettlement(params: {
   const audit = await prisma.auditLog.create({
     data: {
       facility_id: effectiveFacilityId,
+      company_id: params.companyId,
       user: params.user,
       action: "SETTLE_OVERDRAWN_FAMILY_DEBT",
       metadata: {

@@ -12,7 +12,6 @@ import { bulkTransactionSelectionAction } from "@/app/actions/cancel-transaction
 import { BulkTransactionActionButton } from "@/components/admin";
 import { SelectAllTransactionsCheckbox } from "@/components/select-all-transactions-checkbox";
 import { TransactionEditModal } from "../../components/transaction-edit-modal";
-import { TransactionCancelButton } from "@/components/transaction-cancel-button";
 import { ImportSourceBadgeWithPanel } from "@/components/import-source-badge-with-panel";
 import Link from "next/link";
 import { FileInput, PlusCircle } from "lucide-react";
@@ -615,9 +614,7 @@ export default async function TransactionsPage({
                   <option value="all">الكل</option>
                   <option value="supplies">كشف عام</option>
                   <option value="medicine">أدوية صرف عام</option>
-                  {process.env.NEXT_PUBLIC_APP_MODE?.replace(/["']/g, '').toUpperCase() !== "WAHDA_ONLY" && (
-                    <option value="dental">أسنان</option>
-                  )}
+                  <option value="dental">أسنان</option>
                 </select>
               </div>
 

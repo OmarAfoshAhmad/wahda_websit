@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 import { roundCurrency } from "@/lib/money";
 import { extractBaseCard } from "@/lib/normalize";
+import { assertCompanyAccessForSession, ScopeAccessError } from "@/lib/company-scope";
 
 function extractImportSourceFileName(payload: unknown): string | null {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
@@ -39,6 +40,7 @@ export async function GET(
       remaining_balance: true,
       status: true,
       deleted_at: true,
+      company_id: true,
     },
   });
 
@@ -46,11 +48,23 @@ export async function GET(
     return NextResponse.json({ error: "المستفيد غير موجود" }, { status: 404 });
   }
 
+  try {
+    if (beneficiary.company_id) {
+      await assertCompanyAccessForSession(session, beneficiary.company_id);
+    } else if (session.role_v2 !== "SUPER_ADMIN") {
+      return NextResponse.json({ error: "مستفيد تاريخي بلا شركة محددة؛ متاح للمبرمج فقط" }, { status: 403 });
+    }
+  } catch (error) {
+    const status = error instanceof ScopeAccessError ? error.status : 403;
+    return NextResponse.json({ error: error instanceof Error ? error.message : "ممنوع" }, { status });
+  }
+
 
   const familyBaseCard = extractBaseCard(beneficiary.card_number);
   const familyCandidates = await prisma.beneficiary.findMany({
     where: {
       deleted_at: null,
+      company_id: beneficiary.company_id,
       card_number: { startsWith: familyBaseCard, mode: "insensitive" },
     },
     select: {
@@ -77,8 +91,8 @@ export async function GET(
       is_selected: m.id === beneficiary.id,
     }));
 
-  const familyArchive = await prisma.familyImportArchive.findFirst({
-    where: { family_base_card: familyBaseCard },
+  const familyArchive = session.role_v2 === "SUPER_ADMIN" ? await prisma.familyImportArchive.findFirst({
+    where: { company_id: beneficiary.company_id!, family_base_card: familyBaseCard },
     select: {
       family_count_from_file: true,
       total_balance_from_file: true,
@@ -87,7 +101,7 @@ export async function GET(
       imported_by: true,
       last_imported_at: true,
     },
-  });
+  }) : null;
 
   const familyMemberIds = familyMembers.map((m) => m.id);
   const familySystemSpendingAll = familyMemberIds.length > 0
@@ -113,7 +127,10 @@ export async function GET(
     : null;
 
   const transactions = await prisma.transaction.findMany({
-    where: { beneficiary_id: beneficiaryId },
+    where: {
+      beneficiary_id: beneficiaryId,
+      company_id: beneficiary.company_id,
+    },
     orderBy: [{ created_at: "desc" }, { id: "desc" }],
     take: 500,
     select: {
@@ -138,7 +155,10 @@ export async function GET(
   });
 
   const recentImportJobs = await prisma.importJob.findMany({
-    where: { status: "COMPLETED" },
+    where: {
+      status: "COMPLETED",
+      ...(session.role_v2 === "SUPER_ADMIN" ? {} : { company_id: beneficiary.company_id }),
+    },
     select: {
       completed_at: true,
       payload: true,

@@ -3,6 +3,7 @@ import { hasPermission, requireActiveFacilitySession } from "@/lib/session-guard
 import prisma from "@/lib/prisma";
 import ExcelJS from "exceljs";
 import { Prisma } from "@prisma/client";
+import { getAllowedCompanyIds } from "@/lib/company-scope";
 
 export async function GET(request: Request) {
   const session = await requireActiveFacilitySession();
@@ -15,16 +16,18 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const companyId = url.searchParams.get("company") ?? undefined;
+  const allowedCompanyIds = await getAllowedCompanyIds(session);
+  if (companyId && !allowedCompanyIds.includes(companyId)) {
+    return NextResponse.json({ error: "لا تملك صلاحية الوصول إلى الشركة المطلوبة" }, { status: 403 });
+  }
   const searchQuery = url.searchParams.get("q") ?? "";
 
   // الشروط: فقط مستفيدي الشركات (وليسوا تابعين للنظام القديم)
   const where: Prisma.BeneficiaryWhereInput = {
     deleted_at: null,
     is_legacy_card: false,
-    company_id: { not: null }, // للتأكد أنهم تابعين لشركات التأمين
+    company_id: companyId ?? { in: allowedCompanyIds },
   };
-
-  if (companyId) where.company_id = companyId;
 
   if (searchQuery) {
     where.OR = [

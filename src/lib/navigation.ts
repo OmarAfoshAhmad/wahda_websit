@@ -1,15 +1,12 @@
 import { 
-  LayoutDashboard, 
-  Users, 
+  WalletCards,
   Building2, 
   ClipboardList, 
   DatabaseBackup, 
   TriangleAlert, 
   ListOrdered, 
   UserCog, 
-  Banknote, 
   Home,
-  Activity,
   Stethoscope,
   Archive,
   Shield
@@ -17,21 +14,16 @@ import {
 import type { ManagerPermissions } from "./permissions";
 
 export const BASE_NAV = [
-  { name: "الرئيسية", href: "/dashboard", icon: LayoutDashboard, perm: "view_dashboard" as keyof ManagerPermissions },
-  { name: "الحركات", href: "/transactions", icon: Activity, perm: "view_transactions" as keyof ManagerPermissions },
+  { name: "المخصص", href: "/dashboard", icon: WalletCards, perm: undefined },
 ];
 
 export const MANAGER_NAV = [
-  { name: "المستفيدون", href: "/beneficiaries", icon: Users, perm: "view_beneficiaries" as keyof ManagerPermissions },
   { name: "المرافق الصحية", href: "/admin/facilities", icon: Building2, perm: "view_facilities" as keyof ManagerPermissions },
-  { name: "سجل المراقبة", href: "/admin/audit-log", icon: ClipboardList, perm: "view_audit_log" as keyof ManagerPermissions },
-];
-
-export const SUPER_ADMIN_NAV = [
-  { name: "المديرون", href: "/admin/managers", icon: UserCog, perm: "manage_users" as keyof ManagerPermissions },
 ];
 
 export const MAINTENANCE_NAV = [
+  { name: "المديرون", href: "/admin/managers", icon: UserCog, perms: ["manage_users"] as Array<keyof ManagerPermissions> },
+  { name: "سجل المراقبة", href: "/admin/audit-log", icon: ClipboardList, perms: ["view_audit_log"] as Array<keyof ManagerPermissions> },
   { name: "شركات التأمين", href: "/admin/companies", icon: Building2, perms: ["manage_companies"] as Array<keyof ManagerPermissions> },
   { name: "سياسات التأمين", href: "/admin/service-policies", icon: Shield, perms: ["manage_companies"] as Array<keyof ManagerPermissions> },
   { name: "ترقيم البطاقات", href: "/admin/card-numbering", icon: ListOrdered, perms: ["manage_card_numbering", "migrate_card_numbering"] as Array<keyof ManagerPermissions> },
@@ -50,5 +42,4 @@ export const OPTICS_NAV = { name: "خدمات البصريات", href: "/admin/o
 /** تبويب "خدمات العلاج الطبيعي" */
 export const PHYSIOTHERAPY_NAV = { name: "خدمات العلاج الطبيعي", href: "/admin/physiotherapy-services", icon: Stethoscope };
 
-export const CASH_CLAIM_NAV = { name: "كاش", href: "/cash-claim", icon: Banknote };
 export const EMPLOYEE_HOME_NAV = { name: "الرئيسية", href: "/cash-claim", icon: Home };

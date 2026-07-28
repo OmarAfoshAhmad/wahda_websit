@@ -9,7 +9,7 @@ export async function GET(
   { params }: { params: Promise<{ jobId: string }> }
 ) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || session.role_v2 !== "SUPER_ADMIN") {
     return new NextResponse("Unauthorized", { status: 401 });
   }
 
@@ -28,7 +28,7 @@ export async function POST(
   { params }: { params: Promise<{ jobId: string }> }
 ) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || session.role_v2 !== "SUPER_ADMIN") {
     return new NextResponse("Unauthorized", { status: 401 });
   }
 

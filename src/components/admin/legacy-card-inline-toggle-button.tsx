@@ -26,7 +26,7 @@ export function LegacyCardInlineToggleButton({ beneficiaryId, isLegacyCard }: Pr
         setLegacy: nextState,
       });
 
-      if (res.error) {
+      if ("error" in res && res.error) {
         setError(res.error);
         return;
       }

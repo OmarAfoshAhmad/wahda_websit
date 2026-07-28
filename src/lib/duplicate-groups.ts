@@ -61,8 +61,8 @@ function cardShapeScore(value: string): number {
   if (!v) return -10;
 
   let score = 0;
-  if (/^WAB2025\d+[A-Z0-9]*$/.test(v)) score += 50;
-  if (/^WAB2025/.test(v)) score += 10;
+  if (/^[A-Z]+\d{4}\d+(?:[A-Z][A-Z0-9]*)?$/.test(v)) score += 50;
+  if (/^[A-Z]+\d{4}/.test(v)) score += 10;
   if (/\[OBJECT OBJECT\]|UNDEFINED|NULL|NAN/.test(v)) score -= 80;
   if (/[^A-Z0-9]/.test(v.replace(/\s+/g, ""))) score -= 5;
   if (v.length > 8 && v.length < 24) score += 5;

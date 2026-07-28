@@ -4,21 +4,25 @@ import prisma from "@/lib/prisma";
 import { requireActiveFacilitySession } from "@/lib/session-guard";
 import { getLedgerRemainingByBeneficiaryIds } from "@/lib/ledger-balance";
 import { buildDuplicateGroups } from "@/lib/duplicate-groups";
+import { assertCompanyAccessForSession } from "@/lib/company-scope";
 
 export async function GET(request: Request) {
   const session = await requireActiveFacilitySession();
   if (!session) {
     return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
   }
-  if (!session.is_admin) {
+  if (session.role_v2 !== "SUPER_ADMIN") {
     return NextResponse.json({ error: "ممنوع — المبرمجون فقط" }, { status: 403 });
   }
 
   const { searchParams } = new URL(request.url);
   const q = searchParams.get("q") ?? "";
+  const companyId = (searchParams.get("companyId") ?? "").trim();
+  if (!companyId) return NextResponse.json({ error: "يجب تحديد الشركة" }, { status: 400 });
+  await assertCompanyAccessForSession(session, companyId);
 
   const rows = await prisma.beneficiary.findMany({
-    where: { deleted_at: null },
+    where: { deleted_at: null, company_id: companyId },
     select: {
       id: true,
       name: true,
@@ -43,7 +47,7 @@ export async function GET(request: Request) {
   // مطابقة منطق صفحة إدارة التكرارات: استبعاد مجموعات "نفس الاسم"
   // التي تم تجاهلها يدويًا عبر IGNORE_DUPLICATE_PAIR.
   const ignoreLogs = await prisma.auditLog.findMany({
-    where: { action: "IGNORE_DUPLICATE_PAIR" },
+    where: { action: "IGNORE_DUPLICATE_PAIR", company_id: companyId },
     select: { metadata: true },
   });
   const ignoredPairKeys = new Set<string>();

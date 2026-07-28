@@ -26,7 +26,7 @@ export type DataHygieneSweepResult = {
   error?: string;
 };
 
-export type ParentCardPatternFixMode = "all_to_numbered" | "all_to_plain" | "h2_to_h1_only";
+export type ParentCardPatternFixMode = "all_to_numbered" | "all_to_plain";
 
 export type ParentCardPatternFixResult = {
   success: boolean;

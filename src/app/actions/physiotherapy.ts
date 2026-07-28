@@ -1,15 +1,27 @@
 "use server";
 
 import prisma from "@/lib/prisma";
-import { requireActiveFacilitySession } from "@/lib/session-guard";
+import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getArabicNormalization } from "@/lib/normalize";
 import { logger } from "@/lib/logger";
+import { assertCompanyAccessForSession, ScopeAccessError } from "@/lib/company-scope";
+
+function canReadPhysiotherapy(session: Parameters<typeof hasPermission>[0]) {
+  return hasPermission(session, "physiotherapy_services") || hasPermission(session, "view_physiotherapy_beneficiaries");
+}
 
 export async function searchCompanyBeneficiaries(query: string, companyId: string) {
   const session = await requireActiveFacilitySession();
   if (!session) {
     return { error: "غير مصرح", items: [] };
+  }
+  if (!canReadPhysiotherapy(session)) return { error: "غير مصرح", items: [] };
+  try {
+    await assertCompanyAccessForSession(session, companyId);
+  } catch (error) {
+    if (error instanceof ScopeAccessError) return { error: "غير مصرح", items: [] };
+    throw error;
   }
 
   const rateLimitError = await checkRateLimit(`search:${session.id}`, "search");
@@ -89,8 +101,10 @@ export async function getPhysiotherapyBeneficiaryDetail(beneficiaryId: string, c
   if (!session) {
     return { error: "غير مصرح" };
   }
+  if (!canReadPhysiotherapy(session)) return { error: "غير مصرح" };
 
   try {
+    await assertCompanyAccessForSession(session, companyId);
     const rawBeneficiary = await prisma.beneficiary.findFirst({
       where: {
         id: beneficiaryId,
@@ -193,6 +207,7 @@ export async function getPhysiotherapyBeneficiaryDetail(beneficiaryId: string, c
       yearlyConsumed
     };
   } catch (error) {
+    if (error instanceof ScopeAccessError) return { error: "غير مصرح" };
     logger.error("Get physiotherapy beneficiary detail error", { error: String(error) });
     return { error: "تعذر جلب تفاصيل المستفيد" };
   }

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { requireActiveFacilitySession } from "@/lib/session-guard";
 import prisma from "@/lib/prisma";
 import { roundCurrency } from "@/lib/money";
 
@@ -13,8 +13,8 @@ export async function POST(
   _req: Request,
   { params }: { params: Promise<{ logId: string }> },
 ) {
-  const session = await getSession();
-  if (!session?.is_admin) {
+  const session = await requireActiveFacilitySession();
+  if (!session || session.role_v2 !== "SUPER_ADMIN") {
     return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
   }
 
@@ -88,7 +88,6 @@ export async function POST(
       });
       if (!ben) continue;
 
-      const totalBalance = Number(ben.total_balance);
       const newRemaining = roundCurrency(balanceBefore);
 
       await tx.beneficiary.update({
@@ -122,6 +121,7 @@ export async function POST(
   await prisma.auditLog.create({
     data: {
       facility_id: facilityId,
+      company_id: auditLog.company_id,
       user: session.username,
       action: "ROLLBACK_IMPORT_TRANSACTIONS",
       metadata: {

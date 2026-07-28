@@ -4,8 +4,13 @@ import prisma from "@/lib/prisma";
 import { Shell } from "@/components/shell";
 import { DeductForm } from "@/components/deduct-form";
 import { Card } from "@/components/ui";
-import { Users, CreditCard, TrendingDown, Building2, AlertTriangle } from "lucide-react";
+import { Users, CreditCard, TrendingDown, Building2, AlertTriangle, HandCoins, ListOrdered, Banknote } from "lucide-react";
 import { unstable_cache } from "next/cache";
+import { getWahdaAllocationWindowEnabled } from "@/lib/system-settings";
+import Link from "next/link";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 // ─── كاش إحصائيات المشرف: تتحدث كل 60 ثانية ───
 const getCachedAdminStats = unstable_cache(
@@ -71,15 +76,13 @@ export default async function Dashboard() {
     redirect("/login");
   }
 
-  const appMode = process.env.NEXT_PUBLIC_APP_MODE?.replace(/["']/g, '').toUpperCase() || "";
-  if (appMode.includes("DENTAL") || appMode.includes("OPTICS")) {
-    if (hasPermission(session, "dental_services") || hasPermission(session, "view_dental_beneficiaries")) {
-      redirect("/admin/dental-services");
-    } else if (hasPermission(session, "optics_services") || hasPermission(session, "view_optics_beneficiaries")) {
-      redirect("/admin/optics-services");
-    } else {
-      redirect(appMode.includes("DENTAL") ? "/admin/dental-services" : "/admin/optics-services");
-    }
+  const showWahdaAllocationWindow = await getWahdaAllocationWindowEnabled();
+  if (!showWahdaAllocationWindow) {
+    if (hasPermission(session, "dental_services") || hasPermission(session, "view_dental_beneficiaries")) redirect("/admin/dental-services");
+    if (hasPermission(session, "optics_services") || hasPermission(session, "view_optics_beneficiaries")) redirect("/admin/optics-services");
+    if (hasPermission(session, "physiotherapy_services") || hasPermission(session, "view_physiotherapy_beneficiaries")) redirect("/admin/physiotherapy-services");
+    if (hasPermission(session, "view_facilities")) redirect("/admin/facilities");
+    redirect("/settings");
   }
 
   if (!hasPermission(session, "view_dashboard")) {
@@ -102,9 +105,11 @@ export default async function Dashboard() {
     redirect("/cash-claim");
   }
 
-  const canViewStats = session.role === "ADMIN" || session.role === "MANAGER";
-  const isAdmin = session.role === "ADMIN";
-  const canUseDeduct = session.role !== "EMPLOYEE" && (session.role !== "MANAGER" || hasPermission(session, "deduct_balance"));
+  const isAdmin = session.role_v2 === "SUPER_ADMIN" || session.role === "ADMIN" || session.role === "SUPER_ADMIN";
+  const isManager = session.role_v2 === "COMPANY_ADMIN" || session.role_v2 === "MANAGER" || session.role === "MANAGER";
+  const isEmployee = session.role_v2 === "EMPLOYEE" || session.role === "EMPLOYEE";
+  const canViewStats = isAdmin || isManager;
+  const canUseDeduct = !isEmployee && (!isManager || hasPermission(session, "deduct_balance"));
   const cacheTag = isAdmin ? "admin" : session.id;
 
   const [adminStats, todayStats] = await Promise.all([
@@ -125,25 +130,60 @@ export default async function Dashboard() {
         {/* عنوان الصفحة */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 dark:border-slate-800 pb-5">
           <div>
-            <h1 className="text-2xl font-black text-slate-900 dark:text-white">مرحباً، {session.name}</h1>
+            <h1 className="text-2xl font-black text-slate-900 dark:text-white">المخصص</h1>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              {session.role === "ADMIN" ? "لوحة تحكم المشرف (المبرمج)" : session.role === "MANAGER" ? "لوحة تحكم المدير" : "نافذة الخصم والمتابعة"}
+              الخصم من مخصص مصرف الوحدة ومتابعة الحركات — {session.name}
             </p>
           </div>
         </div>
 
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {canUseDeduct && showWahdaAllocationWindow ? (
+            <Link href="#deduction" className="group rounded-xl border border-emerald-200 bg-emerald-50/70 p-4 transition hover:border-emerald-400 hover:bg-emerald-50 dark:border-emerald-900/50 dark:bg-emerald-950/20">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-600 text-white"><HandCoins className="h-5 w-5" /></div>
+                <div><h2 className="font-black text-slate-900 dark:text-white">قسم الخصم</h2><p className="text-xs text-slate-500">البحث عن المستفيد وتنفيذ الخصم من المخصص</p></div>
+              </div>
+            </Link>
+          ) : null}
+          {hasPermission(session, "view_transactions") ? (
+            <Link href="/transactions" className="group rounded-xl border border-blue-200 bg-blue-50/70 p-4 transition hover:border-blue-400 hover:bg-blue-50 dark:border-blue-900/50 dark:bg-blue-950/20">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-600 text-white"><ListOrdered className="h-5 w-5" /></div>
+                <div><h2 className="font-black text-slate-900 dark:text-white">قسم الحركات</h2><p className="text-xs text-slate-500">عرض الحركات والبحث والتصفية والتصدير</p></div>
+              </div>
+            </Link>
+          ) : null}
+          {hasPermission(session, "view_beneficiaries") ? (
+            <Link href="/beneficiaries" className="group rounded-xl border border-violet-200 bg-violet-50/70 p-4 transition hover:border-violet-400 hover:bg-violet-50 dark:border-violet-900/50 dark:bg-violet-950/20">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-600 text-white"><Users className="h-5 w-5" /></div>
+                <div><h2 className="font-black text-slate-900 dark:text-white">قسم المستفيدين</h2><p className="text-xs text-slate-500">عرض المستفيدين والبحث وإدارة بيانات المخصص</p></div>
+              </div>
+            </Link>
+          ) : null}
+          {canUseCashClaim ? (
+            <Link href="/cash-claim" className="group rounded-xl border border-amber-200 bg-amber-50/70 p-4 transition hover:border-amber-400 hover:bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/20">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-600 text-white"><Banknote className="h-5 w-5" /></div>
+                <div><h2 className="font-black text-slate-900 dark:text-white">كاش كليم</h2><p className="text-xs text-slate-500">توزيع الفاتورة العائلية وتنفيذ الخصم</p></div>
+              </div>
+            </Link>
+          ) : null}
+        </div>
+
         {/* نموذج الخصم */}
-        {canUseDeduct ? (
-          <div className="rounded-xl bg-white/50 dark:bg-slate-900/50 p-1 border border-slate-200/50 dark:border-slate-800/50">
+        {canUseDeduct && showWahdaAllocationWindow ? (
+          <div id="deduction" className="scroll-mt-24 rounded-xl bg-white/50 dark:bg-slate-900/50 p-1 border border-slate-200/50 dark:border-slate-800/50">
             <DeductForm facilityType={session.facility_type} />
           </div>
-        ) : (
+        ) : !canUseDeduct ? (
           <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-6 text-center dark:border-amber-900/30 dark:bg-amber-900/10">
             <AlertTriangle className="mx-auto mb-3 h-10 w-10 text-amber-500" />
             <h2 className="text-lg font-black text-amber-800 dark:text-amber-400">غير مصرح لك بالخصم</h2>
             <p className="mt-1 text-sm text-amber-600 dark:text-amber-500">لا تملك صلاحية &quot;إمكانية خصم الرصيد&quot;. يرجى مراجعة مبرمج النظام.</p>
           </div>
-        )}
+        ) : null}
 
         {/* بطاقات الإحصائيات */}
         <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${canViewStats ? "lg:grid-cols-4" : "lg:grid-cols-2"}`}>

@@ -8,7 +8,7 @@ export async function POST() {
   // FIX SEC-02: استخدام requireActiveFacilitySession بدلاً من getSession
   // يضمن رفض المرافق المحذوفة ناعمياً حتى لو لا تزال تحمل JWT صالح
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || session.role_v2 !== "SUPER_ADMIN") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

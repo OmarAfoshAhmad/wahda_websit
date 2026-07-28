@@ -14,6 +14,7 @@ import {
   MAX_AMOUNT_POLICY_ERROR,
 } from "@/lib/validation";
 import { InsuranceEngine } from "@/lib/insurance/engine";
+import { assertCompanyAccessForSession } from "@/lib/company-scope";
 
 export type AddTransactionState = {
   success?: string;
@@ -46,6 +47,10 @@ export async function addTransactionFromForm(
   _prev: AddTransactionState | null,
   formData: FormData,
 ): Promise<AddTransactionState> {
+  const session = await requireActiveFacilitySession();
+  if (!session || !hasPermission(session, "add_manual_transaction")) {
+    return { error: "غير مصرح لك بإضافة حركة يدوية" };
+  }
   const facilityIdRaw = String(formData.get("facility_id") ?? "").trim();
   const cardNumber = String(formData.get("card_number") ?? "").trim();
   const amountRaw = String(formData.get("amount") ?? "").trim();
@@ -84,8 +89,19 @@ export async function addTransactionFromForm(
       id: true,
       status: true,
       remaining_balance: true,
+      company_id: true,
     },
   });
+
+  if (beneficiary?.company_id) {
+    try {
+      await assertCompanyAccessForSession(session, beneficiary.company_id);
+    } catch {
+      return { error: "لا تملك صلاحية الوصول إلى شركة المستفيد" };
+    }
+  } else if (beneficiary && session.role_v2 !== "SUPER_ADMIN") {
+    return { error: "مستفيد تاريخي بلا شركة محددة؛ متاح للمبرمج فقط" };
+  }
 
   if (beneficiary && (beneficiary.status === "FINISHED" || Number(beneficiary.remaining_balance) <= 0)) {
     return { error: "لا يمكن إضافة حركة: رصيد المستفيد منتهي أو حالته مكتمل" };
@@ -241,6 +257,22 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
     return { error: "معرف الحركة مطلوب" };
   }
 
+  const scopedTransaction = await prisma.transaction.findUnique({
+    where: { id: input.id },
+    select: { company_id: true },
+  });
+
+  if (!scopedTransaction) return { error: "الحركة غير موجودة" };
+  if (scopedTransaction.company_id) {
+    try {
+      await assertCompanyAccessForSession(session, scopedTransaction.company_id);
+    } catch {
+      return { error: "لا تملك صلاحية الوصول إلى شركة هذه الحركة" };
+    }
+  } else if (session.role_v2 !== "SUPER_ADMIN") {
+    return { error: "حركة تاريخية بلا شركة محددة؛ متاحة للمبرمج فقط" };
+  }
+
   if (!Number.isFinite(input.amount) || input.amount <= 0) {
     return { error: "قيمة المبلغ غير صالحة" };
   }
@@ -346,11 +378,11 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
 
       // غير المشرف لا يغير مصدر الحركة ولا يعدّل حركات خارج مرفقه (إلا إذا كان لديه صلاحية استثنائية).
       const canEditAny = hasPermission(session, "edit_any_facility_transaction");
-      if (!session.is_admin && transaction.facility_id !== session.id && !canEditAny) {
+      if (session.role_v2 !== "SUPER_ADMIN" && transaction.facility_id !== session.id && !canEditAny) {
         throw new Error("غير مصرح لك بتعديل حركة خارج مرفقك");
       }
 
-      if (!session.is_admin && targetFacilityId !== transaction.facility_id && !canEditAny) {
+      if (session.role_v2 !== "SUPER_ADMIN" && targetFacilityId !== transaction.facility_id && !canEditAny) {
         throw new Error("غير مصرح لك بتغيير مرفق الحركة");
       }
 
@@ -365,6 +397,7 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
             amount: input.amount,
             created_at: parsedDate,
             facility_id: facility.id,
+            company_id: transaction.company_id,
           },
         });
 
@@ -380,6 +413,7 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
         await tx.auditLog.create({
           data: {
             facility_id: facility.id,
+            company_id: transaction.company_id,
             user: session.username,
             action: "EDIT_TRANSACTION",
             metadata: {

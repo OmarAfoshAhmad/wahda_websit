@@ -6,14 +6,41 @@ import { getCurrentInitialBalance } from "@/lib/initial-balance";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
 import { canonicalizeCardNumber } from "@/lib/normalize";
-import * as utils from "./utils";
+import { assertCompanyAccessForSession } from "@/lib/company-scope";
+
+type ActiveSession = NonNullable<Awaited<ReturnType<typeof requireActiveFacilitySession>>>;
+
+async function authorizeBulkBeneficiaryGroup(
+  session: ActiveSession,
+  ids: string[],
+): Promise<{ companyId: string | null } | { error: string }> {
+  const uniqueIds = [...new Set(ids.filter(Boolean))];
+  const rows = await prisma.beneficiary.findMany({
+    where: { id: { in: uniqueIds } },
+    select: { id: true, company_id: true },
+  });
+  if (rows.length !== uniqueIds.length) return { error: "تتضمن القائمة مستفيدًا غير موجود" };
+  const companies = new Set(rows.map((row) => row.company_id));
+  if (companies.size !== 1) return { error: "يجب أن تنتمي كل السجلات المحددة إلى شركة واحدة" };
+  const companyId = rows[0]?.company_id ?? null;
+  if (!companyId) {
+    if (session.role_v2 !== "SUPER_ADMIN") return { error: "السجلات التاريخية بلا شركة متاحة للمبرمج فقط" };
+    return { companyId };
+  }
+  try {
+    await assertCompanyAccessForSession(session, companyId);
+  } catch {
+    return { error: "تتضمن القائمة سجلات خارج نطاق الشركات المسموح بها" };
+  }
+  return { companyId };
+}
 
 export async function bulkUpdateLegacyCardMarker(data: {
   pattern: string;
   setLegacy: boolean;
 }) {
   const session = await requireActiveFacilitySession();
-  if (!session || !hasPermission(session, "edit_beneficiary")) {
+  if (!session || session.role_v2 !== "SUPER_ADMIN") {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -72,6 +99,8 @@ export async function setSingleLegacyCardMarker(data: {
   if (!id) {
     return { error: "معرف المستفيد غير صالح" };
   }
+  const groupScope = await authorizeBulkBeneficiaryGroup(session, [id]);
+  if ("error" in groupScope) return groupScope;
 
   try {
     const result = await prisma.$transaction(async (tx) => {
@@ -101,6 +130,7 @@ export async function setSingleLegacyCardMarker(data: {
       await tx.auditLog.create({
         data: {
           facility_id: session.id,
+          company_id: groupScope.companyId,
           user: session.username,
           action: "SET_LEGACY_CARD_FLAG",
           metadata: {
@@ -133,7 +163,7 @@ export async function setSingleLegacyCardMarker(data: {
 
 export async function stabilizeLegacyCardsWithBatch() {
   const session = await requireActiveFacilitySession();
-  if (!session || !hasPermission(session, "edit_beneficiary")) {
+  if (!session || session.role_v2 !== "SUPER_ADMIN") {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -231,6 +261,8 @@ export async function bulkDeleteBeneficiaries(formData: FormData) {
   if (ids.length === 0) {
     return { error: "لم يتم تحديد أي مستفيد" };
   }
+  const groupScope = await authorizeBulkBeneficiaryGroup(session, ids);
+  if ("error" in groupScope) return groupScope;
 
   try {
     const beneficiaries = await prisma.beneficiary.findMany({
@@ -278,6 +310,7 @@ export async function bulkDeleteBeneficiaries(formData: FormData) {
       await tx.auditLog.create({
         data: {
           facility_id: session.id,
+          company_id: groupScope.companyId,
           user: session.username,
           action: "BULK_DELETE_BENEFICIARY",
           metadata: {
@@ -316,6 +349,8 @@ export async function bulkPermanentDeleteBeneficiaries(formData: FormData) {
   if (ids.length === 0) {
     return { error: "لم يتم تحديد أي مستفيد" };
   }
+  const groupScope = await authorizeBulkBeneficiaryGroup(session, ids);
+  if ("error" in groupScope) return groupScope;
 
   try {
     const beneficiaries = await prisma.beneficiary.findMany({
@@ -372,6 +407,7 @@ export async function bulkPermanentDeleteBeneficiaries(formData: FormData) {
       await tx.auditLog.create({
         data: {
           facility_id: session.id,
+          company_id: groupScope.companyId,
           user: session.username,
           action: "BULK_PERMANENT_DELETE_BENEFICIARY",
           metadata: {
@@ -410,6 +446,8 @@ export async function bulkRestoreBeneficiaries(formData: FormData) {
   if (ids.length === 0) {
     return { error: "لم يتم تحديد أي مستفيد" };
   }
+  const groupScope = await authorizeBulkBeneficiaryGroup(session, ids);
+  if ("error" in groupScope) return groupScope;
 
   try {
     const beneficiaries = await prisma.beneficiary.findMany({
@@ -448,6 +486,7 @@ export async function bulkRestoreBeneficiaries(formData: FormData) {
       await tx.auditLog.create({
         data: {
           facility_id: session.id,
+          company_id: groupScope.companyId,
           user: session.username,
           action: "BULK_RESTORE_BENEFICIARY",
           metadata: {
@@ -472,7 +511,7 @@ export async function bulkRestoreBeneficiaries(formData: FormData) {
 
 export async function bulkRenewBalance(formData: FormData) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || session.role_v2 !== "SUPER_ADMIN") {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -486,6 +525,8 @@ export async function bulkRenewBalance(formData: FormData) {
   if (ids.length === 0) {
     return { error: "لم يتم تحديد أي مستفيد" };
   }
+  const groupScope = await authorizeBulkBeneficiaryGroup(session, ids);
+  if ("error" in groupScope) return groupScope;
 
   try {
     const initialBalance = await getCurrentInitialBalance();
@@ -550,6 +591,7 @@ export async function bulkRenewBalance(formData: FormData) {
       await tx.auditLog.create({
         data: {
           facility_id: session.id,
+          company_id: groupScope.companyId,
           user: session.username,
           action: "BULK_RENEW_BALANCE",
           metadata: {
@@ -583,7 +625,7 @@ export async function bulkRenewBalance(formData: FormData) {
 
 export async function undoBulkRenewal(auditLogId: string) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || session.role_v2 !== "SUPER_ADMIN") {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -594,11 +636,14 @@ export async function undoBulkRenewal(auditLogId: string) {
   try {
     const auditLog = await prisma.auditLog.findUnique({
       where: { id: auditLogId },
-      select: { id: true, action: true, metadata: true },
+      select: { id: true, action: true, metadata: true, company_id: true },
     });
 
     if (!auditLog || auditLog.action !== "BULK_RENEW_BALANCE") {
       return { error: "سجل التدقيق غير موجود أو ليس عملية تجديد" };
+    }
+    if (auditLog.company_id) {
+      await assertCompanyAccessForSession(session, auditLog.company_id);
     }
 
     const metadata = auditLog.metadata as Record<string, unknown> | null;
@@ -653,6 +698,7 @@ export async function undoBulkRenewal(auditLogId: string) {
       await tx.auditLog.create({
         data: {
           facility_id: session.id,
+          company_id: auditLog.company_id,
           user: session.username,
           action: "UNDO_BULK_RENEW_BALANCE",
           metadata: {
@@ -687,6 +733,8 @@ export async function bulkUpdateBeneficiaryBatch(data: {
   if (ids.length === 0) {
     return { error: "لم يتم تحديد أي مستفيد" };
   }
+  const groupScope = await authorizeBulkBeneficiaryGroup(session, ids);
+  if ("error" in groupScope) return groupScope;
 
   const batchNumber = String(data.batchNumber ?? "").trim();
   if (!batchNumber) {
@@ -771,6 +819,7 @@ export async function bulkUpdateBeneficiaryBatch(data: {
       await tx.auditLog.create({
         data: {
           facility_id: session.id,
+          company_id: groupScope.companyId,
           user: session.username,
           action: "BULK_SET_BENEFICIARY_BATCH",
           metadata: {

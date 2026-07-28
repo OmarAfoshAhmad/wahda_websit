@@ -2,10 +2,9 @@
 
 import prisma from "@/lib/prisma";
 import { loginSchema, changePasswordSchema, voluntaryChangePasswordSchema } from "@/lib/validation";
-import { login, logout as authLogout, getSession, type ManagerPermissions } from "@/lib/auth";
+import { login, logout as authLogout, getSession } from "@/lib/auth";
 import { checkRateLimit, resetRateLimit } from "@/lib/rate-limit";
 import { logger } from "@/lib/logger";
-import { inferFacilityTypeFromText, normalizeFacilityTypeOverride } from "@/lib/facility-type";
 import bcrypt from "bcryptjs";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
@@ -29,6 +28,7 @@ export async function authenticate(prevState: unknown, formData: FormData) {
 
   const { username, password } = validated.data;
   let stage = "validate";
+  let redirectTo = "/dashboard";
 
   // فحص Rate Limiting قبل أي استعلام للقاعدة
   const rateLimitError = await checkRateLimit(`login:${username}`);
@@ -50,6 +50,7 @@ export async function authenticate(prevState: unknown, formData: FormData) {
         is_manager: true,
         is_employee: true,
         role: true,
+        role_v2: true,
         facility_type: true,
         manager_permissions: true,
         must_change_password: true,
@@ -97,6 +98,7 @@ export async function authenticate(prevState: unknown, formData: FormData) {
       name: facility.name,
       username: facility.username,
       role: facility.role as any,
+      role_v2: facility.role_v2 as any,
       is_admin: facility.is_admin,
       is_manager: facility.is_manager,
       is_employee: facility.is_employee,
@@ -104,6 +106,9 @@ export async function authenticate(prevState: unknown, formData: FormData) {
       facility_type: (facility.facility_type as any) || null,
       // manager_permissions removed to keep JWT cookie small
     });
+
+    const isEmployee = facility.role_v2 === "EMPLOYEE" || facility.is_employee;
+    redirectTo = isEmployee ? "/cash-claim" : "/dashboard";
   } catch (error) {
     const err = error as {
       name?: string;
@@ -128,12 +133,6 @@ export async function authenticate(prevState: unknown, formData: FormData) {
     return { error: "حدث خطأ غير متوقع. يرجى المحاولة مجدداً." };
   }
 
-  const session = await getSession();
-  const appMode = process.env.NEXT_PUBLIC_APP_MODE?.replace(/["']/g, '').toUpperCase() || "";
-  let redirectTo = session?.is_employee ? "/cash-claim" : "/dashboard";
-  if (!session?.is_employee && appMode.includes("DENTAL")) {
-    redirectTo = "/admin/dental-services";
-  }
   redirect(redirectTo);
 }
 
@@ -195,11 +194,7 @@ export async function changePassword(prevState: unknown, formData: FormData) {
       facility_type: session.facility_type,
     });
 
-    const appMode = process.env.NEXT_PUBLIC_APP_MODE?.replace(/["']/g, '').toUpperCase() || "";
-    let redirectTo = session.role === "EMPLOYEE" ? "/cash-claim" : "/dashboard";
-    if (session.role !== "EMPLOYEE" && appMode.includes("DENTAL")) {
-      redirectTo = "/admin/dental-services";
-    }
+    const redirectTo = session.role === "EMPLOYEE" ? "/cash-claim" : "/dashboard";
     return { success: true, redirectTo };
   } catch (error: any) {
     console.error("CHANGE_PASSWORD_ERROR", error);
@@ -303,11 +298,7 @@ export async function checkMustChangePasswordStatus() {
       facility_type: session.facility_type,
     });
 
-    const appMode = process.env.NEXT_PUBLIC_APP_MODE?.replace(/["']/g, '').toUpperCase() || "";
-    let redirectTo = facility.is_employee ? "/cash-claim" : "/dashboard";
-    if (!facility.is_employee && appMode.includes("DENTAL")) {
-      redirectTo = "/admin/dental-services";
-    }
+    const redirectTo = facility.is_employee ? "/cash-claim" : "/dashboard";
     return { changed: true, redirectTo };
   }
 

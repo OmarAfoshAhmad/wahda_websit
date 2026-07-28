@@ -378,6 +378,10 @@ export async function processTransactionImportJob(jobId: string, username: strin
     }
 
     const summary = summarizeResult(processed.result);
+    const completedAudit = await prisma.auditLog.findUnique({
+      where: { id: processed.result.auditLogId },
+      select: { company_id: true },
+    });
 
     const completedJob = await prisma.importJob.update({
       where: { id: currentJob.id },
@@ -392,6 +396,7 @@ export async function processTransactionImportJob(jobId: string, username: strin
           message: "اكتملت مهمة استيراد الحركات بنجاح.",
           result: summary,
         }),
+        company_id: completedAudit?.company_id ?? null,
         completed_at: new Date(),
       },
     });

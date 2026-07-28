@@ -3,6 +3,8 @@
 import prisma from "@/lib/prisma";
 import ExcelJS from "exceljs";
 import { requireActiveFacilitySession } from "@/lib/session-guard";
+import { getAllowedCompanyIds, resolveAllowedScope } from "@/lib/company-scope";
+import { hasPermission } from "@/lib/permissions";
 import { logger } from "@/lib/logger";
 import { revalidatePath } from "next/cache";
 import bcrypt from "bcryptjs";
@@ -141,9 +143,12 @@ export async function importPhysiotherapyTransactionsAction(
   sourceFileName?: string,
 ): Promise<ImportResult> {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || !hasPermission(session, "physiotherapy_services")) {
     return { success: false, error: "غير مصرح — مخصص للمشرفين فقط", totalRows: 0, insertedCount: 0, skippedCount: 0, autoCreatedCount: 0, autoCreatedFacilitiesCount: 0, ceilingExceededCount: 0, ceilingExceededDetails: [], skippedDetails: [], groups: [] };
   }
+
+  const companyScope = resolveAllowedScope(await getAllowedCompanyIds(session), companyId);
+  const allowedCompanyIds = companyScope.allowedIds;
 
   try {
     const buffer = Buffer.from(fileBase64, "base64");
@@ -327,9 +332,10 @@ export async function importPhysiotherapyTransactionsAction(
     const dbBeneficiaries = uniqueCards.length > 0 ? await prisma.beneficiary.findMany({
       where: {
         deleted_at: null,
-        ...(companyId 
-          ? { company_id: companyId } 
+        ...(companyId
+          ? { company_id: companyId }
           : {
+              company_id: { in: allowedCompanyIds },
               OR: uniqueCards.flatMap(c => {
                 const base = c.replace(/[^A-Z0-9]/gi, "").slice(0, 10);
                 if (base.length < 5) return [{ card_number: c }];
@@ -530,7 +536,7 @@ export async function importPhysiotherapyTransactionsAction(
       await prisma.transaction.deleteMany({
         where: {
           type: "PHYSIOTHERAPY",
-          ...(companyId ? { company_id: companyId } : {}),
+          company_id: companyId ?? { in: allowedCompanyIds },
         }
       });
       logger.info("Purged previous physiotherapy transactions as requested.");

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { requireActiveFacilitySession } from "@/lib/session-guard";
 import { createImportJob, type ImportOptions } from "@/lib/import-jobs";
+import { assertCompanyAccessForSession } from "@/lib/company-scope";
+import { hasPermission } from "@/lib/permissions";
 
 // MIME types المقبولة صراحةً لملفات Excel — لا نقبل octet-stream
 // التحقق الفعلي يعتمد على extension + محتوى الملف داخل ExcelJS
@@ -15,8 +17,8 @@ export async function POST(request: Request) {
   if (!session) {
     return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
   }
-  if (!session.is_admin) {
-    return NextResponse.json({ error: "ممنوع — المبرمجون فقط" }, { status: 403 });
+  if (!hasPermission(session, "import_beneficiaries")) {
+    return NextResponse.json({ error: "لا تملك صلاحية استيراد المستفيدين" }, { status: 403 });
   }
 
   try {
@@ -77,11 +79,16 @@ export async function POST(request: Request) {
 
     // قراءة خيارات الاستيراد من FormData
     const companyIdParam = formData.get("company_id");
+    const companyId = typeof companyIdParam === "string" ? companyIdParam.trim() : "";
+    if (!companyId && session.role_v2 !== "SUPER_ADMIN") {
+      return NextResponse.json({ error: "يجب تحديد الشركة قبل الاستيراد" }, { status: 400 });
+    }
+    if (companyId) await assertCompanyAccessForSession(session, companyId);
     const options: ImportOptions = {
       updateBalance: formData.get("updateBalance") === "true",
       reactivate: formData.get("reactivate") === "true",
       wipeInactive: formData.get("wipeInactive") === "true",
-      ...(typeof companyIdParam === "string" && companyIdParam.trim() ? { company_id: companyIdParam.trim() } : {}),
+      ...(companyId ? { company_id: companyId } : {}),
     };
 
     const result = await createImportJob(rows, session.username, options);

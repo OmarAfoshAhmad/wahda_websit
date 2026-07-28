@@ -23,12 +23,14 @@ export type ImportDuplicateCase = {
 type ImportDuplicateCasesOptions = {
   // يتطلب هذا المسار قراءة AuditLog بشكل أعمق (أبطأ). فعّله فقط عند الحاجة.
   includeMultiFileRepeat?: boolean;
+  companyId?: string;
 };
 
 // round2 مُوحَّدة → roundCurrency (lib/money.ts)
 
 export async function getActiveImportDuplicateCases(options?: ImportDuplicateCasesOptions): Promise<ImportDuplicateCase[]> {
   const includeMultiFileRepeat = options?.includeMultiFileRepeat === true;
+  const companyId = options?.companyId?.trim();
 
   const repeatedAcrossFilesRows = includeMultiFileRepeat
     ? await prisma.$queryRaw<Array<{ beneficiary_id: string; file_count: number }>>`
@@ -38,6 +40,7 @@ export async function getActiveImportDuplicateCases(options?: ImportDuplicateCas
         FROM "AuditLog" a
         CROSS JOIN LATERAL jsonb_array_elements(COALESCE(a.metadata->'detailedReport'->'execution'->'appliedRows', '[]'::jsonb)) AS elem
         WHERE a.action = 'IMPORT_TRANSACTIONS'
+          AND (${companyId ?? ""} = '' OR a.company_id = ${companyId ?? ""})
           AND (elem->>'beneficiaryId') IS NOT NULL
         GROUP BY (elem->>'beneficiaryId')
         HAVING COUNT(DISTINCT a.id) > 1
@@ -48,6 +51,7 @@ export async function getActiveImportDuplicateCases(options?: ImportDuplicateCas
     SELECT beneficiary_id, COUNT(*)::int AS cnt
     FROM "Transaction"
     WHERE type = 'IMPORT' AND is_cancelled = false
+      AND (${companyId ?? ""} = '' OR company_id = ${companyId ?? ""})
     GROUP BY beneficiary_id
     HAVING COUNT(*) > 1
   `;
@@ -62,7 +66,7 @@ export async function getActiveImportDuplicateCases(options?: ImportDuplicateCas
 
   const [beneficiaries, ledgerRemainingById] = await Promise.all([
     prisma.beneficiary.findMany({
-      where: { id: { in: beneficiaryIds } },
+      where: { id: { in: beneficiaryIds }, ...(companyId ? { company_id: companyId } : {}) },
       select: {
         id: true,
         name: true,
@@ -144,8 +148,10 @@ export async function getActiveImportDuplicateCases(options?: ImportDuplicateCas
   return result;
 }
 
-export async function applyActiveImportDuplicateFix(params: { user: string; facilityId?: string | null }) {
-  const cases = await getActiveImportDuplicateCases();
+export async function applyActiveImportDuplicateFix(params: { user: string; facilityId?: string | null; companyId: string }) {
+  const companyId = params.companyId.trim();
+  if (!companyId) throw new Error("يجب تحديد الشركة قبل معالجة تكرارات الاستيراد");
+  const cases = await getActiveImportDuplicateCases({ companyId });
 
   if (cases.length === 0) {
     return {
@@ -183,12 +189,14 @@ export async function applyActiveImportDuplicateFix(params: { user: string; faci
   await prisma.auditLog.create({
     data: {
       facility_id: params.facilityId ?? undefined,
+      company_id: companyId,
       user: params.user,
       action: "FIX_DUPLICATE_IMPORT_TRANSACTIONS_BATCH",
       metadata: {
         affectedBeneficiaries: cases.length,
         removedTransactions,
         totalExtraAmount,
+        companyId,
       },
     },
   });

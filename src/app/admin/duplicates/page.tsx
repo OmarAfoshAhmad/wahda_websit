@@ -58,13 +58,30 @@ export default async function DuplicatesAdminPage({
     debtCardMode?: string;
     dp?: string; rp?: string; np?: string;
     rcity?: string; rbatch?: string;
+    companyId?: string;
   }>;
 }) {
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
-  if (!session.is_admin) redirect("/dashboard");
+  if (session.role_v2 !== "SUPER_ADMIN") redirect("/dashboard");
 
-  const { q, pz, pn, pr, ok, err, audit: _audit, undone: _undone, tab, htab, merged, before, after, debtAudit, debtCardMode: debtCardModeParam, dp, rp, np, rcity, rbatch } = await searchParams;
+  const paramsValue = await searchParams;
+  const { q, pz, pn, pr, ok, err, audit: _audit, undone: _undone, tab, htab, merged, before, after, debtAudit, debtCardMode: debtCardModeParam, dp, rp, np, rcity, rbatch } = paramsValue;
+  const companies = await prisma.insuranceCompany.findMany({
+    where: { deleted_at: null, is_active: true },
+    select: { id: true, name: true, code: true },
+    orderBy: { name: "asc" },
+  });
+  if (companies.length === 0) redirect("/admin/companies");
+  const requestedCompanyId = (paramsValue.companyId ?? "").trim();
+  const selectedCompany = companies.find((company) => company.id === requestedCompanyId) ?? companies[0];
+  if (!requestedCompanyId || requestedCompanyId !== selectedCompany.id) {
+    const redirectParams = new URLSearchParams();
+    redirectParams.set("companyId", selectedCompany.id);
+    if (tab) redirectParams.set("tab", tab);
+    redirect(`/admin/duplicates?${redirectParams.toString()}`);
+  }
+  const companyId = selectedCompany.id;
   const isBatchSuccess = (ok ?? "").startsWith("success_batch");
   const limitedMatch = /^success_batch_limited_(\d+)$/.exec(ok ?? "");
   const limitedRemaining = limitedMatch ? Number(limitedMatch[1]) : 0;
@@ -95,7 +112,7 @@ export default async function DuplicatesAdminPage({
     ? await prisma.beneficiary.findMany({
         where: {
           deleted_at: null,
-          card_number: { startsWith: 'WAB', mode: 'insensitive' },
+          company_id: companyId,
           ...(shouldFilterBeneficiaryTabs ? {
             OR: [
               { name: { contains: searchQuery, mode: "insensitive" } },
@@ -117,7 +134,7 @@ export default async function DuplicatesAdminPage({
   // Fetch ignored pairs — only needed for review/audit tabs
   const ignoreLogs = needsBeneficiaryData
     ? await prisma.auditLog.findMany({
-        where: { action: "IGNORE_DUPLICATE_PAIR" },
+        where: { action: "IGNORE_DUPLICATE_PAIR", company_id: companyId },
         select: { metadata: true },
       })
     : [];
@@ -202,6 +219,7 @@ export default async function DuplicatesAdminPage({
     params.set("pz", String(nextPz));
     params.set("pn", String(nextPn));
     params.set("tab", activeTab);
+    params.set("companyId", companyId);
     return `/admin/duplicates?${params.toString()}`;
   };
 
@@ -211,6 +229,7 @@ export default async function DuplicatesAdminPage({
     params.set("pz", String(pageZero));
     params.set("pn", String(pageName));
     params.set("tab", nextTab);
+    params.set("companyId", companyId);
     if (nextTab === "debt" && debtCardMode === "old") {
       params.set("debtCardMode", "old");
     }
@@ -229,11 +248,12 @@ export default async function DuplicatesAdminPage({
     params.set("pz", String(pageZero));
     params.set("pn", String(pageName));
     params.set("tab", "health");
+    params.set("companyId", companyId);
     params.set("htab", nextHealthSubtab);
     return `/admin/duplicates?${params.toString()}`;
   };
 
-  const exportHref = `/api/admin/duplicates/export${q ? `?q=${encodeURIComponent(q)}` : ""}`;
+  const exportHref = `/api/admin/duplicates/export?companyId=${encodeURIComponent(companyId)}${q ? `&q=${encodeURIComponent(q)}` : ""}`;
 
   // ── بيانات تبويب "مدموج" فقط عند الحاجة ───────────────────────────────────
   const parseEventTime = (value: unknown, fallback: Date) => {
@@ -244,7 +264,7 @@ export default async function DuplicatesAdminPage({
 
   const recentMergeLogs = activeTab === "merged"
     ? await prisma.auditLog.findMany({
-        where: { action: "MERGE_DUPLICATE_BENEFICIARY" },
+        where: { action: "MERGE_DUPLICATE_BENEFICIARY", company_id: companyId },
         select: { id: true, user: true, created_at: true, metadata: true },
         orderBy: { created_at: "desc" },
         take: 50,
@@ -345,7 +365,7 @@ export default async function DuplicatesAdminPage({
 
   // ── بيانات تبويب "مديونية" فقط عند الحاجة ─────────────────────────────────
   const debtCasesRaw = activeTab === "debt"
-    ? await getOverdrawnDebtCases()
+    ? await getOverdrawnDebtCases({ companyId })
     : [];
   const shouldResolveOldDebtCards = activeTab === "debt" && debtCardMode === "old";
   const debtDebtorCards = shouldResolveOldDebtCards
@@ -353,7 +373,7 @@ export default async function DuplicatesAdminPage({
     : [];
   const debtDebtorRows = debtDebtorCards.length > 0
     ? await prisma.beneficiary.findMany({
-        where: { deleted_at: null, card_number: { in: debtDebtorCards } },
+        where: { deleted_at: null, company_id: companyId, card_number: { in: debtDebtorCards } },
         select: { id: true, card_number: true },
       })
     : [];
@@ -363,6 +383,7 @@ export default async function DuplicatesAdminPage({
         SELECT id, card_number
         FROM "Beneficiary"
         WHERE deleted_at IS NULL
+          AND company_id = ${companyId}
           AND regexp_replace(UPPER(BTRIM(card_number)), '^WAB2025(0*)([0-9]+)([A-Z0-9]*)$', 'WAB2025\\2\\3') = ANY(${debtCanonicalCards}::text[])
       `
     : [];
@@ -409,13 +430,14 @@ export default async function DuplicatesAdminPage({
     (needsBeneficiaryData ? zeroVariantGroups.length + sameNameGroups.length + needsReviewZeroVariants.length : 0) +
     (activeTab === "debt" ? debtCases.length : 0);
   const birthDateConflictsCount = sameNameGroups.filter((g) => g.hasBirthDateConflict).length;
-  const debtExportBeforeHref = "/api/admin/duplicates/debt-over-limit/export?mode=before";
-  const debtExportAfterHref = `/api/admin/duplicates/debt-over-limit/export?mode=after${debtAudit ? `&auditId=${encodeURIComponent(debtAudit)}` : ""}`;
+  const debtExportBeforeHref = `/api/admin/duplicates/debt-over-limit/export?mode=before&companyId=${encodeURIComponent(companyId)}`;
+  const debtExportAfterHref = `/api/admin/duplicates/debt-over-limit/export?mode=after&companyId=${encodeURIComponent(companyId)}${debtAudit ? `&auditId=${encodeURIComponent(debtAudit)}` : ""}`;
   const debtViewAllHref = `/admin/duplicates?${new URLSearchParams({
     ...(q ? { q } : {}),
     pz: String(pageZero),
     pn: String(pageName),
     tab: "debt",
+    companyId,
     debtCardMode: "all",
     dp: "1",
   }).toString()}`;
@@ -424,6 +446,7 @@ export default async function DuplicatesAdminPage({
     pz: String(pageZero),
     pn: String(pageName),
     tab: "debt",
+    companyId,
     debtCardMode: "old",
     dp: "1",
   }).toString()}`;
@@ -432,6 +455,7 @@ export default async function DuplicatesAdminPage({
     pz: String(pageZero),
     pn: String(pageName),
     tab: "debt",
+    companyId,
     debtCardMode,
     dp: String(nextPage),
   }).toString()}`;
@@ -532,6 +556,7 @@ export default async function DuplicatesAdminPage({
         SELECT b.id, b.name, b.card_number, b.status, b.total_balance::float8 AS total_balance
         FROM "Beneficiary" b
         WHERE b.deleted_at IS NULL
+          AND b.company_id = ${companyId}
           AND UPPER(BTRIM(b.card_number)) LIKE 'WAB2025%'
           AND regexp_replace(UPPER(BTRIM(b.card_number)), '^WAB2025', '') <> ''
           AND regexp_replace(UPPER(BTRIM(b.card_number)), '^WAB2025', '') !~ '0'
@@ -547,6 +572,7 @@ export default async function DuplicatesAdminPage({
         SELECT b.id, b.name, b.card_number, b.status, b.total_balance::float8 AS total_balance
         FROM "Beneficiary" b
         WHERE b.deleted_at IS NULL
+          AND b.company_id = ${companyId}
           AND UPPER(BTRIM(b.card_number)) LIKE 'WAB2025%'
           AND regexp_replace(UPPER(BTRIM(b.card_number)), '^WAB2025', '') <> ''
           AND regexp_replace(UPPER(BTRIM(b.card_number)), '^WAB2025', '') !~ '0'
@@ -560,6 +586,7 @@ export default async function DuplicatesAdminPage({
         SELECT COUNT(*)::bigint AS count
         FROM "Beneficiary" b
         WHERE b.deleted_at IS NULL
+          AND b.company_id = ${companyId}
           AND UPPER(BTRIM(b.card_number)) LIKE 'WAB2025%'
           AND regexp_replace(UPPER(BTRIM(b.card_number)), '^WAB2025', '') <> ''
           AND regexp_replace(UPPER(BTRIM(b.card_number)), '^WAB2025', '') !~ '0'
@@ -572,6 +599,7 @@ export default async function DuplicatesAdminPage({
         SELECT COUNT(*)::bigint AS count
         FROM "Beneficiary" b
         WHERE b.deleted_at IS NULL
+          AND b.company_id = ${companyId}
           AND UPPER(BTRIM(b.card_number)) LIKE 'WAB2025%'
           AND regexp_replace(UPPER(BTRIM(b.card_number)), '^WAB2025', '') <> ''
           AND regexp_replace(UPPER(BTRIM(b.card_number)), '^WAB2025', '') !~ '0'
@@ -597,7 +625,7 @@ export default async function DuplicatesAdminPage({
           <div>
             <h1 className="section-title text-2xl font-black text-slate-950 dark:text-white">إدارة التكرارات</h1>
             <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-              استكشاف حالات التكرار ومعالجتها داخل المنظومة.
+              استكشاف حالات التكرار ومعالجتها لشركة <strong>{selectedCompany.name}</strong> فقط.
             </p>
           </div>
         <Card className="p-4">
@@ -612,7 +640,14 @@ export default async function DuplicatesAdminPage({
             {registryCity && <input type="hidden" name="rcity" value={registryCity} />}
             {registryBatch && <input type="hidden" name="rbatch" value={registryBatch} />}
 
-            <div className="space-y-1 lg:col-span-2">
+            <div className="space-y-1">
+              <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">الشركة</label>
+              <select name="companyId" defaultValue={companyId} className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-bold dark:border-slate-700 dark:bg-slate-900">
+                {companies.map((company) => <option key={company.id} value={company.id}>{company.name} ({company.code})</option>)}
+              </select>
+            </div>
+
+            <div className="space-y-1">
               <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">بحث سريع</label>
               <Input name="q" defaultValue={q ?? ""} placeholder="بحث بالاسم أو رقم البطاقة" className="h-10" />
             </div>
@@ -622,7 +657,7 @@ export default async function DuplicatesAdminPage({
               <Link href={exportHref} className="inline-flex flex-1">
                 <Button type="button" variant="outline" className="h-10 w-full">تصدير Excel</Button>
               </Link>
-              <Link href="/api/admin/duplicates/over-limit" className="inline-flex flex-1">
+              <Link href={`/api/admin/duplicates/over-limit?companyId=${encodeURIComponent(companyId)}`} className="inline-flex flex-1">
                 <Button type="button" variant="outline" className="h-10 w-full text-red-600 border-red-300 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20">تصدير متجاوزي الحد (600+)</Button>
               </Link>
             </div>
@@ -944,7 +979,7 @@ export default async function DuplicatesAdminPage({
               <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 px-4 py-3 sm:px-6">
                 <h2 className="text-sm font-black text-slate-900 dark:text-white">حالات اختلاف الأصفار (جاهزة للدمج)</h2>
                 {zeroVariantGroups.length > 0 && (
-                  <AutoMergeAllZeroVariantsButton />
+                  <AutoMergeAllZeroVariantsButton companyId={companyId} />
                 )}
               </div>
               <div className="space-y-4 p-4 sm:p-6">
@@ -1065,7 +1100,7 @@ export default async function DuplicatesAdminPage({
                   <Link href={debtExportAfterHref} className="inline-flex">
                     <Button type="button" variant="outline" className="h-10">تصدير Excel (بعد المعالجة)</Button>
                   </Link>
-                  <DebtSettlementBackgroundButton totalCases={debtCases.length} />
+                  <DebtSettlementBackgroundButton totalCases={debtCases.length} companyId={companyId} />
                 </div>
               </div>
             </Card>
@@ -1395,13 +1430,25 @@ export default async function DuplicatesAdminPage({
 
         {activeTab === "health" && (
           <Card className="p-4 sm:p-6">
-            <DataHealthContent withinDuplicatesTab searchQuery={searchQuery} legacyMode={false} />
+            <DataHealthContent
+              withinDuplicatesTab
+              searchQuery={searchQuery}
+              legacyMode={false}
+              companyId={companyId}
+              companyName={selectedCompany.name}
+            />
           </Card>
         )}
 
         {activeTab === "legacycards" && (
           <Card className="p-4 sm:p-6">
-            <DataHealthContent withinDuplicatesTab searchQuery={searchQuery} legacyMode={true} />
+            <DataHealthContent
+              withinDuplicatesTab
+              searchQuery={searchQuery}
+              legacyMode={true}
+              companyId={companyId}
+              companyName={selectedCompany.name}
+            />
           </Card>
         )}
 
@@ -1447,10 +1494,10 @@ export default async function DuplicatesAdminPage({
               <div className="flex items-center justify-between px-3 py-3 border-t border-slate-100 dark:border-slate-800">
                 <p className="text-xs text-slate-500 dark:text-slate-400">صفحة {noZeroPage} من {noZeroPages} • {noZeroTotal} حالة</p>
                 <div className="flex items-center gap-2">
-                  <Link href={`/admin/duplicates?${new URLSearchParams({ tab: "nozero2025", np: String(Math.max(1, noZeroPage - 1)), ...(q ? { q } : {}) }).toString()}`}>
+                  <Link href={`/admin/duplicates?${new URLSearchParams({ companyId, tab: "nozero2025", np: String(Math.max(1, noZeroPage - 1)), ...(q ? { q } : {}) }).toString()}`}>
                     <Button type="button" variant="outline" className="h-8 px-3 text-xs" disabled={noZeroPage <= 1}>السابق</Button>
                   </Link>
-                  <Link href={`/admin/duplicates?${new URLSearchParams({ tab: "nozero2025", np: String(Math.min(noZeroPages, noZeroPage + 1)), ...(q ? { q } : {}) }).toString()}`}>
+                  <Link href={`/admin/duplicates?${new URLSearchParams({ companyId, tab: "nozero2025", np: String(Math.min(noZeroPages, noZeroPage + 1)), ...(q ? { q } : {}) }).toString()}`}>
                     <Button type="button" variant="outline" className="h-8 px-3 text-xs" disabled={noZeroPage >= noZeroPages}>التالي</Button>
                   </Link>
                 </div>

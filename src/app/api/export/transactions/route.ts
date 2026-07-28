@@ -7,13 +7,14 @@ import { logger } from "@/lib/logger";
 import { getArabicSearchTerms } from "@/lib/search";
 import { formatDateTripoli, formatTimeTripoli, getStartOfDayTripoli, getEndOfDayTripoli } from "@/lib/datetime";
 import ExcelJS from "exceljs";
+import { getAllowedCompanyIds } from "@/lib/company-scope";
 
 export async function GET(request: NextRequest) {
   const session = await requireActiveFacilitySession();
   if (!session) {
     return new NextResponse("Unauthorized", { status: 401 });
   }
-  const canExport = session.is_admin || hasPermission(session, "export_data");
+  const canExport = hasPermission(session, "export_data");
   if (!canExport) {
     return new NextResponse("Forbidden", { status: 403 });
   }
@@ -41,8 +42,15 @@ export async function GET(request: NextRequest) {
   const statusFilter = searchParams.get("status") ?? "active";
   const txTypeFilter = searchParams.get("tx_type") ?? "all";
   const companyFilterId = (searchParams.get("company_id") ?? "").trim();
+  const allowedCompanyIds = await getAllowedCompanyIds(session);
+  if (companyFilterId && !allowedCompanyIds.includes(companyFilterId)) {
+    return NextResponse.json({ error: "لا تملك صلاحية الوصول إلى الشركة المطلوبة" }, { status: 403 });
+  }
+  const canViewAllFacilities = session.role_v2 === "SUPER_ADMIN"
+    || session.role_v2 === "COMPANY_ADMIN"
+    || session.role_v2 === "MANAGER";
 
-  const facilities = session.is_admin
+  const facilities = canViewAllFacilities
     ? await prisma.facility.findMany({
       where: { deleted_at: null },
       select: { id: true, name: true },
@@ -50,10 +58,10 @@ export async function GET(request: NextRequest) {
     })
     : [];
   const selectedFacility = facilities.find((f) => f.id === rawFacilityFilter || f.name === rawFacilityFilter);
-  const resolvedFacilityId = session.is_admin ? selectedFacility?.id : session.id;
+  const resolvedFacilityId = canViewAllFacilities ? selectedFacility?.id : session.id;
 
   // نفس منطق الفلترة في صفحة الحركات
-  const where: Prisma.TransactionWhereInput = session.is_admin
+  const where: Prisma.TransactionWhereInput = canViewAllFacilities
     ? (resolvedFacilityId ? { facility_id: resolvedFacilityId } : {})
     : { facility_id: session.id };
 
@@ -71,20 +79,20 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const canViewSettlement = session.is_admin || session.is_manager;
+  const canViewSettlement = canViewAllFacilities;
   if (!canViewSettlement) {
     const existingAnd = Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : [];
     where.AND = [...existingAnd, { type: { not: "SETTLEMENT" } }];
   }
 
   // المصدر (يدوي / استيراد)
-  if (session.is_admin && source === "import") {
+  if (canViewAllFacilities && source === "import") {
     if (where.type) {
       where.AND = [...(Array.isArray(where.AND) ? where.AND : []), { type: "IMPORT" }];
     } else {
       where.type = "IMPORT";
     }
-  } else if (session.is_admin && source === "manual") {
+  } else if (canViewAllFacilities && source === "manual") {
     if (!where.type) {
       where.type = { in: ["MEDICINE", "SUPPLIES", "SETTLEMENT"] };
     }
@@ -94,22 +102,17 @@ export async function GET(request: NextRequest) {
   where.AND = [
     ...existingAndBase,
     { type: { not: "DENTAL" } },
-    {
-      OR: [
-        { company_id: "cmp7ha2km0000u9v8jse4ib5x" },
-        { company_id: null }
-      ]
-    }
+    companyFilterId
+      ? { company_id: companyFilterId }
+      : session.role_v2 === "SUPER_ADMIN"
+        ? { OR: [{ company_id: { in: allowedCompanyIds } }, { company_id: null }] }
+        : { company_id: { in: allowedCompanyIds } }
   ];
 
   if (txTypeFilter === "supplies") {
     where.AND.push({ type: "SUPPLIES" });
   } else if (txTypeFilter === "medicine") {
     where.AND.push({ type: { in: ["MEDICINE", "IMPORT"] } });
-  }
-
-  if (companyFilterId) {
-    where.AND.push({ company_id: companyFilterId });
   }
 
   if (batch_number) {
@@ -202,7 +205,7 @@ export async function GET(request: NextRequest) {
       { header: "نوع العملية", key: "type", width: 15 },
       { header: "التاريخ", key: "date", width: 15 },
       { header: "الوقت", key: "time", width: 15 },
-      ...(session.is_admin ? [{ header: "المرفق", key: "facility_name", width: 30 }] : []),
+      ...(canViewAllFacilities ? [{ header: "المرفق", key: "facility_name", width: 30 }] : []),
     ];
 
     // تنسيق الصف الأول (Header)
@@ -220,7 +223,7 @@ export async function GET(request: NextRequest) {
         type: tx.type === "SUPPLIES" ? "كشف عام" : "ادوية صرف عام",
         date: formatDateTripoli(tx.created_at, "en-GB"), // dd/mm/yyyy
         time: formatTimeTripoli(tx.created_at, "en-GB"),
-        ...(session.is_admin ? { facility_name: tx.facility.name } : {}),
+        ...(canViewAllFacilities ? { facility_name: tx.facility.name } : {}),
       });
     });
 

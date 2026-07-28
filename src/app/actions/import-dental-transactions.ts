@@ -3,6 +3,8 @@
 import prisma from "@/lib/prisma";
 import ExcelJS from "exceljs";
 import { requireActiveFacilitySession } from "@/lib/session-guard";
+import { getAllowedCompanyIds, resolveAllowedScope } from "@/lib/company-scope";
+import { hasPermission } from "@/lib/permissions";
 import { logger } from "@/lib/logger";
 import { InsuranceEngine } from "@/lib/insurance/engine";
 import { revalidatePath } from "next/cache";
@@ -165,9 +167,12 @@ export async function importDentalTransactionsAction(
   autoCreateMissing: boolean = true
 ): Promise<ImportResult> {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || !hasPermission(session, "dental_services")) {
     return { success: false, error: "غير مصرح — مخصص للمشرفين فقط", totalRows: 0, insertedCount: 0, skippedCount: 0, autoCreatedCount: 0, ceilingExceededCount: 0, ceilingExceededDetails: [], skippedDetails: [], groups: [] };
   }
+
+  const companyScope = resolveAllowedScope(await getAllowedCompanyIds(session), companyId);
+  const allowedCompanyIds = companyScope.allowedIds;
 
   try {
     const buffer = Buffer.from(fileBase64, "base64");
@@ -218,10 +223,6 @@ export async function importDentalTransactionsAction(
         amount = Number((amountVal as any).result || 0);
       }
 
-      const hasName = Boolean(name);
-      const facilityString = facilityVal ? String(facilityVal).trim() : "";
-      const hasFacility = Boolean(facilityString);
-
       // Skip completely empty rows or junk formula rows (e.g. auto-filled card prefixes with no data)
       if (amount === 0 && !name) return;
 
@@ -251,9 +252,10 @@ export async function importDentalTransactionsAction(
     const dbBeneficiaries = uniqueCards.length > 0 ? await prisma.beneficiary.findMany({
       where: {
         deleted_at: null,
-        ...(companyId 
-          ? { company_id: companyId } 
+        ...(companyId
+          ? { company_id: companyId }
           : {
+              company_id: { in: allowedCompanyIds },
               OR: uniqueCards.flatMap(c => {
                 const base = c.replace(/[^A-Z0-9]/gi, "").slice(0, 10);
                 if (base.length < 5) return [{ card_number: c }];
@@ -461,7 +463,7 @@ export async function importDentalTransactionsAction(
       await prisma.transaction.deleteMany({
         where: {
           type: "DENTAL",
-          ...(companyId ? { company_id: companyId } : {}),
+          company_id: companyId ?? { in: allowedCompanyIds },
         }
       });
       logger.info("Purged previous dental transactions as requested.");

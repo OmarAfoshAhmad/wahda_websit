@@ -5,11 +5,23 @@ import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getArabicNormalization } from "@/lib/normalize";
 import { logger } from "@/lib/logger";
+import { assertCompanyAccessForSession, ScopeAccessError } from "@/lib/company-scope";
+
+function canReadDental(session: Parameters<typeof hasPermission>[0]) {
+  return hasPermission(session, "dental_services") || hasPermission(session, "view_dental_beneficiaries");
+}
 
 export async function searchCompanyBeneficiaries(query: string, companyId: string) {
   const session = await requireActiveFacilitySession();
   if (!session) {
     return { error: "غير مصرح", items: [] };
+  }
+  if (!canReadDental(session)) return { error: "غير مصرح", items: [] };
+  try {
+    await assertCompanyAccessForSession(session, companyId);
+  } catch (error) {
+    if (error instanceof ScopeAccessError) return { error: "غير مصرح", items: [] };
+    throw error;
   }
 
   const rateLimitError = await checkRateLimit(`search:${session.id}`, "search");
@@ -22,9 +34,6 @@ export async function searchCompanyBeneficiaries(query: string, companyId: strin
 
   try {
     const normalizedQ = getArabicNormalization(q);
-    const likePattern = `%${q}%`;
-    const normalizedPattern = `%${normalizedQ}%`;
-
     // البحث عن مستفيدي هذه الشركة فقط
     const rows = await prisma.beneficiary.findMany({
       where: {
@@ -92,8 +101,10 @@ export async function getDentalBeneficiaryDetail(beneficiaryId: string, companyI
   if (!session) {
     return { error: "غير مصرح" };
   }
+  if (!canReadDental(session)) return { error: "غير مصرح" };
 
   try {
+    await assertCompanyAccessForSession(session, companyId);
     const rawBeneficiary = await prisma.beneficiary.findFirst({
       where: {
         id: beneficiaryId,
@@ -196,6 +207,7 @@ export async function getDentalBeneficiaryDetail(beneficiaryId: string, companyI
       yearlyConsumed
     };
   } catch (error) {
+    if (error instanceof ScopeAccessError) return { error: "غير مصرح" };
     logger.error("Get dental beneficiary detail error", { error: String(error) });
     return { error: "تعذر جلب تفاصيل المستفيد" };
   }

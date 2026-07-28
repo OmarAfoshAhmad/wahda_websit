@@ -28,6 +28,7 @@ export async function decrypt(input: string): Promise<Record<string, unknown>> {
 }
 
 import type { ManagerPermissions, Session, UserRole } from "./permissions";
+import type { ScopedAccountRole } from "./permissions";
 export type { ManagerPermissions, Session, UserRole };
 
 export async function login(user: {
@@ -35,6 +36,7 @@ export async function login(user: {
   name: string;
   username: string;
   role: UserRole;
+  role_v2?: ScopedAccountRole | null;
   is_admin: boolean;
   is_manager: boolean;
   is_employee: boolean;
@@ -78,7 +80,11 @@ export async function getSession(): Promise<Session | null> {
 
 export async function updateSession(request: NextRequest) {
   const session = request.cookies.get("session")?.value;
-  if (!session) return;
+  if (!session) {
+    const res = NextResponse.next();
+    res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
+    return res;
+  }
 
   // FIX SEC-03: JWT فاسد (تلاعب أو انتهاء المفتاح) يجب ألا يُسقط الـ middleware
   try {
@@ -90,6 +96,7 @@ export async function updateSession(request: NextRequest) {
     if (iatAbsolute > 0 && Date.now() - iatAbsolute > ABSOLUTE_TIMEOUT_MS) {
       // الجلسة تجاوزت الحد المطلق — حذف الكوكي وإجبار إعادة تسجيل الدخول
       const res = NextResponse.next();
+      res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
       res.cookies.set({
         name: "session",
         value: "",
@@ -104,6 +111,7 @@ export async function updateSession(request: NextRequest) {
 
     parsed.expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
     const res = NextResponse.next();
+    res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
     res.cookies.set({
       name: "session",
       value: await encrypt(parsed as Record<string, unknown>),
@@ -115,7 +123,17 @@ export async function updateSession(request: NextRequest) {
     });
     return res;
   } catch {
-    // JWT فاسد أو منتهي — نتجاهل تجديده بصمت (المستخدم سيُعاد توجيهه عند الطلب التالي)
-    return;
+    const res = NextResponse.next();
+    res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
+    res.cookies.set({
+      name: "session",
+      value: "",
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      path: "/",
+      expires: new Date(0),
+    });
+    return res;
   }
 }

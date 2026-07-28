@@ -1,5 +1,3 @@
-import { TransactionType } from "@prisma/client";
-
 export type TransactionImportResult = {
   auditLogId: string;
   importMode: "replace_old_imports" | "incremental_update";
@@ -48,6 +46,7 @@ export type DeletedImportTransactionSnapshot = {
   id: string;
   beneficiaryId: string;
   facilityId: string;
+  companyId: string | null;
   amount: number;
   type: "IMPORT";
   isCancelled: boolean;
@@ -57,6 +56,7 @@ export type DeletedImportTransactionSnapshot = {
 };
 
 export type FamilyImportArchiveSnapshot = {
+  companyId: string;
   familyBaseCard: string;
   familyCountFromFile: number | null;
   totalBalanceFromFile: number;
@@ -122,6 +122,7 @@ export type ImportTxRow = {
   id: string;
   beneficiary_id: string;
   facility_id: string;
+  company_id: string | null;
   amount: number;
   type: string;
   is_cancelled: boolean;

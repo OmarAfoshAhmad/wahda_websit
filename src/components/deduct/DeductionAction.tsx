@@ -134,13 +134,6 @@ export function DeductionAction() {
               </div>
               <Badge variant="info">بدون خصم مالي</Badge>
             </div>
-          ) : process.env.NEXT_PUBLIC_APP_MODE?.replace(/["']/g, '').toUpperCase() === "WAHDA_ONLY" ? (
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">قيمة الخصم</p>
-                <p className="text-2xl font-black text-slate-900 dark:text-white">{formatCurrency(amountValue)} د.ل</p>
-              </div>
-            </div>
           ) : simulation?.isTpa ? (
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1">

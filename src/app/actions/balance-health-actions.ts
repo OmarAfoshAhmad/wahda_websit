@@ -1,11 +1,12 @@
 "use server";
 
 import prisma from "@/lib/prisma";
-import { getSession } from "@/lib/auth";
+import { resolveVerifiedSuperAdminActor } from "@/lib/super-admin-actor";
 import { AUDIT_ACTIONS } from "@/lib/constants";
 import { roundCurrency } from "@/lib/money";
 
 type BackgroundActor = {
+  id: string;
   username: string;
   isAdmin: true;
 };
@@ -47,8 +48,8 @@ export type FixTotalBalanceDriftResult = {
 };
 
 export async function checkBalanceDriftAction(): Promise<DriftCheckResult> {
-  const session = await getSession();
-  if (!session?.is_admin) {
+  const session = await resolveVerifiedSuperAdminActor();
+  if (!session) {
     return { success: false, count: 0, total_drift: 0, error: "غير مصرح" };
   }
 
@@ -91,8 +92,8 @@ export async function checkBalanceDriftAction(): Promise<DriftCheckResult> {
 }
 
 export async function checkStatusAnomaliesAction(): Promise<CountCheckResult> {
-  const session = await getSession();
-  if (!session?.is_admin) {
+  const session = await resolveVerifiedSuperAdminActor();
+  if (!session) {
     return { success: false, count: 0, error: "غير مصرح" };
   }
 
@@ -114,8 +115,8 @@ export async function checkStatusAnomaliesAction(): Promise<CountCheckResult> {
 }
 
 export async function checkOrphanedNotificationsAction(): Promise<CountCheckResult> {
-  const session = await getSession();
-  if (!session?.is_admin) {
+  const session = await resolveVerifiedSuperAdminActor();
+  if (!session) {
     return { success: false, count: 0, error: "غير مصرح" };
   }
 
@@ -134,10 +135,8 @@ export async function checkOrphanedNotificationsAction(): Promise<CountCheckResu
 }
 
 export async function fixStatusAnomaliesAction(actor?: BackgroundActor): Promise<FixStatusAnomaliesResult> {
-  const session = actor
-    ? { username: actor.username, is_admin: actor.isAdmin }
-    : await getSession();
-  if (!session?.is_admin) {
+  const session = await resolveVerifiedSuperAdminActor(actor);
+  if (!session) {
     return {
       success: false,
       fixed_count: 0,
@@ -229,10 +228,8 @@ export async function fixStatusAnomaliesAction(actor?: BackgroundActor): Promise
 }
 
 export async function recalcBalancesAction(actor?: BackgroundActor): Promise<RecalcResult> {
-  const session = actor
-    ? { username: actor.username, is_admin: actor.isAdmin }
-    : await getSession();
-  if (!session?.is_admin) {
+  const session = await resolveVerifiedSuperAdminActor(actor);
+  if (!session) {
     return { success: false, fixed_count: 0, status_changes: 0, total_drift: 0, error: "غير مصرح" };
   }
 
@@ -354,10 +351,8 @@ export async function recalcBalancesAction(actor?: BackgroundActor): Promise<Rec
  * الشرط: remaining_balance > 0 AND total_balance < remaining_balance + sum_spent
  */
 export async function fixTotalBalanceDriftAction(actor?: BackgroundActor): Promise<FixTotalBalanceDriftResult> {
-  const session = actor
-    ? { username: actor.username, is_admin: actor.isAdmin }
-    : await getSession();
-  if (!session?.is_admin) {
+  const session = await resolveVerifiedSuperAdminActor(actor);
+  if (!session) {
     return { success: false, fixed_count: 0, total_corrected: 0, error: "غير مصرح" };
   }
 
@@ -431,8 +426,8 @@ export async function fixTotalBalanceDriftAction(actor?: BackgroundActor): Promi
 
 export async function convertPharmacySuppliesToMedicineAction(transactionIds: string[]) {
   try {
-    const session = await getSession();
-    if (!session?.is_admin) return { success: false, error: "غير مصرح" };
+    const session = await resolveVerifiedSuperAdminActor();
+    if (!session) return { success: false, error: "غير مصرح" };
 
     if (!transactionIds.length) return { success: true, count: 0 };
 
@@ -459,8 +454,11 @@ export async function convertPharmacySuppliesToMedicineAction(transactionIds: st
     });
 
     return { success: true, count };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("convertPharmacySuppliesToMedicineAction error:", error);
-    return { success: false, error: error.message || "حدث خطأ غير متوقع" };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "حدث خطأ غير متوقع",
+    };
   }
 }

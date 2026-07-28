@@ -1,7 +1,7 @@
 import prisma from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { type Session, type ManagerPermissions, type UserRole, hasPermission, canAccessAdmin } from "./permissions";
+import { type Session, type ManagerPermissions, type ScopedAccountRole, type UserRole, hasPermission, canAccessAdmin } from "./permissions";
 import { normalizeManagerPermissionsForRole, resolvePermissionRole } from "./permission-catalog";
 
 /**
@@ -22,6 +22,7 @@ export async function requireActiveFacilitySession(): Promise<Session | null> {
       is_manager: true, 
       is_employee: true, 
       role: true,
+      role_v2: true,
       facility_type: true,
       manager_permissions: true,
       must_change_password: true,
@@ -35,7 +36,8 @@ export async function requireActiveFacilitySession(): Promise<Session | null> {
     redirect("/change-password");
   }
 
-  const role = resolvePermissionRole({
+  const roleV2 = dbRecord.role_v2 as ScopedAccountRole | null;
+  const role = roleV2 ?? resolvePermissionRole({
     role: dbRecord.role,
     is_admin: dbRecord.is_admin,
     is_manager: dbRecord.is_manager,
@@ -43,8 +45,8 @@ export async function requireActiveFacilitySession(): Promise<Session | null> {
   }) as UserRole;
   const facilityType = dbRecord.facility_type as Session["facility_type"] | null;
   // توحيد الأعلام اعتماداً على الدور المحسوب (يعالج حالات role غير المتسق بعد الاستعادة/الرفع).
-  const isAdmin = role === "ADMIN";
-  const isManager = role === "MANAGER";
+  const isAdmin = role === "SUPER_ADMIN" || (!roleV2 && role === "ADMIN");
+  const isManager = role === "COMPANY_ADMIN" || role === "MANAGER";
   const isEmployee = role === "EMPLOYEE";
   const managerPermissions = normalizeManagerPermissionsForRole(role, dbRecord.manager_permissions);
 
@@ -53,6 +55,7 @@ export async function requireActiveFacilitySession(): Promise<Session | null> {
     id: session.id,
     name: dbRecord.name,
     role,
+    role_v2: roleV2,
     is_admin: isAdmin,
     is_manager: isManager,
     is_employee: isEmployee,
@@ -66,8 +69,19 @@ export async function requireActiveFacilitySession(): Promise<Session | null> {
  * يُستخدم في صفحات Server Components التي تحتاج صلاحيات محدثة فوراً.
  */
 export async function getSessionWithFreshPermissions(): Promise<Session | null> {
-  let dbRecord: any = null;
-  let session = await getSession();
+  let dbRecord: {
+    is_admin: boolean;
+    is_manager: boolean;
+    is_employee: boolean;
+    role: string;
+    role_v2: ScopedAccountRole | null;
+    facility_type: string | null;
+    manager_permissions: unknown;
+    must_change_password: boolean;
+    name: string;
+    deleted_at: Date | null;
+  } | null = null;
+  const session = await getSession();
 
   try {
     if (!session || !session.id) return null;
@@ -79,6 +93,7 @@ export async function getSessionWithFreshPermissions(): Promise<Session | null> 
         is_manager: true, 
         is_employee: true, 
         role: true,
+        role_v2: true,
         facility_type: true,
         manager_permissions: true,
         must_change_password: true,
@@ -99,15 +114,16 @@ export async function getSessionWithFreshPermissions(): Promise<Session | null> 
     redirect("/change-password");
   }
 
-  const role = resolvePermissionRole({
+  const roleV2 = dbRecord.role_v2 as ScopedAccountRole | null;
+  const role = roleV2 ?? resolvePermissionRole({
     role: dbRecord.role,
     is_admin: dbRecord.is_admin,
     is_manager: dbRecord.is_manager,
     is_employee: dbRecord.is_employee,
   }) as UserRole;
   const facilityType = dbRecord.facility_type as Session["facility_type"] | null;
-  const isAdmin = role === "ADMIN";
-  const isManager = role === "MANAGER";
+  const isAdmin = role === "SUPER_ADMIN" || (!roleV2 && role === "ADMIN");
+  const isManager = role === "COMPANY_ADMIN" || role === "MANAGER";
   const isEmployee = role === "EMPLOYEE";
   const managerPermissions = normalizeManagerPermissionsForRole(role, dbRecord.manager_permissions);
 
@@ -116,6 +132,7 @@ export async function getSessionWithFreshPermissions(): Promise<Session | null> 
     id: session.id,
     name: dbRecord.name,
     role,
+    role_v2: roleV2,
     is_admin: isAdmin,
     is_manager: isManager,
     is_employee: isEmployee,

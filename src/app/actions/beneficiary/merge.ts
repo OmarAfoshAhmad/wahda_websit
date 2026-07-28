@@ -1,10 +1,46 @@
 "use server";
 
 import prisma from "@/lib/prisma";
-import { requireActiveFacilitySession } from "@/lib/session-guard";
+import { hasPermission, requireActiveFacilitySession } from "@/lib/session-guard";
+import { assertCompanyAccessForSession } from "@/lib/company-scope";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
 import * as utils from "./utils";
+
+type ActiveSession = NonNullable<Awaited<ReturnType<typeof requireActiveFacilitySession>>>;
+
+function canManageBeneficiaryMerges(session: ActiveSession): boolean {
+  return hasPermission(session, "edit_beneficiary") && hasPermission(session, "delete_beneficiary");
+}
+
+async function assertMergeCompanyAccess(session: ActiveSession, companyId: string | null): Promise<void> {
+  if (!companyId) {
+    if (session.role_v2 !== "SUPER_ADMIN") throw new Error("HISTORICAL_COMPANY_SCOPE");
+    return;
+  }
+  await assertCompanyAccessForSession(session, companyId);
+}
+
+async function authorizeBeneficiaryGroup(
+  session: ActiveSession,
+  ids: string[],
+): Promise<{ companyId: string | null } | { error: string }> {
+  const uniqueIds = [...new Set(ids.filter(Boolean))];
+  const rows = await prisma.beneficiary.findMany({
+    where: { id: { in: uniqueIds }, deleted_at: null },
+    select: { id: true, company_id: true },
+  });
+  if (rows.length !== uniqueIds.length) return { error: "تتضمن المجموعة مستفيدًا غير موجود أو محذوفًا" };
+  const companyIds = new Set(rows.map((row) => row.company_id));
+  if (companyIds.size !== 1) return { error: "لا يمكن معالجة مستفيدين تابعين لشركات مختلفة ضمن مجموعة واحدة" };
+  const companyId = rows[0]?.company_id ?? null;
+  try {
+    await assertMergeCompanyAccess(session, companyId);
+  } catch {
+    return { error: "لا تملك صلاحية الوصول إلى شركة هذه المجموعة" };
+  }
+  return { companyId };
+}
 
 export async function mergeDuplicateBeneficiaries(
   keepId: string,
@@ -16,7 +52,7 @@ export async function mergeDuplicateBeneficiaries(
   },
 ) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || !canManageBeneficiaryMerges(session)) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -35,6 +71,7 @@ export async function mergeDuplicateBeneficiaries(
         total_balance: true,
         status: true,
         completed_via: true,
+        company_id: true,
         deleted_at: true,
       },
     });
@@ -42,6 +79,7 @@ export async function mergeDuplicateBeneficiaries(
     if (!keepBeneficiary || keepBeneficiary.deleted_at !== null) {
       return { error: "السجل الأساسي غير موجود أو محذوف" };
     }
+    await assertMergeCompanyAccess(session, keepBeneficiary.company_id);
 
     const cardKey = utils.normalizeCardNumber(keepBeneficiary.card_number);
     const canonicalCardKey = utils.canonicalizeCardNumber(cardKey);
@@ -62,6 +100,7 @@ export async function mergeDuplicateBeneficiaries(
           total_balance: true,
           status: true,
           completed_via: true,
+          company_id: true,
         },
       }).then((rows) => rows.map((r) => ({
         ...r,
@@ -76,6 +115,7 @@ export async function mergeDuplicateBeneficiaries(
         total_balance: number;
         status: "ACTIVE" | "SUSPENDED" | "FINISHED";
         completed_via: string | null;
+        company_id: string | null;
       }>>`
           SELECT
             id,
@@ -84,12 +124,20 @@ export async function mergeDuplicateBeneficiaries(
             remaining_balance::float8 AS remaining_balance,
             total_balance::float8 AS total_balance,
             status::text AS status,
-            completed_via
+            completed_via,
+            company_id
           FROM "Beneficiary"
           WHERE deleted_at IS NULL
-            AND UPPER(BTRIM(card_number)) LIKE 'WAB2025%'
+            AND company_id IS NOT DISTINCT FROM ${keepBeneficiary.company_id}
         `
         .then((rows) => rows.filter((row) => utils.canonicalizeCardNumber(row.card_number) === canonicalCardKey));
+
+    if (candidateIds.length > 0 && matches.length !== new Set([keepId, ...candidateIds]).size) {
+      return { error: "تتضمن المجموعة سجلاً غير موجود أو خارج شركة المستفيد الأساسي" };
+    }
+    if (matches.some((row) => row.company_id !== keepBeneficiary.company_id)) {
+      return { error: "لا يمكن دمج مستفيدين تابعين لشركات مختلفة" };
+    }
 
     if (matches.length <= 1) {
       return { error: "لا توجد سجلات مكررة قابلة للدمج لهذا المستفيد" };
@@ -340,6 +388,7 @@ export async function mergeDuplicateBeneficiaries(
           where: { id: existingMergeLog[0].id },
           data: {
             user: session.username,
+            company_id: keepBeneficiary.company_id,
             metadata: nextMetadata,
           },
         });
@@ -348,6 +397,7 @@ export async function mergeDuplicateBeneficiaries(
         const log = await tx.auditLog.create({
           data: {
             facility_id: session.id,
+            company_id: keepBeneficiary.company_id,
             user: session.username,
             action: "MERGE_DUPLICATE_BENEFICIARY",
             metadata: nextMetadata,
@@ -380,7 +430,7 @@ export async function mergeDuplicateGroupByCanonicalAction(formData: FormData) {
   const preferredId = String(formData.get("preferred_id") ?? "").trim() || null;
 
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || !canManageBeneficiaryMerges(session)) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -388,7 +438,7 @@ export async function mergeDuplicateGroupByCanonicalAction(formData: FormData) {
     const candidates = await prisma.beneficiary.findMany({
       where: {
         deleted_at: null,
-        card_number: { startsWith: "WAB2025", mode: "insensitive" }
+        company_id: { not: null },
       },
       select: {
         id: true,
@@ -431,12 +481,14 @@ export async function mergeDuplicateGroupByCanonicalAction(formData: FormData) {
 
 export async function mergeDuplicateManualSelectionAction(formData: FormData) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || !canManageBeneficiaryMerges(session)) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
   const memberIds = [...new Set(formData.getAll("member_ids").map((v) => String(v).trim()).filter(Boolean))];
   if (memberIds.length === 0) return { error: "لم يتم العثور على سجلات" };
+  const groupScope = await authorizeBeneficiaryGroup(session, memberIds);
+  if ("error" in groupScope) return groupScope;
 
   const targetMap = new Map<string, string[]>();
 
@@ -473,6 +525,7 @@ export async function mergeDuplicateManualSelectionAction(formData: FormData) {
           action: "IGNORE_DUPLICATE_PAIR",
           user: session.username,
           facility_id: session.id,
+          company_id: groupScope.companyId,
           metadata: {
             ignore_ids: independentIds,
             timestamp: new Date().toISOString(),
@@ -492,7 +545,7 @@ export const mergeNeedsReviewGroupAction = mergeDuplicateManualSelectionAction;
 
 export async function mergeNeedsReviewBatchAction(formData: FormData) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || !canManageBeneficiaryMerges(session)) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -590,16 +643,23 @@ export async function mergeNeedsReviewBatchAction(formData: FormData) {
   };
 }
 
-export async function mergeAllGlobalZeroVariantsAction() {
+export async function mergeAllGlobalZeroVariantsAction(companyId: string) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || !canManageBeneficiaryMerges(session)) {
     return { error: "غير مصرح بهذه العملية" };
+  }
+  const normalizedCompanyId = companyId.trim();
+  if (!normalizedCompanyId) return { error: "يجب تحديد الشركة" };
+  try {
+    await assertCompanyAccessForSession(session, normalizedCompanyId);
+  } catch {
+    return { error: "لا تملك صلاحية إدارة مشاكل هذه الشركة" };
   }
 
   const rows = await prisma.beneficiary.findMany({
     where: {
       deleted_at: null,
-      card_number: { startsWith: "WAB2025", mode: "insensitive" }
+      company_id: normalizedCompanyId,
     },
     select: {
       id: true,
@@ -657,7 +717,7 @@ export async function mergeAllGlobalZeroVariantsAction() {
 
 export async function mergeDuplicateBatchByConditionAction(formData: FormData) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || !canManageBeneficiaryMerges(session)) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -726,13 +786,24 @@ export async function mergeDuplicateBatchByConditionAction(formData: FormData) {
 
 export async function undoMergeDuplicateBeneficiariesByAuditId(formData: FormData) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || !canManageBeneficiaryMerges(session)) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
   const auditId = String(formData.get("audit_id") ?? "").trim();
   if (!auditId) {
     return { error: "معرف عملية الدمج غير صالح" };
+  }
+
+  const mergeAuditScope = await prisma.auditLog.findUnique({
+    where: { id: auditId },
+    select: { company_id: true },
+  });
+  if (!mergeAuditScope) return { error: "عملية الدمج غير موجودة" };
+  try {
+    await assertMergeCompanyAccess(session, mergeAuditScope.company_id);
+  } catch {
+    return { error: "لا تملك صلاحية التراجع عن عملية تخص هذه الشركة" };
   }
 
   try {
@@ -857,12 +928,14 @@ export async function undoMergeDuplicateBeneficiariesByAuditId(formData: FormDat
 
 export async function ignoreDuplicatePairAction(formData: FormData) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || !canManageBeneficiaryMerges(session)) {
     return { error: "غير مصرح بهذه العملية" };
   }
 
   const ids = formData.getAll("ids").map(String).filter(Boolean);
   if (ids.length < 2) return { error: "يجب تحديد معرفين على الأقل للاستبعاد" };
+  const groupScope = await authorizeBeneficiaryGroup(session, ids);
+  if ("error" in groupScope) return groupScope;
 
   try {
     await prisma.auditLog.create({
@@ -870,6 +943,7 @@ export async function ignoreDuplicatePairAction(formData: FormData) {
         action: "IGNORE_DUPLICATE_PAIR",
         user: session.username,
         facility_id: session.id,
+        company_id: groupScope.companyId,
         metadata: {
           ignore_ids: ids,
           timestamp: new Date().toISOString(),
@@ -887,7 +961,7 @@ export async function ignoreDuplicatePairAction(formData: FormData) {
 
 export async function purgeLegacyNoPayment() {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || session.role_v2 !== "SUPER_ADMIN") {
     return { error: "غير مصرح بهذه العملية" };
   }
 
@@ -1021,7 +1095,7 @@ export async function purgeLegacyNoPayment() {
 
 export async function rollbackPurgeLegacyAction(auditId: string) {
   const session = await requireActiveFacilitySession();
-  if (!session || !session.is_admin) {
+  if (!session || session.role_v2 !== "SUPER_ADMIN") {
     return { error: "غير مصرح" };
   }
 

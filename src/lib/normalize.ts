@@ -45,26 +45,26 @@ export function normalizeCardNumber(value: string): string {
 }
 
 /**
- * توحيد رقم البطاقة: إزالة الأصفار غير الضرورية بعد WAB2025.
- * مثال: WAB202500123 → WAB2025123
+ * توحيد رقم البطاقة: إزالة الأصفار غير الضرورية بعد بادئة الشركة والسنة.
+ * أمثلة: WAB202500123 → WAB2025123، JFZ202500123 → JFZ2025123.
  */
 export function canonicalizeCardNumber(value: string): string {
   const c = normalizeCardNumber(value);
-  const m = c.match(/^WAB2025(\d+)([A-Z0-9]*)$/);
+  const m = c.match(/^([A-Z]+\d{4})(\d+)([A-Z][A-Z0-9]*)?$/);
   if (!m) return c;
-  const normalizedDigits = m[1].replace(/^0+/, "") || "0";
-  const suffix = m[2] ?? "";
-  return `WAB2025${normalizedDigits}${suffix}`;
+  const normalizedDigits = m[2].replace(/^0+/, "") || "0";
+  const suffix = m[3] ?? "";
+  return `${m[1]}${normalizedDigits}${suffix}`;
 }
 
 /**
- * عدد الأصفار بعد WAB2025 (يُستخدم في اختيار البطاقة المفضلة للدمج).
+ * عدد الأصفار بعد بادئة الشركة والسنة (يُستخدم في اختيار البطاقة المفضلة للدمج).
  */
 export function leadingZeroScoreAfterPrefix(value: string): number {
   const c = normalizeCardNumber(value);
-  const m = c.match(/^WAB2025(\d+)([A-Z0-9]*)$/);
+  const m = c.match(/^([A-Z]+\d{4})(\d+)([A-Z][A-Z0-9]*)?$/);
   if (!m) return 0;
-  const z = m[1].match(/^0+/);
+  const z = m[2].match(/^0+/);
   return z ? z[0].length : 0;
 }
 

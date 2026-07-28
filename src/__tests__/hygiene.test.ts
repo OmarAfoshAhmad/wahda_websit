@@ -15,13 +15,13 @@ describe('Data Hygiene: Parent Card Pattern Logic', () => {
       expect(result.nextCard).toBe('WAB2025123W1');
     });
 
-    it('should convert H2 to H1', async () => {
+    it('should keep numbered H2 unchanged', async () => {
       const result = await normalizeParentCardByMode('WAB2025123H2', 'all_to_numbered');
-      expect(result.changed).toBe(true);
-      expect(result.nextCard).toBe('WAB2025123H1');
+      expect(result.changed).toBe(false);
+      expect(result.nextCard).toBe('WAB2025123H2');
     });
 
-    it('should convert plain H to H1', async () => {
+    it('should convert plain H to W1', async () => {
       const result = await normalizeParentCardByMode('WAB2025123H', 'all_to_numbered');
       expect(result.changed).toBe(true);
       expect(result.nextCard).toBe('WAB2025123H1');

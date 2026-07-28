@@ -97,7 +97,7 @@ export function BeneficiariesBulkActionButton({ formId, mode }: Props) {
           ? await bulkRestoreBeneficiaries(formData)
           : await bulkPermanentDeleteBeneficiaries(formData);
 
-      if (result?.error) {
+      if ("error" in result) {
         setConfirmOpen(false);
         setPageFeedback(result.error, "error");
         return;

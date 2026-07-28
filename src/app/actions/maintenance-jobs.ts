@@ -1,6 +1,6 @@
 "use server";
 
-import { getSession } from "@/lib/auth";
+import { resolveVerifiedSuperAdminActor } from "@/lib/super-admin-actor";
 import {
   runDataHygieneSweepAction,
   runFixInvalidSubunitAmountsAction,
@@ -17,17 +17,18 @@ import {
 } from "@/app/actions/balance-health-actions";
 import { applyActiveImportDuplicateFix } from "@/lib/import-duplicate-cases";
 import { applyOverdrawnDebtSettlement } from "@/lib/overdrawn-debt-settlement";
+import { assertCompanyAccessForSession } from "@/lib/company-scope";
 
 export type MaintenanceJobTask =
   | { kind: "data_hygiene_sweep"; mode: DataHygieneMode }
   | { kind: "recalc_balances" }
   | { kind: "fix_total_balance_drift" }
   | { kind: "fix_status_anomalies" }
-  | { kind: "parent_card_pattern_fix"; mode: ParentCardPatternFixMode }
+  | { kind: "parent_card_pattern_fix"; mode: ParentCardPatternFixMode; companyId: string }
   | { kind: "normalize_import_integer_distribution" }
   | { kind: "fix_invalid_subunit_amounts" }
-  | { kind: "fix_duplicate_import_cases"; facilityId?: string | null }
-  | { kind: "settle_overdrawn_debt"; facilityId?: string | null }
+  | { kind: "fix_duplicate_import_cases"; facilityId?: string | null; companyId: string }
+  | { kind: "settle_overdrawn_debt"; facilityId?: string | null; companyId: string }
   | { kind: "stabilize_legacy_with_batch" }
   | { kind: "purge_legacy_no_payment" };
 
@@ -109,6 +110,7 @@ async function executeTask(
     case "parent_card_pattern_fix":
       return runParentCardPatternFixAction({
         mode: task.mode,
+        companyId: task.companyId,
         onProgress: (progress) => {
           const total = Math.max(1, Number(progress.total) || 1);
           const current = Math.max(0, Math.min(total, Number(progress.examined) || 0));
@@ -129,11 +131,13 @@ async function executeTask(
       return applyActiveImportDuplicateFix({
         user: actor.username,
         facilityId: task.facilityId ?? actor.id,
+        companyId: task.companyId,
       });
     case "settle_overdrawn_debt":
       return applyOverdrawnDebtSettlement({
         user: actor.username,
         facilityId: task.facilityId ?? actor.id,
+        companyId: task.companyId,
       });
     case "stabilize_legacy_with_batch": {
       const result = await stabilizeLegacyCardsWithBatch();
@@ -163,13 +167,22 @@ export async function startMaintenanceJobForActor(
     return { success: false, error: "غير مصرح" };
   }
 
+  const verifiedActor = await resolveVerifiedSuperAdminActor(actor);
+  if (!verifiedActor) {
+    return { success: false, error: "غير مصرح" };
+  }
+
+  if (task.kind === "fix_duplicate_import_cases" || task.kind === "settle_overdrawn_debt" || task.kind === "parent_card_pattern_fix") {
+    await assertCompanyAccessForSession(verifiedActor, task.companyId);
+  }
+
   const id = generateJobId();
   const record: MaintenanceJobRecord = {
     id,
     createdAt: new Date().toISOString(),
     startedAt: null,
     completedAt: null,
-    createdBy: actor.username,
+    createdBy: verifiedActor.username,
     state: "queued",
     task,
   };
@@ -186,7 +199,7 @@ export async function startMaintenanceJobForActor(
     jobs.set(id, queued);
 
     try {
-      const result = await executeTask(task, { id: actor.id, username: actor.username }, (progress) => {
+      const result = await executeTask(task, verifiedActor, (progress) => {
         const running = jobs.get(id);
         if (!running) return;
         running.progress = progress;
@@ -233,8 +246,8 @@ export async function startMaintenanceJobAction(task: MaintenanceJobTask): Promi
   job?: MaintenanceJobRecord;
   error?: string;
 }> {
-  const session = await getSession();
-  if (!session?.is_admin) {
+  const session = await resolveVerifiedSuperAdminActor();
+  if (!session) {
     return { success: false, error: "غير مصرح" };
   }
 
@@ -250,8 +263,8 @@ export async function getMaintenanceJobAction(jobId: string): Promise<{
   job?: MaintenanceJobRecord;
   error?: string;
 }> {
-  const session = await getSession();
-  if (!session?.is_admin) {
+  const session = await resolveVerifiedSuperAdminActor();
+  if (!session) {
     return { success: false, error: "غير مصرح" };
   }
 

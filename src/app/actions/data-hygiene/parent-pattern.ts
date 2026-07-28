@@ -1,11 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { getSession } from "@/lib/auth";
+import { resolveVerifiedSuperAdminActor } from "@/lib/super-admin-actor";
 import prisma from "@/lib/prisma";
 import { AUDIT_ACTIONS } from "@/lib/constants";
 import { Prisma, TransactionType } from "@prisma/client";
 import { extractBaseCard, normalizePersonName } from "@/lib/normalize";
+import { assertCompanyAccessForSession } from "@/lib/company-scope";
 import { 
   ParentCardPatternFixMode, 
   ParentCardPatternFixResult, 
@@ -14,7 +15,7 @@ import {
 
 export async function normalizeParentCardByMode(cardNumber: string, mode: ParentCardPatternFixMode) {
   const card = String(cardNumber ?? "").trim().toUpperCase();
-  const match = card.match(/^(WAB2025\d+)([A-Z])(\d+)?$/);
+  const match = card.match(/^([A-Z]+\d+)([A-Z])(\d+)?$/);
   if (!match) {
     return { changed: false, nextCard: card, reason: "not_supported" as const };
   }
@@ -23,21 +24,12 @@ export async function normalizeParentCardByMode(cardNumber: string, mode: Parent
   const num = numRaw ? Number(numRaw) : null;
 
   if (code === "H") {
-    if (num === 2) {
-      return { changed: true, nextCard: `${base}H1`, reason: "h2_to_h1" as const };
-    }
-    if (num === null && mode === "all_to_numbered") {
-      return { changed: true, nextCard: `${base}H1`, reason: "plain_to_numbered" as const };
-    }
-    return { changed: false, nextCard: card, reason: "h_valid" as const };
+    if (num === null) return { changed: true, nextCard: `${base}H1`, reason: "plain_to_numbered" as const };
+    return { changed: false, nextCard: card, reason: "already_numbered" as const };
   }
 
   if (code !== "M" && code !== "F" && code !== "W") {
     return { changed: false, nextCard: card, reason: "not_parent_suffix" as const };
-  }
-
-  if (mode === "h2_to_h1_only") {
-    return { changed: false, nextCard: card, reason: "mode_skip" as const };
   }
 
   if (mode === "all_to_numbered") {
@@ -55,6 +47,7 @@ export async function normalizeParentCardByMode(cardNumber: string, mode: Parent
 }
 
 export async function runParentCardPatternFixAction(request: {
+  companyId: string;
   mode?: ParentCardPatternFixMode;
   onProgress?: (progress: {
     total: number;
@@ -65,12 +58,10 @@ export async function runParentCardPatternFixAction(request: {
     h2Fixed: number;
     normalized: number;
   }) => void;
-} = {}, actor?: BackgroundActor): Promise<ParentCardPatternFixResult> {
-  const session = actor
-    ? { id: actor.id, username: actor.username, is_admin: actor.isAdmin }
-    : await getSession();
+}, actor?: BackgroundActor): Promise<ParentCardPatternFixResult> {
+  const session = await resolveVerifiedSuperAdminActor(actor);
     
-  if (!session?.is_admin) {
+  if (!session) {
     return {
       success: false,
       mode: request.mode ?? "all_to_numbered",
@@ -83,6 +74,7 @@ export async function runParentCardPatternFixAction(request: {
       error: "غير مصرح",
     };
   }
+  await assertCompanyAccessForSession(session, request.companyId);
 
   const mode = request.mode ?? "all_to_numbered";
 
@@ -91,15 +83,14 @@ export async function runParentCardPatternFixAction(request: {
       SELECT b.id, b.name, b.card_number
       FROM "Beneficiary" b
       WHERE b.deleted_at IS NULL
+        AND b.company_id = ${request.companyId}
         AND (
-          b.card_number ~ '^WAB2025[0-9]+W$'
-          OR b.card_number ~ '^WAB2025[0-9]+W1$'
-          OR b.card_number ~ '^WAB2025[0-9]+M$'
-          OR b.card_number ~ '^WAB2025[0-9]+M1$'
-          OR b.card_number ~ '^WAB2025[0-9]+F$'
-          OR b.card_number ~ '^WAB2025[0-9]+F1$'
-          OR b.card_number ~ '^WAB2025[0-9]+H$'
-          OR b.card_number ~ '^WAB2025[0-9]+H2$'
+          b.card_number ~ '^[A-Za-z]+[0-9]+W$'
+          OR b.card_number ~ '^[A-Za-z]+[0-9]+W1$'
+          OR b.card_number ~ '^[A-Za-z]+[0-9]+M$'
+          OR b.card_number ~ '^[A-Za-z]+[0-9]+M1$'
+          OR b.card_number ~ '^[A-Za-z]+[0-9]+F$'
+          OR b.card_number ~ '^[A-Za-z]+[0-9]+F1$'
         )
       ORDER BY b.card_number ASC
       LIMIT 10000
@@ -110,7 +101,7 @@ export async function runParentCardPatternFixAction(request: {
     let merged = 0;
     let skipped = 0;
     let conflicts = 0;
-    let h2Fixed = 0;
+    const h2Fixed = 0;
     let parentNormalized = 0;
     let examined = 0;
     const undoSnapshot: Array<Record<string, unknown>> = [];
@@ -417,11 +408,7 @@ export async function runParentCardPatternFixAction(request: {
         old_card_number: row.card_number,
         new_card_number: normalized.nextCard,
       });
-      if (normalized.reason === "h2_to_h1") {
-        h2Fixed += 1;
-      } else {
-        parentNormalized += 1;
-      }
+      parentNormalized += 1;
 
       details.push({
         beneficiary_id: row.id,

@@ -169,6 +169,7 @@ export async function createBeneficiary(data: {
           "last_imported_at"
         FROM "FamilyImportArchive"
         WHERE "family_base_card" = ${familyBaseCard}
+          AND "company_id" = ${beneficiaryCompanyId}
         LIMIT 1
       `;
 

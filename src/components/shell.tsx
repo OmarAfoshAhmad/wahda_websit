@@ -1,13 +1,13 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { cn } from "@/components/ui/core";
 import { 
   LogOut, 
-  KeyRound, 
+  Settings,
   Wrench
 } from "lucide-react";
 import { logout } from "@/app/actions/auth";
@@ -16,9 +16,7 @@ import { hasPermission } from "@/lib/permissions";
 import { 
   BASE_NAV, 
   MANAGER_NAV, 
-  SUPER_ADMIN_NAV, 
   MAINTENANCE_NAV, 
-  CASH_CLAIM_NAV, 
   EMPLOYEE_HOME_NAV,
   DENTAL_NAV,
   OPTICS_NAV,
@@ -66,45 +64,48 @@ export function Shell({
 }) {
   const pathname = usePathname() || "";
   const [isMaintenanceOpen, setIsMaintenanceOpen] = useState(false);
+  const [allocationWindowEnabled, setAllocationWindowEnabled] = useState<boolean | null>(null);
 
-  const isAdmin = session.role === "ADMIN";
-  const isManager = session.role === "MANAGER";
-  const isEmployee = session.role === "EMPLOYEE";
+  useEffect(() => {
+    let active = true;
+    fetch("/api/ui-settings", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => {
+        if (active && typeof data?.wahdaAllocationWindowEnabled === "boolean") {
+          setAllocationWindowEnabled(data.wahdaAllocationWindowEnabled);
+        }
+      })
+      .catch(() => undefined);
+
+    const onSettingChanged = (event: Event) => {
+      const enabled = (event as CustomEvent<{ enabled?: boolean }>).detail?.enabled;
+      if (typeof enabled === "boolean") setAllocationWindowEnabled(enabled);
+    };
+    window.addEventListener("wahda-allocation-setting-changed", onSettingChanged);
+    return () => {
+      active = false;
+      window.removeEventListener("wahda-allocation-setting-changed", onSettingChanged);
+    };
+  }, []);
+
+  const isAdmin = session.role_v2 === "SUPER_ADMIN";
+  const isManager = session.role_v2 === "MANAGER" || session.role_v2 === "COMPANY_ADMIN";
+  const isEmployee = session.role_v2 === "EMPLOYEE";
   const canUseCashClaim = hasPermission(session, "cash_claim");
 
   const permsHash = useMemo(() => JSON.stringify(session.manager_permissions), [session.manager_permissions]);
 
   const allNav = useMemo(() => {
-    const rawMode = process.env.NEXT_PUBLIC_APP_MODE || "BOTH";
-    const appMode = rawMode.replace(/["']/g, '').toUpperCase();
+    const filteredBaseNav = allocationWindowEnabled === true
+      ? filterNavByPermission(BASE_NAV, session)
+      : [];
+    const filteredManagerNav = MANAGER_NAV.filter(item => hasPermission(session, item.perm));
 
-    const isSpecializedMode = appMode === "DENTAL" || appMode === "DENTAL_OPTICS";
-
-    // 1. Base Nav (Dashboard/Transactions OR Dental as main)
-    let currentBaseNav = BASE_NAV as ReadonlyArray<any>;
-    if (appMode === "DENTAL") {
-      currentBaseNav = [{ ...DENTAL_NAV, perm: "dental_services" as keyof ManagerPermissions }];
-    } else if (appMode === "DENTAL_OPTICS") {
-      currentBaseNav = [];
-    }
-    const filteredBaseNav = filterNavByPermission(currentBaseNav as typeof BASE_NAV, session);
-
-    // 2. Manager Nav (Hide global Beneficiaries in specialized modes)
-    const currentManagerNav = isSpecializedMode
-      ? MANAGER_NAV.filter(item => item.name !== "المستفيدون")
-      : MANAGER_NAV;
-    const filteredManagerNav = currentManagerNav.filter(item => hasPermission(session, item.perm));
-
-    const filteredSuperAdminNav = SUPER_ADMIN_NAV.filter(item => hasPermission(session, item.perm));
-    
     // 3. Extra Tabs
-    const showDentalTab = (appMode === "BOTH" || appMode === "DENTAL_OPTICS") && 
-      (hasPermission(session, "dental_services") || hasPermission(session, "view_dental_beneficiaries"));
-    const showOpticsTab = (appMode === "BOTH" || appMode === "DENTAL_OPTICS") && 
-      (hasPermission(session, "optics_services") || hasPermission(session, "view_optics_beneficiaries"));
-    const showPhysiotherapyTab = (appMode === "BOTH" || appMode === "DENTAL_OPTICS") && 
-      (hasPermission(session, "physiotherapy_services") || hasPermission(session, "view_physiotherapy_beneficiaries"));
-    const showCashClaim = !isSpecializedMode && canUseCashClaim;
+    const showDentalTab = hasPermission(session, "dental_services") || hasPermission(session, "view_dental_beneficiaries");
+    const showOpticsTab = hasPermission(session, "optics_services") || hasPermission(session, "view_optics_beneficiaries");
+    const showPhysiotherapyTab = hasPermission(session, "physiotherapy_services") || hasPermission(session, "view_physiotherapy_beneficiaries");
+    const showCashClaim = canUseCashClaim;
 
     if (isAdmin) {
       return [
@@ -113,22 +114,18 @@ export function Shell({
         ...(showOpticsTab ? [OPTICS_NAV] : []),
         ...(showPhysiotherapyTab ? [PHYSIOTHERAPY_NAV] : []),
         ...filteredManagerNav, 
-        ...(showCashClaim ? [CASH_CLAIM_NAV] : []), 
-        ...filteredSuperAdminNav, 
       ];
     }
 
     if (isManager || isEmployee) {
       return [
         ...(isEmployee && showCashClaim
-          ? [EMPLOYEE_HOME_NAV, ...filteredBaseNav.filter((item) => item.href === "/transactions")]
+          ? [EMPLOYEE_HOME_NAV, ...filteredBaseNav]
           : filteredBaseNav),
         ...(showDentalTab ? [DENTAL_NAV] : []),
         ...(showOpticsTab ? [OPTICS_NAV] : []),
         ...(showPhysiotherapyTab ? [PHYSIOTHERAPY_NAV] : []),
         ...filteredManagerNav,
-        ...(isManager && showCashClaim ? [CASH_CLAIM_NAV] : []),
-        ...filteredSuperAdminNav,
       ];
     }
 
@@ -137,9 +134,8 @@ export function Shell({
       ...(showDentalTab ? [DENTAL_NAV] : []),
       ...(showOpticsTab ? [OPTICS_NAV] : []),
       ...(showPhysiotherapyTab ? [PHYSIOTHERAPY_NAV] : []),
-      ...(showCashClaim ? [CASH_CLAIM_NAV] : []),
     ];
-  }, [isAdmin, isManager, isEmployee, canUseCashClaim, permsHash, session]);
+  }, [isAdmin, isManager, isEmployee, canUseCashClaim, allocationWindowEnabled, permsHash, session]);
 
   const filteredMaintenanceNav = useMemo(() => {
     return MAINTENANCE_NAV.filter(item => {
@@ -210,9 +206,9 @@ export function Shell({
                 <Link
                   href="/settings"
                   className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-primary dark:hover:text-blue-400"
-                  title="تغيير كلمة المرور"
+                  title="الإعدادات"
                 >
-                  <KeyRound className="h-5 w-5" />
+                  <Settings className="h-5 w-5" />
                 </Link>
                 <button
                   onClick={() => safeLogout()}
@@ -292,9 +288,9 @@ export function Shell({
                   <Link
                     href="/settings"
                     className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-primary dark:hover:text-primary-light"
-                    title="تغيير كلمة المرور"
+                    title="الإعدادات"
                   >
-                    <KeyRound className="h-4 w-4" />
+                    <Settings className="h-4 w-4" />
                   </Link>
                   <button
                     onClick={() => safeLogout()}

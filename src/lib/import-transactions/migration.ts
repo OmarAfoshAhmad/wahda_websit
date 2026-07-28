@@ -4,7 +4,6 @@ import { roundCurrency } from "@/lib/money";
 import { INTERACTIVE_TX_OPTIONS } from "./constants";
 import { BeneficiaryBalanceSnapshot, ImportAppliedRow } from "./types";
 import { familySuffixRegex, buildFamilyBaseRegex } from "./utils";
-import { findCompanyByCardNumber } from "@/lib/insurance/company-matcher";
 
 export async function loadFamilyMembersSnapshot(baseCards: string[]): Promise<BeneficiaryBalanceSnapshot[]> {
   if (baseCards.length === 0) return [];
@@ -53,9 +52,9 @@ export async function importFamilyTransactions(
   baseCard: string,
   totalUsedAmount: number,
   facilityId: string,
-  expectedFamilyCount?: number,
+  companyId: string,
+  _expectedFamilyCount?: number,
   replaceOldImports = true,
-  companyId?: string | null,
   personalOnly = false, // عندما يكون true يطبق الخصم فقط على صاحب البطاقة المحددة دون أفراد الأسرة
 ): Promise<{ count: number; mode: "created" | "updated"; appliedRows: ImportAppliedRow[] }> {
   let transactionCount = 0;
@@ -70,6 +69,7 @@ export async function importFamilyTransactions(
         card_number = ${baseCard}
         OR card_number ~ ${familySuffixRegex(baseCard)}
       )
+        AND company_id = ${companyId}
         AND "deleted_at" IS NULL
       ORDER BY card_number ASC
       FOR UPDATE
@@ -97,8 +97,9 @@ export async function importFamilyTransactions(
     });
     hasExistingImport = existingImports.length > 0;
 
-    const expectedCount = Math.max(0, Math.floor(Number(expectedFamilyCount) || 0));
-    const divisor = Math.max(1, expectedCount > 0 ? expectedCount : familyMembers.length);
+    // المخصص يعاد توزيعه على أفراد الأسرة الموجودين فعلياً الآن. عدد الملف
+    // مرجعي للتدقيق فقط، ولا يجوز أن يجعل فردين يتحملان حصة أسرة من سبعة.
+    const divisor = Math.max(1, familyMembers.length);
     const normalizedTotalUsed = Math.max(0, Math.round(totalUsedAmount));
     const baseShare = Math.floor(normalizedTotalUsed / divisor);
     const remainder = normalizedTotalUsed - baseShare * divisor;
@@ -214,11 +215,13 @@ export async function importFamilyTransactions(
 
 export async function suspendFamily(
   baseCard: string,
+  companyId: string,
 ): Promise<"already_suspended" | { count: number }> {
   const familyMembers = await prisma.$queryRaw<Array<{ id: string; status: string; total_balance: number }>>`
     SELECT id, status::text, total_balance::float8
     FROM "Beneficiary"
     WHERE deleted_at IS NULL
+      AND company_id = ${companyId}
       AND (
         card_number = ${baseCard}
         OR card_number ~ ${familySuffixRegex(baseCard)}
@@ -251,13 +254,15 @@ export async function suspendFamily(
 export async function setFamilyBalance(
   baseCard: string,
   totalBalance: number,
-  expectedFamilyCount?: number,
+  companyId: string,
+  _expectedFamilyCount?: number,
 ): Promise<"already_correct" | { count: number }> {
   return await prisma.$transaction(async (tx) => {
     const familyMembers = await tx.$queryRaw<Array<{ id: string; status: string; total_balance: number; remaining_balance: number }>>`
       SELECT id, status::text, total_balance::float8, remaining_balance::float8
       FROM "Beneficiary"
       WHERE deleted_at IS NULL
+        AND company_id = ${companyId}
         AND (
           card_number = ${baseCard}
           OR card_number ~ ${familySuffixRegex(baseCard)}
@@ -268,8 +273,7 @@ export async function setFamilyBalance(
 
     if (familyMembers.length === 0) return "already_correct";
 
-    const expectedCount = Math.max(0, Math.floor(Number(expectedFamilyCount) || 0));
-    const divisor = Math.max(1, expectedCount > 0 ? expectedCount : familyMembers.length);
+    const divisor = Math.max(1, familyMembers.length);
     const normalizedTotalBalance = Math.max(0, Math.round(totalBalance));
     const baseShare = Math.floor(normalizedTotalBalance / divisor);
     const remainder = normalizedTotalBalance - baseShare * divisor;

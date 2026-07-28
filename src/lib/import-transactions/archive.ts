@@ -1,6 +1,6 @@
 import prisma from "@/lib/prisma";
 import { roundCurrency } from "@/lib/money";
-  import type { FamilyImportArchiveSnapshot } from "./types";
+import type { FamilyImportArchiveSnapshot } from "./types";
 import type { FamilyImportArchive } from "@prisma/client";
 
 export async function loadFamilyArchiveSnapshot(baseCards: string[]): Promise<FamilyImportArchiveSnapshot[]> {
@@ -16,6 +16,7 @@ export async function loadFamilyArchiveSnapshot(baseCards: string[]): Promise<Fa
   });
 
   return rows.map((row: FamilyImportArchive) => ({
+    companyId: row.company_id,
     familyBaseCard: row.family_base_card,
     familyCountFromFile: row.family_count_from_file,
     totalBalanceFromFile: Number(row.total_balance_from_file) || 0,
@@ -28,11 +29,16 @@ export async function loadFamilyArchiveSnapshot(baseCards: string[]): Promise<Fa
   }));
 }
 
-export async function deleteFamilyImportArchiveRows(baseCards: string[]): Promise<number> {
-  if (baseCards.length === 0) return 0;
+export async function deleteFamilyImportArchiveRows(
+  families: Array<{ companyId: string; familyBaseCard: string }>,
+): Promise<number> {
+  if (families.length === 0) return 0;
   const result = await prisma.familyImportArchive.deleteMany({
     where: {
-      family_base_card: { in: baseCards }
+      OR: families.map((family) => ({
+        company_id: family.companyId,
+        family_base_card: family.familyBaseCard,
+      })),
     }
   });
   return result.count;
@@ -59,6 +65,7 @@ export async function findImportBaseCardsMissingFromFile(importFacilityId: strin
 }
 
 export async function upsertFamilyImportArchive(input: {
+  companyId: string;
   familyBaseCard: string;
   familyCount: number;
   totalBalanceFromFile: number;
@@ -72,7 +79,12 @@ export async function upsertFamilyImportArchive(input: {
   const sourceRowNumber = Math.max(0, Math.floor(Number(input.sourceRowNumber) || 0));
 
   await prisma.familyImportArchive.upsert({
-    where: { family_base_card: input.familyBaseCard },
+    where: {
+      company_id_family_base_card: {
+        company_id: input.companyId,
+        family_base_card: input.familyBaseCard,
+      },
+    },
     update: {
       family_count_from_file: familyCount,
       total_balance_from_file: totalBalance,
@@ -82,6 +94,7 @@ export async function upsertFamilyImportArchive(input: {
       last_imported_at: new Date(),
     },
     create: {
+      company_id: input.companyId,
       family_base_card: input.familyBaseCard,
       family_count_from_file: familyCount,
       total_balance_from_file: totalBalance,
