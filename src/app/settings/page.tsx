@@ -18,8 +18,8 @@ export default async function SettingsPage() {
     <SettingsPageClient
       initialBalance={initialBalance}
       otpSettings={otpSettings}
-      canManageInitialBalance={session.role_v2 === "SUPER_ADMIN"}
-      canManageSystemFeatures={session.role_v2 === "SUPER_ADMIN"}
+      canManageInitialBalance={session.role_v2 === "SUPER_ADMIN" || (!session.role_v2 && session.is_admin)}
+      canManageSystemFeatures={session.role_v2 === "SUPER_ADMIN" || (!session.role_v2 && session.is_admin)}
       wahdaAllocationWindowEnabled={wahdaAllocationWindowEnabled}
     />
   );
