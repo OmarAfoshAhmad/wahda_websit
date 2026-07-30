@@ -152,10 +152,10 @@ export async function getOverdrawnDebtCases(filter?: {
     WITH spent_by_beneficiary AS (
       SELECT
         t.beneficiary_id,
-        COALESCE(SUM(t.amount), 0)::float8 AS spent
+        COALESCE(SUM(COALESCE(t.actual_company_share, t.amount)), 0)::float8 AS spent
       FROM "Transaction" t
       WHERE t.is_cancelled = false
-        AND t.type <> 'CANCELLATION'
+        AND t.type NOT IN ('CANCELLATION', 'DENTAL', 'OPTICS', 'PHYSIOTHERAPY')
       GROUP BY t.beneficiary_id
     )
     SELECT
@@ -220,7 +220,11 @@ export async function getOverdrawnDebtCases(filter?: {
       b.total_balance::float8,
       b.status::text,
       b.completed_via,
-      COALESCE(SUM(CASE WHEN t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END), 0)::float8 AS spent,
+      COALESCE(SUM(CASE
+        WHEN t.type NOT IN ('CANCELLATION', 'DENTAL', 'OPTICS', 'PHYSIOTHERAPY')
+        THEN COALESCE(t.actual_company_share, t.amount)
+        ELSE 0
+      END), 0)::float8 AS spent,
       COALESCE(SUM(CASE
         WHEN t.type = 'IMPORT' THEN t.amount
         WHEN t.type = 'SETTLEMENT'
@@ -508,7 +512,12 @@ export async function applyOverdrawnDebtSettlement(params: {
             b.status::text,
             b.completed_via,
             b.total_balance::float8,
-            COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END), 0)::float8 AS spent
+            COALESCE(SUM(CASE
+              WHEN t.is_cancelled = false
+                AND t.type NOT IN ('CANCELLATION', 'DENTAL', 'OPTICS', 'PHYSIOTHERAPY')
+              THEN COALESCE(t.actual_company_share, t.amount)
+              ELSE 0
+            END), 0)::float8 AS spent
           FROM "Beneficiary" b
           LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id
           WHERE b.id = ${c.debtorId}

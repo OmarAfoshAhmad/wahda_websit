@@ -44,7 +44,8 @@ export async function calculateBeneficiaryBalance(
     where: {
       beneficiary_id: beneficiaryId,
       is_cancelled: false,
-      type: { notIn: ["CANCELLATION", "DENTAL", "OPTICS"] }, // DENTAL and OPTICS don't affect balance
+      // محافظ الخدمات المستقلة لا تستهلك الرصيد الأساسي للمستفيد.
+      type: { notIn: ["CANCELLATION", "DENTAL", "OPTICS", "PHYSIOTHERAPY"] },
     },
     select: { amount: true, actual_company_share: true },
   });

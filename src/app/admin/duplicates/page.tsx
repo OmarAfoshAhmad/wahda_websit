@@ -1093,12 +1093,14 @@ export default async function DuplicatesAdminPage({
 
             <Card id="debt-cases" className="overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full min-w-245 text-sm">
+                <table className="w-full min-w-280 text-sm">
                   <thead className="bg-slate-50 dark:bg-slate-900/40">
                     <tr className="text-right">
                       <th className="px-3 py-2 font-bold">مصدر المديونية</th>
                       <th className="px-3 py-2 font-bold">المستفيد المدين</th>
                       <th className="px-3 py-2 font-bold">بطاقة المدين</th>
+                      <th className="px-3 py-2 font-bold">السقف الكلي</th>
+                      <th className="px-3 py-2 font-bold">الاستهلاك المحتسب</th>
                       <th className="px-3 py-2 font-bold">الدين</th>
                       <th className="px-3 py-2 font-bold">أفراد العائلة</th>
                       <th className="px-3 py-2 font-bold">المتاح بالعائلة</th>
@@ -1111,7 +1113,7 @@ export default async function DuplicatesAdminPage({
                   <tbody>
                     {debtCases.length === 0 ? (
                       <tr>
-                        <td colSpan={10} className="px-3 py-6 text-center text-slate-500 dark:text-slate-400">
+                        <td colSpan={12} className="px-3 py-6 text-center text-slate-500 dark:text-slate-400">
                           لا توجد حالات مديونية حالياً (تجاوز رصيد أو فجوة استيراد).
                         </td>
                       </tr>
@@ -1146,6 +1148,8 @@ export default async function DuplicatesAdminPage({
                             )}
                           </td>
                           <td className="px-3 py-2">{row.debtorCard}</td>
+                          <td className="px-3 py-2 font-medium">{row.debtorTotalBalance.toLocaleString("en-US")}</td>
+                          <td className="px-3 py-2 font-medium">{row.debtorSpent.toLocaleString("en-US")}</td>
                           <td className="px-3 py-2 text-red-700 dark:text-red-400 font-bold">{row.debtorDebtAmount.toLocaleString("en-US")}</td>
                           <td className="px-3 py-2">{row.familyMembersCount}</td>
                           <td className="px-3 py-2">{row.familyAvailableTotal.toLocaleString("en-US")}</td>
