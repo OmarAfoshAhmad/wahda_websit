@@ -100,6 +100,9 @@ export async function assertBeneficiaryBalanceInvariant(
       expected_status: shouldStatus,
       total_balance: total,
     });
+    // تُرمى داخل Prisma transaction، لذلك تُلغى العملية المالية كاملة
+    // ولا يُسمح بحفظ رصيد جديد غير مطابق لدفتر الحركات والسقف الثابت.
+    throw new Error(`BALANCE_GUARD_INVARIANT_FAILED:${context}`);
   }
 }
 

@@ -13,7 +13,7 @@ describe('Balance Guard Invariant', () => {
       .rejects.toThrow('BALANCE_GUARD_BENEFICIARY_NOT_FOUND');
   });
 
-  it('should log warning if stored balance does not match computed balance', async () => {
+  it('should reject the transaction if stored balance does not match computed balance', async () => {
     const mockTx = {
       beneficiary: {
         findUnique: vi.fn().mockResolvedValue({
@@ -31,10 +31,10 @@ describe('Balance Guard Invariant', () => {
     } as any;
 
     await expect(assertBeneficiaryBalanceInvariant(mockTx, 'id1', 'test'))
-      .resolves.not.toThrow();
+      .rejects.toThrow('BALANCE_GUARD_INVARIANT_FAILED:test');
   });
 
-  it('should log warning if status does not match computed balance', async () => {
+  it('should reject the transaction if status does not match computed balance', async () => {
     const mockTx = {
       beneficiary: {
         findUnique: vi.fn().mockResolvedValue({
@@ -52,7 +52,7 @@ describe('Balance Guard Invariant', () => {
     } as any;
 
     await expect(assertBeneficiaryBalanceInvariant(mockTx, 'id1', 'test'))
-      .resolves.not.toThrow();
+      .rejects.toThrow('BALANCE_GUARD_INVARIANT_FAILED:test');
   });
 
   it('should pass if everything matches', async () => {
