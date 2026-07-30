@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect, useRef } from "react";
 import { Button } from "@/components/ui";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { BeneficiaryEditModal } from "@/components/beneficiary-edit-modal";
@@ -103,6 +103,23 @@ export function DuplicateManualMergeForm({
   const [isMerged, setIsMerged] = useState(false);
   const [isPending, startTransition] = useTransition();
   const { success, error } = useToast();
+  const formRef = useRef<HTMLFormElement>(null);
+
+  // كلما تغيرت حالة التحديد، نخزنها في data attribute على النموذج
+  // حتى يستطيع زر "معالجة الدفعة" قراءتها بشكل موثوق
+  useEffect(() => {
+    if (formRef.current) {
+      const state = {
+        member_ids: members.map(m => m.id),
+        actions, // map: memberId -> targetId
+        q,
+        pz,
+        pn,
+        companyId,
+      };
+      formRef.current.dataset.mergeState = JSON.stringify(state);
+    }
+  }, [actions, members, q, pz, pn, companyId]);
 
   if (isMerged) return null;
 
@@ -126,7 +143,7 @@ export function DuplicateManualMergeForm({
   }
 
   return (
-    <form id={formId} action={handleSubmit} className="mb-3 rounded-md border border-dashed border-slate-300 dark:border-slate-700 p-2">
+    <form ref={formRef} id={formId} action={handleSubmit} className="mb-3 rounded-md border border-dashed border-slate-300 dark:border-slate-700 p-2">
       {/* تحذير تعارض تاريخ الميلاد */}
       {hasBirthDateConflict && (
         <div className="mb-2 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-2 dark:border-amber-800 dark:bg-amber-950/30">

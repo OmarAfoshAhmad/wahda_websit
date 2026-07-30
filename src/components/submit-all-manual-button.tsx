@@ -5,6 +5,15 @@ import { Button } from "@/components/ui";
 import { Loader2, CheckSquare } from "lucide-react";
 import { bulkManualMergeAction } from "@/app/actions/bulk-manual-merge";
 
+type MergeState = {
+  member_ids: string[];
+  actions: Record<string, string>; // memberId -> targetId
+  q: string;
+  pz: number;
+  pn: number;
+  companyId: string;
+};
+
 export function SubmitAllManualButton() {
   const [isPending, startTransition] = useTransition();
   const [running, setRunning] = useState(false);
@@ -15,44 +24,56 @@ export function SubmitAllManualButton() {
     
     startTransition(async () => {
       try {
-        // Collect all manual merge forms (those with member_ids but without canonical_card)
-        const forms = document.querySelectorAll("form");
+        // قراءة بيانات التحديدات من data-merge-state attribute (موثوق 100%)
+        const forms = document.querySelectorAll<HTMLFormElement>("form[data-merge-state]");
         const payloadsData: Record<string, string | string[]>[] = [];
 
         for (let i = 0; i < forms.length; i++) {
           const form = forms[i];
-          const hasMemberIds = form.querySelector('input[name="member_ids"]');
-          const hasCanonical = form.querySelector('input[name="canonical_card"]');
-          
-          // Only manual merge forms (not group merge or audit forms)
-          if (hasMemberIds && !hasCanonical && !form.id.startsWith("review-")) {
-            const formData = new FormData(form);
-            // Convert FormData to a plain object (with arrays for multi-value fields)
-            const obj: Record<string, string | string[]> = {};
-            for (const key of new Set(formData.keys())) {
-              const values = formData.getAll(key).map(String);
-              obj[key] = values.length === 1 ? values[0] : values;
-            }
-            payloadsData.push(obj);
+          const stateJson = form.dataset.mergeState;
+          if (!stateJson) continue;
+
+          let state: MergeState;
+          try {
+            state = JSON.parse(stateJson);
+          } catch {
+            continue;
           }
+
+          // تحقق: هل هناك أي عملية دمج فعلية (أي عضو يشير لعضو آخر)؟
+          const hasMerge = state.member_ids.some(
+            id => state.actions[id] && state.actions[id] !== id
+          );
+          // إذا لا يوجد أي دمج (كل الأعضاء مستقلون)، تجاهل هذه المجموعة
+          if (!hasMerge) continue;
+
+          // بناء الـ payload
+          const obj: Record<string, string | string[]> = {
+            q: state.q,
+            pz: String(state.pz),
+            pn: String(state.pn),
+            companyId: state.companyId,
+            member_ids: state.member_ids,
+          };
+          for (const memberId of state.member_ids) {
+            obj[`action_${memberId}`] = state.actions[memberId] ?? memberId;
+          }
+          payloadsData.push(obj);
         }
 
         if (payloadsData.length === 0) {
-          alert("لا توجد حالات محددة للمعالجة في هذه الصفحة.");
+          alert("لا توجد حالات محددة للمعالجة.\nتأكد أن كل مجموعة تريد دمجها فيها عضو واحد على الأقل مضبوط على الدمج.");
           setRunning(false);
           return;
         }
 
-        // Read the selected strategy from the nearby strategy select in the page
+        // قراءة الاستراتيجية المختارة
         const strategySelect = document.querySelector<HTMLSelectElement>('select[name="strategy"]');
         const strategy = strategySelect?.value ?? "ZERO_PRIORITY";
-
-        // Inject the strategy into each payload so the server action uses it
         for (const payload of payloadsData) {
           payload["strategy"] = strategy;
         }
 
-        // Send all payloads as a single JSON string in one FormData
         const wrapper = new FormData();
         wrapper.append("payloads", JSON.stringify(payloadsData));
         await bulkManualMergeAction(wrapper);
