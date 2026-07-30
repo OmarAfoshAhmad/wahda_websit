@@ -64,6 +64,7 @@ export function DuplicateManualMergeForm({
   helperText: _helperText,
   hasBirthDateConflict,
   formId,
+  companyId,
 }: {
   members: Member[];
   preferredId: string;
