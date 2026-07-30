@@ -127,7 +127,7 @@ export function groupIdsBySource(rows: Array<{ id: string; beneficiary_id: strin
   return [...bySource.entries()].map(([from_beneficiary_id, ids]) => ({ from_beneficiary_id, ids }));
 }
 
-export type MergeStrategy = "ZERO_PRIORITY" | "LOWEST_BALANCE" | "HIGHEST_TRANSACTIONS";
+export type MergeStrategy = "ZERO_PRIORITY" | "NON_ZERO_PRIORITY" | "LOWEST_BALANCE" | "HIGHEST_TRANSACTIONS";
 
 export function pickKeepByStrategy(
   matches: Array<{ id: string; card_number: string; remaining_balance: number; tx_count?: number }>,
@@ -148,6 +148,16 @@ export function pickKeepByStrategy(
     return [...matches].sort((a, b) => (b.tx_count ?? 0) - (a.tx_count ?? 0))[0];
   }
 
+  // NON_ZERO_PRIORITY: prefer the card with the FEWEST leading zeros (i.e. the "clean" card)
+  if (strategy === "NON_ZERO_PRIORITY") {
+    const minZeroScore = Math.min(...matches.map((m) => leadingZeroScoreAfterPrefix(m.card_number)));
+    return (
+      matches.find((m) => leadingZeroScoreAfterPrefix(m.card_number) === minZeroScore) ??
+      matches[0]
+    );
+  }
+
+  // Default: ZERO_PRIORITY — prefer the card WITH the most leading zeros
   const maxZeroScore = Math.max(...matches.map((m) => leadingZeroScoreAfterPrefix(m.card_number)));
   return (
     matches.find((m) => leadingZeroScoreAfterPrefix(m.card_number) === maxZeroScore) ??

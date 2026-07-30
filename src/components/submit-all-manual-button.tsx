@@ -43,6 +43,15 @@ export function SubmitAllManualButton() {
           return;
         }
 
+        // Read the selected strategy from the nearby strategy select in the page
+        const strategySelect = document.querySelector<HTMLSelectElement>('select[name="strategy"]');
+        const strategy = strategySelect?.value ?? "ZERO_PRIORITY";
+
+        // Inject the strategy into each payload so the server action uses it
+        for (const payload of payloadsData) {
+          payload["strategy"] = strategy;
+        }
+
         // Send all payloads as a single JSON string in one FormData
         const wrapper = new FormData();
         wrapper.append("payloads", JSON.stringify(payloadsData));

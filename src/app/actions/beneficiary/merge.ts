@@ -506,11 +506,12 @@ export async function mergeDuplicateManualSelectionAction(formData: FormData) {
 
   for (const [keepId, explicitMergeIds] of targetMap.entries()) {
     if (explicitMergeIds.length > 0) {
+      const strategy = (String(formData.get("strategy") ?? "ZERO_PRIORITY") as utils.MergeStrategy);
       const res = await mergeDuplicateBeneficiaries(keepId, {
         forceKeep: true,
         explicitMergeIds,
         candidateIds: [keepId, ...explicitMergeIds],
-        strategy: "ZERO_PRIORITY",
+        strategy,
       });
       if (res.error) return res;
       totalMerged += (res.mergedCount ?? 0);

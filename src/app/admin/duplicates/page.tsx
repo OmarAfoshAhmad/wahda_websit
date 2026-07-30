@@ -994,6 +994,7 @@ export default async function DuplicatesAdminPage({
                       <div className="flex items-center gap-2">
                         <select name="strategy" defaultValue="ZERO_PRIORITY" className="h-9 rounded-md border border-slate-300 bg-white px-2 text-xs dark:border-slate-700 dark:bg-slate-900">
                           <option value="ZERO_PRIORITY">أولوية البطاقة ذات الأصفار</option>
+                          <option value="NON_ZERO_PRIORITY">أولوية البطاقة بدون أصفار</option>
                           <option value="LOWEST_BALANCE">أقل رصيد</option>
                           <option value="HIGHEST_TRANSACTIONS">أعلى عدد معاملات</option>
                         </select>
