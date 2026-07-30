@@ -13,6 +13,7 @@ import { DuplicateManualMergeForm } from "@/components/duplicate-manual-merge-fo
 import { DuplicateSameNameGroup } from "@/components/duplicate-same-name-group";
 import { BatchMergeButton } from "@/components/batch-merge-button";
 import { AutoMergeAllZeroVariantsButton } from "@/components/auto-merge-all-zero-variants-button";
+import { SubmitAllManualButton } from "@/components/submit-all-manual-button";
 import { DataHealthContent } from "@/components/admin";
 import { DebtSettlementBackgroundButton } from "@/components/debt-settlement-background-button";
 import {
@@ -979,7 +980,10 @@ export default async function DuplicatesAdminPage({
               <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 px-4 py-3 sm:px-6">
                 <h2 className="text-sm font-black text-slate-900 dark:text-white">حالات اختلاف الأصفار (جاهزة للدمج)</h2>
                 {zeroVariantGroups.length > 0 && (
-                  <AutoMergeAllZeroVariantsButton companyId={companyId} />
+                  <div className="flex items-center gap-2">
+                    <AutoMergeAllZeroVariantsButton companyId={companyId} />
+                    <SubmitAllManualButton />
+                  </div>
                 )}
               </div>
               <div className="space-y-4 p-4 sm:p-6">
@@ -1048,6 +1052,7 @@ export default async function DuplicatesAdminPage({
                           transactionsCount: m._count?.transactions ?? 0,
                         }))}
                         preferredId={group.preferredId}
+                        companyId={companyId}
                         q={q ?? ""}
                         pz={zeroPage.page}
                         pn={namePage.page}
@@ -1327,6 +1332,7 @@ export default async function DuplicatesAdminPage({
                           transactionsCount: m._count?.transactions ?? 0,
                         }))}
                         preferredId={group.preferredId}
+                        companyId={companyId}
                         q={q ?? ""}
                         pz={reviewPage.page}
                         pn={namePage.page}
@@ -1399,6 +1405,7 @@ export default async function DuplicatesAdminPage({
                           transactionsCount: m._count?.transactions ?? 0,
                         }))}
                         preferredId={g.preferredId}
+                        companyId={companyId}
                         q={q ?? ""}
                         pz={namePage.page}
                         pn={namePage.page}

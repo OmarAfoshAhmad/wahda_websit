@@ -75,6 +75,7 @@ export function DuplicateManualMergeForm({
   /** عند true: الأعضاء لديهم تواريخ ميلاد مختلفة — قد يكونون أشخاصاً مختلفين فعلاً */
   hasBirthDateConflict?: boolean;
   formId?: string;
+  companyId: string;
 }) {
   const [actions, setActions] = useState<Record<string, string>>(() => {
     const map: Record<string, string> = {};
@@ -139,6 +140,7 @@ export function DuplicateManualMergeForm({
         <input type="hidden" name="q" value={q} />
         <input type="hidden" name="pz" value={String(pz)} />
         <input type="hidden" name="pn" value={String(pn)} />
+        <input type="hidden" name="companyId" value={companyId} />
         {members.map((m) => (
           <input key={`mid-${m.id}`} type="hidden" name="member_ids" value={m.id} />
         ))}
@@ -175,7 +177,19 @@ export function DuplicateManualMergeForm({
                     <select
                       name={`action_${m.id}`}
                       value={actions[m.id]}
-                      onChange={(e) => setActions({ ...actions, [m.id]: e.target.value })}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const newActions = { ...actions, [m.id]: val };
+                        // Mutual exclusivity: if this member is kept, others should merge into it (if 2 members).
+                        if (val === m.id && members.length === 2) {
+                          const other = members.find(t => t.id !== m.id);
+                          if (other) newActions[other.id] = m.id;
+                        } else if (val !== m.id && members.length === 2) {
+                          // If this member merges into target, the target must be kept.
+                          newActions[val] = val;
+                        }
+                        setActions(newActions);
+                      }}
                       className={`w-full text-xs py-1.5 px-2 rounded-md border focus:outline-none focus:ring-1 bg-white dark:bg-slate-900 ${
                         actions[m.id] === m.id 
                           ? "border-emerald-300 focus:border-emerald-500 focus:ring-emerald-500 font-bold text-emerald-700 dark:text-emerald-400"

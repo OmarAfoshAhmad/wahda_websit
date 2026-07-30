@@ -78,7 +78,14 @@ async function getFreshAccountScope(accountId: string) {
 
 export async function getAllowedCompanyIds(session: Pick<Session, "id">): Promise<string[]> {
   const account = await getFreshAccountScope(session.id);
-  if (account.computedRole === "SUPER_ADMIN" || account.computedRole === "FACILITY") {
+  
+  const hasExplicitAccess = account.company_accesses.length > 0;
+  
+  if (
+    account.computedRole === "SUPER_ADMIN" || 
+    account.computedRole === "FACILITY" || 
+    (account.computedRole === "MANAGER" && !hasExplicitAccess)
+  ) {
     const companies = await prisma.insuranceCompany.findMany({
       where: { deleted_at: null },
       select: { id: true },

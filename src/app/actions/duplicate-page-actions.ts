@@ -17,7 +17,10 @@ export async function mergeGroupAction(formData: FormData) {
   const pn = String(formData.get("pn") ?? "1");
   const tab = String(formData.get("tab") ?? "review");
 
+  const companyId = String(formData.get("companyId") ?? "");
+
   const params = new URLSearchParams();
+  if (companyId) params.set("companyId", companyId);
   if (q) params.set("q", q);
   params.set("pz", pz);
   params.set("pn", pn);
@@ -50,7 +53,10 @@ export async function mergeBatchAction(formData: FormData) {
   const pn = String(formData.get("pn") ?? "1");
   const tab = String(formData.get("tab") ?? "review");
 
+  const companyId = String(formData.get("companyId") ?? "");
+
   const params = new URLSearchParams();
+  if (companyId) params.set("companyId", companyId);
   if (q) params.set("q", q);
   params.set("pz", pz);
   params.set("pn", pn);
@@ -86,7 +92,10 @@ export async function mergeAuditGroupRedirectAction(formData: FormData) {
   const pz = String(formData.get("pz") ?? "1");
   const pn = String(formData.get("pn") ?? "1");
 
+  const companyId = String(formData.get("companyId") ?? "");
+
   const params = new URLSearchParams();
+  if (companyId) params.set("companyId", companyId);
   if (q) params.set("q", q);
   params.set("pz", pz);
   params.set("pn", pn);
