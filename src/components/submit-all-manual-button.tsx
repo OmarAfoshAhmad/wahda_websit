@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { Button } from "@/components/ui";
 import { Loader2, CheckSquare } from "lucide-react";
 import { bulkManualMergeAction } from "@/app/actions/bulk-manual-merge";
+import { isNextRouterError } from "next/dist/client/components/is-next-router-error";
 
 type MergeState = {
   member_ids: string[];
@@ -78,6 +79,8 @@ export function SubmitAllManualButton() {
         wrapper.append("payloads", JSON.stringify(payloadsData));
         await bulkManualMergeAction(wrapper);
       } catch (err) {
+        // إذا كان الخطأ redirect أو navigation error من Next.js، أعد إلقاءه
+        if (isNextRouterError(err)) throw err;
         console.error(err);
         alert("حدث خطأ أثناء إرسال البيانات");
       } finally {
