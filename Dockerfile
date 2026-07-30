@@ -1,12 +1,18 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:20-bookworm-slim AS deps
+FROM node:20-bookworm-slim AS base
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openssl \
+    && rm -rf /var/lib/apt/lists/*
+
+FROM base AS deps
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --prefer-offline --no-audit --no-fund
 
-FROM node:20-bookworm-slim AS builder
+FROM base AS builder
 WORKDIR /app
 
 ENV NEXT_TELEMETRY_DISABLED=1
