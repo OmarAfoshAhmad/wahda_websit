@@ -117,8 +117,10 @@ export async function mergeAuditBatchAction(formData: FormData) {
   const q = String(formData.get("q") ?? "");
   const pz = String(formData.get("pz") ?? "1");
   const pn = String(formData.get("pn") ?? "1");
+  const companyId = String(formData.get("companyId") ?? "");
 
   const params = new URLSearchParams();
+  if (companyId) params.set("companyId", companyId);
   if (q) params.set("q", q);
   params.set("pz", pz);
   params.set("pn", pn);
@@ -152,11 +154,15 @@ export async function undoMergeAction(formData: FormData) {
   const q = String(formData.get("q") ?? "");
   const pz = String(formData.get("pz") ?? "1");
   const pn = String(formData.get("pn") ?? "1");
+  const companyId = String(formData.get("companyId") ?? "");
+  const tab = String(formData.get("tab") ?? "merged");
 
   const params = new URLSearchParams();
+  if (companyId) params.set("companyId", companyId);
   if (q) params.set("q", q);
   params.set("pz", pz);
   params.set("pn", pn);
+  params.set("tab", tab);
 
   const result = await undoMergeDuplicateBeneficiariesByAuditId(formData);
   if (result.error) {

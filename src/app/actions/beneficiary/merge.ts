@@ -742,10 +742,33 @@ export async function mergeDuplicateBatchByConditionAction(formData: FormData) {
 
   for (const payloadRaw of limitedPayloads) {
     try {
-      const { keepId, memberIds } = JSON.parse(payloadRaw) as { keepId: string; memberIds: string[] };
-      const res = await mergeDuplicateBeneficiaries(keepId, {
+      const { memberIds } = JSON.parse(payloadRaw) as { keepId: string; memberIds: string[] };
+      const uniqueMemberIds = [...new Set(memberIds.filter(Boolean))];
+      const candidates = await prisma.beneficiary.findMany({
+        where: { id: { in: uniqueMemberIds }, deleted_at: null },
+        select: {
+          id: true,
+          card_number: true,
+          remaining_balance: true,
+          _count: { select: { transactions: true } },
+        },
+      });
+      if (candidates.length !== uniqueMemberIds.length || candidates.length <= 1) continue;
+
+      const picked = utils.pickKeepByStrategy(
+        candidates.map((candidate) => ({
+          id: candidate.id,
+          card_number: candidate.card_number,
+          remaining_balance: Number(candidate.remaining_balance),
+          tx_count: candidate._count.transactions,
+        })),
+        strategy,
+      );
+      if (!picked) continue;
+
+      const res = await mergeDuplicateBeneficiaries(picked.id, {
         forceKeep: true,
-        candidateIds: memberIds,
+        candidateIds: uniqueMemberIds,
         strategy,
       });
       if (res && !res.error) {

@@ -8,16 +8,13 @@ import { Card, Badge, Input, Button } from "@/components/ui";
 import { buildDuplicateGroups, paginate } from "@/lib/duplicate-groups";
 import { getOverdrawnDebtCases } from "@/lib/overdrawn-debt-settlement";
 import { canonicalizeCardNumber, leadingZeroScoreAfterPrefix } from "@/lib/normalize";
-import { RotateCcw, CheckCircle2, AlertCircle } from "lucide-react";
+import { RotateCcw, CheckCircle2, AlertCircle, Square, CheckSquare2 } from "lucide-react";
 import { DuplicateManualMergeForm } from "@/components/duplicate-manual-merge-form";
 import { DuplicateSameNameGroup } from "@/components/duplicate-same-name-group";
-import { BatchMergeButton } from "@/components/batch-merge-button";
-import { AutoMergeAllZeroVariantsButton } from "@/components/auto-merge-all-zero-variants-button";
-import { SubmitAllManualButton } from "@/components/submit-all-manual-button";
+import { BulkMergeSelectionControls } from "@/components/bulk-merge-selection-controls";
 import { DataHealthContent } from "@/components/admin";
 import { DebtSettlementBackgroundButton } from "@/components/debt-settlement-background-button";
 import {
-  mergeGroupAction,
   mergeManualAction,
   mergeBatchAction,
   mergeAuditGroupAction,
@@ -888,9 +885,11 @@ export default async function DuplicatesAdminPage({
                           ) : (
                             <form action={undoMergeAction}>
                               <input type="hidden" name="audit_id" value={log.id} />
+                              <input type="hidden" name="companyId" value={companyId} />
                               <input type="hidden" name="q" value={q ?? ""} />
                               <input type="hidden" name="pz" value={String(zeroPage.page)} />
                               <input type="hidden" name="pn" value={String(namePage.page)} />
+                              <input type="hidden" name="tab" value="merged" />
                               <Button type="submit" variant="outline" className="h-9 w-9 p-0" title="تراجع عن هذا الدمج" aria-label="تراجع عن هذا الدمج">
                                 <RotateCcw className="h-4 w-4" />
                               </Button>
@@ -979,42 +978,16 @@ export default async function DuplicatesAdminPage({
             <Card id="zero-ready-cases" className="overflow-hidden">
               <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 px-4 py-3 sm:px-6">
                 <h2 className="text-sm font-black text-slate-900 dark:text-white">حالات اختلاف الأصفار (جاهزة للدمج)</h2>
-                {zeroVariantGroups.length > 0 && (
-                  <div className="flex items-center gap-2">
-                    <AutoMergeAllZeroVariantsButton companyId={companyId} />
-                    <SubmitAllManualButton />
-                  </div>
-                )}
               </div>
               <div className="space-y-4 p-4 sm:p-6">
                 {zeroPage.items.length > 0 && (
-                  <form action={mergeBatchAction} className="rounded-md border border-slate-200 dark:border-slate-700 p-3">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                      <p className="text-xs text-slate-600 dark:text-slate-400">دمج دفعة الصفحة الحالية حسب شرط موحد</p>
-                      <div className="flex items-center gap-2">
-                        <select name="strategy" defaultValue="ZERO_PRIORITY" className="h-9 rounded-md border border-slate-300 bg-white px-2 text-xs dark:border-slate-700 dark:bg-slate-900">
-                          <option value="ZERO_PRIORITY">أولوية البطاقة ذات الأصفار</option>
-                          <option value="NON_ZERO_PRIORITY">أولوية البطاقة بدون أصفار</option>
-                          <option value="LOWEST_BALANCE">أقل رصيد</option>
-                          <option value="HIGHEST_TRANSACTIONS">أعلى عدد معاملات</option>
-                        </select>
-                        <input type="hidden" name="q" value={q ?? ""} />
-                        <input type="hidden" name="pz" value={String(zeroPage.page)} />
-                        <input type="hidden" name="pn" value={String(namePage.page)} />
-                        {zeroPage.items.map((g) => (
-                          <input
-                            key={`batch-${g.canonical}`}
-                            type="hidden"
-                            name="group_payload"
-                            value={JSON.stringify({
-                              keepId: g.preferredId,
-                              memberIds: g.members.map(m => m.id)
-                            })}
-                          />
-                        ))}
-                        <BatchMergeButton label="دمج دفعة" />
-                      </div>
-                    </div>
+                  <form id="bulk-zero-merge-form" action={mergeBatchAction}>
+                    <input type="hidden" name="companyId" value={companyId} />
+                    <input type="hidden" name="q" value={q ?? ""} />
+                    <input type="hidden" name="pz" value={String(zeroPage.page)} />
+                    <input type="hidden" name="pn" value={String(namePage.page)} />
+                    <input type="hidden" name="tab" value="review" />
+                    <BulkMergeSelectionControls formId="bulk-zero-merge-form" />
                   </form>
                 )}
 
@@ -1028,16 +1001,22 @@ export default async function DuplicatesAdminPage({
                           <Badge variant="warning">{group.members.length} سجلات</Badge>
                           <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{group.canonical}</span>
                         </div>
-                        <form action={mergeGroupAction}>
-                          <input type="hidden" name="canonical_card" value={group.canonical} />
-                          <input type="hidden" name="preferred_id" value={group.preferredId} />
-                          <input type="hidden" name="strategy" value="ZERO_PRIORITY" />
-                          <input type="hidden" name="q" value={q ?? ""} />
-                          <input type="hidden" name="pz" value={String(zeroPage.page)} />
-                          <input type="hidden" name="pn" value={String(namePage.page)} />
-                          <input type="hidden" name="tab" value="review" />
-                          <Button type="submit" className="h-8 text-xs">دمج المجموعة</Button>
-                        </form>
+                        <label
+                          className="relative inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-md border border-sky-300 bg-sky-50 text-sky-700 transition hover:bg-sky-100 has-[:checked]:border-sky-600 has-[:checked]:bg-sky-600 has-[:checked]:text-white dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-300 dark:hover:bg-sky-950/60"
+                          title="تحديد المجموعة للدمج"
+                        >
+                          <input
+                            type="checkbox"
+                            form="bulk-zero-merge-form"
+                            name="group_payload"
+                            value={JSON.stringify({ keepId: group.preferredId, memberIds: group.members.map((m) => m.id) })}
+                            data-bulk-merge-form="bulk-zero-merge-form"
+                            className="peer sr-only"
+                          />
+                          <Square className="h-5 w-5 peer-checked:hidden" aria-hidden="true" />
+                          <CheckSquare2 className="hidden h-5 w-5 peer-checked:block" aria-hidden="true" />
+                          <span className="sr-only">تحديد المجموعة للدمج</span>
+                        </label>
                       </div>
 
                       <DuplicateManualMergeForm
@@ -1059,6 +1038,7 @@ export default async function DuplicatesAdminPage({
                         pn={namePage.page}
                         helperText="اختر سجلًا واحدًا للإبقاء، والباقي حذف ناعم تلقائي"
                         action={mergeManualAction}
+                        formId={`merge-preview-${group.canonical}`}
                       />
                     </div>
                   ))
@@ -1274,6 +1254,7 @@ export default async function DuplicatesAdminPage({
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                       <p className="text-xs text-slate-700 dark:text-slate-300">معالجة جماعية لحالات اختلاف الأصفار في الصفحة الحالية</p>
                       <div className="flex items-center gap-2">
+                        <input type="hidden" name="companyId" value={companyId} />
                         <input type="hidden" name="q" value={q ?? ""} />
                         <input type="hidden" name="pz" value={String(reviewPage.page)} />
                         <input type="hidden" name="pn" value={String(namePage.page)} />
@@ -1302,6 +1283,7 @@ export default async function DuplicatesAdminPage({
                           <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{group.canonical}</span>
                         </div>
                         <form action={mergeAuditGroupRedirectAction}>
+                          <input type="hidden" name="companyId" value={companyId} />
                           <input type="hidden" name="q" value={q ?? ""} />
                           <input type="hidden" name="pz" value={String(reviewPage.page)} />
                           <input type="hidden" name="pn" value={String(namePage.page)} />
@@ -1358,6 +1340,7 @@ export default async function DuplicatesAdminPage({
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-xs text-slate-600 dark:text-slate-400">معالجة دفعة: سيتم اعتماد السجل الافتراضي في كل مجموعة</p>
                   <div className="flex items-center gap-2">
+                    <input type="hidden" name="companyId" value={companyId} />
                     <input type="hidden" name="q" value={q ?? ""} />
                     <input type="hidden" name="pz" value={String(namePage.page)} />
                     <input type="hidden" name="pn" value={String(namePage.page)} />
