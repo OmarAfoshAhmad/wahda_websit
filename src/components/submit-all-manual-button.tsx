@@ -15,30 +15,38 @@ export function SubmitAllManualButton() {
     
     startTransition(async () => {
       try {
-        // Collect all forms belonging to manual merge by looking for the hidden input member_ids
+        // Collect all manual merge forms (those with member_ids but without canonical_card)
         const forms = document.querySelectorAll("form");
-        const payloads: FormData[] = [];
+        const payloadsData: Record<string, string | string[]>[] = [];
 
         for (let i = 0; i < forms.length; i++) {
           const form = forms[i];
           const hasMemberIds = form.querySelector('input[name="member_ids"]');
           const hasCanonical = form.querySelector('input[name="canonical_card"]');
           
-          // We only want the manual merge forms, which don't have canonical_card (that's the group merge)
-          // but do have member_ids and q, pz, pn
-          if (hasMemberIds && !hasCanonical && !form.id.includes("review-")) {
+          // Only manual merge forms (not group merge or audit forms)
+          if (hasMemberIds && !hasCanonical && !form.id.startsWith("review-")) {
             const formData = new FormData(form);
-            payloads.push(formData);
+            // Convert FormData to a plain object (with arrays for multi-value fields)
+            const obj: Record<string, string | string[]> = {};
+            for (const key of new Set(formData.keys())) {
+              const values = formData.getAll(key).map(String);
+              obj[key] = values.length === 1 ? values[0] : values;
+            }
+            payloadsData.push(obj);
           }
         }
 
-        if (payloads.length === 0) {
+        if (payloadsData.length === 0) {
           alert("لا توجد حالات محددة للمعالجة في هذه الصفحة.");
           setRunning(false);
           return;
         }
 
-        await bulkManualMergeAction(payloads);
+        // Send all payloads as a single JSON string in one FormData
+        const wrapper = new FormData();
+        wrapper.append("payloads", JSON.stringify(payloadsData));
+        await bulkManualMergeAction(wrapper);
       } catch (err) {
         console.error(err);
         alert("حدث خطأ أثناء إرسال البيانات");
