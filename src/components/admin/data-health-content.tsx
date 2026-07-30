@@ -13,7 +13,7 @@ import { StatusAnomaliesFixButton } from "./status-anomalies-fix-button";
 import { OrphanedNotificationsFixButton } from "./orphaned-notifications-fix-button";
 import { ParentCardPatternFixButton } from "./parent-card-pattern-fix-button";
 import { NormalizeImportIntegerDistributionButton } from "./normalize-import-integer-distribution-button";
-import { FixTotalBalancesButton } from "./fix-total-balances-button";
+import { BASE_BALANCE_SPENT_SUM_SQL } from "@/lib/base-balance-ledger";
 import { LegacyCardBatchTools } from "./legacy-card-batch-tools";
 import { LegacyCardInlineToggleButton } from "./legacy-card-inline-toggle-button";
 import { BeneficiaryDeleteButton } from "@/components/beneficiary-delete-button";
@@ -146,18 +146,6 @@ type ParentCardPatternRow = {
   pattern_type: string;
 };
 
-type TotalBalanceDriftRow = {
-  id: string;
-  name: string;
-  card_number: string;
-  status: string;
-  stored_total: number;
-  remaining: number;
-  sum_spent: number;
-  correct_total: number;
-  diff: number;
-};
-
 type LegacyFractionalImportRow = {
   family_base_card: string;
   members_count: number;
@@ -259,7 +247,6 @@ export async function DataHealthContent({
   let oldImportJobsSummary: OldImportJobsSummary[] = [];
   let oldRestoreJobsSummary: OldRestoreJobsSummary[] = [];
   let parentCardPatternRows: ParentCardPatternRow[] = [];
-  let totalBalanceDriftRows: TotalBalanceDriftRow[] = [];
   let legacyFractionalImportRows: LegacyFractionalImportRow[] = [];
   let legacyFractionalImportMemberRows: LegacyFractionalImportMemberRow[] = [];
   let weirdCardRows: WeirdCardRow[] = [];
@@ -591,16 +578,10 @@ export async function DataHealthContent({
           b.total_balance::float8 AS total_balance,
           b.remaining_balance::float8 AS stored_remaining,
           GREATEST(0,
-            b.total_balance - COALESCE(
-              SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN COALESCE(t.actual_company_share, t.amount) ELSE 0 END),
-              0
-            )
+            b.total_balance - ${BASE_BALANCE_SPENT_SUM_SQL}
           )::float8 AS computed_remaining,
           (b.remaining_balance - GREATEST(0,
-            b.total_balance - COALESCE(
-              SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN COALESCE(t.actual_company_share, t.amount) ELSE 0 END),
-              0
-            )
+            b.total_balance - ${BASE_BALANCE_SPENT_SUM_SQL}
           ))::float8 AS drift
         FROM "Beneficiary" b
         LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id
@@ -609,18 +590,12 @@ export async function DataHealthContent({
         GROUP BY b.id, b.name, b.card_number, b.status, b.total_balance, b.remaining_balance
         HAVING ABS(
           b.remaining_balance - GREATEST(0,
-            b.total_balance - COALESCE(
-              SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN COALESCE(t.actual_company_share, t.amount) ELSE 0 END),
-              0
-            )
+            b.total_balance - ${BASE_BALANCE_SPENT_SUM_SQL}
           )
         ) > 0.01
         ORDER BY ABS(
           b.remaining_balance - GREATEST(0,
-            b.total_balance - COALESCE(
-              SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END),
-              0
-            )
+            b.total_balance - ${BASE_BALANCE_SPENT_SUM_SQL}
           )
         ) DESC
         LIMIT 300
@@ -647,28 +622,6 @@ export async function DataHealthContent({
             OR (status = 'FINISHED' AND remaining_balance > 0.01)
           )
         ORDER BY card_number
-        LIMIT 300
-      `,
-
-      prisma.$queryRaw<TotalBalanceDriftRow[]>`
-        SELECT
-          b.id,
-          b.name,
-          b.card_number,
-          b.status::text,
-          b.total_balance::float8 AS stored_total,
-          b.remaining_balance::float8 AS remaining,
-          COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END), 0)::float8 AS sum_spent,
-          (b.remaining_balance + COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END), 0))::float8 AS correct_total,
-          ((b.remaining_balance + COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END), 0)) - b.total_balance)::float8 AS diff
-        FROM "Beneficiary" b
-        LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id
-        WHERE b.deleted_at IS NULL
-          AND b.company_id = ${companyId}
-          AND b.remaining_balance > 0.01
-        GROUP BY b.id, b.name, b.card_number, b.status, b.total_balance, b.remaining_balance
-        HAVING (b.remaining_balance + COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END), 0)) - b.total_balance > 0.01
-        ORDER BY diff DESC
         LIMIT 300
       `,
     ]);

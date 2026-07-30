@@ -4,6 +4,11 @@ import prisma from "@/lib/prisma";
 import { resolveVerifiedSuperAdminActor } from "@/lib/super-admin-actor";
 import { AUDIT_ACTIONS } from "@/lib/constants";
 import { roundCurrency } from "@/lib/money";
+import {
+  BASE_BALANCE_EXCLUDED_TRANSACTION_TYPES,
+  BASE_BALANCE_SPENT_SUM_SQL,
+  calculateBaseRemaining,
+} from "@/lib/base-balance-ledger";
 
 type BackgroundActor = {
   id: string;
@@ -61,10 +66,7 @@ export async function checkBalanceDriftAction(): Promise<DriftCheckResult> {
       FROM (
         SELECT
           (b.remaining_balance - GREATEST(0,
-            b.total_balance - COALESCE(
-              SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN COALESCE(t.actual_company_share, t.amount) ELSE 0 END),
-              0
-            )
+            b.total_balance - ${BASE_BALANCE_SPENT_SUM_SQL}
           ))::float8 AS drift
         FROM "Beneficiary" b
         LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id
@@ -72,10 +74,7 @@ export async function checkBalanceDriftAction(): Promise<DriftCheckResult> {
         GROUP BY b.id, b.total_balance, b.remaining_balance
         HAVING ABS(
           b.remaining_balance - GREATEST(0,
-            b.total_balance - COALESCE(
-              SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN COALESCE(t.actual_company_share, t.amount) ELSE 0 END),
-              0
-            )
+            b.total_balance - ${BASE_BALANCE_SPENT_SUM_SQL}
           )
         ) > 0.01
       ) d
@@ -248,12 +247,12 @@ export async function recalcBalancesAction(actor?: BackgroundActor): Promise<Rec
       },
     });
 
-    // جلب جميع الحركات الفعّالة (غير ملغاة وليست CANCELLATION)
+    // الحركات التي تستهلك السقف الأساسي فقط؛ محافظ الخدمات مستقلة.
     const transactions = await prisma.transaction.findMany({
       where: {
         beneficiary_id: { in: beneficiaries.map((b) => b.id) },
         is_cancelled: false,
-        type: { not: "CANCELLATION" },
+        type: { notIn: [...BASE_BALANCE_EXCLUDED_TRANSACTION_TYPES] },
       },
       select: { beneficiary_id: true, amount: true, actual_company_share: true },
     });
@@ -279,7 +278,7 @@ export async function recalcBalancesAction(actor?: BackgroundActor): Promise<Rec
       const totalBalance = Number(ben.total_balance);
       const currentRemaining = Number(ben.remaining_balance);
       const totalSpent = spentMap.get(ben.id) ?? 0;
-      const correctRemaining = Math.max(0, totalBalance - totalSpent);
+      const correctRemaining = calculateBaseRemaining(totalBalance, totalSpent);
       const drift = Math.abs(correctRemaining - currentRemaining);
 
       if (drift <= 0.001) continue;
@@ -355,73 +354,12 @@ export async function fixTotalBalanceDriftAction(actor?: BackgroundActor): Promi
   if (!session) {
     return { success: false, fixed_count: 0, total_corrected: 0, error: "غير مصرح" };
   }
-
-  try {
-    const candidates = await prisma.$queryRaw<Array<{
-      id: string;
-      name: string;
-      card_number: string;
-      stored_total: number;
-      remaining: number;
-      sum_spent: number;
-      correct_total: number;
-    }>>`
-      SELECT
-        b.id,
-        b.name,
-        b.card_number,
-        b.total_balance::float8 AS stored_total,
-        b.remaining_balance::float8 AS remaining,
-        COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END), 0)::float8 AS sum_spent,
-        (b.remaining_balance + COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END), 0))::float8 AS correct_total
-      FROM "Beneficiary" b
-      LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id
-      WHERE b.deleted_at IS NULL
-        AND b.remaining_balance > 0.01
-      GROUP BY b.id, b.name, b.card_number, b.total_balance, b.remaining_balance
-      HAVING (b.remaining_balance + COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END), 0)) - b.total_balance > 0.01
-      ORDER BY ((b.remaining_balance + COALESCE(SUM(CASE WHEN t.is_cancelled = false AND t.type <> 'CANCELLATION' THEN t.amount ELSE 0 END), 0)) - b.total_balance) DESC
-    `;
-
-    if (candidates.length === 0) {
-      return { success: true, fixed_count: 0, total_corrected: 0 };
-    }
-
-    const totalCorrected = candidates.reduce((sum, c) => sum + (c.correct_total - c.stored_total), 0);
-
-    await prisma.$transaction([
-      ...candidates.map((c) =>
-        prisma.beneficiary.update({
-          where: { id: c.id },
-          data: { total_balance: roundCurrency(c.correct_total) },
-        }),
-      ),
-      prisma.auditLog.create({
-        data: {
-          user: session.username,
-          action: AUDIT_ACTIONS.BALANCE_DRIFT_FIX,
-          metadata: {
-            fix_type: "total_balance_drift",
-            fixed_count: candidates.length,
-            total_corrected: roundCurrency(totalCorrected),
-            details: candidates.map((c) => ({
-              id: c.id,
-              name: c.name,
-              card_number: c.card_number,
-              stored_total: c.stored_total,
-              correct_total: c.correct_total,
-              diff: roundCurrency(c.correct_total - c.stored_total),
-            })),
-          },
-        },
-      }),
-    ]);
-
-    return { success: true, fixed_count: candidates.length, total_corrected: roundCurrency(totalCorrected) };
-  } catch (err) {
-    console.error("[fixTotalBalanceDriftAction]", err);
-    return { success: false, fixed_count: 0, total_corrected: 0, error: "حدث خطأ أثناء إصلاح انجراف الرصيد الكلي" };
-  }
+  return {
+    success: false,
+    fixed_count: 0,
+    total_corrected: 0,
+    error: "تم تعطيل رفع السقف التلقائي؛ total_balance حد حاسم ولا يُعدل لمطابقة الحركات.",
+  };
 }
 
 export async function convertPharmacySuppliesToMedicineAction(transactionIds: string[]) {

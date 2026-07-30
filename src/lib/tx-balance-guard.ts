@@ -1,6 +1,7 @@
 import { roundCurrency } from "@/lib/money";
 import { logger } from "@/lib/logger";
 import prisma from "@/lib/prisma";
+import { BASE_BALANCE_EXCLUDED_TRANSACTION_TYPES, calculateBaseRemaining } from "@/lib/base-balance-ledger";
 
 type TxClient = Omit<typeof prisma, "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends">;
 
@@ -44,8 +45,7 @@ export async function calculateBeneficiaryBalance(
     where: {
       beneficiary_id: beneficiaryId,
       is_cancelled: false,
-      // محافظ الخدمات المستقلة لا تستهلك الرصيد الأساسي للمستفيد.
-      type: { notIn: ["CANCELLATION", "DENTAL", "OPTICS", "PHYSIOTHERAPY"] },
+      type: { notIn: [...BASE_BALANCE_EXCLUDED_TRANSACTION_TYPES] },
     },
     select: { amount: true, actual_company_share: true },
   });
@@ -54,7 +54,7 @@ export async function calculateBeneficiaryBalance(
   const ledgerSpent = roundCurrency(
     txns.reduce((sum, t) => sum + Number(t.actual_company_share ?? t.amount ?? 0), 0)
   );
-  const computedRemaining = roundCurrency(Math.max(0, total - ledgerSpent));
+  const computedRemaining = calculateBaseRemaining(total, ledgerSpent);
   const shouldStatus = expectedStatus(beneficiary.status, computedRemaining);
 
   return {

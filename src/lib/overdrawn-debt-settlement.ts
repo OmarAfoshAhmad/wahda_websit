@@ -3,6 +3,11 @@ import { TransactionType } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { roundCurrency } from "@/lib/money";
 import { extractBaseCard } from "@/lib/normalize";
+import {
+  BASE_BALANCE_AMOUNT_SQL,
+  BASE_BALANCE_ELIGIBLE_SQL,
+  BASE_BALANCE_SPENT_SUM_SQL,
+} from "@/lib/base-balance-ledger";
 
 type MemberStatus = "ACTIVE" | "FINISHED" | "SUSPENDED";
 
@@ -152,10 +157,9 @@ export async function getOverdrawnDebtCases(filter?: {
     WITH spent_by_beneficiary AS (
       SELECT
         t.beneficiary_id,
-        COALESCE(SUM(COALESCE(t.actual_company_share, t.amount)), 0)::float8 AS spent
+        COALESCE(SUM(${BASE_BALANCE_AMOUNT_SQL}), 0)::float8 AS spent
       FROM "Transaction" t
-      WHERE t.is_cancelled = false
-        AND t.type NOT IN ('CANCELLATION', 'DENTAL', 'OPTICS', 'PHYSIOTHERAPY')
+      WHERE ${BASE_BALANCE_ELIGIBLE_SQL}
       GROUP BY t.beneficiary_id
     )
     SELECT
@@ -220,11 +224,7 @@ export async function getOverdrawnDebtCases(filter?: {
       b.total_balance::float8,
       b.status::text,
       b.completed_via,
-      COALESCE(SUM(CASE
-        WHEN t.type NOT IN ('CANCELLATION', 'DENTAL', 'OPTICS', 'PHYSIOTHERAPY')
-        THEN COALESCE(t.actual_company_share, t.amount)
-        ELSE 0
-      END), 0)::float8 AS spent,
+      ${BASE_BALANCE_SPENT_SUM_SQL}::float8 AS spent,
       COALESCE(SUM(CASE
         WHEN t.type = 'IMPORT' THEN t.amount
         WHEN t.type = 'SETTLEMENT'
@@ -512,12 +512,7 @@ export async function applyOverdrawnDebtSettlement(params: {
             b.status::text,
             b.completed_via,
             b.total_balance::float8,
-            COALESCE(SUM(CASE
-              WHEN t.is_cancelled = false
-                AND t.type NOT IN ('CANCELLATION', 'DENTAL', 'OPTICS', 'PHYSIOTHERAPY')
-              THEN COALESCE(t.actual_company_share, t.amount)
-              ELSE 0
-            END), 0)::float8 AS spent
+            ${BASE_BALANCE_SPENT_SUM_SQL}::float8 AS spent
           FROM "Beneficiary" b
           LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id
           WHERE b.id = ${c.debtorId}
