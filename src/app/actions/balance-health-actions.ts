@@ -52,7 +52,7 @@ export type FixTotalBalanceDriftResult = {
   error?: string;
 };
 
-export async function checkBalanceDriftAction(): Promise<DriftCheckResult> {
+export async function checkBalanceDriftAction(companyId?: string): Promise<DriftCheckResult> {
   const session = await resolveVerifiedSuperAdminActor();
   if (!session) {
     return { success: false, count: 0, total_drift: 0, error: "غير مصرح" };
@@ -71,6 +71,7 @@ export async function checkBalanceDriftAction(): Promise<DriftCheckResult> {
         FROM "Beneficiary" b
         LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id
         WHERE b.deleted_at IS NULL
+          AND (${companyId ?? null}::text IS NULL OR b.company_id = ${companyId ?? null})
         GROUP BY b.id, b.total_balance, b.remaining_balance
         HAVING ABS(
           b.remaining_balance - GREATEST(0,
@@ -226,7 +227,7 @@ export async function fixStatusAnomaliesAction(actor?: BackgroundActor): Promise
   }
 }
 
-export async function recalcBalancesAction(actor?: BackgroundActor): Promise<RecalcResult> {
+export async function recalcBalancesAction(actor?: BackgroundActor, companyId?: string): Promise<RecalcResult> {
   const session = await resolveVerifiedSuperAdminActor(actor);
   if (!session) {
     return { success: false, fixed_count: 0, status_changes: 0, total_drift: 0, error: "غير مصرح" };
@@ -235,7 +236,10 @@ export async function recalcBalancesAction(actor?: BackgroundActor): Promise<Rec
   try {
     // جلب جميع المستفيدين النشطين
     const beneficiaries = await prisma.beneficiary.findMany({
-      where: { deleted_at: null },
+      where: {
+        deleted_at: null,
+        ...(companyId ? { company_id: companyId } : {}),
+      },
       select: {
         id: true,
         card_number: true,

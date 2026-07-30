@@ -3,38 +3,22 @@
 import { useState, useTransition } from "react";
 import { Wrench, Loader2, SearchCheck } from "lucide-react";
 import { ConfirmationModal } from "@/components/ui";
-import { checkBalanceDriftAction } from "@/app/actions/balance-health-actions";
-import { startMaintenanceJobAction } from "@/app/actions/maintenance-jobs";
+import { checkBalanceDriftAction, recalcBalancesAction } from "@/app/actions/balance-health-actions";
 import { useRouter } from "next/navigation";
-import { useMaintenanceJobProgress } from "./hooks/use-maintenance-job-progress";
 
-export function FixBalancesButton() {
+export function FixBalancesButton({ companyId }: { companyId: string }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checkResult, setCheckResult] = useState<{ count: number; totalDrift: number } | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const [jobId, setJobId] = useState<string | null>(null);
-
-  const job = useMaintenanceJobProgress(jobId, (result) => {
-    if (result.success) {
-      setStatusMessage(`${result.summary ?? "اكتمل إصلاح الأرصدة"}. تم تحديث القائمة.`);
-      setError(null);
-      setJobId(null);
-      router.refresh();
-      return;
-    }
-    setError(result.error ?? "فشلت المهمة");
-    setJobId(null);
-  });
-
-  const isRunning = isPending || job.isRunning;
+  const isRunning = isPending;
 
   const handleCheck = () => {
     setError(null);
     startTransition(async () => {
-      const res = await checkBalanceDriftAction();
+      const res = await checkBalanceDriftAction(companyId);
       if (!res.success) {
         setError(res.error ?? "تعذر فحص الانجراف");
         return;
@@ -46,14 +30,18 @@ export function FixBalancesButton() {
   const handleConfirm = () => {
     setError(null);
     startTransition(async () => {
-      const queued = await startMaintenanceJobAction({ kind: "recalc_balances" });
-      if (!queued.success || !queued.job) {
-        setError(queued.error ?? "تعذر بدء المعالجة بالخلفية");
+      const result = await recalcBalancesAction(undefined, companyId);
+      if (!result.success) {
+        setError(result.error ?? "تعذر إصلاح الأرصدة");
         return;
       }
-      setJobId(queued.job.id);
       setConfirmOpen(false);
-      setStatusMessage(`تم بدء إصلاح الأرصدة بالخلفية (رقم المهمة: ${queued.job.id}).`);
+      setCheckResult({ count: 0, totalDrift: 0 });
+      setStatusMessage(
+        `اكتمل الإصلاح فعليًا: تم تحديث ${result.fixed_count.toLocaleString("ar-LY")} مستفيد` +
+        ` وتغيير حالة ${result.status_changes.toLocaleString("ar-LY")} مستفيد.`,
+      );
+      router.refresh();
     });
   };
 
@@ -80,21 +68,6 @@ export function FixBalancesButton() {
           إصلاح تلقائي للأرصدة
         </button>
       </div>
-
-      {jobId && (
-        <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 p-3 text-xs w-full">
-          <div className="flex flex-wrap items-center gap-2 text-slate-700 dark:text-slate-300">
-            <span className="font-bold">الحالة: {job.jobState === "queued" ? "في الانتظار" : "جارية"}</span>
-            <span>التقدم: {Math.max(0, Math.min(100, job.progress))}%</span>
-            {job.total > 0 && <span>المعالج: {job.current.toLocaleString("ar-LY")} / {job.total.toLocaleString("ar-LY")}</span>}
-            <span>{job.elapsedSeconds} ث</span>
-          </div>
-          <div className="mt-2 h-2 w-full rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
-            <div className="h-full bg-emerald-500 transition-all duration-500" style={{ width: `${Math.max(3, Math.min(100, job.progress))}%` }} />
-          </div>
-          {job.message && <p className="mt-2 text-slate-600 dark:text-slate-400">{job.message}</p>}
-        </div>
-      )}
 
       {checkResult && (
         <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-bold text-sky-700 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-400">

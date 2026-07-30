@@ -1210,7 +1210,7 @@ export async function DataHealthContent({
       {showGeneralSections && (
       <Section title="انجراف الرصيد — remaining_balance ≠ المحسوب" count={filteredBalanceDriftRows.length}>
         <div className="mb-2 flex justify-start">
-          <FixBalancesButton />
+          <FixBalancesButton companyId={companyId} />
         </div>
 
         {filteredBalanceDriftRows.length === 0 ? (
