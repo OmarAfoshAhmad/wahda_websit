@@ -91,7 +91,7 @@ export async function deductBalance(formData: {
       ? formData.transactionDate
       : null;
 
-  if (manualTransactionDate && !session.is_admin) {
+  if (manualTransactionDate && !session.is_admin && !session.is_manager) {
     const threeDaysAgo = new Date();
     threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
     threeDaysAgo.setHours(0, 0, 0, 0);
