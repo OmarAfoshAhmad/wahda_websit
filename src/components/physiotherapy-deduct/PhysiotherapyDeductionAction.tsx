@@ -2,7 +2,7 @@
 
 import React from "react";
 import { CreditCard, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
-import { Button, Input, Card } from "@/components/ui";
+import { Button, Input, Card, ConfirmationModal } from "@/components/ui";
 import { usePhysiotherapyDeductContext } from "./PhysiotherapyDeductContext";
 
 export function PhysiotherapyDeductionAction() {
@@ -10,6 +10,7 @@ export function PhysiotherapyDeductionAction() {
     beneficiary,
     amount,
     setAmount,
+    showConfirm,
     setShowConfirm,
     deducting,
     handleDeduct,
@@ -162,7 +163,13 @@ export function PhysiotherapyDeductionAction() {
       {hasAmount && !isCeilingExhausted && (
         <>
           <Button
-            onClick={handleDeduct}
+            onClick={() => {
+              if (isPartial) {
+                setShowConfirm(true);
+                return;
+              }
+              handleDeduct();
+            }}
             disabled={deducting}
             className="w-full h-12 bg-teal-600 hover:bg-teal-700 text-white font-black text-base shadow-lg shadow-teal-600/20 rounded-lg transition-all"
           >
@@ -170,6 +177,19 @@ export function PhysiotherapyDeductionAction() {
           </Button>
         </>
       )}
+
+      <ConfirmationModal
+        isOpen={showConfirm}
+        onClose={() => !deducting && setShowConfirm(false)}
+        onConfirm={handleDeduct}
+        title="عدد الجلسات المطلوب يتجاوز السقف المتبقي"
+        description={`السقف المتبقي لـ ${beneficiary.name} هو ${remaining === Infinity ? "غير محدود" : `${remaining.toLocaleString("ar-LY")} جلسة`}، بينما المطلوب تسجيله ${amountNum.toLocaleString("ar-LY")} جلسة — أي بزيادة ${exceededSessions.toLocaleString("ar-LY")} جلسة عن الرصيد المتاح. تأكد من مراجعة هذا التجاوز قبل المتابعة.`}
+        confirmLabel="نعم، أؤكد رغم التجاوز — أكمل التسجيل"
+        cancelLabel="إلغاء"
+        variant="warning"
+        isLoading={deducting}
+        error={error}
+      />
     </Card>
   );
 }

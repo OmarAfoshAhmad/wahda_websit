@@ -15,6 +15,7 @@ import {
   fixStatusAnomaliesAction,
   fixTotalBalanceDriftAction,
 } from "@/app/actions/balance-health-actions";
+import { fixCeilingExceededAction } from "@/app/actions/ceiling-health-actions";
 import { applyActiveImportDuplicateFix } from "@/lib/import-duplicate-cases";
 import { applyOverdrawnDebtSettlement } from "@/lib/overdrawn-debt-settlement";
 import { assertCompanyAccessForSession } from "@/lib/company-scope";
@@ -24,6 +25,7 @@ export type MaintenanceJobTask =
   | { kind: "recalc_balances" }
   | { kind: "fix_total_balance_drift" }
   | { kind: "fix_status_anomalies" }
+  | { kind: "fix_ceiling_exceeded"; companyId: string }
   | { kind: "parent_card_pattern_fix"; mode: ParentCardPatternFixMode; companyId: string }
   | { kind: "normalize_import_integer_distribution" }
   | { kind: "fix_invalid_subunit_amounts" }
@@ -72,6 +74,8 @@ function summarizeResult(task: MaintenanceJobTask, result: unknown): string {
       return `إصلاح total_balance: ${Number(r.fixed_count ?? 0).toLocaleString("ar-LY")} مستفيد`;
     case "fix_status_anomalies":
       return `تصحيح الحالات: ${Number(r.fixed_count ?? 0).toLocaleString("ar-LY")}`;
+    case "fix_ceiling_exceeded":
+      return `تصحيح تجاوز السقف: ${Number(r.transactions_corrected ?? 0).toLocaleString("ar-LY")} حركة | استرجاع: ${Number(r.total_recovered ?? 0).toLocaleString("ar-LY")} د.ل`;
     case "parent_card_pattern_fix":
       return `تحويل البطاقات: ${Number(r.processed_count ?? 0).toLocaleString("ar-LY")} | دمج: ${Number(r.merged_count ?? 0).toLocaleString("ar-LY")} | تخطٍ: ${Number(r.skipped_count ?? 0).toLocaleString("ar-LY")} | تعارض: ${Number(r.conflict_count ?? 0).toLocaleString("ar-LY")}`;
     case "normalize_import_integer_distribution":
@@ -107,6 +111,8 @@ async function executeTask(
       return fixTotalBalanceDriftAction(elevatedActor);
     case "fix_status_anomalies":
       return fixStatusAnomaliesAction(elevatedActor);
+    case "fix_ceiling_exceeded":
+      return fixCeilingExceededAction(elevatedActor, task.companyId);
     case "parent_card_pattern_fix":
       return runParentCardPatternFixAction({
         mode: task.mode,
@@ -172,7 +178,12 @@ export async function startMaintenanceJobForActor(
     return { success: false, error: "غير مصرح" };
   }
 
-  if (task.kind === "fix_duplicate_import_cases" || task.kind === "settle_overdrawn_debt" || task.kind === "parent_card_pattern_fix") {
+  if (
+    task.kind === "fix_duplicate_import_cases" ||
+    task.kind === "settle_overdrawn_debt" ||
+    task.kind === "parent_card_pattern_fix" ||
+    task.kind === "fix_ceiling_exceeded"
+  ) {
     await assertCompanyAccessForSession(verifiedActor, task.companyId);
   }
 

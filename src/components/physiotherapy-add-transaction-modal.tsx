@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { X, Search, Loader2, CheckCircle2, AlertCircle, Building2, CreditCard, CalendarDays } from "lucide-react";
-import { Button, Input , DateInput} from "@/components/ui";
+import { Button, Input , DateInput, ConfirmationModal} from "@/components/ui";
 import { formatCurrency } from "@/lib/money";
 import { searchCompanyBeneficiaries, getPhysiotherapyBeneficiaryDetail } from "@/app/actions/physiotherapy";
 import { deductBalance } from "@/app/actions/deduction";
@@ -584,6 +584,10 @@ export function PhysiotherapyAddTransactionModal({
                   toast.error("يرجى تحديد المستفيد أولاً");
                   return;
                 }
+                if (isPartial) {
+                  setShowConfirm(true);
+                  return;
+                }
                 handleSubmit();
               }}
               disabled={!beneficiary || submitting}
@@ -594,6 +598,19 @@ export function PhysiotherapyAddTransactionModal({
           )}
         </div>
       </div>
+
+      <ConfirmationModal
+        isOpen={showConfirm}
+        onClose={() => !submitting && setShowConfirm(false)}
+        onConfirm={handleSubmit}
+        title="عدد الجلسات المطلوب يتجاوز السقف المتبقي"
+        description={`السقف المتبقي لـ ${beneficiary?.name ?? "المستفيد"} هو ${remaining === Infinity ? "غير محدود" : `${remaining.toLocaleString("ar-LY")} جلسة`}، بينما المطلوب تسجيله ${amountNum.toLocaleString("ar-LY")} جلسة — أي بزيادة ${exceededSessions.toLocaleString("ar-LY")} جلسة عن الرصيد المتاح. تأكد من مراجعة هذا التجاوز قبل المتابعة.`}
+        confirmLabel="نعم، أؤكد رغم التجاوز — أكمل التسجيل"
+        cancelLabel="إلغاء"
+        variant="warning"
+        isLoading={submitting}
+        error={error}
+      />
 
       {/* Fixed-position facility dropdown portal — renders outside modal overflow */}
       {showFacilityDropdown && dropdownPos && (

@@ -13,6 +13,8 @@ import { StatusAnomaliesFixButton } from "./status-anomalies-fix-button";
 import { OrphanedNotificationsFixButton } from "./orphaned-notifications-fix-button";
 import { ParentCardPatternFixButton } from "./parent-card-pattern-fix-button";
 import { NormalizeImportIntegerDistributionButton } from "./normalize-import-integer-distribution-button";
+import { CeilingExceededFixButton } from "./ceiling-exceeded-fix-button";
+import { listCeilingExceededAction, type CeilingExceededRow } from "@/app/actions/ceiling-health-actions";
 import { BASE_BALANCE_SPENT_SUM_SQL } from "@/lib/base-balance-ledger";
 import { LegacyCardBatchTools } from "./legacy-card-batch-tools";
 import { LegacyCardInlineToggleButton } from "./legacy-card-inline-toggle-button";
@@ -254,6 +256,7 @@ export async function DataHealthContent({
   let legacyNoPaymentRows: LegacyCardStatusRow[] = [];
   let pharmacySupplyRows: PharmacySupplyAnomalyRow[] = [];
   let missingCardsRows: any[] = [];
+  let ceilingExceededRows: CeilingExceededRow[] = [];
 
   if (legacyMode) {
     // Read the CSV and query missing
@@ -771,8 +774,8 @@ export async function DataHealthContent({
     legacyFractionalImportRows = legacyFractionalImportRowsRes;
     legacyFractionalImportMemberRows = legacyFractionalImportMemberRowsRes;
 
-    // Group 6: pharmacy supply anomaly (1 query)
-    const [pharmacySupplyRowsRes] = await Promise.all([
+    // Group 6: pharmacy supply anomaly and ceiling-exceeded transactions (2 queries)
+    const [pharmacySupplyRowsRes, ceilingExceededRowsRes] = await Promise.all([
       prisma.$queryRaw<PharmacySupplyAnomalyRow[]>`
         SELECT
           t.id,
@@ -791,8 +794,10 @@ export async function DataHealthContent({
         ORDER BY t.created_at DESC
         LIMIT 5000
       `,
+      listCeilingExceededAction(companyId, 500),
     ]);
     pharmacySupplyRows = pharmacySupplyRowsRes;
+    ceilingExceededRows = ceilingExceededRowsRes.success ? ceilingExceededRowsRes.rows : [];
   }
 
   const legacyMembersByFamily = legacyFractionalImportMemberRows.reduce<Record<string, LegacyFractionalImportMemberRow[]>>((acc, row) => {
@@ -967,6 +972,16 @@ export async function DataHealthContent({
     )
     : pharmacySupplyRows;
 
+  const filteredCeilingExceededRows = hasSearchQuery
+    ? ceilingExceededRows.filter(
+      (row) =>
+        row.beneficiary_name.toLowerCase().includes(normalizedSearchQuery) ||
+        row.card_number.toLowerCase().includes(normalizedSearchQuery) ||
+        row.facility_name.toLowerCase().includes(normalizedSearchQuery)
+    )
+    : ceilingExceededRows;
+  const ceilingExceededTotalExcess = ceilingExceededRows.reduce((sum, row) => sum + Number(row.excess_amount ?? 0), 0);
+
   const showLegacySections = legacyMode;
   const showGeneralSections = !legacyMode;
 
@@ -1010,6 +1025,89 @@ export async function DataHealthContent({
           مما يعني أنه ينبغي تحويل نوعها لتصبح (أدوية صرف عام) لضبط التقارير الإحصائية. لا يؤثر هذا على الرصيد المالي المتبقي.
         </p>
         <PharmacySuppliesFixSection rows={filteredPharmacySupplyRows} />
+      </Section>
+      )}
+
+      {showGeneralSections && (
+      <Section title="حركات تجاوزت السقف (أسنان / بصريات)" count={filteredCeilingExceededRows.length}>
+        <p className="text-xs text-slate-600 dark:text-slate-300">
+          يعرض هذا القسم حركات الأسنان والبصريات التي تحمّلت الشركة فيها مبلغاً يتجاوز السقف السنوي الفعلي للمستفيد
+          وقت تنفيذ الحركة، أو التي فيها تناقض بين &quot;حصة الشركة الفعلية&quot; و&quot;المبلغ المستهلك من السقف&quot;
+          (وهو ما يجب أن يتساويا دائماً عند التطبيق الصحيح للسقف). المعالجة تُعيد احتساب كل حركات كل مستفيد بترتيبها
+          الزمني ضمن سنته المالية وفق السقف المسجَّل وقت كل حركة، دون المساس بالرصيد الأساسي للمستفيد.
+        </p>
+        {ceilingExceededRows.length > 0 && (
+          <div className="flex flex-wrap items-center gap-3 text-xs">
+            <span className="rounded border border-red-300 bg-red-50 px-2 py-1 font-bold text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300">
+              إجمالي الانجراف المكتشف: {ceilingExceededTotalExcess.toLocaleString("ar-LY")} د.ل
+            </span>
+            <CeilingExceededFixButton companyId={companyId} count={ceilingExceededRows.length} />
+          </div>
+        )}
+        {filteredCeilingExceededRows.length === 0 ? (
+          <p className="text-sm font-medium text-emerald-600">✓ لا توجد حركات متجاوزة للسقف حالياً.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b bg-slate-50 text-right dark:border-slate-700 dark:bg-slate-800/60">
+                  <th className="p-2">المستفيد</th>
+                  <th className="p-2">رقم البطاقة</th>
+                  <th className="p-2">المرفق</th>
+                  <th className="p-2">النوع</th>
+                  <th className="p-2">نوع العطل</th>
+                  <th className="p-2">قيمة الفاتورة</th>
+                  <th className="p-2">حصة الشركة المسجَّلة</th>
+                  <th className="p-2">المستهلك من السقف</th>
+                  <th className="p-2">السقف السنوي</th>
+                  <th className="p-2">فرق الانجراف</th>
+                  <th className="p-2">التاريخ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredCeilingExceededRows.map((row) => (
+                  <tr key={row.id} className="border-b dark:border-slate-800">
+                    <td className="p-2">
+                      <Link href={`/beneficiaries?q=${encodeURIComponent(row.card_number)}`} className="font-bold text-primary hover:underline">
+                        {row.beneficiary_name}
+                      </Link>
+                    </td>
+                    <td className="p-2 font-mono text-xs">{row.card_number}</td>
+                    <td className="p-2 text-xs">{row.facility_name}</td>
+                    <td className="p-2 text-xs">{row.service_category}</td>
+                    <td className="p-2 text-xs">
+                      {row.excess_amount <= 0.01 ? (
+                        <span className="rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-bold text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-300">
+                          سقف مؤرشف قديم — بلا تجاوز مالي فعلي
+                        </span>
+                      ) : row.policy_applied ? (
+                        <span className="rounded border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+                          تجاوز مالي فعلي — سقف مطبَّق خاطئ
+                        </span>
+                      ) : (
+                        <span className="rounded border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-bold text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300">
+                          تجاوز مالي فعلي — لم يُطبَّق سقف إطلاقاً
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-2 text-left ltr"><Num value={row.amount} /></td>
+                    <td className="p-2 text-left ltr font-bold text-red-700 dark:text-red-400">
+                      {row.actual_company_share !== null ? <Num value={row.actual_company_share} /> : "—"}
+                    </td>
+                    <td className="p-2 text-left ltr">
+                      {row.ceiling_consumed !== null ? <Num value={row.ceiling_consumed} /> : "—"}
+                    </td>
+                    <td className="p-2 text-left ltr">
+                      {row.annual_ceiling !== null ? <Num value={row.annual_ceiling} /> : <span className="text-slate-400">بلا سقف</span>}
+                    </td>
+                    <td className="p-2 text-left ltr font-bold text-red-700 dark:text-red-400"><Num value={row.excess_amount} /></td>
+                    <td className="p-2 text-xs">{formatDateTripoli(row.created_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Section>
       )}
 

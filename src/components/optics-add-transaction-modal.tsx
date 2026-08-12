@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { X, Search, Loader2, CheckCircle2, AlertCircle, Building2, CreditCard, CalendarDays } from "lucide-react";
-import { Button, Input , DateInput} from "@/components/ui";
+import { Button, Input , DateInput, ConfirmationModal} from "@/components/ui";
 import { formatCurrency } from "@/lib/money";
 import { searchCompanyBeneficiaries, getOpticsBeneficiaryDetail } from "@/app/actions/optics";
 import { deductBalance } from "@/app/actions/deduction";
@@ -596,6 +596,10 @@ export function OpticsAddTransactionModal({
                   toast.error("يرجى تحديد المستفيد أولاً");
                   return;
                 }
+                if (isPartial) {
+                  setShowConfirm(true);
+                  return;
+                }
                 handleSubmit();
               }}
               disabled={!beneficiary || submitting}
@@ -606,6 +610,19 @@ export function OpticsAddTransactionModal({
           )}
         </div>
       </div>
+
+      <ConfirmationModal
+        isOpen={showConfirm}
+        onClose={() => !submitting && setShowConfirm(false)}
+        onConfirm={handleSubmit}
+        title="السقف السنوي لا يكفي — تحميل نقدي على المؤمَّن"
+        description={`سقف البصريات المتبقي لـ ${beneficiary?.name ?? "المستفيد"} لا يكفي لتغطية كامل حصة الشركة عن هذه الفاتورة. ستتحمل الشركة ${formatCurrency(actualCompanyShare)} د.ل فقط (كامل الباقي من السقف)، وسيُحمَّل المؤمَّن نقداً مبلغ ${formatCurrency(actualPatientShare)} د.ل من إجمالي ${formatCurrency(amountNum)} د.ل. تأكد من إبلاغ المؤمَّن والحصول على موافقته قبل المتابعة.`}
+        confirmLabel="نعم، أبلغت المؤمَّن ووافق — أكمل الخصم"
+        cancelLabel="إلغاء"
+        variant="warning"
+        isLoading={submitting}
+        error={error}
+      />
 
       {/* Fixed-position facility dropdown portal — renders outside modal overflow */}
       {showFacilityDropdown && dropdownPos && (

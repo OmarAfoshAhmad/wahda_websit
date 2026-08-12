@@ -2,7 +2,7 @@
 
 import React from "react";
 import { CreditCard, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
-import { Button, Input, Card } from "@/components/ui";
+import { Button, Input, Card, ConfirmationModal } from "@/components/ui";
 import { formatCurrency } from "@/lib/money";
 import { useOpticsDeductContext } from "./OpticsDeductContext";
 
@@ -178,7 +178,13 @@ export function OpticsDeductionAction() {
       {hasAmount && !isCeilingExhausted && (
         <>
           <Button
-            onClick={handleDeduct}
+            onClick={() => {
+              if (isPartial) {
+                setShowConfirm(true);
+                return;
+              }
+              handleDeduct();
+            }}
             disabled={deducting}
             className="w-full h-12 bg-teal-600 hover:bg-teal-700 text-white font-black text-base shadow-lg shadow-teal-600/20 rounded-lg transition-all"
           >
@@ -186,6 +192,19 @@ export function OpticsDeductionAction() {
           </Button>
         </>
       )}
+
+      <ConfirmationModal
+        isOpen={showConfirm}
+        onClose={() => !deducting && setShowConfirm(false)}
+        onConfirm={handleDeduct}
+        title="السقف السنوي لا يكفي — تحميل نقدي على المؤمَّن"
+        description={`سقف ${opticsLabel} المتبقي لـ ${beneficiary.name} لا يكفي لتغطية كامل حصة ${companyName} عن هذه الفاتورة. ستتحمل ${companyName} مبلغ ${formatCurrency(actualCompanyShare)} د.ل فقط (كامل الباقي من السقف)، وسيُحمَّل المؤمَّن نقداً مبلغ ${formatCurrency(actualPatientShare)} د.ل من إجمالي ${formatCurrency(amountNum)} د.ل. تأكد من إبلاغ المؤمَّن والحصول على موافقته قبل المتابعة.`}
+        confirmLabel="نعم، أبلغت المؤمَّن ووافق — أكمل الخصم"
+        cancelLabel="إلغاء"
+        variant="warning"
+        isLoading={deducting}
+        error={error}
+      />
     </Card>
   );
 }
