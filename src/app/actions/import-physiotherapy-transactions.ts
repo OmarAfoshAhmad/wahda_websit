@@ -10,6 +10,7 @@ import { revalidatePath } from "next/cache";
 import bcrypt from "bcryptjs";
 import { updateImportedServiceTransactionDates } from "@/lib/service-transaction-date-update";
 import { calculatePhysiotherapySessions, parsePhysiotherapySessionCount } from "@/lib/physiotherapy-sessions";
+import { isSessionLimitExceeded } from "@/lib/insurance/ceiling-guard";
 
 export type SkippedRowDetail = {
   rowNumber: number;
@@ -756,16 +757,20 @@ export async function importPhysiotherapyTransactionsAction(
           },
         };
 
-        if (sessionResult.exceededSessions > 0) {
+        // الصف المتجاوز يُرفض ولا يُدرج؛ ولا يُحدَّث الاستهلاك الجاري حتى تبقى
+        // حسابات الصفوف التالية لنفس المستفيد صحيحة.
+        if (isSessionLimitExceeded(sessionResult)) {
           ceilingExceededCount++;
+          skippedCount++;
           ceilingExceededDetails.push({
             rowNumber: r.rowNumber,
             name: r.name,
             card: r.card,
             facilityName: r.facilityName,
             amount: r.amount,
-            reason: `تجاوز عدد الجلسات المحدد: المتبقي قبل الحركة ${sessionResult.remainingBefore?.toFixed(2) || 0} جلسة، والزيادة التراكمية ${sessionResult.exceededSessions.toFixed(2)} جلسة. لا يوجد تحميل مالي على المستفيد.`,
+            reason: `تجاوز عدد الجلسات — الصف مرفوض: المتبقي قبل الحركة ${sessionResult.remainingBefore ?? 0} جلسة، والمطلوب ${sessionResult.sessions} جلسة (تجاوز ${sessionResult.exceededSessions} جلسة).`,
           });
+          continue;
         }
 
         runningConsumption.set(consumptionKey, sessionResult.consumedAfter);

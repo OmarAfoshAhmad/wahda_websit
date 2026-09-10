@@ -170,11 +170,17 @@ export function DeductionAction() {
         </div>
       )}
 
+      {simulation?.blocked && (
+        <div className="rounded-md bg-red-50 p-3 text-xs font-bold text-red-600 border border-red-100 dark:bg-red-950/40 dark:border-red-900/60 dark:text-red-300">
+          {simulation.blockReason}
+        </div>
+      )}
+
       {/* ─── زر التأكيد المباشر ─── */}
       {hasAmount && !amountExceedsMax && (
         <Button
           onClick={handleDeduct}
-          disabled={deducting || simulating}
+          disabled={deducting || simulating || !!simulation?.blocked}
           className="w-full h-12 text-base font-black shadow-lg shadow-primary/20 bg-teal-600 hover:bg-teal-700 text-white dark:bg-teal-600 dark:hover:bg-teal-500 transition-all"
         >
           {deducting ? <Loader2 className="h-5 w-5 animate-spin" /> : type === "PHYSIOTHERAPY" ? "تأكيد تسجيل الجلسات" : "تأكيد وخصم الآن"}

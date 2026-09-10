@@ -13,6 +13,7 @@ import { assertBeneficiariesBalanceInvariant, buildIdempotencyKey } from "@/lib/
 import { Prisma } from "@prisma/client";
 import { InsuranceEngine } from "@/lib/insurance/engine";
 import { getServiceTypeMapping } from "@/lib/insurance/company-matcher";
+import { assertWithinCeiling } from "@/lib/insurance/ceiling-guard";
 import { WAHDA_BANK_COMPANY_ID } from "@/lib/constants";
 
 // ─── نوع بيانات عضو العائلة ─────────────────────────────────────────
@@ -351,6 +352,8 @@ export async function executeCashClaim(input: {
                 allowPartialCoverage: true
               }
             });
+
+            assertWithinCeiling(calcResult, policyRecord.service_type);
 
             actualPatientShare = Number(calcResult.actualPatientShare);
 

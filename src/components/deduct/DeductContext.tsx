@@ -45,6 +45,8 @@ export type DeductType = "MEDICINE" | "SUPPLIES" | "DENTAL" | "OPTICS" | "PHYSIO
 export interface SimulationResult {
   isTpa: boolean;
   calcResult?: any;
+  blocked?: boolean;
+  blockReason?: string;
   beneficiaryName?: string;
   companyName?: string;
   isLegacy?: boolean;

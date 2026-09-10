@@ -7,6 +7,7 @@ import { getAllowedCompanyIds, resolveAllowedScope } from "@/lib/company-scope";
 import { hasPermission } from "@/lib/permissions";
 import { logger } from "@/lib/logger";
 import { InsuranceEngine } from "@/lib/insurance/engine";
+import { isCeilingExceeded } from "@/lib/insurance/ceiling-guard";
 import { revalidatePath } from "next/cache";
 
 export type SkippedRowDetail = {
@@ -644,16 +645,20 @@ export async function importDentalTransactionsAction(
           },
         };
 
-        if (calcResult.actualPatientShare > calcResult.originalPatientShare) {
+        // الصف المتجاوز يُرفض ولا يُدرج؛ ولا يُحدَّث الاستهلاك الجاري حتى تبقى
+        // حسابات الصفوف التالية لنفس المستفيد صحيحة.
+        if (isCeilingExceeded(calcResult)) {
           ceilingExceededCount++;
+          skippedCount++;
           ceilingExceededDetails.push({
             rowNumber: r.rowNumber,
             name: r.name,
             card: r.card,
             facilityName: r.facilityName,
             amount: r.amount,
-            reason: `تجاوز السقف: السقف المتبقي قبل الحركة كان ${calcResult.remainingCeilingBefore?.toFixed(2) || 0} د.ل وتم تحميل ${calcResult.actualPatientShare.toFixed(2)} د.ل على المستفيد`,
+            reason: `تجاوز السقف — الصف مرفوض: المتبقي قبل الحركة ${calcResult.remainingCeilingBefore?.toFixed(2) || 0} د.ل والمطلوب من الشركة ${calcResult.originalCompanyShare.toFixed(2)} د.ل`,
           });
+          continue;
         }
 
         runningConsumption.set(consumptionKey, currentConsumed + Number(calcResult.ceilingConsumed));

@@ -15,6 +15,7 @@ import { findCompanyByCardNumber, getServiceTypeMapping } from "@/lib/insurance/
 import type { TpaValidation } from "@/lib/insurance/shadow-mode";
 import { WAHDA_BANK_COMPANY_ID } from "@/lib/constants";
 import { calculatePhysiotherapySessions } from "@/lib/physiotherapy-sessions";
+import { assertWithinCeiling, assertWithinSessionLimit, isCeilingExceeded, ceilingRejectionMessage } from "@/lib/insurance/ceiling-guard";
 
 export async function deductBalance(formData: {
   beneficiary_id?: string;
@@ -334,6 +335,8 @@ export async function deductBalance(formData: {
             limit: effectiveCeiling,
           });
 
+          assertWithinSessionLimit(sessionResult);
+
           tpaData = {
             company_id: companyId,
             service_category: "PHYSIOTHERAPY",
@@ -365,6 +368,8 @@ export async function deductBalance(formData: {
               allowPartialCoverage: true
             }
           });
+
+          assertWithinCeiling(calcResult, policyRecord.service_type);
 
           // Validate: patient share must not exceed remaining balance
           const patientShare = Number(calcResult.actualPatientShare);
@@ -891,10 +896,15 @@ export async function simulateDeduction(data: {
       }
     });
 
+    // المعاينة لا ترمي خطأ؛ تُبلّغ الواجهة لتعطّل زر التأكيد قبل الإرسال.
+    const blocked = isCeilingExceeded(calcResult);
+
     return {
       success: true,
       isTpa: true,
       calcResult,
+      blocked,
+      blockReason: blocked ? ceilingRejectionMessage(calcResult, policyServiceType) : undefined,
       beneficiaryName: beneficiary.name,
       companyName: beneficiary.company?.name || ""
     };
