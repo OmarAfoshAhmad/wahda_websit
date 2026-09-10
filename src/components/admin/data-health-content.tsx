@@ -2,8 +2,6 @@ import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { formatDateTripoli } from "@/lib/datetime";
 import { AlertTriangle } from "lucide-react";
-import fs from "fs";
-import path from "path";
 import { UnlinkedCorrectionsFixButton } from "./unlinked-corrections-fix-button";
 import { DuplicateMovementsFixButton } from "./duplicate-movements-fix-button";
 import { InvalidPasswordFacilitiesFixButton } from "./invalid-password-facilities-fix-button";
@@ -15,18 +13,13 @@ import { ParentCardPatternFixButton } from "./parent-card-pattern-fix-button";
 import { NormalizeImportIntegerDistributionButton } from "./normalize-import-integer-distribution-button";
 import { CeilingExceededFixButton } from "./ceiling-exceeded-fix-button";
 import { listCeilingExceededAction, type CeilingExceededRow } from "@/app/actions/ceiling-health-actions";
+import { listOutOfRangeTransactionDatesAction, type OutOfRangeDateRow } from "@/app/actions/transaction-date-health-actions";
+import { TransactionDateFixSection } from "./transaction-date-fix-section";
 import { BASE_BALANCE_SPENT_SUM_SQL } from "@/lib/base-balance-ledger";
-import { LegacyCardBatchTools } from "./legacy-card-batch-tools";
-import { LegacyCardInlineToggleButton } from "./legacy-card-inline-toggle-button";
-import { BeneficiaryDeleteButton } from "@/components/beneficiary-delete-button";
-import { LegacyWithBatchStabilizeButton } from "./legacy-with-batch-stabilize-button";
-import { LegacyNoPaymentPurgeButton } from "./legacy-no-payment-purge-button";
 import { StatusAnomaliesCheckButton } from "./status-anomalies-check-button";
 import { OrphanedNotificationsCheckButton } from "./orphaned-notifications-check-button";
 import { FixInvalidSubunitAmountsButton } from "./fix-invalid-subunit-amounts-button";
 import { PharmacySuppliesFixSection, PharmacySupplyAnomalyRow } from "./pharmacy-supplies-fix-section";
-import { TruthRegistryAlignmentTool } from "./truth-registry-alignment-tool";
-import { LegacyCardsUnifiedManager } from "./legacy-cards-unified-manager";
 import { DemographicRepairSection, type DemographicRepairRow } from "./demographic-repair-section";
 import { loadLatestImportDemographicEvidence, replaceCardSuffix, shouldTreatAsSoleEmployee, stripCardMemberSuffix } from "@/lib/import-demographic-evidence";
 import { normalizeCardNumber } from "@/lib/normalize";
@@ -166,46 +159,6 @@ type LegacyFractionalImportMemberRow = {
   member_remaining_balance: number;
 };
 
-type WeirdCardRow = {
-  id: string;
-  name: string;
-  card_number: string;
-  status: string;
-  is_legacy_card: boolean;
-  total_balance: number;
-  remaining_balance: number;
-  manual_transactions_count: number;
-  import_transactions_count: number;
-  total_transactions_count: number;
-  anomaly_type: string;
-  company_name: string | null;
-};
-
-type LegacyCardStatusRow = {
-  id: string;
-  name: string;
-  card_number: string;
-  status: string;
-  is_legacy_card: boolean;
-  total_balance: number;
-  remaining_balance: number;
-  manual_transactions_count: number;
-  import_transactions_count: number;
-  total_transactions_count: number;
-};
-
-type LegacyWithBatchRow = {
-  id: string;
-  name: string;
-  card_number: string;
-  status: string;
-  batch_number: string;
-  city: string;
-  manual_transactions_count: number;
-  import_transactions_count: number;
-  total_transactions_count: number;
-};
-
 function Num({ value }: { value: number }) {
   return <span>{value.toLocaleString("ar-LY")}</span>;
 }
@@ -224,13 +177,11 @@ function Section({ title, count, children }: { title: string; count: number; chi
 export async function DataHealthContent({
   withinDuplicatesTab = false,
   searchQuery = "",
-  legacyMode = false,
   companyId,
   companyName,
 }: {
   withinDuplicatesTab?: boolean;
   searchQuery?: string;
-  legacyMode?: boolean;
   companyId: string;
   companyName: string;
 }) {
@@ -251,174 +202,10 @@ export async function DataHealthContent({
   let parentCardPatternRows: ParentCardPatternRow[] = [];
   let legacyFractionalImportRows: LegacyFractionalImportRow[] = [];
   let legacyFractionalImportMemberRows: LegacyFractionalImportMemberRow[] = [];
-  let weirdCardRows: WeirdCardRow[] = [];
-  let legacyWithBatchRows: LegacyWithBatchRow[] = [];
-  let legacyNoPaymentRows: LegacyCardStatusRow[] = [];
   let pharmacySupplyRows: PharmacySupplyAnomalyRow[] = [];
-  let missingCardsRows: any[] = [];
   let ceilingExceededRows: CeilingExceededRow[] = [];
+  let outOfRangeDateRows: OutOfRangeDateRow[] = [];
 
-  if (legacyMode) {
-    // Read the CSV and query missing
-    const csvPath = path.join(process.cwd(), 'card_analysis_result.csv');
-    if (fs.existsSync(csvPath)) {
-      try {
-        const csvContent = fs.readFileSync(csvPath, 'utf8');
-        const cleanContent = csvContent.replace(/^\uFEFF/, '');
-        const lines = cleanContent.split('\n').map(l => l.trim()).filter(l => l !== '');
-        const csvRows = [];
-        for (let i = 1; i < lines.length; i++) {
-          const parts = lines[i].split(',');
-          if (parts.length >= 3) {
-            const card_number = parts[0].replace(/"/g, '').trim();
-            const name = parts[1].replace(/"/g, '').trim();
-            csvRows.push({ card_number, name });
-          }
-        }
-        const csvCards = csvRows.map(r => r.card_number.toUpperCase());
-        
-        // Find existing ones in active Beneficiary
-        const existingBens = await prisma.beneficiary.findMany({
-          where: {
-            deleted_at: null,
-            company_id: companyId,
-            card_number: {
-              in: csvCards
-            }
-          },
-          select: { card_number: true }
-        });
-        const existingCardNumbers = new Set(existingBens.map(b => b.card_number.toUpperCase()));
-        
-        const missingRows = csvRows.filter(r => !existingCardNumbers.has(r.card_number.toUpperCase()));
-        const missingCardNumbers = missingRows.map(r => r.card_number.toUpperCase());
-        
-        // Find their batch number and city from CardIssuanceRegistryAll
-        const registryRows = await prisma.cardIssuanceRegistryAll.findMany({
-          where: {
-            card_number_upper: {
-              in: missingCardNumbers
-            }
-          },
-          select: { card_number_upper: true, batch_number: true, city: true }
-        });
-        
-        const registryMap = new Map();
-        for (const reg of registryRows) {
-          registryMap.set(reg.card_number_upper, reg);
-        }
-        
-        missingCardsRows = missingRows.map(r => {
-          const reg = registryMap.get(r.card_number.toUpperCase());
-          return {
-            id: `missing-${r.card_number}`,
-            name: r.name,
-            card_number: r.card_number,
-            status: "غير موجود بالمنظومة",
-            manual_transactions_count: 0,
-            import_transactions_count: 0,
-            total_transactions_count: 0,
-            batch_number: reg ? reg.batch_number : null,
-            city: reg ? reg.city : null,
-          };
-        });
-      } catch (err) {
-        console.error("Error loading missing cards from CSV:", err);
-      }
-    }
-
-    const [
-      weirdCardRowsRes,
-      legacyWithBatchRowsRes,
-      legacyNoPaymentRowsRes,
-    ] = await Promise.all([
-      prisma.$queryRaw<WeirdCardRow[]>`
-        SELECT
-          b.id,
-          b.name,
-          b.card_number,
-          b.status::text AS status,
-          b.is_legacy_card,
-          b.total_balance::float8 AS total_balance,
-          b.remaining_balance::float8 AS remaining_balance,
-          COALESCE(COUNT(CASE WHEN t.type <> 'IMPORT' AND t.type <> 'CANCELLATION' THEN 1 END), 0)::int AS manual_transactions_count,
-          COALESCE(COUNT(CASE WHEN t.type = 'IMPORT' THEN 1 END), 0)::int AS import_transactions_count,
-          COALESCE(COUNT(t.id), 0)::int AS total_transactions_count,
-          CASE
-            WHEN b.card_number ~ '\\s' THEN 'يحتوي مسافات'
-            WHEN b.card_number !~ '^WAB2025[0-9]+([WHSDMFV][0-9]*)?$' THEN 'نمط غير قياسي'
-            ELSE 'أخرى'
-          END AS anomaly_type,
-          c.name AS company_name
-        FROM "Beneficiary" b
-        LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id AND t.is_cancelled = false
-        LEFT JOIN "InsuranceCompany" c ON c.id = b.company_id
-        WHERE b.deleted_at IS NULL
-          AND b.company_id = ${companyId}
-          AND (
-            b.card_number ~ '\\s'
-            OR b.card_number !~ '^WAB2025[0-9]+([WHSDMFV][0-9]*)?$'
-          )
-        GROUP BY b.id, b.name, b.card_number, b.status, b.is_legacy_card, b.total_balance, b.remaining_balance, c.name
-        ORDER BY b.card_number ASC
-        LIMIT 500
-      `,
-
-      prisma.$queryRaw<LegacyWithBatchRow[]>`
-        SELECT
-          b.id,
-          b.name,
-          b.card_number,
-          b.status::text AS status,
-          r.batch_number,
-          r.city,
-          COALESCE(COUNT(CASE WHEN t.type <> 'IMPORT' AND t.type <> 'CANCELLATION' THEN 1 END), 0)::int AS manual_transactions_count,
-          COALESCE(COUNT(CASE WHEN t.type = 'IMPORT' THEN 1 END), 0)::int AS import_transactions_count,
-          COALESCE(COUNT(t.id), 0)::int AS total_transactions_count
-        FROM "Beneficiary" b
-        INNER JOIN "CardIssuanceRegistry" r
-          ON UPPER(BTRIM(b.card_number)) = r.card_number_upper
-        LEFT JOIN "Transaction" t
-          ON t.beneficiary_id = b.id
-         AND t.is_cancelled = false
-        WHERE b.deleted_at IS NULL
-          AND b.company_id = ${companyId}
-          AND b.is_legacy_card = true
-          AND r.batch_number IS NOT NULL
-          AND BTRIM(r.batch_number) <> ''
-        GROUP BY b.id, b.name, b.card_number, b.status, r.batch_number, r.city
-        ORDER BY r.batch_number ASC, b.card_number ASC
-        LIMIT 1000
-      `,
-
-      prisma.$queryRaw<LegacyCardStatusRow[]>`
-        SELECT
-          b.id,
-          b.name,
-          b.card_number,
-          b.status::text AS status,
-          b.is_legacy_card,
-          b.total_balance::float8 AS total_balance,
-          b.remaining_balance::float8 AS remaining_balance,
-          COALESCE(COUNT(CASE WHEN t.type <> 'IMPORT' AND t.type <> 'CANCELLATION' THEN 1 END), 0)::int AS manual_transactions_count,
-          COALESCE(COUNT(CASE WHEN t.type = 'IMPORT' THEN 1 END), 0)::int AS import_transactions_count,
-          COALESCE(COUNT(t.id), 0)::int AS total_transactions_count
-        FROM "Beneficiary" b
-        LEFT JOIN "CardIssuanceRegistry" r ON UPPER(BTRIM(b.card_number)) = r.card_number_upper
-        LEFT JOIN "Transaction" t ON t.beneficiary_id = b.id AND t.is_cancelled = false
-        WHERE b.deleted_at IS NULL
-          AND b.company_id = ${companyId}
-          AND b.is_legacy_card = true
-          AND (r.id IS NULL OR r.batch_number IS NULL OR BTRIM(r.batch_number) = '')
-        GROUP BY b.id, b.name, b.card_number, b.status, b.is_legacy_card, b.total_balance, b.remaining_balance
-        ORDER BY b.card_number ASC
-        LIMIT 1000
-      `,
-    ]);
-    weirdCardRows = weirdCardRowsRes;
-    legacyWithBatchRows = legacyWithBatchRowsRes;
-    legacyNoPaymentRows = legacyNoPaymentRowsRes;
-  } else {
     // Group 1: basic corrections and duplicates (3 queries)
     const [unlinkedCorrectionsRes, duplicateImportsRes, duplicateMovementsRes] = await Promise.all([
       prisma.$queryRaw<UnlinkedCorrectionRow[]>`
@@ -774,8 +561,8 @@ export async function DataHealthContent({
     legacyFractionalImportRows = legacyFractionalImportRowsRes;
     legacyFractionalImportMemberRows = legacyFractionalImportMemberRowsRes;
 
-    // Group 6: pharmacy supply anomaly and ceiling-exceeded transactions (2 queries)
-    const [pharmacySupplyRowsRes, ceilingExceededRowsRes] = await Promise.all([
+    // Group 6: pharmacy supply anomaly, ceiling-exceeded and out-of-range-date transactions (3 queries)
+    const [pharmacySupplyRowsRes, ceilingExceededRowsRes, outOfRangeDateRowsRes] = await Promise.all([
       prisma.$queryRaw<PharmacySupplyAnomalyRow[]>`
         SELECT
           t.id,
@@ -795,10 +582,11 @@ export async function DataHealthContent({
         LIMIT 5000
       `,
       listCeilingExceededAction(companyId, 500),
+      listOutOfRangeTransactionDatesAction(companyId, 500),
     ]);
     pharmacySupplyRows = pharmacySupplyRowsRes;
     ceilingExceededRows = ceilingExceededRowsRes.success ? ceilingExceededRowsRes.rows : [];
-  }
+    outOfRangeDateRows = outOfRangeDateRowsRes.success ? outOfRangeDateRowsRes.rows : [];
 
   const legacyMembersByFamily = legacyFractionalImportMemberRows.reduce<Record<string, LegacyFractionalImportMemberRow[]>>((acc, row) => {
     if (!acc[row.family_base_card]) {
@@ -937,32 +725,6 @@ export async function DataHealthContent({
   const filteredLegacyFractionalImportRows = hasSearchQuery
     ? legacyFractionalImportRows.filter((row) => row.family_base_card.toLowerCase().includes(normalizedSearchQuery))
     : legacyFractionalImportRows;
-  const filteredWeirdCardRows = hasSearchQuery
-    ? weirdCardRows.filter(
-      (row) =>
-        row.name.toLowerCase().includes(normalizedSearchQuery) ||
-        row.card_number.toLowerCase().includes(normalizedSearchQuery) ||
-        row.anomaly_type.toLowerCase().includes(normalizedSearchQuery)
-    )
-    : weirdCardRows;
-  const filteredLegacyWithBatchRows = hasSearchQuery
-    ? legacyWithBatchRows.filter(
-      (row) =>
-        row.name.toLowerCase().includes(normalizedSearchQuery) ||
-        row.card_number.toLowerCase().includes(normalizedSearchQuery) ||
-        row.batch_number.toLowerCase().includes(normalizedSearchQuery) ||
-        row.city.toLowerCase().includes(normalizedSearchQuery)
-    )
-    : legacyWithBatchRows;
-
-  const filteredLegacyNoPaymentRows = hasSearchQuery
-    ? legacyNoPaymentRows.filter(
-      (row) =>
-        row.name.toLowerCase().includes(normalizedSearchQuery) ||
-        row.card_number.toLowerCase().includes(normalizedSearchQuery)
-    )
-    : legacyNoPaymentRows;
-
   const filteredPharmacySupplyRows = hasSearchQuery
     ? pharmacySupplyRows.filter(
       (row) =>
@@ -982,8 +744,16 @@ export async function DataHealthContent({
     : ceilingExceededRows;
   const ceilingExceededTotalExcess = ceilingExceededRows.reduce((sum, row) => sum + Number(row.excess_amount ?? 0), 0);
 
-  const showLegacySections = legacyMode;
-  const showGeneralSections = !legacyMode;
+  const filteredOutOfRangeDateRows = hasSearchQuery
+    ? outOfRangeDateRows.filter(
+      (row) =>
+        row.beneficiary_name.toLowerCase().includes(normalizedSearchQuery) ||
+        row.card_number.toLowerCase().includes(normalizedSearchQuery) ||
+        row.facility_name.toLowerCase().includes(normalizedSearchQuery)
+    )
+    : outOfRangeDateRows;
+
+  const showGeneralSections = true;
 
   return (
     <div className="space-y-4 pb-16">
@@ -1111,107 +881,19 @@ export async function DataHealthContent({
       </Section>
       )}
 
-      {showLegacySections && (
-      <Section title="إدارة حالة البطاقات القديمة / المستقرة" count={0}>
+      {showGeneralSections && (
+      <Section title="حركات بتواريخ خارج النطاق المنطقي" count={filteredOutOfRangeDateRows.length}>
         <p className="text-xs text-slate-600 dark:text-slate-300">
-          يمكنك من هنا وسم البطاقات القديمة أو تحويلها إلى مستقرة حسب نمط البطاقة (مثال: 765). جميع العمليات تُسجل في سجل المراقبة.
+          يعرض هذا القسم الحركات غير الملغاة المسجَّلة بتاريخ في المستقبل أو أقدم من 2020. السبب الغالب هو انقلاب
+          اليوم والشهر أثناء قراءة ملف الاستيراد (05/10 تُقرأ 10/05)؛ لهذه الحالة يُعرض تاريخ مقترح بالقلب، ولا يُقترح
+          شيء إذا كان اليوم أكبر من 12 أو كان القلب ينتج تاريخاً خارج النطاق. الاقتراح لا يُطبَّق إلا بتأكيد صريح،
+          والحالات الأخرى تُصحَّح يدوياً لكل حركة. يُسجَّل كل تغيير في سجل المراقبة بالتاريخين القديم والجديد.
+          تصحيح تاريخ حركة أسنان/بصريات/علاج طبيعي إلى سنة مالية مختلفة يستلزم بعده تشغيل «إعادة احتساب تجاوز السقف»
+          في القسم السابق.
         </p>
-        <LegacyCardBatchTools />
+        <TransactionDateFixSection companyId={companyId} rows={filteredOutOfRangeDateRows} />
       </Section>
       )}
-
-      {showLegacySections && (
-        <div className="my-4">
-          <TruthRegistryAlignmentTool />
-        </div>
-      )}
-
-
-      {showLegacySections && (
-        <LegacyCardsUnifiedManager 
-          legacyWithBatchRows={legacyWithBatchRows} 
-          legacyNoPaymentRows={legacyNoPaymentRows} 
-          missingCardsRows={missingCardsRows}
-        />
-      )}
-
-      {showLegacySections && (
-      <Section title="بطاقات غريبة / غير قياسية" count={filteredWeirdCardRows.length}>
-        <p className="text-xs text-slate-600 dark:text-slate-300">
-          هذه القائمة تعرض البطاقات ذات الأنماط غير المتوقعة لتسهيل مراجعتها. يمكن حذف البطاقة الغريبة فقط إذا لم يكن لها حركات.
-        </p>
-        {filteredWeirdCardRows.length === 0 ? (
-          <p className="text-sm font-medium text-emerald-600">✓ لا توجد بطاقات غريبة حالياً.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
-              <thead>
-                <tr className="border-b bg-slate-50 text-right dark:border-slate-700 dark:bg-slate-800/60">
-                  <th className="p-2">الاسم</th>
-                  <th className="p-2">رقم البطاقة</th>
-                  <th className="p-2">الشركة</th>
-                  <th className="p-2">نوع الخلل</th>
-                  <th className="p-2">الوضعية</th>
-                  <th className="p-2">الحركات اليدوية</th>
-                  <th className="p-2">حركات الاستيراد</th>
-                  <th className="p-2">إجراء سريع</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredWeirdCardRows.map((row) => (
-                  <tr key={row.id} className="border-b dark:border-slate-800">
-                    <td className="p-2">{row.name}</td>
-                    <td className="p-2 font-mono text-xs">{row.card_number}</td>
-                    <td className="p-2 text-xs">{row.company_name || <span className="text-slate-400">غير محدد</span>}</td>
-                    <td className="p-2 text-xs text-amber-700 dark:text-amber-300">{row.anomaly_type}</td>
-                    <td className="p-2">
-                      {row.is_legacy_card ? (
-                        <span className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-bold text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
-                          بطاقة قديمة
-                        </span>
-                      ) : (
-                        <span className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300">
-                          بطاقة مستقرة
-                        </span>
-                      )}
-                    </td>
-                    <td className="p-2 text-xs">{row.manual_transactions_count.toLocaleString("ar-LY")}</td>
-                    <td className="p-2 text-xs">
-                      {row.import_transactions_count.toLocaleString("ar-LY")}
-                      {row.total_transactions_count > 0 ? (
-                        <span className="mr-2 font-bold text-amber-700 dark:text-amber-300">(لا يمكن الحذف)</span>
-                      ) : (
-                        <span className="mr-2 font-bold text-emerald-700 dark:text-emerald-300">(قابل للحذف)</span>
-                      )}
-                    </td>
-                    <td className="p-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <LegacyCardInlineToggleButton beneficiaryId={row.id} isLegacyCard={row.is_legacy_card} />
-                        <BeneficiaryDeleteButton
-                          id={row.id}
-                          name={row.name}
-                          hasTransactions={row.total_transactions_count > 0}
-                        />
-                        <Link
-                          href={`/beneficiaries?q=${encodeURIComponent(row.card_number)}`}
-                          className="text-xs font-bold text-primary hover:underline"
-                        >
-                          فتح المستفيد
-                        </Link>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Section>
-      )}
-
-
-
-
 
       {showGeneralSections && (
       <Section title="استيراد مجمع قديم بتوزيع كسور" count={filteredLegacyFractionalImportRows.length}>
