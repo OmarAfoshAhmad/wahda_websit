@@ -38,6 +38,7 @@ export default async function OpticsCompanyPage({
     status?: string;
     completed_via?: string;
     balance_range?: string;
+    facility?: string;
   }>;
 }) {
   const session = await getSessionWithFreshPermissions();
@@ -63,6 +64,7 @@ export default async function OpticsCompanyPage({
   const page = Math.max(1, parseInt(sp.page ?? "1") || 1);
   const fromDate = sp.from ?? "";
   const toDate = sp.to ?? "";
+  const facilityFilter = (sp.facility ?? "").trim();
   const statusFilter = sp.status || "all";
   const completedViaFilter = sp.completed_via || "all";
   const balanceRangeFilter = sp.balance_range || "all";
@@ -95,11 +97,21 @@ export default async function OpticsCompanyPage({
   // المرفق يرى حركاته فقط، والمشرف/المدير يرى جميع الحركات
   const canAddManualTransaction = !isFacility && (session.is_admin || hasPermission(session, "add_manual_transaction"));
   const PAGE_SIZE = 10;
+
+  // جلب المرافق والتحقق من الصلاحيات
+  // الإدارة والمشرف يحتاج قائمة المرافق الكاملة للاقتطاع ولفلترة كشف الحركات
+  const facilities: Array<{ id: string; name: string }> = !isFacility
+    ? await prisma.facility.findMany({ where: { deleted_at: null }, select: { id: true, name: true }, orderBy: { name: "asc" } })
+    : [{ id: session.id, name: session.name }];
+
+  const selectedFacility = !isFacility ? facilities.find((f) => f.id === facilityFilter || f.name === facilityFilter) : undefined;
+  const facilityFilterInputValue = selectedFacility?.name ?? facilityFilter;
+
   const where: any = {
     company_id: companyId,
     type: "OPTICS",
     is_cancelled: false,
-    ...(isFacility ? { facility_id: session.id } : {}),
+    ...(isFacility ? { facility_id: session.id } : selectedFacility ? { facility_id: selectedFacility.id } : {}),
   };
 
   if (searchQuery) {
@@ -119,12 +131,6 @@ export default async function OpticsCompanyPage({
     to.setHours(23, 59, 59, 999);
     where.created_at = { ...(where.created_at as object ?? {}), lte: to };
   }
-
-  // جلب المرافق والتحقق من الصلاحيات
-  // الإدارة والمشرف يحتاج قائمة المرافق الكاملة للاقتطاع
-  const facilities: Array<{ id: string; name: string }> = !isFacility
-    ? await prisma.facility.findMany({ where: { deleted_at: null }, select: { id: true, name: true }, orderBy: { name: "asc" } })
-    : [{ id: session.id, name: session.name }];
 
   const isReadOnlyEmployee = session.is_employee;
   const canCancel = !isReadOnlyEmployee && hasPermission(session, "cancel_transactions");
@@ -447,6 +453,7 @@ export default async function OpticsCompanyPage({
     if (searchQuery) params.set("q", searchQuery);
     if (fromDate && activeTab === "transactions") params.set("from", fromDate);
     if (toDate && activeTab === "transactions") params.set("to", toDate);
+    if (facilityFilter && activeTab === "transactions") params.set("facility", facilityFilter);
     if (isDeletedView && activeTab === "beneficiaries") params.set("view", "deleted");
     if (activeTab === "beneficiaries") {
       if (statusFilter !== "all") params.set("status", statusFilter);
@@ -626,10 +633,10 @@ export default async function OpticsCompanyPage({
               </Card>
             </div>
 
-            <Card className="p-4">
-              <form method="GET" action={`/admin/optics-services/${companyId}`} className="flex flex-wrap items-center gap-3">
+            <Card className="p-4 overflow-x-auto">
+              <form method="GET" action={`/admin/optics-services/${companyId}`} className="flex flex-nowrap items-center gap-3 min-w-max">
                 <input type="hidden" name="tab" value="transactions" />
-                <div className="relative flex-1 min-w-52">
+                <div className="relative min-w-0 flex-1">
                   <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                   <input
                     type="text"
@@ -639,7 +646,26 @@ export default async function OpticsCompanyPage({
                     className="flex h-10 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 pr-9 pl-3 py-2 text-sm font-bold text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/30"
                   />
                 </div>
-                <div className="flex items-center gap-2">
+                {!isFacility && (
+                  <div className="relative w-52 shrink-0">
+                    <Building2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+                    <input
+                      type="text"
+                      name="facility"
+                      defaultValue={facilityFilterInputValue}
+                      placeholder="كل المرافق"
+                      list="facilities-list-optics-company"
+                      autoComplete="off"
+                      className="flex h-10 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 pr-9 pl-3 py-2 text-sm font-bold text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/30"
+                    />
+                    <datalist id="facilities-list-optics-company">
+                      {facilities.map((f) => (
+                        <option key={f.id} value={f.name} />
+                      ))}
+                    </datalist>
+                  </div>
+                )}
+                <div className="flex shrink-0 items-center gap-2">
                   <span className="text-xs font-bold text-slate-500">من</span>
                   <input
                     type="date" lang="en-GB"
@@ -655,7 +681,7 @@ export default async function OpticsCompanyPage({
                     className="flex h-10 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-bold text-slate-900 dark:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/30"
                   />
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex shrink-0 items-center gap-2">
                   <button
                     type="submit"
                     className="inline-flex h-10 items-center justify-center rounded-md bg-teal-600 hover:bg-teal-700 px-5 text-sm font-black text-white transition-colors cursor-pointer"
@@ -706,6 +732,7 @@ export default async function OpticsCompanyPage({
                       q: searchQuery,
                       from: fromDate,
                       to: toDate,
+                      ...(facilityFilter ? { facility: facilityFilter } : {}),
                     }).toString()}`}
                     target="_blank"
                     className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 text-xs font-black text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-slate-350 transition-colors shadow-sm"
@@ -716,7 +743,7 @@ export default async function OpticsCompanyPage({
 
                   {canExport && (
                     <a
-                      href={`/api/optics-export?company=${companyId}&q=${encodeURIComponent(searchQuery)}&from=${encodeURIComponent(fromDate)}&to=${encodeURIComponent(toDate)}`}
+                      href={`/api/optics-export?company=${companyId}&q=${encodeURIComponent(searchQuery)}&from=${encodeURIComponent(fromDate)}&to=${encodeURIComponent(toDate)}${facilityFilter ? `&facility=${encodeURIComponent(facilityFilter)}` : ""}`}
                       target="_blank"
                       className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 text-xs font-black text-emerald-700 dark:text-emerald-400 hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-slate-350 transition-colors shadow-sm"
                     >

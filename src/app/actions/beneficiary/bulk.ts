@@ -5,7 +5,6 @@ import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard
 import { getCurrentInitialBalance } from "@/lib/initial-balance";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
-import { canonicalizeCardNumber } from "@/lib/normalize";
 import { assertCompanyAccessForSession } from "@/lib/company-scope";
 
 type ActiveSession = NonNullable<Awaited<ReturnType<typeof requireActiveFacilitySession>>>;
@@ -161,89 +160,6 @@ export async function setSingleLegacyCardMarker(data: {
   }
 }
 
-export async function stabilizeLegacyCardsWithBatch() {
-  const session = await requireActiveFacilitySession();
-  if (!session || session.role_v2 !== "SUPER_ADMIN") {
-    return { error: "غير مصرح بهذه العملية" };
-  }
-
-  try {
-    const result = await prisma.$transaction(async (tx) => {
-      const candidates = await tx.$queryRaw<Array<{
-        id: string;
-        name: string;
-        card_number: string;
-        batch_number: string;
-        city: string;
-      }>>`
-        SELECT DISTINCT
-          b.id,
-          b.name,
-          b.card_number,
-          r.batch_number,
-          r.city
-        FROM "Beneficiary" b
-        INNER JOIN "CardIssuanceRegistry" r
-          ON UPPER(BTRIM(b.card_number)) = r.card_number_upper
-        WHERE b.deleted_at IS NULL
-          AND b.is_legacy_card = true
-          AND r.batch_number IS NOT NULL
-          AND BTRIM(r.batch_number) <> ''
-      `;
-
-      const candidateIds = [...new Set(candidates.map((c) => c.id).filter(Boolean))];
-      const updateRes = candidateIds.length > 0
-        ? await tx.beneficiary.updateMany({
-            where: { id: { in: candidateIds }, deleted_at: null, is_legacy_card: true },
-            data: { is_legacy_card: false },
-          })
-        : { count: 0 };
-
-      const candidateCount = candidateIds.length;
-      const updatedCount = Number(updateRes.count ?? 0);
-      const details = candidates.map((row) => ({
-        beneficiary_id: row.id,
-        beneficiary_name: row.name,
-        card_number: row.card_number,
-        batch_number: row.batch_number,
-        city: row.city,
-        old_is_legacy_card: true,
-        new_is_legacy_card: false,
-        result: "stabilized",
-      }));
-      const undoSnapshot = candidateIds.map((id) => ({
-        id,
-        old_is_legacy_card: true,
-        new_is_legacy_card: false,
-      }));
-
-      await tx.auditLog.create({
-        data: {
-          facility_id: session.id,
-          user: session.username,
-          action: "BULK_STABILIZE_LEGACY_WITH_BATCH",
-          metadata: {
-            selected_count: candidateCount,
-            processed_count: updatedCount,
-            candidate_count: candidateCount,
-            updated_count: updatedCount,
-            details,
-            undo_snapshot: undoSnapshot,
-          },
-        },
-      });
-
-      return { candidateCount, updatedCount };
-    });
-
-    // revalidatePath and revalidateTag are not safe for background tasks.
-    // The UI handles refresh when the job is done.
-    return { success: true, ...result };
-  } catch (error: unknown) {
-    logger.error("Stabilize legacy cards with batch error", { error: String(error) });
-    return { error: "تعذر معالجة البطاقات القديمة ذات رقم الدفعة" };
-  }
-}
 
 export async function bulkDeleteBeneficiaries(formData: FormData) {
   const session = await requireActiveFacilitySession();
@@ -763,58 +679,6 @@ export async function bulkUpdateBeneficiaryBatch(data: {
         where: { id: { in: ids }, deleted_at: null },
         data: { batch_number: batchNumber },
       });
-
-      // 2. Insert/Update into CardIssuanceRegistry and CardIssuanceRegistryAll
-      for (const b of beneficiaries) {
-        const cardUpper = b.card_number.trim().toUpperCase();
-        const canonical = canonicalizeCardNumber(cardUpper);
-        const finalCity = b.city || "المنظومة";
-
-        // Upsert into CardIssuanceRegistryAll
-        await tx.cardIssuanceRegistryAll.upsert({
-          where: { id: `${cardUpper}-${batchNumber}` },
-          update: {
-            card_number: b.card_number,
-            card_number_upper: cardUpper,
-            beneficiary_name: b.name,
-            birth_date: b.birth_date,
-            city: finalCity,
-            batch_number: batchNumber,
-            updated_at: new Date(),
-          },
-          create: {
-            id: `${cardUpper}-${batchNumber}`,
-            card_number: b.card_number,
-            card_number_upper: cardUpper,
-            canonical_card: canonical,
-            beneficiary_name: b.name,
-            birth_date: b.birth_date,
-            city: finalCity,
-            batch_number: batchNumber,
-          },
-        });
-
-        // Upsert into CardIssuanceRegistry
-        await tx.cardIssuanceRegistry.upsert({
-          where: { card_number_upper: cardUpper },
-          update: {
-            beneficiary_name: b.name,
-            birth_date: b.birth_date,
-            city: finalCity,
-            batch_number: batchNumber,
-            updated_at: new Date(),
-          },
-          create: {
-            card_number: b.card_number,
-            card_number_upper: cardUpper,
-            canonical_card: canonical,
-            beneficiary_name: b.name,
-            birth_date: b.birth_date,
-            city: finalCity,
-            batch_number: batchNumber,
-          },
-        });
-      }
 
       await tx.auditLog.create({
         data: {

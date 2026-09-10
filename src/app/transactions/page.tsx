@@ -16,6 +16,7 @@ import { ImportSourceBadgeWithPanel } from "@/components/import-source-badge-wit
 import Link from "next/link";
 import { FileInput, PlusCircle } from "lucide-react";
 import { formatDateTripoli, formatTimeTripoli, getStartOfDayTripoli, getEndOfDayTripoli } from "@/lib/datetime";
+import { getFacilityTypeLabel, type FacilityType } from "@/lib/facility-type";
 
 type TransactionRow = {
   id: string;
@@ -84,13 +85,13 @@ function getTransactionStatusLabel(tx: TransactionRow): string {
 export default async function TransactionsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ start_date?: string; end_date?: string; facility_id?: string; page?: string; pageSize?: string; q?: string; sort?: string; order?: string; status?: string; source?: string; focus_tx?: string; tx_type?: string; company_id?: string }>;
+  searchParams: Promise<{ start_date?: string; end_date?: string; facility_id?: string; facility_type?: string; page?: string; pageSize?: string; q?: string; sort?: string; order?: string; status?: string; source?: string; focus_tx?: string; tx_type?: string; company_id?: string }>;
 }) {
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
   if (!hasPermission(session, "view_transactions")) redirect("/dashboard");
 
-  const { start_date, end_date, facility_id, page: pageParam, pageSize: pageSizeParam, q, sort, order, status: _status, tx_type, source, focus_tx, company_id: companyIdParam } = await searchParams;
+  const { start_date, end_date, facility_id, facility_type: facilityTypeParam, page: pageParam, pageSize: pageSizeParam, q, sort, order, status: _status, tx_type, source, focus_tx, company_id: companyIdParam } = await searchParams;
   const allowedPageSizes = [10, 25, 50, 100, 200, 500, 1000];
   const requestedPageSize = parseInt(pageSizeParam ?? "10", 10);
   const PAGE_SIZE = allowedPageSizes.includes(requestedPageSize) ? requestedPageSize : 10;
@@ -143,6 +144,10 @@ export default async function TransactionsPage({
   type TxSource = typeof ALLOWED_SOURCE[number];
   const sourceFilter: TxSource = session.is_admin && (ALLOWED_SOURCE as ReadonlyArray<string>).includes(source ?? "") ? source as TxSource : "all";
 
+  const ALLOWED_FACILITY_TYPES = ["all", "HOSPITAL", "PHARMACY", "DENTAL", "OPTICS", "PHYSIOTHERAPY"] as const;
+  type TxFacilityType = typeof ALLOWED_FACILITY_TYPES[number];
+  const facilityTypeFilter: TxFacilityType = session.is_admin && (ALLOWED_FACILITY_TYPES as ReadonlyArray<string>).includes(facilityTypeParam ?? "") ? facilityTypeParam as TxFacilityType : "all";
+
   const TX_SORT_COLS = ["created_at", "amount", "beneficiary_name", "facility_name", "remaining_balance"] as const;
   type TxSortCol = typeof TX_SORT_COLS[number];
   const sortCol: TxSortCol = (TX_SORT_COLS as ReadonlyArray<string>).includes(sort ?? "") ? sort as TxSortCol : "created_at";
@@ -161,6 +166,7 @@ export default async function TransactionsPage({
     if (start_date) p.set("start_date", start_date);
     if (end_date) p.set("end_date", end_date);
     if (facility_id) p.set("facility_id", facility_id);
+    if (facilityTypeFilter !== "all") p.set("facility_type", facilityTypeFilter);
     if (q) p.set("q", q);
     if (focus_tx) p.set("focus_tx", focus_tx);
     p.set("status", statusFilter);
@@ -227,6 +233,11 @@ export default async function TransactionsPage({
     } else {
       where.type = { in: ["MEDICINE", "SUPPLIES", "SETTLEMENT"] };
     }
+  }
+
+  // نوع المرفق (مشفى / صيدلية / أسنان / بصريات / علاج طبيعي) — المشرف فقط
+  if (session.is_admin && facilityTypeFilter !== "all") {
+    where.facility = { facility_type: facilityTypeFilter };
   }
 
   // نوع الحركة — استبعاد الأسنان دائماً (تُعرض في بوابة خدمات الأسنان المنفصلة)
@@ -334,6 +345,7 @@ export default async function TransactionsPage({
     prisma.transaction.aggregate({
       where: {
         facility_id: where.facility_id,
+        facility: where.facility,
         AND: where.AND,
         type: where.type,
         created_at: where.created_at,
@@ -525,6 +537,7 @@ export default async function TransactionsPage({
                     start_date,
                     end_date,
                     facility_id,
+                    facility_type: facilityTypeFilter !== "all" ? facilityTypeFilter : undefined,
                     q,
                     page: String(page),
                     pageSize: String(PAGE_SIZE),
@@ -566,6 +579,7 @@ export default async function TransactionsPage({
           <input type="hidden" name="start_date" value={start_date ?? ""} />
           <input type="hidden" name="end_date" value={end_date ?? ""} />
           <input type="hidden" name="facility_id" value={facility_id ?? ""} />
+          {facilityTypeFilter !== "all" && <input type="hidden" name="facility_type" value={facilityTypeFilter} />}
           {txTypeFilter !== "all" && <input type="hidden" name="tx_type" value={txTypeFilter} />}
           {sourceFilter !== "all" && <input type="hidden" name="source" value={sourceFilter} />}
           <div className="w-full">
@@ -634,6 +648,23 @@ export default async function TransactionsPage({
                       <option key={f.id} value={f.name} />
                     ))}
                   </datalist>
+                </div>
+              )}
+
+              {session.is_admin && (
+                <div className="space-y-1">
+                  <label htmlFor="facility_type" className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">نوع المرفق</label>
+                  <select
+                    id="facility_type"
+                    name="facility_type"
+                    defaultValue={facilityTypeFilter}
+                    className="flex h-10 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                  >
+                    <option value="all">كل الأنواع</option>
+                    {(["HOSPITAL", "PHARMACY", "DENTAL", "OPTICS", "PHYSIOTHERAPY"] as FacilityType[]).map((t) => (
+                      <option key={t} value={t}>{getFacilityTypeLabel(t)}</option>
+                    ))}
+                  </select>
                 </div>
               )}
 
@@ -1034,6 +1065,7 @@ export default async function TransactionsPage({
                 <input type="hidden" name="start_date" value={start_date ?? ""} />
                 <input type="hidden" name="end_date" value={end_date ?? ""} />
                 <input type="hidden" name="facility_id" value={facility_id ?? ""} />
+                {facilityTypeFilter !== "all" && <input type="hidden" name="facility_type" value={facilityTypeFilter} />}
                 <input type="hidden" name="q" value={q ?? ""} />
                 <input type="hidden" name="sort" value={sortCol} />
                 <input type="hidden" name="order" value={sortDir} />

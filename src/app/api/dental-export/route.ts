@@ -24,6 +24,7 @@ export async function GET(request: Request) {
   const searchQuery = url.searchParams.get("q") ?? "";
   const fromDate = url.searchParams.get("from") ?? "";
   const toDate = url.searchParams.get("to") ?? "";
+  const facilityFilter = (url.searchParams.get("facility") ?? "").trim();
 
   // بناء الشروط
   const where: Prisma.TransactionWhereInput = {
@@ -34,6 +35,14 @@ export async function GET(request: Request) {
   const isFacility = session.role === "FACILITY" || (!session.is_admin && !session.is_manager && !session.is_employee);
   if (isFacility) {
     where.facility_id = session.id;
+  } else if (facilityFilter) {
+    const matchedFacility = await prisma.facility.findFirst({
+      where: { deleted_at: null, OR: [{ id: facilityFilter }, { name: facilityFilter }] },
+      select: { id: true },
+    });
+    if (matchedFacility) {
+      where.facility_id = matchedFacility.id;
+    }
   }
 
   where.company_id = companyId ?? { in: allowedCompanyIds };

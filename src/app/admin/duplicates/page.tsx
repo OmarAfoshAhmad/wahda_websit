@@ -23,18 +23,6 @@ import {
   undoMergeAction,
 } from "@/app/actions/duplicate-page-actions";
 
-type IssuanceRegistryRow = {
-  id: string;
-  card_number: string;
-  beneficiary_name: string | null;
-  batch_number: string | null;
-  city: string;
-  source_file: string | null;
-  source_sheet: string | null;
-  source_row: number | null;
-  updated_at: Date;
-};
-
 type NoZeroAfter2025Row = {
   id: string;
   name: string;
@@ -43,19 +31,15 @@ type NoZeroAfter2025Row = {
   total_balance: number;
 };
 
-const NO_BATCH_FILTER_VALUE = "__NO_BATCH__";
-
 export default async function DuplicatesAdminPage({
   searchParams,
 }: {
   searchParams: Promise<{
     q?: string; pz?: string; pn?: string; pr?: string; ok?: string; err?: string;
     audit?: string; undone?: string; tab?: string;
-    htab?: string;
     merged?: string; before?: string; after?: string; debtAudit?: string;
     debtCardMode?: string;
-    dp?: string; rp?: string; np?: string;
-    rcity?: string; rbatch?: string;
+    dp?: string; np?: string;
     companyId?: string;
   }>;
 }) {
@@ -64,7 +48,7 @@ export default async function DuplicatesAdminPage({
   if (session.role_v2 !== "SUPER_ADMIN") redirect("/dashboard");
 
   const paramsValue = await searchParams;
-  const { q, pz, pn, pr, ok, err, audit: _audit, undone: _undone, tab, htab, merged, before, after, debtAudit, debtCardMode: debtCardModeParam, dp, rp, np, rcity, rbatch } = paramsValue;
+  const { q, pz, pn, pr, ok, err, audit: _audit, undone: _undone, tab, merged, before, after, debtAudit, debtCardMode: debtCardModeParam, dp, np } = paramsValue;
   const companies = await prisma.insuranceCompany.findMany({
     where: { deleted_at: null, is_active: true },
     select: { id: true, name: true, code: true },
@@ -83,9 +67,7 @@ export default async function DuplicatesAdminPage({
   const isBatchSuccess = (ok ?? "").startsWith("success_batch");
   const limitedMatch = /^success_batch_limited_(\d+)$/.exec(ok ?? "");
   const limitedRemaining = limitedMatch ? Number(limitedMatch[1]) : 0;
-  const normalizedTab = tab === "registry" ? "legacycards" : tab;
-  const activeTab = normalizedTab === "merged" || normalizedTab === "audit" || normalizedTab === "debt" || normalizedTab === "health" || normalizedTab === "legacycards" || normalizedTab === "nozero2025" ? normalizedTab : "review";
-  const healthSubtab = htab === "legacy-cards" ? "legacy-cards" : "general";
+  const activeTab = tab === "merged" || tab === "audit" || tab === "debt" || tab === "health" || tab === "nozero2025" ? tab : "review";
   const debtCardMode = debtCardModeParam === "old" ? "old" : "all";
   const searchQuery = (q ?? "").trim();
   const normalizedSearchQuery = searchQuery.toLowerCase();
@@ -95,13 +77,8 @@ export default async function DuplicatesAdminPage({
   const pageSize = 20;
   const debtPageSize = 50;
   const debtPage = Math.max(1, Number.parseInt(dp ?? "1", 10) || 1);
-  const registryPageSize = 50;
   const noZeroPageSize = 50;
-  const registryPage = Math.max(1, Number.parseInt(rp ?? "1", 10) || 1);
   const noZeroPage = Math.max(1, Number.parseInt(np ?? "1", 10) || 1);
-  const registryCity = (rcity ?? "").trim().slice(0, 80);
-  const registryBatch = (rbatch ?? "").trim().slice(0, 80);
-  const isRegistryNoBatchFilter = registryBatch === NO_BATCH_FILTER_VALUE;
 
   // ── بيانات تبويبَي review + audit فقط عند الحاجة ──────────────────────────
   const needsBeneficiaryData = activeTab === "review" || activeTab === "audit";
@@ -221,7 +198,7 @@ export default async function DuplicatesAdminPage({
     return `/admin/duplicates?${params.toString()}`;
   };
 
-  const buildTabHref = (nextTab: "review" | "merged" | "audit" | "debt" | "health" | "legacycards" | "nozero2025") => {
+  const buildTabHref = (nextTab: "review" | "merged" | "audit" | "debt" | "health" | "nozero2025") => {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
     params.set("pz", String(pageZero));
@@ -231,23 +208,9 @@ export default async function DuplicatesAdminPage({
     if (nextTab === "debt" && debtCardMode === "old") {
       params.set("debtCardMode", "old");
     }
-    if (nextTab === "health") {
-      params.set("htab", healthSubtab);
-    }
     if (nextTab === "nozero2025") {
       params.set("np", "1");
     }
-    return `/admin/duplicates?${params.toString()}`;
-  };
-
-  const _buildHealthSubtabHref = (nextHealthSubtab: "general" | "legacy-cards") => {
-    const params = new URLSearchParams();
-    if (q) params.set("q", q);
-    params.set("pz", String(pageZero));
-    params.set("pn", String(pageName));
-    params.set("tab", "health");
-    params.set("companyId", companyId);
-    params.set("htab", nextHealthSubtab);
     return `/admin/duplicates?${params.toString()}`;
   };
 
@@ -458,96 +421,6 @@ export default async function DuplicatesAdminPage({
     dp: String(nextPage),
   }).toString()}`;
 
-  const isRegistryTab = activeTab === "legacycards";
-  let _registryRows: IssuanceRegistryRow[] = [];
-  let registryTotal = 0;
-  let _registryCityOptions: Array<{ city: string }> = [];
-  let _registryBatchOptions: Array<{ batch_number: string | null }> = [];
-
-  if (isRegistryTab) {
-    const registryRowsSql = searchQuery
-      ? prisma.$queryRaw<IssuanceRegistryRow[]>`
-          SELECT id, card_number, beneficiary_name, batch_number, city, source_file, source_sheet, source_row, updated_at
-          FROM "CardIssuanceRegistry"
-          WHERE (${registryCity} = '' OR city = ${registryCity})
-            AND (
-              (${registryBatch} = '')
-              OR (${isRegistryNoBatchFilter} = true AND (batch_number IS NULL OR BTRIM(batch_number) = ''))
-              OR (${isRegistryNoBatchFilter} = false AND batch_number = ${registryBatch})
-            )
-            AND (
-              card_number ILIKE ${`%${searchQuery}%`}
-              OR COALESCE(beneficiary_name, '') ILIKE ${`%${searchQuery}%`}
-              OR COALESCE(source_file, '') ILIKE ${`%${searchQuery}%`}
-            )
-          ORDER BY city ASC, batch_number ASC NULLS LAST, card_number_upper ASC
-          LIMIT ${registryPageSize}
-          OFFSET ${(registryPage - 1) * registryPageSize}
-        `
-      : prisma.$queryRaw<IssuanceRegistryRow[]>`
-          SELECT id, card_number, beneficiary_name, batch_number, city, source_file, source_sheet, source_row, updated_at
-          FROM "CardIssuanceRegistry"
-          WHERE (${registryCity} = '' OR city = ${registryCity})
-            AND (
-              (${registryBatch} = '')
-              OR (${isRegistryNoBatchFilter} = true AND (batch_number IS NULL OR BTRIM(batch_number) = ''))
-              OR (${isRegistryNoBatchFilter} = false AND batch_number = ${registryBatch})
-            )
-          ORDER BY city ASC, batch_number ASC NULLS LAST, card_number_upper ASC
-          LIMIT ${registryPageSize}
-          OFFSET ${(registryPage - 1) * registryPageSize}
-        `;
-
-    const registryCountSql = searchQuery
-      ? prisma.$queryRaw<Array<{ count: bigint | number | string }>>`
-          SELECT COUNT(*)::bigint AS count
-          FROM "CardIssuanceRegistry"
-          WHERE (${registryCity} = '' OR city = ${registryCity})
-            AND (
-              (${registryBatch} = '')
-              OR (${isRegistryNoBatchFilter} = true AND (batch_number IS NULL OR BTRIM(batch_number) = ''))
-              OR (${isRegistryNoBatchFilter} = false AND batch_number = ${registryBatch})
-            )
-            AND (
-              card_number ILIKE ${`%${searchQuery}%`}
-              OR COALESCE(beneficiary_name, '') ILIKE ${`%${searchQuery}%`}
-              OR COALESCE(source_file, '') ILIKE ${`%${searchQuery}%`}
-            )
-        `
-      : prisma.$queryRaw<Array<{ count: bigint | number | string }>>`
-          SELECT COUNT(*)::bigint AS count
-          FROM "CardIssuanceRegistry"
-          WHERE (${registryCity} = '' OR city = ${registryCity})
-            AND (
-              (${registryBatch} = '')
-              OR (${isRegistryNoBatchFilter} = true AND (batch_number IS NULL OR BTRIM(batch_number) = ''))
-              OR (${isRegistryNoBatchFilter} = false AND batch_number = ${registryBatch})
-            )
-        `;
-
-    const [rowsResult, countResult, cityResult, batchResult] = await Promise.all([
-      registryRowsSql,
-      registryCountSql,
-      prisma.$queryRaw<Array<{ city: string }>>`
-        SELECT DISTINCT city
-        FROM "CardIssuanceRegistry"
-        WHERE city IS NOT NULL AND BTRIM(city) <> ''
-        ORDER BY city ASC
-      `,
-      prisma.$queryRaw<Array<{ batch_number: string | null }>>`
-        SELECT DISTINCT batch_number
-        FROM "CardIssuanceRegistry"
-        WHERE batch_number IS NOT NULL AND BTRIM(batch_number) <> ''
-          AND (${registryCity} = '' OR city = ${registryCity})
-        ORDER BY batch_number ASC
-      `,
-    ]);
-
-    _registryRows = rowsResult;
-    registryTotal = countResult.length > 0 ? Number(countResult[0].count ?? 0) : 0;
-    _registryCityOptions = cityResult;
-    _registryBatchOptions = batchResult;
-  }
 
   const noZeroFilterSql = searchQuery
     ? prisma.$queryRaw<Array<{ id: string; name: string; card_number: string; status: string; total_balance: number }>>`
@@ -613,7 +486,6 @@ export default async function DuplicatesAdminPage({
     ? await getLedgerRemainingByBeneficiaryIds(noZeroRows.map((row) => row.id))
     : new Map<string, number>();
 
-  const _registryPages = Math.max(1, Math.ceil(registryTotal / registryPageSize));
   const noZeroPages = Math.max(1, Math.ceil(noZeroTotal / noZeroPageSize));
 
   return (
@@ -635,8 +507,6 @@ export default async function DuplicatesAdminPage({
             <input type="hidden" name="dp" value="1" />
             <input type="hidden" name="rp" value="1" />
             <input type="hidden" name="np" value="1" />
-            {registryCity && <input type="hidden" name="rcity" value={registryCity} />}
-            {registryBatch && <input type="hidden" name="rbatch" value={registryBatch} />}
 
             <div className="space-y-1">
               <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">الشركة</label>
@@ -732,15 +602,6 @@ export default async function DuplicatesAdminPage({
                 className="w-full h-10"
               >
                 صحة البيانات
-              </Button>
-            </Link>
-            <Link href={buildTabHref("legacycards")}>
-              <Button
-                type="button"
-                variant={activeTab === "legacycards" ? "primary" : "outline"}
-                className="w-full h-10"
-              >
-                البطاقات القديمة
               </Button>
             </Link>
             <Link href={buildTabHref("nozero2025")}>
@@ -1428,19 +1289,6 @@ export default async function DuplicatesAdminPage({
             <DataHealthContent
               withinDuplicatesTab
               searchQuery={searchQuery}
-              legacyMode={false}
-              companyId={companyId}
-              companyName={selectedCompany.name}
-            />
-          </Card>
-        )}
-
-        {activeTab === "legacycards" && (
-          <Card className="p-4 sm:p-6">
-            <DataHealthContent
-              withinDuplicatesTab
-              searchQuery={searchQuery}
-              legacyMode={true}
               companyId={companyId}
               companyName={selectedCompany.name}
             />

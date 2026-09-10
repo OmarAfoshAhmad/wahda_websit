@@ -13,16 +13,9 @@ export * from "./orphaned-notifications-check-button";
 export * from "./status-anomalies-fix-button";
 export * from "./status-anomalies-check-button";
 export * from "./fix-invalid-subunit-amounts-button";
-export * from "./legacy-card-batch-tools";
-export * from "./legacy-card-inline-toggle-button";
-export * from "./legacy-no-payment-purge-button";
-export * from "./legacy-with-batch-stabilize-button";
 export * from "./transaction-import-uploader";
 export * from "./import-rollback-button";
 export * from "./bulk-beneficiary-rollback-button";
 export * from "./transaction-rollback-button";
 export * from "./bulk-transaction-action-button";
 export * from "./audit-log-clear-button";
-export * from "./purge-rollback-button";
-export * from "./legacy-cards-unified-manager";
-

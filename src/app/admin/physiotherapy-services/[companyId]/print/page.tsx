@@ -20,6 +20,7 @@ export default async function PhysiotherapyCompanyPrintPage({
     q?: string;
     from?: string;
     to?: string;
+    facility?: string;
   }>;
 }) {
   const session = await getSessionWithFreshPermissions();
@@ -32,6 +33,7 @@ export default async function PhysiotherapyCompanyPrintPage({
   const searchQuery = (sp.q ?? "").trim();
   const fromDate = sp.from ?? "";
   const toDate = sp.to ?? "";
+  const facilityFilter = (sp.facility ?? "").trim();
 
   // جلب بيانات الشركة
   const company = (await prisma.insuranceCompany.findUnique({
@@ -52,11 +54,19 @@ export default async function PhysiotherapyCompanyPrintPage({
 
   // بناء شروط الاستعلام
   const isFacility = session.role === "FACILITY" || (!session.is_admin && !session.is_manager && !session.is_employee);
+  let resolvedFacilityId: string | undefined;
+  if (!isFacility && facilityFilter) {
+    const matchedFacility = await prisma.facility.findFirst({
+      where: { deleted_at: null, OR: [{ id: facilityFilter }, { name: facilityFilter }] },
+      select: { id: true },
+    });
+    resolvedFacilityId = matchedFacility?.id;
+  }
   const where: any = {
     company_id: companyId,
     type: "PHYSIOTHERAPY",
     is_cancelled: false,
-    ...(isFacility ? { facility_id: session.id } : {}),
+    ...(isFacility ? { facility_id: session.id } : resolvedFacilityId ? { facility_id: resolvedFacilityId } : {}),
   };
 
   if (searchQuery) {

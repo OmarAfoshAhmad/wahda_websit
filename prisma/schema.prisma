@@ -259,49 +259,6 @@ model OtpCode {
   @@index([expires_at])
 }
 
-model CardIssuanceRegistry {
-  id                String    @id @default(cuid())
-  card_number       String
-  card_number_upper String    @unique
-  canonical_card    String
-  beneficiary_name  String?
-  birth_date        DateTime?
-  batch_number      String?
-  city              String
-  source_file       String?
-  source_sheet      String?
-  source_row        Int?
-  created_at        DateTime  @default(now())
-  updated_at        DateTime  @default(now()) @updatedAt
-  phone_number      String?
-
-  @@index([canonical_card])
-  @@index([city])
-  @@index([batch_number])
-}
-
-model CardIssuanceRegistryAll {
-  id                String    @id
-  card_number       String
-  card_number_upper String
-  canonical_card    String
-  beneficiary_name  String?
-  birth_date        DateTime?
-  batch_number      String
-  city              String
-  source_file       String?
-  source_sheet      String?
-  source_row        Int?
-  created_at        DateTime  @default(now())
-  updated_at        DateTime  @default(now()) @updatedAt
-  phone_number      String?
-
-  @@index([card_number_upper])
-  @@index([canonical_card])
-  @@index([city])
-  @@index([batch_number])
-}
-
 model ServiceType {
   id                    String                      @id @default(cuid())
   code                  String                      @unique

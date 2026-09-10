@@ -29,6 +29,8 @@ export async function GET(request: NextRequest) {
   const end_date = searchParams.get("end_date");
   const batch_number = (searchParams.get("batch_number") ?? "").trim();
   const rawFacilityFilter = (searchParams.get("facility_id") ?? "").trim();
+  const ALLOWED_FACILITY_TYPES = ["HOSPITAL", "PHARMACY", "DENTAL", "OPTICS", "PHYSIOTHERAPY"];
+  const facilityTypeFilter = (searchParams.get("facility_type") ?? "").trim();
   const q = searchParams.get("q");
   const txIdsParam = (searchParams.get("tx_ids") ?? "").trim();
   const txIdList = searchParams.getAll("tx_id").map((id) => id.trim()).filter((id) => id.length > 0);
@@ -117,6 +119,11 @@ export async function GET(request: NextRequest) {
 
   if (batch_number) {
     where.beneficiary = { ...where.beneficiary as object, batch_number };
+  }
+
+  // نوع المرفق (مشفى / صيدلية / أسنان / بصريات / علاج طبيعي) — لمن يرى كل المرافق فقط
+  if (canViewAllFacilities && ALLOWED_FACILITY_TYPES.includes(facilityTypeFilter)) {
+    where.facility = { facility_type: facilityTypeFilter };
   }
 
   if (q && q.trim() !== "") {
@@ -257,6 +264,7 @@ export async function GET(request: NextRequest) {
             q: q?.trim() || null,
             selected_facility_id: resolvedFacilityId ?? null,
             requested_facility_filter: rawFacilityFilter || null,
+            facility_type_filter: facilityTypeFilter || null,
             tx_ids_count: txIds.length,
           },
         },

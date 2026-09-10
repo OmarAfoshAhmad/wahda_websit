@@ -13,7 +13,6 @@ import { ImportRollbackButton } from "@/components/admin";
 import { TransactionRollbackButton } from "@/components/admin";
 import { BulkBeneficiaryRollbackButton } from "@/components/admin";
 import { MigrationRollbackButton } from "@/components/admin/migration-rollback-button";
-import { PurgeRollbackButton } from "@/components/admin/purge-rollback-button";
 import { formatDateTimeTripoli, getStartOfDayTripoli, getEndOfDayTripoli } from "@/lib/datetime";
 
 type TargetFilter = "all" | "beneficiaries" | "transactions" | "facilities" | "completed" | "merges" | "security";
@@ -922,23 +921,6 @@ function summarizeMetadata(action: string, metadata: unknown, auditLogId?: strin
         {m.name ? <strong className="text-slate-700 dark:text-slate-300">{String(m.name)}</strong> : null}
         {m.deleted_facility_username ? <span className="mr-1.5 font-mono text-xs">{String(m.deleted_facility_username)}</span> : null}
       </span>
-    );
-  }
-
-  if (action === "PURGE_LEGACY_NO_PAYMENT") {
-    const isUndone = Boolean(m.undone_at);
-    return (
-      <div className="flex flex-wrap gap-x-2 items-center text-slate-500 dark:text-slate-400">
-        <span>تم تصفية (حذف) البطاقة القديمة</span>
-        {m.transferred_to_id ? (
-          <span className="text-blue-600 dark:text-blue-400 font-bold">
-            (تم ترحيل الحركات إلى المستفيد المتبقي)
-          </span>
-        ) : (
-          <span className="text-slate-400 dark:text-slate-600">(لا توجد حركات للترحيل)</span>
-        )}
-        {auditLogId && <PurgeRollbackButton logId={auditLogId} isUndone={isUndone} />}
-      </div>
     );
   }
 

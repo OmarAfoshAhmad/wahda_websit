@@ -16,6 +16,7 @@ import {
 } from "@/app/actions/card-numbering";
 import { useToast } from "./toast";
 import { cn } from "./ui";
+import { cleanImportText, lookupRelTerm, parseCellDate } from "@/lib/card-import-utils";
 
 // مكون فرعي للأزرار (Chips) الخاصة بالفلاتر لضمان التراصف والجمالية
 const StatusChip = ({ active, onClick, label, count, variant }: { 
@@ -145,36 +146,68 @@ export function CardNumberingClient({
         // الحصول على جميع المفاتيح الفريدة في كل الصفوف لتحديد أعمدة المضمون مرة واحدة لكامل الملف
         const allKeys = Array.from(new Set(rawRows.flatMap(row => Object.keys(row))));
         
-        const findKeyInList = (keysList: string[], keywords: string[]) => 
-          keysList.find(k => {
-            const strK = String(k).trim();
-            return keywords.some(kw => {
-              if (kw === "رقم") return strK === "رقم";
-              return strK.includes(kw);
-            });
-          });
+        // البحث عن الأعمدة بأولوية الكلمة المفتاحية (وليس بترتيب أعمدة الملف)،
+        // مع تجاهل حالة الأحرف وإمكانية استبعاد أعمدة لا يصح التقاطها (مثل أعمدة الأسماء).
+        const findKeysInList = (keysList: string[], keywords: string[], excludeKeywords: string[] = []) => {
+          const norm = (v: unknown) => String(v ?? "").trim().toLowerCase();
+          const candidates = keysList.filter(k => !excludeKeywords.some(ex => norm(k).includes(norm(ex))));
+          const matches: string[] = [];
+          const push = (k?: string) => { if (k && !matches.includes(k)) matches.push(k); };
+
+          for (const kw of keywords) {
+            if (kw === "رقم") {
+              push(candidates.find(k => String(k).trim() === "رقم"));
+              continue;
+            }
+            // المطابقة التامة أولاً ثم الاحتواء الجزئي لنفس الكلمة
+            push(candidates.find(k => norm(k) === norm(kw)));
+            push(candidates.find(k => norm(k).includes(norm(kw))));
+          }
+          return matches;
+        };
+
+        const findKeyInList = (keysList: string[], keywords: string[], excludeKeywords: string[] = []) =>
+          findKeysInList(keysList, keywords, excludeKeywords)[0];
+
+        // أعمدة الأسماء ممنوع التقاطها كرقم وظيفي (مثل "Employee Name" التي كانت تطابق "Emp")
+        const NAME_LIKE_KEYS = ["name", "اسم", "الأسم", "الإسم"];
 
         const nameKey = findKeyInList(allKeys, ["الأسم", "الاسم", "الإسم", "اسم المستفيد", "اسم الموظف", "اسم العضو", "Full Name", "Name"]);
-        const relKey = findKeyInList(allKeys, ["صلة", "القرابة", "Relationship", "النوع", "الصلة", "Rel", "الصفة", "العلاقة", "صفة"]);
-        const bDateKey = findKeyInList(allKeys, ["تاريخ الملاد", "الملاد", "ميلاد", "المواليد", "تاريخ الميلاد", "Birth", "BDate", "DOB", "تاريخ"]);
+        const relKey = findKeyInList(allKeys, ["صلة القرابة", "صلة", "القرابة", "الصلة", "العلاقة", "الصفة", "صفة", "Relationship", "النوع", "Rel"]);
+        const bDateKeys = findKeysInList(allKeys, ["تاريخ الميلاد", "تاريخ الملاد", "الميلاد", "الملاد", "ميلاد", "المواليد", "Birth Date", "BirthDate", "DOB", "Birth", "BDate", "تاريخ"], NAME_LIKE_KEYS);
         const statusKey = findKeyInList(allKeys, ["الحالة", "Status", "الوضع", "Statue", "الوضعية"]);
         const notesKey = findKeyInList(allKeys, ["ملاحظات", "Notes", "البيان", "ملاحظة"]);
-        const empNumKey = findKeyInList(allKeys, ["الرقم الوظيفي", "رقم الوظيفي", "وظيفي", "رقم الموظف", "رقم العضو", "رقم التامين", "رقم التأمين", "Emp", "ID", "رقم"]);
+        const empNumKeys = findKeysInList(
+          allKeys,
+          ["الرقم الوظيفي", "الرقم الوظيفى", "رقم الوظيفي", "وظيفي", "رقم الموظف", "رقم العضو", "رقم التامين", "رقم التأمين", "EMPNO", "EMP_NO", "EMP NO", "Employee Number", "Emp", "ID", "رقم"],
+          NAME_LIKE_KEYS
+        );
 
-        let lastEmpNum = ""; 
+        // parseCellDate مستوردة من src/lib/card-import-utils.ts (مشتركة مع الخادم)
+
+        let lastEmpNum = "";
         const mappedData = rawRows.map(row => {
-          const values = Object.values(row).map(v => String(v || "").trim());
+          // تنظيف كل قيم الصف من المحارف غير المرئية والتطويل والأرقام العربية-الهندية
+          // قبل أي مطابقة أو استخراج — وإلا فإن "الموظف" الملوّثة بمحارف اتجاهية لن تُطابق أبداً.
+          const values = Object.values(row).map(v => cleanImportText(v));
 
           // استخراج القيم الأساسية
-          let name = nameKey ? row[nameKey] : "";
-          let rel = relKey ? row[relKey] : "";
-          let bDateRaw = bDateKey ? row[bDateKey] : "";
+          let name = nameKey ? cleanImportText(row[nameKey]) : "";
+          let rel = relKey ? cleanImportText(row[relKey]) : "";
           let empNum = "";
 
           // --- استخراج الرقم الوظيفي مع دعم التعبئة لأسفل (Fill-Down) ---
-          let extractedEmpNum = empNumKey ? String(row[empNumKey] || "").trim() : "";
-          
-          if (!extractedEmpNum && !empNumKey) {
+          // نمرّ على كل الأعمدة المرشحة ونفضّل أول قيمة رقمية بالكامل
+          let extractedEmpNum = "";
+          for (const k of empNumKeys) {
+            const v = cleanImportText(row[k]);
+            if (!v) continue;
+            if (/^\d+$/.test(v)) { extractedEmpNum = v; break; }
+            // بديل مقبول: قيمة تحتوي رقماً وبدون مسافات (مثل A-123)
+            if (!extractedEmpNum && /\d/.test(v) && !/\s/.test(v)) extractedEmpNum = v;
+          }
+
+          if (!extractedEmpNum && empNumKeys.length === 0) {
              // إذا لم نجد عموداً واضحاً للرقم الوظيفي، نبحث عن أول قيمة رقمية (التي لا تمثل تاريخاً)
              const potentialEmpNum = values.find(v => /^\d{3,}$/.test(v) && !v.includes('-') && !v.includes('/'));
              if (potentialEmpNum) extractedEmpNum = potentialEmpNum;
@@ -199,41 +232,31 @@ export function CardNumberingClient({
             }
           }
 
-          const relKeywords = ["زوجة", "زوج", "ابن", "ابنة", "ابنه", "ابنته", "ابه", "ام", "أم", "والدة", "اب", "أب", "والد", "موظف", "موظفة", "رب الأسرة", "صاحب البطاقة", "بنت", "ولد", "عضو جمارك", "عضو الجمارك", "(عضو جمارك)", "(عضو الجمارك)", "عضو"];
-          if (!rel || rel.length < 2) {
-            const foundRel = values.find(v => relKeywords.includes(v));
-            if (foundRel) rel = foundRel;
+          // صلة القرابة: عمود الصلة، ثم عمود الحالة (تستعمله بعض الملفات للصلة مثل "الام"/"الاب")،
+          // ثم مسح قيم الصف كملاذ أخير. بدون ذلك يُعتبر الصف حساباً رئيسياً فيصطدم ببطاقة الموظف.
+          let relCanonical = lookupRelTerm(rel);
+          if (!relCanonical && statusKey) relCanonical = lookupRelTerm(row[statusKey]);
+          if (!relCanonical) {
+            for (const v of values) {
+              const c = lookupRelTerm(v);
+              if (c) { relCanonical = c; break; }
+            }
           }
+          if (relCanonical) rel = relCanonical;
           
+          // نجرّب كل الأعمدة المرشحة للتاريخ ونأخذ أول قيمة تُنتج تاريخاً صالحاً
           let bDate = "";
           let originalDate = "";  // التاريخ الأصلي من الملف
-          
-          if (bDateRaw instanceof Date) {
-            const y = bDateRaw.getFullYear();
-            const m = String(bDateRaw.getMonth() + 1).padStart(2, '0');
-            const d = String(bDateRaw.getDate()).padStart(2, '0');
-            bDate = `${y}-${m}-${d}`;
-            originalDate = bDate;
-          } else if (typeof bDateRaw === "number") {
-            const date = new Date(Math.round((bDateRaw - 25569) * 86400 * 1000));
-            const y = date.getUTCFullYear();
-            const m = String(date.getUTCMonth() + 1).padStart(2, '0');
-            const d = String(date.getUTCDate()).padStart(2, '0');
-            bDate = `${y}-${m}-${d}`;
-            originalDate = bDate;
-          } else {
-            // إزالة الأحرف غير المرئية (LTR/RTL) التي يضيفها الإكسيل وتتسبب في فشل التحليل
-            let strDate = String(bDateRaw || "").replace(/[^\d\/\-]/g, "").trim();
-            originalDate = strDate;  // حفظ التاريخ الأصلي قبل أي معالجة
-            
-            if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}$/.test(strDate)) {
-               const parts = strDate.split(/[\/\-]/);
-               bDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-            } else if (/^\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}$/.test(strDate)) {
-               const parts = strDate.split(/[\/\-]/);
-               bDate = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
-            } else {
-               bDate = strDate;
+          for (const k of bDateKeys) {
+            const parsed = parseCellDate(row[k]);
+            if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(parsed.bDate)) {
+              bDate = parsed.bDate;
+              originalDate = parsed.originalDate;
+              break;
+            }
+            if (!bDate && parsed.bDate) {
+              bDate = parsed.bDate;
+              originalDate = parsed.originalDate;
             }
           }
 
