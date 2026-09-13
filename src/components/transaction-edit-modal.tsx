@@ -21,7 +21,7 @@ type TransactionView = {
   is_cancelled: boolean;
 };
 
-type EditableTransactionType = "MEDICINE" | "SUPPLIES" | "DENTAL" | "OPTICS";
+type EditableTransactionType = "MEDICINE" | "SUPPLIES" | "DENTAL" | "OPTICS" | "PHYSIOTHERAPY";
 
 function toMovementType(txType: string): EditableTransactionType {
   // الجلب يكون من "نوع الحركة" لا "المصدر":
@@ -29,6 +29,7 @@ function toMovementType(txType: string): EditableTransactionType {
   if (txType === "SUPPLIES") return "SUPPLIES";
   if (txType === "DENTAL") return "DENTAL";
   if (txType === "OPTICS") return "OPTICS";
+  if (txType === "PHYSIOTHERAPY") return "PHYSIOTHERAPY";
   return "MEDICINE";
 }
 
@@ -170,8 +171,16 @@ export function TransactionEditModal({
               </div>
 
               <div>
-                <label className="mb-1 block text-xs font-black text-slate-500 dark:text-slate-400">قيمة الخصم</label>
-                <Input type="number" min="0.01" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
+                <label className="mb-1 block text-xs font-black text-slate-500 dark:text-slate-400">
+                  {transaction.type === "PHYSIOTHERAPY" ? "عدد الجلسات" : "قيمة الخصم"}
+                </label>
+                <Input
+                  type="number"
+                  min={transaction.type === "PHYSIOTHERAPY" ? "1" : "0.01"}
+                  step={transaction.type === "PHYSIOTHERAPY" ? "1" : "0.01"}
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                />
               </div>
 
               <div>
@@ -185,6 +194,8 @@ export function TransactionEditModal({
                     <option value="DENTAL">أسنان</option>
                   ) : transaction.type === "OPTICS" ? (
                     <option value="OPTICS">بصريات</option>
+                  ) : transaction.type === "PHYSIOTHERAPY" ? (
+                    <option value="PHYSIOTHERAPY">علاج طبيعي</option>
                   ) : (
                     <>
                       <option value="SUPPLIES">كشف عام</option>

@@ -15,6 +15,21 @@ import {
 } from "@/lib/validation";
 import { InsuranceEngine } from "@/lib/insurance/engine";
 import { assertCompanyAccessForSession } from "@/lib/company-scope";
+import { calculatePhysiotherapySessions } from "@/lib/physiotherapy-sessions";
+import { assertWithinCeiling, assertWithinSessionLimit } from "@/lib/insurance/ceiling-guard";
+import { BASE_BALANCE_EXCLUDED_TRANSACTION_TYPES } from "@/lib/base-balance-ledger";
+
+type CappedServiceType = "DENTAL" | "OPTICS" | "PHYSIOTHERAPY";
+
+function isCappedServiceType(type: string): type is CappedServiceType {
+  return type === "DENTAL" || type === "OPTICS" || type === "PHYSIOTHERAPY";
+}
+
+function resolveCustomCeiling(customCeilings: unknown, serviceType: CappedServiceType): number | null | undefined {
+  if (!customCeilings || typeof customCeilings !== "object" || !(serviceType in customCeilings)) return undefined;
+  const value = (customCeilings as Record<string, unknown>)[serviceType];
+  return value === null ? null : Number(value);
+}
 
 export type AddTransactionState = {
   success?: string;
@@ -25,7 +40,7 @@ export type AddTransactionState = {
 export type EditTransactionInput = {
   id: string;
   amount: number;
-  type: "MEDICINE" | "SUPPLIES" | "IMPORT" | "DENTAL" | "OPTICS";
+  type: "MEDICINE" | "SUPPLIES" | "IMPORT" | "DENTAL" | "OPTICS" | "PHYSIOTHERAPY";
   transactionDate: string;
   facilityId?: string;
 };
@@ -144,17 +159,21 @@ export async function addTransactionFromForm(
   };
 }
 
-async function recalculateDentalTransactionsForBeneficiary(
+/**
+ * يعيد احتساب حصص السقف لكل حركات خدمة معزولة (أسنان/بصريات/علاج طبيعي) لمستفيد في سنة مالية
+ * بترتيبها الزمني. إن مُرِّر guardTransactionId فُحصت تلك الحركة وحدها ضد السقف ورُفض التعديل
+ * إن تجاوزته؛ الحركات الأخرى لا تُحجب حتى لا يعيق تجاوز تاريخي قديم تصحيحاً مشروعاً.
+ */
+async function recalculateCappedServiceTransactionsForBeneficiary(
   tx: Omit<typeof prisma, "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends">,
   beneficiaryId: string,
-  year: number
+  year: number,
+  serviceType: CappedServiceType,
+  guardTransactionId?: string,
 ) {
   const beneficiary = await tx.beneficiary.findUnique({
     where: { id: beneficiaryId },
-    select: {
-      id: true,
-      company_id: true,
-    }
+    select: { id: true, company_id: true, custom_ceilings: true },
   });
 
   if (!beneficiary || !beneficiary.company_id) {
@@ -173,11 +192,10 @@ async function recalculateDentalTransactionsForBeneficiary(
   const startDate = new Date(year, 0, 1);
   const endDate = new Date(year, 11, 31, 23, 59, 59, 999);
 
-  // Fetch all dental transactions chronologically
   const txs = await tx.transaction.findMany({
     where: {
       beneficiary_id: beneficiaryId,
-      type: "DENTAL",
+      type: serviceType,
       is_cancelled: false,
       created_at: { gte: startDate, lte: endDate },
     },
@@ -187,40 +205,83 @@ async function recalculateDentalTransactionsForBeneficiary(
     ]
   });
 
-  let runningConsumed = 0;
-  const dentalPolicy = (company as any).service_policies?.find((p: any) => p.service_type?.code === "DENTAL");
+  const servicePolicy = (company as any).service_policies?.find((p: any) => p.service_type?.code === serviceType);
+  const customCeiling = resolveCustomCeiling(beneficiary.custom_ceilings, serviceType);
+  const annualCeiling = customCeiling !== undefined
+    ? customCeiling
+    : servicePolicy && servicePolicy.ceiling_amount !== null ? Number(servicePolicy.ceiling_amount) : null;
+  const baseCoverage = servicePolicy ? Number(servicePolicy.coverage_percent) : 100;
   const policy = {
-    service_type: "DENTAL",
-    annual_ceiling: dentalPolicy && dentalPolicy.ceiling_amount !== null ? Number(dentalPolicy.ceiling_amount) : null,
-    copay_percentage: Math.max(0, 100 - (dentalPolicy ? Number(dentalPolicy.coverage_percent) : 100)),
+    service_type: serviceType,
+    annual_ceiling: annualCeiling,
+    copay_percentage: serviceType === "PHYSIOTHERAPY" ? 0 : Math.max(0, 100 - baseCoverage),
     allow_partial_coverage: true,
   };
 
-  for (const t of txs) {
-    const subCategory = t.service_category || "DENTAL";
-    const settings = company.dental_settings ? (company.dental_settings as any) : null;
-    let categoryCoverage = dentalPolicy ? Number(dentalPolicy.coverage_percent) : 100; // default coverage
+  let runningConsumed = 0;
 
-    if (subCategory === "DENTAL_ORTHO" && settings?.ortho?.enabled) {
-      categoryCoverage = Number(settings.ortho.coverage);
-    } else if (subCategory === "DENTAL_IMPLANT" && settings?.implant?.enabled) {
-      categoryCoverage = Number(settings.implant.coverage);
-    } else if (subCategory === "DENTAL_PROSTHETICS" && settings?.prosthetics?.enabled) {
-      categoryCoverage = Number(settings.prosthetics.coverage);
+  for (const t of txs) {
+    const isGuarded = t.id === guardTransactionId;
+
+    if (serviceType === "PHYSIOTHERAPY") {
+      const sessionResult = calculatePhysiotherapySessions({
+        sessions: Number(t.amount),
+        consumedBefore: runningConsumed,
+        limit: annualCeiling,
+      });
+      if (isGuarded) assertWithinSessionLimit(sessionResult);
+
+      await tx.transaction.update({
+        where: { id: t.id },
+        data: {
+          original_company_share: sessionResult.sessions,
+          original_patient_share: 0,
+          actual_company_share: sessionResult.sessions,
+          actual_patient_share: 0,
+          remaining_ceiling_before: sessionResult.remainingBefore,
+          ceiling_consumed: sessionResult.sessions,
+          remaining_ceiling_after: sessionResult.remainingAfter,
+          consumed_before: sessionResult.consumedBefore,
+          consumed_after: sessionResult.consumedAfter,
+          policy_snapshot: JSON.parse(JSON.stringify(policy)),
+          calc_metadata: {
+            ...(t.calc_metadata as any || {}),
+            calculationUnit: "SESSION",
+            financialCoverageApplied: false,
+            sessionLimit: sessionResult.limit,
+            exceededSessions: sessionResult.exceededSessions,
+          }
+        }
+      });
+
+      runningConsumed = sessionResult.consumedAfter;
+      continue;
     }
 
-    const copayPercentage = Math.max(0, 100 - categoryCoverage);
+    let categoryCoverage = baseCoverage;
+    if (serviceType === "DENTAL") {
+      const subCategory = t.service_category || "DENTAL";
+      const settings = company.dental_settings ? (company.dental_settings as any) : null;
+      if (subCategory === "DENTAL_ORTHO" && settings?.ortho?.enabled) {
+        categoryCoverage = Number(settings.ortho.coverage);
+      } else if (subCategory === "DENTAL_IMPLANT" && settings?.implant?.enabled) {
+        categoryCoverage = Number(settings.implant.coverage);
+      } else if (subCategory === "DENTAL_PROSTHETICS" && settings?.prosthetics?.enabled) {
+        categoryCoverage = Number(settings.prosthetics.coverage);
+      }
+    }
 
     const calcResult = InsuranceEngine.calculate({
       amount: Number(t.amount),
       consumedThisYear: runningConsumed,
       policy: {
-        serviceType: "DENTAL",
-        annualCeiling: policy.annual_ceiling,
-        copayPercentage: copayPercentage,
+        serviceType,
+        annualCeiling,
+        copayPercentage: Math.max(0, 100 - categoryCoverage),
         allowPartialCoverage: true
       }
     });
+    if (isGuarded) assertWithinCeiling(calcResult, serviceType);
 
     await tx.transaction.update({
       where: { id: t.id },
@@ -277,7 +338,11 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
     return { error: "قيمة المبلغ غير صالحة" };
   }
 
-  if (input.type !== "DENTAL" && input.type !== "OPTICS") {
+  if (input.type === "PHYSIOTHERAPY") {
+    if (!Number.isInteger(input.amount) || input.amount <= 0) {
+      return { error: "عدد جلسات العلاج الطبيعي يجب أن يكون عدداً صحيحاً أكبر من صفر" };
+    }
+  } else if (input.type !== "DENTAL" && input.type !== "OPTICS") {
     if (input.amount > MAX_DEDUCTION_AMOUNT) {
       return { error: MAX_AMOUNT_POLICY_ERROR };
     }
@@ -386,10 +451,14 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
         throw new Error("غير مصرح لك بتغيير مرفق الحركة");
       }
 
-      const isDental = transaction.type === "DENTAL";
       const oldAmount = Number(transaction.amount);
 
-      if (isDental) {
+      // الأسنان والبصريات والعلاج الطبيعي معزولة عن الرصيد الأساسي؛ تعديلها لا يمس remaining_balance.
+      if (isCappedServiceType(transaction.type)) {
+        if (input.type !== transaction.type) {
+          throw new Error("لا يمكن تغيير نوع حركة معزولة عن الرصيد الأساسي (أسنان/بصريات/علاج طبيعي)");
+        }
+
         // 1. Update the transaction basic data
         await tx.transaction.update({
           where: { id: transaction.id },
@@ -401,12 +470,12 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
           },
         });
 
-        // 2. Recalculate dental transactions for the beneficiary
+        // 2. Recalculate the service's ceiling consumption for every affected fiscal year
         const oldYear = transaction.created_at.getFullYear();
         const newYear = parsedDate.getFullYear();
-        await recalculateDentalTransactionsForBeneficiary(tx, transaction.beneficiary_id, oldYear);
+        await recalculateCappedServiceTransactionsForBeneficiary(tx, transaction.beneficiary_id, newYear, transaction.type, transaction.id);
         if (oldYear !== newYear) {
-          await recalculateDentalTransactionsForBeneficiary(tx, transaction.beneficiary_id, newYear);
+          await recalculateCappedServiceTransactionsForBeneficiary(tx, transaction.beneficiary_id, oldYear, transaction.type);
         }
 
         // 3. Create Audit Log
@@ -428,11 +497,15 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
               new_date: parsedDate.toISOString(),
               old_facility_id: transaction.facility_id ?? null,
               new_facility_id: facility.id,
-              is_dental: true,
+              isolated_from_base_balance: true,
             },
           },
         });
       } else {
+        if ((BASE_BALANCE_EXCLUDED_TRANSACTION_TYPES as readonly string[]).includes(input.type)) {
+          throw new Error("لا يمكن تحويل حركة رصيد أساسي إلى خدمة معزولة (أسنان/بصريات/علاج طبيعي)");
+        }
+
         const locked = await tx.$queryRaw<Array<{ id: string; remaining_balance: number; status: string }>>`
           SELECT id, remaining_balance, status FROM "Beneficiary"
           WHERE id = ${transaction.beneficiary_id}
