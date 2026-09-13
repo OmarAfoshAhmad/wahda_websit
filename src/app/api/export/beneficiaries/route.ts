@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getFiscalYear, getFiscalYearBounds } from "@/lib/insurance/fiscal-year";
 import ExcelJS from "exceljs";
 import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 import { checkRateLimit } from "@/lib/rate-limit";
@@ -141,9 +142,8 @@ export async function GET(request: NextRequest) {
         dentalCeiling = dentalPolicy && dentalPolicy.ceiling_amount !== null ? Number(dentalPolicy.ceiling_amount) : null;
       }
 
-      const fiscalYear = new Date().getFullYear();
-      const startDate = new Date(fiscalYear, 0, 1);
-      const endDate = new Date(fiscalYear, 11, 31, 23, 59, 59);
+      const fiscalYear = getFiscalYear(new Date());
+      const { start: startDate, end: endDate } = getFiscalYearBounds(fiscalYear);
 
       const spentDentalRows = beneficiaryIds.length > 0
         ? await prisma.transaction.findMany({

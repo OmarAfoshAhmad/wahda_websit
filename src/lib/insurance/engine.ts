@@ -1,4 +1,5 @@
 import { Decimal } from "@prisma/client/runtime/library";
+import { getFiscalYear } from "./fiscal-year";
 
 /**
  * محرك حسابات التأمين (Stateless Insurance Engine)
@@ -105,6 +106,6 @@ export class InsuranceEngine {
    * تحديد السنة المالية من تاريخ الخدمة
    */
   static getFiscalYear(date: Date): number {
-    return date.getFullYear();
+    return getFiscalYear(date);
   }
 }

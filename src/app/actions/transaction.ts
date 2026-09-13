@@ -18,6 +18,7 @@ import { assertCompanyAccessForSession } from "@/lib/company-scope";
 import { calculatePhysiotherapySessions } from "@/lib/physiotherapy-sessions";
 import { assertWithinCeiling, assertWithinSessionLimit } from "@/lib/insurance/ceiling-guard";
 import { BASE_BALANCE_EXCLUDED_TRANSACTION_TYPES } from "@/lib/base-balance-ledger";
+import { getFiscalYear, getFiscalYearBounds } from "@/lib/insurance/fiscal-year";
 
 type CappedServiceType = "DENTAL" | "OPTICS" | "PHYSIOTHERAPY";
 
@@ -189,15 +190,14 @@ async function recalculateCappedServiceTransactionsForBeneficiary(
     return;
   }
 
-  const startDate = new Date(year, 0, 1);
-  const endDate = new Date(year, 11, 31, 23, 59, 59, 999);
+  const { start, end } = getFiscalYearBounds(year);
 
   const txs = await tx.transaction.findMany({
     where: {
       beneficiary_id: beneficiaryId,
       type: serviceType,
       is_cancelled: false,
-      created_at: { gte: startDate, lte: endDate },
+      created_at: { gte: start, lte: end },
     },
     orderBy: [
       { created_at: "asc" },
@@ -471,8 +471,8 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
         });
 
         // 2. Recalculate the service's ceiling consumption for every affected fiscal year
-        const oldYear = transaction.created_at.getFullYear();
-        const newYear = parsedDate.getFullYear();
+        const oldYear = getFiscalYear(transaction.created_at);
+        const newYear = getFiscalYear(parsedDate);
         await recalculateCappedServiceTransactionsForBeneficiary(tx, transaction.beneficiary_id, newYear, transaction.type, transaction.id);
         if (oldYear !== newYear) {
           await recalculateCappedServiceTransactionsForBeneficiary(tx, transaction.beneficiary_id, oldYear, transaction.type);

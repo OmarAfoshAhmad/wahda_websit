@@ -4,6 +4,7 @@ import prisma from "@/lib/prisma";
 import { resolveVerifiedSuperAdminActor } from "@/lib/super-admin-actor";
 import { AUDIT_ACTIONS } from "@/lib/constants";
 import { revalidatePath } from "next/cache";
+import { getFiscalYear } from "@/lib/insurance/fiscal-year";
 import {
   MIN_VALID_TRANSACTION_DATE,
   parseDateOnlyAsNoonUtc,
@@ -102,8 +103,8 @@ async function applyDateChange(
     data: { created_at: newDate },
   });
 
-  const oldYear = current.created_at.getFullYear();
-  const newYear = newDate.getFullYear();
+  const oldYear = getFiscalYear(current.created_at);
+  const newYear = getFiscalYear(newDate);
   const needsCeilingRecalc = CEILING_SENSITIVE_TYPES.has(current.type) && oldYear !== newYear;
 
   await tx.auditLog.create({

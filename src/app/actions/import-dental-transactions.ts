@@ -7,6 +7,8 @@ import { getAllowedCompanyIds, resolveAllowedScope } from "@/lib/company-scope";
 import { hasPermission } from "@/lib/permissions";
 import { logger } from "@/lib/logger";
 import { InsuranceEngine } from "@/lib/insurance/engine";
+import { getCappedConsumption } from "@/lib/insurance/consumption";
+import { getFiscalYear } from "@/lib/insurance/fiscal-year";
 import { isCeilingExceeded } from "@/lib/insurance/ceiling-guard";
 import { revalidatePath } from "next/cache";
 
@@ -585,21 +587,16 @@ export async function importDentalTransactionsAction(
       }
 
       // Chronological consumption tracking
-      const year = r.date.getFullYear();
+      const year = getFiscalYear(r.date);
       const consumptionKey = `${beneficiary.id}:${year}`;
 
       if (!runningConsumption.has(consumptionKey)) {
-        const startDate = new Date(year, 0, 1);
-        const agg = await prisma.transaction.aggregate({
-          where: {
-            beneficiary_id: beneficiary.id,
-            type: "DENTAL",
-            is_cancelled: false,
-            created_at: { gte: startDate, lt: r.date },
-          },
-          _sum: { ceiling_consumed: true },
-        });
-        runningConsumption.set(consumptionKey, Number(agg._sum.ceiling_consumed ?? 0));
+        runningConsumption.set(consumptionKey, await getCappedConsumption(prisma, {
+          beneficiaryId: beneficiary.id,
+          walletType: "DENTAL",
+          fiscalYear: year,
+          before: r.date,
+        }));
       }
 
       const currentConsumed = runningConsumption.get(consumptionKey) || 0;
@@ -607,8 +604,7 @@ export async function importDentalTransactionsAction(
 
       let tpaData: any = {};
       if (policy) {
-        let effectiveCeiling = (policy.annual_ceiling === null || Number(policy.annual_ceiling) === 0)
-          ? null : Number(policy.annual_ceiling);
+        let effectiveCeiling = policy.annual_ceiling === null ? null : Number(policy.annual_ceiling);
 
         if (beneficiary.custom_ceilings && typeof beneficiary.custom_ceilings === "object" && "DENTAL" in (beneficiary.custom_ceilings as any)) {
           const cVal = (beneficiary.custom_ceilings as any).DENTAL;

@@ -14,6 +14,8 @@ import { Prisma } from "@prisma/client";
 import { InsuranceEngine } from "@/lib/insurance/engine";
 import { getServiceTypeMapping } from "@/lib/insurance/company-matcher";
 import { assertWithinCeiling } from "@/lib/insurance/ceiling-guard";
+import { getCappedConsumption, type WalletType } from "@/lib/insurance/consumption";
+import { getFiscalYear } from "@/lib/insurance/fiscal-year";
 import { WAHDA_BANK_COMPANY_ID } from "@/lib/constants";
 
 // ─── نوع بيانات عضو العائلة ─────────────────────────────────────────
@@ -273,25 +275,13 @@ export async function executeCashClaim(input: {
 
         if (ben.company_id) {
           const type = "MEDICINE";
-          const fiscalYear = InsuranceEngine.getFiscalYear(new Date());
-          const startDate = new Date(fiscalYear, 0, 1);
-          const endDate = new Date(fiscalYear, 11, 31, 23, 59, 59);
-
           const policyServiceType = await getServiceTypeMapping(ben.company_id, type);
 
-          const consumption = await tx.transaction.aggregate({
-            where: {
-              beneficiary_id: ben.id,
-              is_cancelled: false,
-              created_at: { gte: startDate, lte: endDate },
-              OR: [
-                { service_category: policyServiceType },
-                { service_category: null, type: policyServiceType as unknown as import("@prisma/client").TransactionType }
-              ]
-            },
-            _sum: { ceiling_consumed: true }
+          const consumedThisYear = await getCappedConsumption(tx, {
+            beneficiaryId: ben.id,
+            walletType: policyServiceType as WalletType,
+            fiscalYear: getFiscalYear(new Date()),
           });
-          const consumedThisYear = Number(consumption._sum.ceiling_consumed || 0);
 
           const company = await tx.insuranceCompany.findUnique({
             where: { id: ben.company_id },

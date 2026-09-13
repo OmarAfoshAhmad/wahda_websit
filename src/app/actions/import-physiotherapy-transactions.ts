@@ -11,6 +11,8 @@ import bcrypt from "bcryptjs";
 import { updateImportedServiceTransactionDates } from "@/lib/service-transaction-date-update";
 import { calculatePhysiotherapySessions, parsePhysiotherapySessionCount } from "@/lib/physiotherapy-sessions";
 import { isSessionLimitExceeded } from "@/lib/insurance/ceiling-guard";
+import { getCappedConsumption } from "@/lib/insurance/consumption";
+import { getFiscalYear } from "@/lib/insurance/fiscal-year";
 
 export type SkippedRowDetail = {
   rowNumber: number;
@@ -698,22 +700,16 @@ export async function importPhysiotherapyTransactionsAction(
       }
 
       // Chronological consumption tracking
-      const year = r.date.getFullYear();
+      const year = getFiscalYear(r.date);
       const consumptionKey = `${beneficiary.id}:${year}`;
 
       if (!runningConsumption.has(consumptionKey)) {
-        const startDate = new Date(year, 0, 1);
-        const agg = await prisma.transaction.aggregate({
-          where: {
-            beneficiary_id: beneficiary.id,
-            type: "PHYSIOTHERAPY",
-            is_cancelled: false,
-            created_at: { gte: startDate, lt: r.date },
-          },
-          // amount is the authoritative session count; legacy ceiling_consumed may contain financial fractions.
-          _sum: { amount: true },
-        });
-        runningConsumption.set(consumptionKey, Number(agg._sum.amount ?? 0));
+        runningConsumption.set(consumptionKey, await getCappedConsumption(prisma, {
+          beneficiaryId: beneficiary.id,
+          walletType: "PHYSIOTHERAPY",
+          fiscalYear: year,
+          before: r.date,
+        }));
       }
 
       const currentConsumed = runningConsumption.get(consumptionKey) || 0;
@@ -721,8 +717,7 @@ export async function importPhysiotherapyTransactionsAction(
 
       let tpaData: any = {};
       if (policy) {
-        let effectiveCeiling = (policy.annual_ceiling === null || Number(policy.annual_ceiling) === 0)
-          ? null : Number(policy.annual_ceiling);
+        let effectiveCeiling = policy.annual_ceiling === null ? null : Number(policy.annual_ceiling);
 
         if (beneficiary.custom_ceilings && typeof beneficiary.custom_ceilings === "object" && "PHYSIOTHERAPY" in (beneficiary.custom_ceilings as any)) {
           const cVal = (beneficiary.custom_ceilings as any).PHYSIOTHERAPY;

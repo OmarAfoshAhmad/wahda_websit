@@ -6,6 +6,7 @@ import { resolveVerifiedSuperAdminActor } from "@/lib/super-admin-actor";
 import { AUDIT_ACTIONS } from "@/lib/constants";
 import { roundCurrency } from "@/lib/money";
 import { InsuranceEngine } from "@/lib/insurance/engine";
+import { getFiscalYearBounds } from "@/lib/insurance/fiscal-year";
 
 type BackgroundActor = {
   id: string;
@@ -296,7 +297,7 @@ export async function fixCeilingExceededAction(
           WHEN t.service_category IN ('DENTAL', 'DENTAL_ORTHO', 'DENTAL_IMPLANT', 'DENTAL_PROSTHETICS') THEN 'DENTAL'
           ELSE t.service_category
         END AS category_group,
-        EXTRACT(YEAR FROM t.created_at)::int AS fiscal_year
+        EXTRACT(YEAR FROM (t.created_at AT TIME ZONE 'Africa/Tripoli'))::int AS fiscal_year
       FROM "Transaction" t
       JOIN "Beneficiary" b ON b.id = t.beneficiary_id
       ${joins}
@@ -316,15 +317,15 @@ export async function fixCeilingExceededAction(
 
     for (const scope of affected) {
       const categories = scope.category_group === "DENTAL" ? [...DENTAL_CATEGORIES] : [scope.category_group];
-      const startDate = new Date(scope.fiscal_year, 0, 1);
-      const endDate = new Date(scope.fiscal_year, 11, 31, 23, 59, 59, 999);
+      const { start, end } = getFiscalYearBounds(scope.fiscal_year);
 
       const txs = await prisma.transaction.findMany({
         where: {
           beneficiary_id: scope.beneficiary_id,
           is_cancelled: false,
+          type: { not: "CANCELLATION" },
           service_category: { in: categories },
-          created_at: { gte: startDate, lte: endDate },
+          created_at: { gte: start, lte: end },
         },
         include: { beneficiary: { select: { company_id: true, custom_ceilings: true } } },
         orderBy: { created_at: "asc" },

@@ -16,6 +16,8 @@ import type { TpaValidation } from "@/lib/insurance/shadow-mode";
 import { WAHDA_BANK_COMPANY_ID } from "@/lib/constants";
 import { calculatePhysiotherapySessions } from "@/lib/physiotherapy-sessions";
 import { assertWithinCeiling, assertWithinSessionLimit, isCeilingExceeded, ceilingRejectionMessage } from "@/lib/insurance/ceiling-guard";
+import { getCappedConsumption, type WalletType } from "@/lib/insurance/consumption";
+import { getFiscalYear } from "@/lib/insurance/fiscal-year";
 
 export async function deductBalance(formData: {
   beneficiary_id?: string;
@@ -178,35 +180,18 @@ export async function deductBalance(formData: {
       }
 
       // [TPA] Calculate Annual Consumption for this Category
-      const fiscalYear = InsuranceEngine.getFiscalYear(manualTransactionDate || new Date());
-      const startDate = new Date(fiscalYear, 0, 1);
-      const endDate = new Date(fiscalYear, 11, 31, 23, 59, 59);
+      const fiscalYear = getFiscalYear(manualTransactionDate || new Date());
 
       // Resolve service type mapping (e.g. MEDICINE → GENERAL for shared ceiling)
       const policyServiceType = companyId
         ? await getServiceTypeMapping(companyId, type)
         : type;
 
-      const dentalCategories = ["DENTAL", "DENTAL_ORTHO", "DENTAL_IMPLANT", "DENTAL_PROSTHETICS"];
-      const targetServiceCategories = policyServiceType === "DENTAL"
-        ? dentalCategories
-        : [policyServiceType];
-
-      const consumption = await tx.transaction.aggregate({
-        where: {
-          beneficiary_id: beneficiary.id,
-          is_cancelled: false,
-          created_at: { gte: startDate, lte: endDate },
-          OR: [
-            { service_category: { in: targetServiceCategories } },
-            { service_category: null, type: policyServiceType as any }
-          ]
-        },
-        _sum: { ceiling_consumed: true, amount: true }
+      const consumedThisYear = await getCappedConsumption(tx, {
+        beneficiaryId: beneficiary.id,
+        walletType: policyServiceType as WalletType,
+        fiscalYear,
       });
-      const consumedThisYear = type === "PHYSIOTHERAPY"
-        ? Number(consumption._sum.amount || 0)
-        : Number(consumption._sum.ceiling_consumed || 0);
 
       // [TPA] Fetch Company (Policy consolidated on InsuranceCompany)
       const company = companyId ? await tx.insuranceCompany.findUnique({
@@ -743,29 +728,11 @@ export async function getPolicyInfo(beneficiaryId: string, serviceType: string, 
 
     if (!isConfigured) return { isTpa: false };
 
-    const now = new Date();
-    const fiscalYear = InsuranceEngine.getFiscalYear(now);
-    const startDate = new Date(fiscalYear, 0, 1);
-    const endDate = new Date(fiscalYear, 11, 31, 23, 59, 59);
-
-    const dentalCategories = ["DENTAL", "DENTAL_ORTHO", "DENTAL_IMPLANT", "DENTAL_PROSTHETICS"];
-    const targetServiceCategories = policyServiceType === "DENTAL"
-      ? dentalCategories
-      : [policyServiceType];
-
-    const sum = await prisma.transaction.aggregate({
-      where: {
-        beneficiary_id: beneficiaryId,
-        is_cancelled: false,
-        created_at: { gte: startDate, lte: endDate },
-        OR: [
-          { service_category: { in: targetServiceCategories } },
-          { service_category: null, type: policyServiceType as any },
-        ]
-      },
-      _sum: { ceiling_consumed: true }
+    const consumed = await getCappedConsumption(prisma, {
+      beneficiaryId,
+      walletType: policyServiceType as WalletType,
+      fiscalYear: getFiscalYear(new Date()),
     });
-    const consumed = Number(sum._sum.ceiling_consumed || 0);
 
     return {
       isTpa: true,
@@ -861,29 +828,11 @@ export async function simulateDeduction(data: {
     // Validate policy effective dates
     const serviceDate = data.transactionDate || new Date();
 
-    const fiscalYear = InsuranceEngine.getFiscalYear(serviceDate);
-    const startDate = new Date(fiscalYear, 0, 1);
-    const endDate = new Date(fiscalYear, 11, 31, 23, 59, 59);
-
-    const dentalCategories = ["DENTAL", "DENTAL_ORTHO", "DENTAL_IMPLANT", "DENTAL_PROSTHETICS"];
-    const targetServiceCategories = policyServiceType === "DENTAL"
-      ? dentalCategories
-      : [policyServiceType];
-
-    const consumption = await prisma.transaction.aggregate({
-      where: {
-        beneficiary_id: beneficiary.id,
-        is_cancelled: false,
-        created_at: { gte: startDate, lte: endDate },
-        OR: [
-          { service_category: { in: targetServiceCategories } },
-          { service_category: null, type: policyServiceType as any }
-        ]
-      },
-      _sum: { ceiling_consumed: true }
+    const consumedThisYear = await getCappedConsumption(prisma, {
+      beneficiaryId: beneficiary.id,
+      walletType: policyServiceType as WalletType,
+      fiscalYear: getFiscalYear(serviceDate),
     });
-
-    const consumedThisYear = Number(consumption._sum.ceiling_consumed || 0);
 
     const calcResult = InsuranceEngine.calculate({
       amount: data.amount,

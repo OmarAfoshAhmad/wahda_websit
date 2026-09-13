@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { getFiscalYear, getFiscalYearBounds } from "@/lib/insurance/fiscal-year";
 import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
@@ -280,9 +281,8 @@ export default async function PhysiotherapyCompanyPage({
       },
     });
 
-    const fiscalYear = new Date().getFullYear();
-    const startDate = new Date(fiscalYear, 0, 1);
-    const endDate = new Date(fiscalYear, 11, 31, 23, 59, 59);
+    const fiscalYear = getFiscalYear(new Date());
+    const { start: startDate, end: endDate } = getFiscalYearBounds(fiscalYear);
 
     const filterConds: Prisma.Sql[] = [];
 
