@@ -10,6 +10,8 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:integration": "node scripts/run-integration-tests.js",
+    "audit:money-drift": "node scripts/check-money-drift.js",
+    "audit:overdrawn": "node scripts/audit-overdrawn-balances.js",
     "audit:company-scope": "node scripts/audit-account-company-backfill.js",
     "backfill:company-scope": "node scripts/backfill-account-company-scope.js",
     "repair:alushibe-vision": "node scripts/repair-alushibe-vision-transfer.js",
