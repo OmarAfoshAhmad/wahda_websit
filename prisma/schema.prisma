@@ -32,7 +32,6 @@ model InsuranceCompany {
   service_policies      ServicePolicy[]
   service_mappings      ServiceTypeMapping[]
   transactions          Transaction[]
-  wallet_consumptions   WalletConsumption[]
   account_accesses      AccountCompanyAccess[]
   audit_logs            AuditLog[]
   import_jobs           ImportJob[]
@@ -154,7 +153,6 @@ model Beneficiary {
   claims                       Claim[]
   notifications                Notification[]
   transactions                 Transaction[]
-  wallet_consumptions          WalletConsumption[]
 
   @@index([card_number])
   @@index([deleted_at])
@@ -181,10 +179,14 @@ model Transaction {
   original_company_share   Decimal?          @db.Decimal(12, 2)
   original_patient_share   Decimal?          @db.Decimal(12, 2)
   policy_snapshot          Json?
+  /// لقطة تدقيق وقت التسجيل فقط؛ لا يُبنى عليها أي قرار. الاستهلاك الفعلي يُحسب من الدفتر (getCappedConsumption).
   remaining_ceiling_after  Decimal?          @db.Decimal(12, 2)
+  /// لقطة تدقيق وقت التسجيل فقط.
   remaining_ceiling_before Decimal?          @db.Decimal(12, 2)
   service_category         String?
+  /// لقطة تدقيق وقت التسجيل فقط.
   consumed_after           Decimal?          @db.Decimal(12, 2)
+  /// لقطة تدقيق وقت التسجيل فقط.
   consumed_before          Decimal?          @db.Decimal(12, 2)
   service_type_id          String?
   claim                    Claim?
@@ -292,23 +294,6 @@ model ServicePolicy {
   @@index([service_type_id])
 }
 
-model WalletConsumption {
-  id              String           @id @default(cuid())
-  beneficiary_id  String
-  company_id      String
-  wallet_type     String
-  fiscal_year     Int
-  consumed_amount Decimal          @default(0) @db.Decimal(12, 2)
-  version         Int              @default(1)
-  created_at      DateTime         @default(now())
-  updated_at      DateTime         @updatedAt
-  beneficiary     Beneficiary      @relation(fields: [beneficiary_id], references: [id])
-  company         InsuranceCompany @relation(fields: [company_id], references: [id])
-
-  @@unique([beneficiary_id, company_id, wallet_type, fiscal_year])
-  @@index([beneficiary_id, company_id])
-  @@index([company_id, wallet_type])
-}
 
 model ServiceTypeMapping {
   id           String           @id @default(cuid())

@@ -14,7 +14,7 @@ export async function POST() {
 
   try {
     // حذف آمن: نحذف التوابع أولاً ثم المستفيد داخل نفس المعاملة
-    // لتفادي قيود FK من نوع RESTRICT (مثل WalletConsumption / Claim).
+    // لتفادي قيود FK من نوع RESTRICT (مثل Claim).
     const result = await prisma.$queryRaw<{ deleted_count: number }[]>`
       WITH candidates AS (
         SELECT b.id
@@ -25,11 +25,6 @@ export async function POST() {
             FROM "Transaction" t
             WHERE t.beneficiary_id = b.id
           )
-      ),
-      deleted_wallet AS (
-        DELETE FROM "WalletConsumption" wc
-        USING candidates c
-        WHERE wc.beneficiary_id = c.id
       ),
       deleted_claims AS (
         DELETE FROM "Claim" cl

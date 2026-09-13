@@ -248,9 +248,6 @@ export async function purgeUnusedBeneficiaries(companyId: string) {
 
     // 2. Perform deletion in a transaction to ensure database integrity
     await prisma.$transaction([
-      prisma.walletConsumption.deleteMany({
-        where: { beneficiary_id: { in: ids } }
-      }),
       prisma.notification.deleteMany({
         where: { beneficiary_id: { in: ids } }
       }),

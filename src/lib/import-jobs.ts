@@ -510,7 +510,6 @@ export async function processImportJob(jobId: string, username: string) {
           ...(opts.company_id ? { company_id: opts.company_id } : {}),
           transactions: { none: {} },
           claims: { none: {} },
-          wallet_consumptions: { none: {} },
         },
         data: {
           deleted_at: new Date(),
@@ -631,8 +630,7 @@ export async function processImportJob(jobId: string, username: string) {
           _count: {
             select: {
               transactions: true,
-              claims: true,
-              wallet_consumptions: true
+              claims: true
             }
           }
         }
@@ -660,8 +658,7 @@ export async function processImportJob(jobId: string, username: string) {
           _count: {
             select: {
               transactions: true,
-              claims: true,
-              wallet_consumptions: true
+              claims: true
             }
           }
         }
@@ -729,14 +726,14 @@ export async function processImportJob(jobId: string, username: string) {
         if (activeMatches.length > 0) {
           // وجود تكرار: نقوم بالإبقاء على المستفيد صاحب الحركات، ونقوم بتحديث رقم بطاقته للجديد المعتمد بالإكسيل ومسح الباقين
           let keep = null;
-          const hasTx = activeMatches.filter(b => (b._count.transactions + b._count.claims + b._count.wallet_consumptions) > 0);
+          const hasTx = activeMatches.filter(b => (b._count.transactions + b._count.claims) > 0);
           
           if (hasTx.length === 1) {
             keep = hasTx[0];
           } else if (hasTx.length > 1) {
             keep = hasTx.sort((a, b) => {
-              const aCount = a._count.transactions + a._count.claims + a._count.wallet_consumptions;
-              const bCount = b._count.transactions + b._count.claims + b._count.wallet_consumptions;
+              const aCount = a._count.transactions + a._count.claims;
+              const bCount = b._count.transactions + b._count.claims;
               return bCount - aCount;
             })[0];
           } else {

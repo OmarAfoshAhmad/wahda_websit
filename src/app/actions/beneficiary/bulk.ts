@@ -301,7 +301,6 @@ export async function bulkPermanentDeleteBeneficiaries(formData: FormData) {
 
     await prisma.$transaction(async (tx) => {
       // حذف التوابع أولاً لتفادي قيود FK من نوع RESTRICT
-      await tx.walletConsumption.deleteMany({ where: { beneficiary_id: { in: deletableIds } } });
       await tx.claim.deleteMany({ where: { beneficiary_id: { in: deletableIds } } });
       await tx.notification.deleteMany({ where: { beneficiary_id: { in: deletableIds } } });
       await tx.transaction.deleteMany({ where: { beneficiary_id: { in: deletableIds } } });

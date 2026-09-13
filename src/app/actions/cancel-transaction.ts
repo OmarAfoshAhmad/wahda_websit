@@ -111,26 +111,6 @@ export async function cancelTransaction(transactionId: string) {
       });
       createdCancellationId = cancellationTx.id;
 
-      // FIN-02 FIX: عكس WalletConsumption عند إلغاء حركة TPA
-      // يضمن أن السقف السنوي يُستعاد للمستفيد ولا يُفقد نهائياً
-      if (transaction.company_id && transaction.ceiling_consumed && Number(transaction.ceiling_consumed) > 0) {
-        let walletType = transaction.service_category ?? transaction.type;
-        if (walletType.startsWith("DENTAL")) {
-          walletType = "DENTAL";
-        }
-        const fiscalYear = transaction.created_at.getFullYear();
-        const reverseAmount = Number(transaction.ceiling_consumed);
-
-        await tx.$executeRaw`
-          UPDATE "WalletConsumption"
-          SET consumed_amount = GREATEST(0, consumed_amount - ${reverseAmount}),
-              version = version + 1
-          WHERE beneficiary_id = ${transaction.beneficiary_id}
-            AND company_id = ${transaction.company_id}
-            AND wallet_type = ${walletType}
-            AND fiscal_year = ${fiscalYear}
-        `;
-      }
 
       // 5. Audit Log — مع تسجيل الرصيد قبل وبعد
       await tx.auditLog.create({
@@ -415,28 +395,6 @@ export async function bulkTransactionSelectionAction(formData: FormData): Promis
         if (lockedTransactions.length === 0) return;
 
         // عكس استهلاك السقف التراكمي (Wallet Consumption) للحركات النشطة التي يتم حذفها مباشرة
-        for (const transaction of lockedTransactions) {
-          if (!transaction.is_cancelled && transaction.type !== "CANCELLATION") {
-            if (transaction.company_id && transaction.ceiling_consumed && Number(transaction.ceiling_consumed) > 0) {
-              let walletType = transaction.service_category ?? transaction.type;
-              if (walletType.startsWith("DENTAL")) {
-                walletType = "DENTAL";
-              }
-              const fiscalYear = transaction.created_at.getFullYear();
-              const reverseAmount = Number(transaction.ceiling_consumed);
-
-              await tx.$executeRaw`
-                UPDATE "WalletConsumption"
-                SET consumed_amount = GREATEST(0, consumed_amount - ${reverseAmount}),
-                    version = version + 1
-                WHERE beneficiary_id = ${transaction.beneficiary_id}
-                  AND company_id = ${transaction.company_id}
-                  AND wallet_type = ${walletType}
-                  AND fiscal_year = ${fiscalYear}
-              `;
-            }
-          }
-        }
 
         const validOriginals = lockedTransactions.filter((t) => t.type !== "CANCELLATION");
         const validCancellations = lockedTransactions.filter((t) => t.type === "CANCELLATION");
