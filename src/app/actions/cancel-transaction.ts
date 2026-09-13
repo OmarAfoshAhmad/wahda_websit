@@ -6,6 +6,7 @@ import { logger } from "@/lib/logger";
 import { deleteCancellationTransaction } from "@/app/actions/restore-transaction";
 import { roundCurrency } from "@/lib/money";
 import { calculateBeneficiaryBalance, assertBeneficiaryBalanceInvariant } from "@/lib/tx-balance-guard";
+import { BASE_BALANCE_EXCLUDED_TRANSACTION_TYPES } from "@/lib/base-balance-ledger";
 
 import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 
@@ -64,9 +65,11 @@ export async function cancelTransaction(transactionId: string) {
 
       const amount = Number(transaction.amount);
 
+      // الأسنان والبصريات والعلاج الطبيعي لم تُخصم من الرصيد الأساسي أصلاً، فلا يُرد لها شيء.
       let refundAmount = 0;
-      if (transaction.type !== "DENTAL") {
-        refundAmount = transaction.actual_company_share != null 
+      const isIsolatedFromBaseBalance = (BASE_BALANCE_EXCLUDED_TRANSACTION_TYPES as readonly string[]).includes(transaction.type);
+      if (!isIsolatedFromBaseBalance) {
+        refundAmount = transaction.actual_company_share != null
           ? Number(transaction.actual_company_share) 
           : Number(transaction.amount);
       }
@@ -158,7 +161,8 @@ export async function cancelTransaction(transactionId: string) {
           metadata: {
             original_transaction_id: transactionId,
             beneficiary_name: transaction.beneficiary.name,
-            refunded_amount: amount,
+            cancelled_amount: amount,
+            refunded_amount: refundAmount,
             balance_before: currentBalance,
             balance_after: newBalance,
             card_number: transaction.beneficiary.card_number,
