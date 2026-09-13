@@ -66,6 +66,61 @@ export async function calculateBeneficiaryBalance(
   };
 }
 
+export type SettledBalance = {
+  balanceBefore: number;
+  balanceAfter: number;
+  statusBefore: "ACTIVE" | "FINISHED" | "SUSPENDED";
+  statusAfter: "ACTIVE" | "FINISHED" | "SUSPENDED";
+};
+
+/**
+ * الطريقة الوحيدة المسموح بها لتحديث الرصيد الأساسي: إعادة حسابه من دفتر الحركات ثم تخزينه.
+ * تُستدعى داخل نفس المعاملة بعد أي إدراج/تعديل/إلغاء لحركة، بعد قفل صف المستفيد.
+ * لا حساب تزايدي (current ± amount) في أي مكان آخر؛ ذلك هو مصدر كل انجراف سابق.
+ */
+export async function settleBeneficiaryBalance(
+  tx: TxClient,
+  beneficiaryId: string,
+  options: { completedVia?: "MANUAL" | "IMPORT" } = {},
+): Promise<SettledBalance> {
+  const current = await tx.beneficiary.findUnique({
+    where: { id: beneficiaryId },
+    select: { remaining_balance: true, status: true },
+  });
+  if (!current) {
+    throw new Error("BENEFICIARY_NOT_FOUND");
+  }
+
+  const computed = await calculateBeneficiaryBalance(tx, beneficiaryId);
+  const balanceBefore = roundCurrency(Number(current.remaining_balance));
+  const balanceAfter = computed.remaining_balance;
+
+  if (balanceAfter < 0) {
+    throw new Error(
+      `BASE_BALANCE_OVERDRAWN:${beneficiaryId}:${balanceAfter}`,
+    );
+  }
+
+  const becameFinished = computed.status === "FINISHED" && current.status !== "FINISHED";
+
+  await tx.beneficiary.update({
+    where: { id: beneficiaryId },
+    data: {
+      remaining_balance: balanceAfter,
+      status: computed.status,
+      ...(becameFinished && options.completedVia ? { completed_via: options.completedVia } : {}),
+      ...(computed.status !== "FINISHED" && current.status === "FINISHED" ? { completed_via: null } : {}),
+    },
+  });
+
+  return {
+    balanceBefore,
+    balanceAfter,
+    statusBefore: current.status,
+    statusAfter: computed.status,
+  };
+}
+
 export async function assertBeneficiaryBalanceInvariant(
   tx: TxClient,
   beneficiaryId: string,

@@ -9,7 +9,7 @@ import { emitNotification } from "@/lib/sse-notifications";
 import { formatCurrency, roundCurrency } from "@/lib/money";
 import { normalizeCardInput } from "@/lib/card-number";
 import { extractBaseCard } from "@/lib/normalize";
-import { assertBeneficiariesBalanceInvariant, buildIdempotencyKey } from "@/lib/tx-balance-guard";
+import { assertBeneficiariesBalanceInvariant, buildIdempotencyKey, calculateBeneficiaryBalance, settleBeneficiaryBalance } from "@/lib/tx-balance-guard";
 import { Prisma } from "@prisma/client";
 import { InsuranceEngine } from "@/lib/insurance/engine";
 import { getServiceTypeMapping } from "@/lib/insurance/company-matcher";
@@ -268,9 +268,6 @@ export async function executeCashClaim(input: {
       // خصم من كل عضو
       for (const alloc of normalizedAllocations) {
         const ben = lockedMap.get(alloc.beneficiary_id)!;
-        const balanceBefore = Number(ben.remaining_balance);
-
-        let actualPatientShare = alloc.amount;
         let tpaData: Record<string, unknown> = {};
 
         if (ben.company_id) {
@@ -345,8 +342,6 @@ export async function executeCashClaim(input: {
 
             assertWithinCeiling(calcResult, policyRecord.service_type);
 
-            actualPatientShare = Number(calcResult.actualPatientShare);
-
             tpaData = {
               company_id: ben.company_id,
               service_category: policyServiceType,
@@ -371,21 +366,12 @@ export async function executeCashClaim(input: {
           }
         }
 
-        if (actualPatientShare > balanceBefore) {
-          throw new Error(`حصة المستفيد (${formatCurrency(actualPatientShare)}) أكبر من رصيد ${ben.name} (${formatCurrency(balanceBefore)})`);
+        // ما سيستهلكه الدفتر من الرصيد الأساسي هو حصة الشركة إن سُجِّلت، وإلا المبلغ كاملاً.
+        const ledgerShare = tpaData.actual_company_share != null ? Number(tpaData.actual_company_share) : alloc.amount;
+        const ledgerBefore = (await calculateBeneficiaryBalance(tx, alloc.beneficiary_id)).remaining_balance;
+        if (ledgerShare > ledgerBefore) {
+          throw new Error(`المبلغ (${formatCurrency(ledgerShare)}) أكبر من رصيد ${ben.name} (${formatCurrency(ledgerBefore)})`);
         }
-
-        const newBalance = roundCurrency(balanceBefore - actualPatientShare);
-        const newStatus = newBalance <= 0 ? "FINISHED" : "ACTIVE";
-
-        await tx.beneficiary.update({
-          where: { id: alloc.beneficiary_id },
-          data: {
-            remaining_balance: newBalance,
-            status: newStatus,
-            ...(newStatus === "FINISHED" ? { completed_via: "MANUAL" } : {}),
-          },
-        });
 
         const transaction = await tx.transaction.create({
           data: {
@@ -399,6 +385,8 @@ export async function executeCashClaim(input: {
               : {}),
           },
         });
+
+        await settleBeneficiaryBalance(tx, alloc.beneficiary_id, { completedVia: "MANUAL" });
 
         const notification = await tx.notification.create({
           data: {

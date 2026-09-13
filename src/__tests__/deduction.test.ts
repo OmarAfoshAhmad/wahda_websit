@@ -13,7 +13,7 @@ vi.mock('../lib/prisma', () => ({
     transaction: {
       findUnique: vi.fn(),
       create: vi.fn(),
-      aggregate: vi.fn(),
+      aggregate: vi.fn().mockResolvedValue({ _sum: {} }),
     },
     beneficiary: {
       findUnique: vi.fn(),
@@ -62,9 +62,30 @@ vi.mock('next/cache', () => ({
   revalidatePath: vi.fn(),
 }));
 
+// الرصيد يُحسب من الدفتر: نحاكي دفتراً بسيطاً (ledgerSpent) يُضاف إليه كل خصم مُنشأ.
+const ledger = { total: 0, spent: 0, status: 'ACTIVE' as 'ACTIVE' | 'FINISHED' | 'SUSPENDED' };
 vi.mock('../lib/tx-balance-guard', () => ({
   assertBeneficiaryBalanceInvariant: vi.fn().mockResolvedValue(undefined),
   buildIdempotencyKey: vi.fn().mockReturnValue(null),
+  calculateBeneficiaryBalance: vi.fn(async () => ({
+    remaining_balance: ledger.total - ledger.spent,
+    total_balance: ledger.total,
+    status: ledger.total - ledger.spent <= 0 ? 'FINISHED' : 'ACTIVE',
+    name: 'Omar',
+    card_number: 'WAB2025123',
+  })),
+  settleBeneficiaryBalance: vi.fn(async (_tx: unknown, id: string, options?: { completedVia?: string }) => {
+    const before = ledger.total - ledger.spent;
+    const created = (prisma.transaction.create as any).mock.calls.at(-1)?.[0]?.data;
+    if (created) ledger.spent += Number(created.actual_company_share ?? created.amount);
+    const after = ledger.total - ledger.spent;
+    const statusAfter = after <= 0 ? 'FINISHED' : 'ACTIVE';
+    await prisma.beneficiary.update({
+      where: { id },
+      data: { remaining_balance: after, status: statusAfter, ...(statusAfter === 'FINISHED' && options?.completedVia ? { completed_via: options.completedVia } : {}) },
+    });
+    return { balanceBefore: before, balanceAfter: after, statusBefore: ledger.status, statusAfter };
+  }),
 }));
 
 vi.mock('../lib/card-number', () => ({
@@ -74,6 +95,9 @@ vi.mock('../lib/card-number', () => ({
 describe('deductBalance Action', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    ledger.total = 0;
+    ledger.spent = 0;
+    ledger.status = 'ACTIVE';
   });
 
   it('should successfully deduct balance when input is valid', async () => {
@@ -87,21 +111,11 @@ describe('deductBalance Action', () => {
       status: 'ACTIVE',
     };
 
-    // Mock row-level lock query
+    ledger.total = 1000;
+    ledger.spent = 500;
     (prisma.$queryRaw as any).mockResolvedValueOnce([mockBeneficiary]);
-    
-    // Mock spent aggregation
-    (prisma.transaction.aggregate as any).mockResolvedValueOnce({
-      _sum: { amount: 500.0 },
-    });
-
-    // Mock success transaction creation
     (prisma.transaction.create as any).mockResolvedValueOnce({ id: 'tx1', amount: 100.0, created_at: new Date() });
     (prisma.notification.create as any).mockResolvedValueOnce({ id: 'notif1' });
-    // Mock drift-check aggregate (2nd call inside the transaction)
-    (prisma.transaction.aggregate as any).mockResolvedValueOnce({
-      _sum: { amount: 600.0 },
-    });
     (prisma.auditLog.create as any).mockResolvedValueOnce({ id: 'audit1' });
 
     const result = await deductBalance({
@@ -134,8 +148,9 @@ describe('deductBalance Action', () => {
       status: 'ACTIVE',
     };
 
+    ledger.total = 100;
+    ledger.spent = 50;
     (prisma.$queryRaw as any).mockResolvedValueOnce([mockBeneficiary]);
-    (prisma.transaction.aggregate as any).mockResolvedValue({ _sum: { amount: 0 } });
 
     const result = await deductBalance({
       card_number: 'WAB2025123',
@@ -144,7 +159,8 @@ describe('deductBalance Action', () => {
     });
 
     expect(result.success).toBeUndefined();
-    expect(result.error).toContain('حصة المستفيد');
+    expect(result.error).toContain('أكبر من الرصيد المتاح');
+    expect(prisma.transaction.create).not.toHaveBeenCalled();
   });
 
   it('should prevent deduction from SUSPENDED beneficiaries', async () => {
@@ -180,16 +196,11 @@ describe('deductBalance Action', () => {
       status: 'ACTIVE',
     };
 
+    ledger.total = 100;
+    ledger.spent = 0;
     (prisma.$queryRaw as any).mockResolvedValueOnce([mockBeneficiary]);
-    (prisma.transaction.aggregate as any).mockResolvedValueOnce({
-      _sum: { amount: 0 },
-    });
     (prisma.transaction.create as any).mockResolvedValueOnce({ id: 'tx1', amount: 100.0, created_at: new Date() });
     (prisma.notification.create as any).mockResolvedValueOnce({ id: 'notif1' });
-    // Mock drift-check aggregate (2nd call inside the transaction)
-    (prisma.transaction.aggregate as any).mockResolvedValueOnce({
-      _sum: { amount: 100.0 },
-    });
     (prisma.auditLog.create as any).mockResolvedValueOnce({ id: 'audit1' });
 
     const result = await deductBalance({

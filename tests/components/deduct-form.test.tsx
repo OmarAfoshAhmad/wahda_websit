@@ -118,12 +118,9 @@ describe('DeductForm Component', () => {
     const amountInput = await screen.findByPlaceholderText('0.00');
     await userEvent.type(amountInput, '100');
 
-    // تأكيد الخصم
-    const deductBtn = screen.getByText('مراجعة البيانات وتأكيد الخصم');
-    await userEvent.click(deductBtn);
-
-    // التحقق من ظهور نافذة التأكيد النهائية
+    // زر التأكيد المباشر (يُعطَّل أثناء المحاكاة أو عند الحجب بالسقف)
     const confirmFinalBtn = await screen.findByText('تأكيد وخصم الآن');
+    await waitFor(() => expect(confirmFinalBtn.closest('button')).not.toBeDisabled());
     await userEvent.click(confirmFinalBtn);
 
     // التحقق من إرسال البيانات بشكل صحيح لدالة الخادم

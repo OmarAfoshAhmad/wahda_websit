@@ -7,9 +7,9 @@ import { revalidatePath } from "next/cache";
 import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 import { logger } from "@/lib/logger";
 import { emitNotification } from "@/lib/sse-notifications";
-import { formatCurrency, roundCurrency } from "@/lib/money";
+import { formatCurrency } from "@/lib/money";
 import { normalizeCardInput } from "@/lib/card-number";
-import { assertBeneficiaryBalanceInvariant, buildIdempotencyKey } from "@/lib/tx-balance-guard";
+import { assertBeneficiaryBalanceInvariant, buildIdempotencyKey, calculateBeneficiaryBalance, settleBeneficiaryBalance } from "@/lib/tx-balance-guard";
 import { InsuranceEngine } from "@/lib/insurance/engine";
 import { findCompanyByCardNumber, getServiceTypeMapping } from "@/lib/insurance/company-matcher";
 import type { TpaValidation } from "@/lib/insurance/shadow-mode";
@@ -404,38 +404,22 @@ export async function deductBalance(formData: {
         ? Number(tpaData.actual_company_share)
         : amount;
 
-      const balanceBefore = Number(beneficiary.remaining_balance);
-      let newBalance = balanceBefore;
-      let newStatus: "ACTIVE" | "FINISHED" | "SUSPENDED" = beneficiary.status as any;
+      // خصم الأسنان والبصريات والعلاج الطبيعي معزول تماماً عن الرصيد الأساسي (remaining_balance)
+      const touchesBaseBalance = !["DENTAL", "OPTICS", "PHYSIOTHERAPY"].includes(type);
 
-      // خصم الأسنان والبصريات معزول تماماً عن الرصيد الأساسي للمستفيد (remaining_balance)
-      // الرصيد الأساسي يخص المخصص العام للكشوفات والأدوية (مثل مصرف الوحدة)
-      if (!["DENTAL", "OPTICS", "PHYSIOTHERAPY"].includes(type)) {
-        if (companyShare > balanceBefore) {
-          throw new Error(`القيمة المطلوبة من الشركة (${formatCurrency(companyShare)}) أكبر من الرصيد المتاح للمخصص (${formatCurrency(balanceBefore)} د.ل)`);
-        }
-        newBalance = roundCurrency(balanceBefore - companyShare);
-        newStatus = newBalance <= 0 ? "FINISHED" : "ACTIVE";
+      // الرصيد المتاح يُقرأ من الدفتر لا من الحقل المخزَّن، حتى لا يُبنى قرار على قيمة منجرفة.
+      const ledgerBefore = touchesBaseBalance
+        ? (await calculateBeneficiaryBalance(tx, beneficiary.id)).remaining_balance
+        : Number(beneficiary.remaining_balance);
+      if (touchesBaseBalance && companyShare > ledgerBefore) {
+        throw new Error(`القيمة المطلوبة من الشركة (${formatCurrency(companyShare)}) أكبر من الرصيد المتاح للمخصص (${formatCurrency(ledgerBefore)} د.ل)`);
+      }
 
-        // 2. Update beneficiary balance (Only for non-dental)
+      if (companyId && !beneficiary.company_id) {
         await tx.beneficiary.update({
           where: { id: beneficiary.id },
-          data: {
-            remaining_balance: newBalance,
-            status: newStatus,
-            ...(newStatus === "FINISHED" ? { completed_via: "MANUAL" } : {}),
-            // Auto-link company if found during migration
-            ...(companyId && !beneficiary.company_id ? { company_id: companyId } : {})
-          },
+          data: { company_id: companyId },
         });
-      } else {
-        // للأسنان: نحدّث فقط ارتباط الشركة إن لزم الأمر دون المساس بالرصيد
-        if (companyId && !beneficiary.company_id) {
-          await tx.beneficiary.update({
-            where: { id: beneficiary.id },
-            data: { company_id: companyId },
-          });
-        }
       }
 
       // 3. Create transaction record
@@ -450,6 +434,14 @@ export async function deductBalance(formData: {
           ...tpaData // Inject TPA financial details
         },
       });
+
+      // 3.0 تسوية الرصيد من الدفتر (الخدمات المعزولة لا تغيّره، فتعود بنفس القيمة)
+      const settled = touchesBaseBalance
+        ? await settleBeneficiaryBalance(tx, beneficiary.id, { completedVia: "MANUAL" })
+        : { balanceBefore: ledgerBefore, balanceAfter: ledgerBefore, statusBefore: beneficiary.status, statusAfter: beneficiary.status };
+      const balanceBefore = settled.balanceBefore;
+      const newBalance = settled.balanceAfter;
+      const newStatus = settled.statusAfter;
 
       // 3.1 Create in-app notification
       const notificationTitle = type === "PHYSIOTHERAPY" ? "تم تسجيل جلسات علاج طبيعي" : "تم خصم من رصيدك";
@@ -539,6 +531,9 @@ export async function deductBalance(formData: {
       // يظهر عندما لا تتطابق الأرصدة المخزنة مع دفتر الحركات
       if (rawMessage.includes("BALANCE_GUARD_INVARIANT_FAILED")) {
         return "فشل التحقق من سلامة الرصيد (عدم تطابق بين الرصيد المخزن والحركات). يلزم مراجعة/إعادة احتساب الأرصدة.";
+      }
+      if (rawMessage.includes("BASE_BALANCE_OVERDRAWN")) {
+        return "دفتر حركات هذا المستفيد يتجاوز رصيده الكلي أصلاً؛ لا يمكن الخصم قبل مراجعة حركاته.";
       }
 
       // السماح بتمرير جميع رسائل الأخطاء الخاصة بالمنظومة (التي كتبناها باللغة العربية)

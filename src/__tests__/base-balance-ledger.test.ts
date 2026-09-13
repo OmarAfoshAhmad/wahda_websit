@@ -14,8 +14,9 @@ describe("base balance ledger", () => {
     ]);
   });
 
-  it("calculates remaining from the fixed ceiling and never below zero", () => {
+  it("calculates remaining from the fixed ceiling and exposes overspend as a negative", () => {
     expect(calculateBaseRemaining(3000, 2860)).toBe(140);
-    expect(calculateBaseRemaining(3000, 3500)).toBe(0);
+    // لا قصّ عند الصفر: الصرف فوق الرصيد يجب أن يظهر لا أن يُخفى.
+    expect(calculateBaseRemaining(3000, 3500)).toBe(-500);
   });
 });

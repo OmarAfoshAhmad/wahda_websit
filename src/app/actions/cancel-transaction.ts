@@ -5,8 +5,7 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { logger } from "@/lib/logger";
 import { deleteCancellationTransaction } from "@/app/actions/restore-transaction";
 import { roundCurrency } from "@/lib/money";
-import { calculateBeneficiaryBalance, assertBeneficiaryBalanceInvariant } from "@/lib/tx-balance-guard";
-import { BASE_BALANCE_EXCLUDED_TRANSACTION_TYPES } from "@/lib/base-balance-ledger";
+import { calculateBeneficiaryBalance, assertBeneficiaryBalanceInvariant, settleBeneficiaryBalance } from "@/lib/tx-balance-guard";
 
 import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 
@@ -65,18 +64,9 @@ export async function cancelTransaction(transactionId: string) {
 
       const amount = Number(transaction.amount);
 
-      // الأسنان والبصريات والعلاج الطبيعي لم تُخصم من الرصيد الأساسي أصلاً، فلا يُرد لها شيء.
-      let refundAmount = 0;
-      const isIsolatedFromBaseBalance = (BASE_BALANCE_EXCLUDED_TRANSACTION_TYPES as readonly string[]).includes(transaction.type);
-      if (!isIsolatedFromBaseBalance) {
-        refundAmount = transaction.actual_company_share != null
-          ? Number(transaction.actual_company_share) 
-          : Number(transaction.amount);
-      }
-
       // 1. قفل صف المستفيد لمنع race condition
-      const locked = await tx.$queryRaw<Array<{ id: string; remaining_balance: number; total_balance: number; status: string }>>`
-        SELECT id, remaining_balance, total_balance, status FROM "Beneficiary"
+      const locked = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM "Beneficiary"
         WHERE id = ${transaction.beneficiary_id}
         FOR UPDATE
       `;
@@ -85,27 +75,17 @@ export async function cancelTransaction(transactionId: string) {
         throw new Error("المستفيد غير موجود");
       }
 
-      const currentBalance = Number(locked[0].remaining_balance);
-      const totalBalance = Number(locked[0].total_balance);
-      const lockedStatus = locked[0].status;
-      const newBalance = roundCurrency(Math.min(totalBalance, currentBalance + refundAmount));
-      // FIX: احترام حالة الإيقاف — لا نغير SUSPENDED إلى ACTIVE
-      const newStatus = lockedStatus === "SUSPENDED" ? "SUSPENDED" : "ACTIVE";
-
       // 2. Mark original transaction as cancelled
       await tx.transaction.update({
         where: { id: transactionId },
         data: { is_cancelled: true },
       });
 
-      // 3. Update beneficiary balance with locked value
-      await tx.beneficiary.update({
-        where: { id: transaction.beneficiary_id },
-        data: {
-          remaining_balance: newBalance,
-          status: newStatus,
-        },
-      });
+      // 3. الرصيد يُعاد حسابه من الدفتر؛ الخدمات المعزولة (أسنان/بصريات/علاج طبيعي) لا تغيّره.
+      const settled = await settleBeneficiaryBalance(tx, transaction.beneficiary_id);
+      const currentBalance = settled.balanceBefore;
+      const newBalance = settled.balanceAfter;
+      const refundAmount = roundCurrency(newBalance - currentBalance);
 
       // 4. Create cancellation transaction (reverse TPA ceiling as well)
       const cancellationData: Record<string, unknown> = {

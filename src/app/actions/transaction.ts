@@ -5,7 +5,7 @@ import prisma from "@/lib/prisma";
 import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { formatCurrency, roundCurrency } from "@/lib/money";
-import { assertBeneficiaryBalanceInvariant } from "@/lib/tx-balance-guard";
+import { assertBeneficiaryBalanceInvariant, calculateBeneficiaryBalance, settleBeneficiaryBalance } from "@/lib/tx-balance-guard";
 import { Prisma } from "@prisma/client";
 import {
   AMOUNT_POLICY_ERROR,
@@ -413,6 +413,7 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
           facility_id: true,
           company_id: true,
           service_category: true,
+          actual_company_share: true,
           beneficiary: {
             select: {
               name: true,
@@ -506,8 +507,8 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
           throw new Error("لا يمكن تحويل حركة رصيد أساسي إلى خدمة معزولة (أسنان/بصريات/علاج طبيعي)");
         }
 
-        const locked = await tx.$queryRaw<Array<{ id: string; remaining_balance: number; status: string }>>`
-          SELECT id, remaining_balance, status FROM "Beneficiary"
+        const locked = await tx.$queryRaw<Array<{ id: string }>>`
+          SELECT id FROM "Beneficiary"
           WHERE id = ${transaction.beneficiary_id}
           FOR UPDATE
         `;
@@ -516,24 +517,14 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
           throw new Error("المستفيد غير موجود");
         }
 
-        const currentBalance = Number(locked[0].remaining_balance);
-        const lockedStatus = locked[0].status;
-        const balanceBeforeThisTransaction = roundCurrency(currentBalance + oldAmount);
+        // المتاح قبل هذه الحركة = رصيد الدفتر الحالي + ما كانت تستهلكه هذه الحركة نفسها.
+        const ledgerNow = (await calculateBeneficiaryBalance(tx, transaction.beneficiary_id)).remaining_balance;
+        const oldLedgerShare = Number(transaction.actual_company_share ?? transaction.amount);
+        const balanceBeforeThisTransaction = roundCurrency(ledgerNow + oldLedgerShare);
 
         if (input.amount > balanceBeforeThisTransaction) {
           throw new Error(`المبلغ أكبر من الرصيد المتاح قبل الحركة (${formatCurrency(balanceBeforeThisTransaction)} د.ل)`);
         }
-
-        const newBalance = roundCurrency(balanceBeforeThisTransaction - input.amount);
-        const newStatus = lockedStatus === "SUSPENDED" ? "SUSPENDED" : (newBalance <= 0 ? "FINISHED" : "ACTIVE");
-
-        await tx.beneficiary.update({
-          where: { id: transaction.beneficiary_id },
-          data: {
-            remaining_balance: newBalance,
-            status: newStatus,
-          },
-        });
 
         await tx.transaction.update({
           where: { id: transaction.id },
@@ -542,8 +533,14 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
             type: input.type,
             created_at: parsedDate,
             facility_id: facility.id,
+            // الدفتر يقرأ actual_company_share أولاً؛ إن كانت مسجَّلة فلا بد أن تتبع المبلغ الجديد.
+            ...(transaction.actual_company_share != null ? { actual_company_share: input.amount } : {}),
           },
         });
+
+        const settled = await settleBeneficiaryBalance(tx, transaction.beneficiary_id, { completedVia: "MANUAL" });
+        const currentBalance = settled.balanceBefore;
+        const newBalance = settled.balanceAfter;
 
         await tx.auditLog.create({
           data: {

@@ -24,6 +24,10 @@ export const BASE_BALANCE_SPENT_SUM_SQL = Prisma.sql`
   END), 0)
 `;
 
+/**
+ * بلا قصّ عند الصفر: الصرف فوق الرصيد خطأ يجب أن يظهر سالباً ويُرفض عند الكتابة،
+ * لا أن يُخفى كصفر يمرّ منه حارس الثبات بنجاح.
+ */
 export function calculateBaseRemaining(totalBalance: number, spent: number): number {
-  return roundCurrency(Math.max(0, Number(totalBalance) - Number(spent)));
+  return roundCurrency(Number(totalBalance) - Number(spent));
 }
