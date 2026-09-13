@@ -18,6 +18,7 @@ import { calculatePhysiotherapySessions } from "@/lib/physiotherapy-sessions";
 import { assertWithinCeiling, assertWithinSessionLimit, isCeilingExceeded, ceilingRejectionMessage } from "@/lib/insurance/ceiling-guard";
 import { getCappedConsumption, type WalletType } from "@/lib/insurance/consumption";
 import { getFiscalYear } from "@/lib/insurance/fiscal-year";
+import { resolveWalletPolicy } from "@/lib/insurance/policy";
 
 export async function deductBalance(formData: {
   beneficiary_id?: string;
@@ -208,95 +209,14 @@ export async function deductBalance(formData: {
         throw new Error("شركة التأمين التابع لها هذا المستفيد غير مفعلة حالياً");
       }
 
-      let policyRecord: {
-        service_type: string;
-        annual_ceiling: number | null;
-        copay_percentage: number;
-        allow_partial_coverage: boolean;
-      } | null = null;
-
-      if (company) {
-        let annual_ceiling: number | null = null;
-        let copay_percentage = 0;
-        let isConfigured = false;
-
-        if (policyServiceType === "DENTAL") {
-          const dentalPolicy = (company as any).service_policies?.find((p: any) => p.service_type?.code === "DENTAL");
-          
-          if (beneficiary.custom_ceilings && typeof beneficiary.custom_ceilings === "object" && "DENTAL" in beneficiary.custom_ceilings) {
-            const cVal = (beneficiary.custom_ceilings as any).DENTAL;
-            annual_ceiling = cVal === null ? null : Number(cVal);
-          } else {
-            annual_ceiling = dentalPolicy && dentalPolicy.ceiling_amount !== null ? Number(dentalPolicy.ceiling_amount) : null;
-          }
-          
-          const settings = (company as any).dental_settings ? ((company as any).dental_settings as any) : null;
-          let categoryCoverage = dentalPolicy ? Number(dentalPolicy.coverage_percent) : 100;
-
-          if (dentalSubCategory === "DENTAL_ORTHO" && settings?.ortho?.enabled) {
-            categoryCoverage = Number(settings.ortho.coverage);
-          } else if (dentalSubCategory === "DENTAL_IMPLANT" && settings?.implant?.enabled) {
-            categoryCoverage = Number(settings.implant.coverage);
-          } else if (dentalSubCategory === "DENTAL_PROSTHETICS" && settings?.prosthetics?.enabled) {
-            categoryCoverage = Number(settings.prosthetics.coverage);
-          }
-          
-          copay_percentage = Math.max(0, 100 - categoryCoverage);
-          isConfigured = !!dentalPolicy;
-        } else if (policyServiceType === "PHYSIOTHERAPY") {
-          const pPolicy = (company as any).service_policies?.find((p: any) => p.service_type?.code === "PHYSIOTHERAPY");
-          
-          if (beneficiary.custom_ceilings && typeof beneficiary.custom_ceilings === "object" && "PHYSIOTHERAPY" in beneficiary.custom_ceilings) {
-            const cVal = (beneficiary.custom_ceilings as any).PHYSIOTHERAPY;
-            annual_ceiling = cVal === null ? null : Number(cVal);
-          } else {
-            annual_ceiling = pPolicy && pPolicy.ceiling_amount !== null ? Number(pPolicy.ceiling_amount) : null;
-          }
-          
-          // العلاج الطبيعي يعتمد عدد الجلسات فقط، ولا توجد نسبة تحمل مالية.
-          copay_percentage = 0;
-          isConfigured = !!pPolicy;
-        } else if (policyServiceType === "OPTICS") {
-          const opticsPolicy = (company as any).service_policies?.find((p: any) => p.service_type?.code === "OPTICS");
-          
-          if (beneficiary.custom_ceilings && typeof beneficiary.custom_ceilings === "object" && "OPTICS" in beneficiary.custom_ceilings) {
-            const cVal = (beneficiary.custom_ceilings as any).OPTICS;
-            annual_ceiling = cVal === null ? null : Number(cVal);
-          } else {
-            annual_ceiling = opticsPolicy && opticsPolicy.ceiling_amount !== null ? Number(opticsPolicy.ceiling_amount) : null;
-          }
-          
-          const categoryCoverage = opticsPolicy ? Number(opticsPolicy.coverage_percent) : 100;
-          
-          copay_percentage = Math.max(0, 100 - categoryCoverage);
-          isConfigured = !!opticsPolicy;
-        } else if (policyServiceType === "GENERAL") {
-          if (company.code === "WAB" || company.code === "WAAD" || company.id === WAHDA_BANK_COMPANY_ID) {
-            isConfigured = false;
-          } else {
-            annual_ceiling = company.general_ceiling === null ? null : Number(company.general_ceiling);
-            copay_percentage = Math.max(0, 100 - Number(company.general_coverage));
-            isConfigured = true;
-          }
-        } else if (policyServiceType === "MEDICINE" || policyServiceType === "SUPPLIES") {
-          if (company.code === "WAB" || company.code === "WAAD" || company.id === WAHDA_BANK_COMPANY_ID) {
-            isConfigured = false;
-          } else {
-            annual_ceiling = company.medicine_ceiling === null ? null : Number(company.medicine_ceiling);
-            copay_percentage = Math.max(0, 100 - Number(company.medicine_coverage));
-            isConfigured = true;
-          }
-        }
-
-        if (isConfigured) {
-          policyRecord = {
-            service_type: policyServiceType,
-            annual_ceiling,
-            copay_percentage,
-            allow_partial_coverage: true,
-          };
-        }
-      }
+      const policyRecord = company
+        ? resolveWalletPolicy({
+            company,
+            customCeilings: beneficiary.custom_ceilings,
+            walletType: policyServiceType as WalletType,
+            dentalSubCategory,
+          })
+        : null;
 
       if (type === "DENTAL" && !policyRecord) {
         throw new Error("لا توجد سياسة أسنان (DENTAL) نشطة ومُعرّفة لهذه الشركة. لا يمكن إتمام الخصم.");
@@ -675,51 +595,22 @@ export async function getPolicyInfo(beneficiaryId: string, serviceType: string, 
     if (!companyId) return { isTpa: false };
 
     const policyServiceType = await getServiceTypeMapping(companyId, serviceType);
-    const company = (beneficiary.company_id && beneficiary.company) 
-      ? beneficiary.company 
-      : await prisma.insuranceCompany.findUnique({ 
-          where: { id: companyId },
-          include: { service_policies: { include: { service_type: true } } }
-        });
+    // beneficiary.company لا يحمل service_policies، فتُقرأ الشركة دائماً بسياساتها كما في التنفيذ.
+    const company = await prisma.insuranceCompany.findUnique({
+      where: { id: companyId },
+      include: { service_policies: { include: { service_type: true } } },
+    });
     if (!company || !company.is_active || company.deleted_at !== null) return { isTpa: false };
 
-    let ceiling: number | null = null;
-    let copayPercentage = 0;
-    let isConfigured = false;
-
-    if (policyServiceType === "DENTAL") {
-      const dentalPolicy = (company as any).service_policies?.find((p: any) => p.service_type?.code === "DENTAL");
-      ceiling = dentalPolicy && dentalPolicy.ceiling_amount !== null ? Number(dentalPolicy.ceiling_amount) : null;
-      
-      const isJulian = company.code.toUpperCase() === "JULI" ||
-                       company.code.toUpperCase() === "JULIANA" ||
-                       company.name.includes("جوليانة") ||
-                       company.name.toLowerCase().includes("julian");
-      const isSpecialSubCategory = dentalSubCategory && ["DENTAL_ORTHO", "DENTAL_IMPLANT", "DENTAL_PROSTHETICS"].includes(dentalSubCategory);
-
-      if (isJulian && isSpecialSubCategory) {
-        copayPercentage = 50;
-      } else {
-        copayPercentage = Math.max(0, 100 - (dentalPolicy ? Number(dentalPolicy.coverage_percent) : 100));
-      }
-      isConfigured = !!dentalPolicy;
-    } else if (policyServiceType === "GENERAL") {
-      if (company.code === "WAB" || company.code === "WAAD" || company.id === WAHDA_BANK_COMPANY_ID) {
-        isConfigured = false;
-      } else {
-        ceiling = company.general_ceiling === null ? null : Number(company.general_ceiling);
-        copayPercentage = Math.max(0, 100 - Number(company.general_coverage));
-        isConfigured = true;
-      }
-    } else if (policyServiceType === "MEDICINE" || policyServiceType === "SUPPLIES") {
-      if (company.code === "WAB" || company.code === "WAAD" || company.id === WAHDA_BANK_COMPANY_ID) {
-        isConfigured = false;
-      } else {
-        ceiling = company.medicine_ceiling === null ? null : Number(company.medicine_ceiling);
-        copayPercentage = Math.max(0, 100 - Number(company.medicine_coverage));
-        isConfigured = true;
-      }
-    }
+    const resolved = resolveWalletPolicy({
+      company,
+      customCeilings: beneficiary.custom_ceilings,
+      walletType: policyServiceType as WalletType,
+      dentalSubCategory,
+    });
+    const isConfigured = resolved !== null;
+    const ceiling = resolved?.annual_ceiling ?? null;
+    const copayPercentage = resolved?.copay_percentage ?? 0;
 
     if (!isConfigured) return { isTpa: false };
 
@@ -776,45 +667,23 @@ export async function simulateDeduction(data: {
       ? await getServiceTypeMapping(companyId, data.service_type)
       : data.service_type;
 
-    const company = beneficiary.company_id === companyId && beneficiary.company 
-      ? beneficiary.company 
-      : await prisma.insuranceCompany.findUnique({ 
-          where: { id: companyId },
-          include: { service_policies: { include: { service_type: true } } }
-        });
+    const company = await prisma.insuranceCompany.findUnique({
+      where: { id: companyId },
+      include: { service_policies: { include: { service_type: true } } },
+    });
     if (!company || !company.is_active || company.deleted_at !== null) {
       return { isLegacy: true, remainingBalance: Number(beneficiary.remaining_balance) };
     }
 
-    let ceiling: number | null = null;
-    let copayPercentage = 0;
-    let isConfigured = false;
-
-    if (policyServiceType === "DENTAL") {
-      const dentalPolicy = (company as any).service_policies?.find((p: any) => p.service_type?.code === "DENTAL");
-      ceiling = dentalPolicy && dentalPolicy.ceiling_amount !== null ? Number(dentalPolicy.ceiling_amount) : null;
-      
-      const isJulian = company.code.toUpperCase() === "JULI" ||
-                       company.code.toUpperCase() === "JULIANA" ||
-                       company.name.includes("جوليانة") ||
-                       company.name.toLowerCase().includes("julian");
-      const isSpecialSubCategory = data.dentalSubCategory && ["DENTAL_ORTHO", "DENTAL_IMPLANT", "DENTAL_PROSTHETICS"].includes(data.dentalSubCategory);
-
-      if (isJulian && isSpecialSubCategory) {
-        copayPercentage = 50;
-      } else {
-        copayPercentage = Math.max(0, 100 - (dentalPolicy ? Number(dentalPolicy.coverage_percent) : 100));
-      }
-      isConfigured = !!dentalPolicy;
-    } else if (policyServiceType === "GENERAL") {
-      ceiling = company.general_ceiling === null ? null : Number(company.general_ceiling);
-      copayPercentage = Math.max(0, 100 - Number(company.general_coverage));
-      isConfigured = true;
-    } else if (policyServiceType === "MEDICINE") {
-      ceiling = company.medicine_ceiling === null ? null : Number(company.medicine_ceiling);
-      copayPercentage = Math.max(0, 100 - Number(company.medicine_coverage));
-      isConfigured = true;
-    }
+    const resolved = resolveWalletPolicy({
+      company,
+      customCeilings: beneficiary.custom_ceilings,
+      walletType: policyServiceType as WalletType,
+      dentalSubCategory: data.dentalSubCategory,
+    });
+    const isConfigured = resolved !== null;
+    const ceiling = resolved?.annual_ceiling ?? null;
+    const copayPercentage = resolved?.copay_percentage ?? 0;
 
     if (!isConfigured) {
       return { isLegacy: true, remainingBalance: Number(beneficiary.remaining_balance) };

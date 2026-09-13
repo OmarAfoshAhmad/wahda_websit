@@ -16,6 +16,7 @@ import { getServiceTypeMapping } from "@/lib/insurance/company-matcher";
 import { assertWithinCeiling } from "@/lib/insurance/ceiling-guard";
 import { getCappedConsumption, type WalletType } from "@/lib/insurance/consumption";
 import { getFiscalYear } from "@/lib/insurance/fiscal-year";
+import { resolveWalletPolicy } from "@/lib/insurance/policy";
 import { WAHDA_BANK_COMPANY_ID } from "@/lib/constants";
 
 // ─── نوع بيانات عضو العائلة ─────────────────────────────────────────
@@ -229,9 +230,9 @@ export async function executeCashClaim(input: {
 
       // قفل صفوف المستفيدين (FOR UPDATE)
       const locked = await tx.$queryRaw<
-        Array<{ id: string; name: string; card_number: string; remaining_balance: number; status: string; company_id: string | null }>
+        Array<{ id: string; name: string; card_number: string; remaining_balance: number; status: string; company_id: string | null; custom_ceilings: unknown }>
       >`
-        SELECT id, name, card_number, remaining_balance, status, company_id 
+        SELECT id, name, card_number, remaining_balance, status, company_id, custom_ceilings
         FROM "Beneficiary" 
         WHERE id = ANY(${beneficiaryIds}::text[])
         AND "deleted_at" IS NULL
@@ -289,42 +290,13 @@ export async function executeCashClaim(input: {
             throw new Error(`شركة التأمين (${company.name}) غير مفعلة حالياً للعضو ${ben.name}`);
           }
 
-          let policyRecord: {
-            service_type: string;
-            annual_ceiling: number | null;
-            copay_percentage: number;
-            allow_partial_coverage: boolean;
-          } | null = null;
-
-          if (company) {
-            let annual_ceiling: number | null = null;
-            let copay_percentage = 0;
-            let isConfigured = false;
-
-            if (policyServiceType === "DENTAL") {
-              const dentalPolicy = ((company as unknown) as { service_policies?: { service_type?: { code: string }, ceiling_amount?: number, coverage_percent?: number }[] }).service_policies?.find((p) => p.service_type?.code === "DENTAL");
-              annual_ceiling = dentalPolicy && dentalPolicy.ceiling_amount !== null ? Number(dentalPolicy.ceiling_amount) : null;
-              copay_percentage = Math.max(0, 100 - (dentalPolicy ? Number(dentalPolicy.coverage_percent) : 100));
-              isConfigured = !!dentalPolicy;
-            } else if (policyServiceType === "GENERAL") {
-              annual_ceiling = company.general_ceiling === null ? null : Number(company.general_ceiling);
-              copay_percentage = Math.max(0, 100 - Number(company.general_coverage));
-              isConfigured = true;
-            } else if (policyServiceType === "MEDICINE") {
-              annual_ceiling = company.medicine_ceiling === null ? null : Number(company.medicine_ceiling);
-              copay_percentage = Math.max(0, 100 - Number(company.medicine_coverage));
-              isConfigured = true;
-            }
-
-            if (isConfigured) {
-              policyRecord = {
-                service_type: policyServiceType,
-                annual_ceiling,
-                copay_percentage,
-                allow_partial_coverage: true,
-              };
-            }
-          }
+          const policyRecord = company
+            ? resolveWalletPolicy({
+                company,
+                customCeilings: ben.custom_ceilings,
+                walletType: policyServiceType as WalletType,
+              })
+            : null;
 
           if (policyRecord) {
             const effectiveCeiling = policyRecord.annual_ceiling;
