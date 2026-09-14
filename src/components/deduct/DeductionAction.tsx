@@ -14,6 +14,7 @@ import { useDeductContext } from "./DeductContext";
 import {
   MAX_DEDUCTION_AMOUNT,
   MAX_AMOUNT_POLICY_ERROR,
+  isBaseBalanceDeductionType,
 } from "@/lib/validation";
 
 export function DeductionAction() {
@@ -30,7 +31,8 @@ export function DeductionAction() {
   }
 
   const amountValue = Number(amount);
-  const amountExceedsMax = Number.isFinite(amountValue) && amountValue > MAX_DEDUCTION_AMOUNT;
+  // الحد 5000 يخص الرصيد الأساسي فقط؛ الأسنان/البصريات/العلاج الطبيعي يحكمها سقف السياسة (وقد يكون مفتوحاً).
+  const amountExceedsMax = isBaseBalanceDeductionType(type) && Number.isFinite(amountValue) && amountValue > MAX_DEDUCTION_AMOUNT;
   const hasAmount = Number.isFinite(amountValue) && amountValue > 0;
 
   const typeLabels: Record<string, string> = {

@@ -34,16 +34,34 @@ export const loginSchema = z.object({
   password: z.string().min(1, "كلمة المرور مطلوبة").max(128, "كلمة المرور طويلة جداً"),
 });
 
+export const BASE_BALANCE_DEDUCTION_TYPES = ["MEDICINE", "SUPPLIES", "GENERAL"] as const;
+
+/** الحد الأقصى 5000 وقاعدة الكسور يخصان الخصم من الرصيد الأساسي فقط؛ فواتير الأسنان/البصريات يحكمها السقف السنوي. */
+export function isBaseBalanceDeductionType(type: string): boolean {
+  return (BASE_BALANCE_DEDUCTION_TYPES as readonly string[]).includes(type);
+}
+
+export const INVOICE_PRECISION_ERROR = "الحد الأقصى لكسور المبلغ هو قرشان (رقمان عشريان)";
+export const SESSIONS_POLICY_ERROR = "عدد جلسات العلاج الطبيعي يجب أن يكون عدداً صحيحاً أكبر من صفر";
+
 export const deductionSchema = z.object({
-  card_number: z.string().min(1, "رقم البطاقة مطلوب").max(50, "رقم البطاقة طويل جداً").regex(/^[A-Za-z0-9\u0600-\u06FF\s\-_]+$/, "رقم البطاقة يحتوي على أحرف غير مسموحة"),
-  amount: z.coerce
-    .number()
-    .positive("يجب أن يكون المبلغ أكبر من الصفر")
-    .max(MAX_DEDUCTION_AMOUNT, MAX_AMOUNT_POLICY_ERROR)
-    .refine(isAllowedDeductionAmount, AMOUNT_POLICY_ERROR),
+  card_number: z.string().min(1, "رقم البطاقة مطلوب").max(50, "رقم البطاقة طويل جداً").regex(/^[A-Za-z0-9؀-ۿ\s\-_]+$/, "رقم البطاقة يحتوي على أحرف غير مسموحة"),
+  amount: z.coerce.number().positive("يجب أن يكون المبلغ أكبر من الصفر"),
   type: z.enum(["MEDICINE", "SUPPLIES", "GENERAL", "DENTAL", "OPTICS", "PHYSIOTHERAPY"], {
     message: "يرجى اختيار نوع العملية",
   }),
+}).superRefine((data, ctx) => {
+  const fail = (message: string) => ctx.addIssue({ code: "custom", path: ["amount"], message });
+  if (data.type === "PHYSIOTHERAPY") {
+    if (!Number.isInteger(data.amount)) fail(SESSIONS_POLICY_ERROR);
+    return;
+  }
+  if (isBaseBalanceDeductionType(data.type)) {
+    if (data.amount > MAX_DEDUCTION_AMOUNT) fail(MAX_AMOUNT_POLICY_ERROR);
+    else if (!isAllowedDeductionAmount(data.amount)) fail(AMOUNT_POLICY_ERROR);
+    return;
+  }
+  if (Math.abs(data.amount - normalizeMoneyAmount(data.amount)) > AMOUNT_EPSILON) fail(INVOICE_PRECISION_ERROR);
 });
 
 export const createFacilitySchema = z.object({
