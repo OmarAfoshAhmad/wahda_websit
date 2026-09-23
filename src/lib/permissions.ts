@@ -33,6 +33,8 @@ export type ManagerPermissions = {
   view_optics_beneficiaries: boolean; // عرض مستفيدي البصريات
   physiotherapy_services: boolean; // صلاحية خدمات العلاج الطبيعي
   view_physiotherapy_beneficiaries: boolean; // عرض مستفيدي العلاج الطبيعي
+  equestrian_services: boolean; // صلاحية خدمات الفروسية
+  view_equestrian_beneficiaries: boolean; // عرض مستفيدي الفروسية
   add_manual_transaction: boolean; // صلاحية إضافة حركات يدوية
   edit_any_facility_transaction: boolean; // تعديل حركات خارج المرفق
 };
@@ -51,7 +53,7 @@ export interface Session {
   is_employee: boolean;
   manager_permissions: ManagerPermissions | null;
   must_change_password: boolean;
-  facility_type?: "HOSPITAL" | "PHARMACY" | "DENTAL" | "OPTICS" | "PHYSIOTHERAPY";
+  facility_type?: "HOSPITAL" | "PHARMACY" | "DENTAL" | "OPTICS" | "PHYSIOTHERAPY" | "EQUESTRIAN";
   expires?: Date;
 }
 

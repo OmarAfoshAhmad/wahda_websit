@@ -20,10 +20,10 @@ import { assertWithinCeiling, assertWithinSessionLimit } from "@/lib/insurance/c
 import { BASE_BALANCE_EXCLUDED_TRANSACTION_TYPES } from "@/lib/base-balance-ledger";
 import { getFiscalYear, getFiscalYearBounds } from "@/lib/insurance/fiscal-year";
 
-type CappedServiceType = "DENTAL" | "OPTICS" | "PHYSIOTHERAPY";
+type CappedServiceType = "DENTAL" | "OPTICS" | "PHYSIOTHERAPY" | "EQUESTRIAN";
 
 function isCappedServiceType(type: string): type is CappedServiceType {
-  return type === "DENTAL" || type === "OPTICS" || type === "PHYSIOTHERAPY";
+  return type === "DENTAL" || type === "OPTICS" || type === "PHYSIOTHERAPY" || type === "EQUESTRIAN";
 }
 
 function resolveCustomCeiling(customCeilings: unknown, serviceType: CappedServiceType): number | null | undefined {
@@ -41,7 +41,7 @@ export type AddTransactionState = {
 export type EditTransactionInput = {
   id: string;
   amount: number;
-  type: "MEDICINE" | "SUPPLIES" | "IMPORT" | "DENTAL" | "OPTICS" | "PHYSIOTHERAPY";
+  type: "MEDICINE" | "SUPPLIES" | "IMPORT" | "DENTAL" | "OPTICS" | "PHYSIOTHERAPY" | "EQUESTRIAN";
   transactionDate: string;
   facilityId?: string;
 };
@@ -161,7 +161,7 @@ export async function addTransactionFromForm(
 }
 
 /**
- * يعيد احتساب حصص السقف لكل حركات خدمة معزولة (أسنان/بصريات/علاج طبيعي) لمستفيد في سنة مالية
+ * يعيد احتساب حصص السقف لكل حركات خدمة معزولة (أسنان/بصريات/علاج طبيعي/فروسية) لمستفيد في سنة مالية
  * بترتيبها الزمني. إن مُرِّر guardTransactionId فُحصت تلك الحركة وحدها ضد السقف ورُفض التعديل
  * إن تجاوزته؛ الحركات الأخرى لا تُحجب حتى لا يعيق تجاوز تاريخي قديم تصحيحاً مشروعاً.
  */
@@ -342,7 +342,7 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
     if (!Number.isInteger(input.amount) || input.amount <= 0) {
       return { error: "عدد جلسات العلاج الطبيعي يجب أن يكون عدداً صحيحاً أكبر من صفر" };
     }
-  } else if (input.type !== "DENTAL" && input.type !== "OPTICS") {
+  } else if (!isCappedServiceType(input.type)) {
     if (input.amount > MAX_DEDUCTION_AMOUNT) {
       return { error: MAX_AMOUNT_POLICY_ERROR };
     }
@@ -454,10 +454,10 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
 
       const oldAmount = Number(transaction.amount);
 
-      // الأسنان والبصريات والعلاج الطبيعي معزولة عن الرصيد الأساسي؛ تعديلها لا يمس remaining_balance.
+      // الخدمات ذات السياسات المستقلة معزولة عن الرصيد الأساسي؛ تعديلها لا يمس remaining_balance.
       if (isCappedServiceType(transaction.type)) {
         if (input.type !== transaction.type) {
-          throw new Error("لا يمكن تغيير نوع حركة معزولة عن الرصيد الأساسي (أسنان/بصريات/علاج طبيعي)");
+          throw new Error("لا يمكن تغيير نوع حركة معزولة عن الرصيد الأساسي (أسنان/بصريات/علاج طبيعي/فروسية)");
         }
 
         // 1. Update the transaction basic data
@@ -504,7 +504,7 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
         });
       } else {
         if ((BASE_BALANCE_EXCLUDED_TRANSACTION_TYPES as readonly string[]).includes(input.type)) {
-          throw new Error("لا يمكن تحويل حركة رصيد أساسي إلى خدمة معزولة (أسنان/بصريات/علاج طبيعي)");
+          throw new Error("لا يمكن تحويل حركة رصيد أساسي إلى خدمة معزولة (أسنان/بصريات/علاج طبيعي/فروسية)");
         }
 
         const locked = await tx.$queryRaw<Array<{ id: string }>>`

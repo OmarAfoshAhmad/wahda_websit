@@ -50,7 +50,7 @@ export function resolveWalletPolicy(input: {
   const policies = company.service_policies ?? [];
   const override = customCeilingOverride(customCeilings, walletType);
 
-  if (walletType === "DENTAL" || walletType === "OPTICS" || walletType === "PHYSIOTHERAPY") {
+  if (walletType === "DENTAL" || walletType === "OPTICS" || walletType === "PHYSIOTHERAPY" || walletType === "EQUESTRIAN") {
     const policy = policies.find((p) => p.service_type?.code === walletType);
     if (!policy) return null;
 

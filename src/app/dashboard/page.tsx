@@ -81,6 +81,7 @@ export default async function Dashboard() {
     if (hasPermission(session, "dental_services") || hasPermission(session, "view_dental_beneficiaries")) redirect("/admin/dental-services");
     if (hasPermission(session, "optics_services") || hasPermission(session, "view_optics_beneficiaries")) redirect("/admin/optics-services");
     if (hasPermission(session, "physiotherapy_services") || hasPermission(session, "view_physiotherapy_beneficiaries")) redirect("/admin/physiotherapy-services");
+    if (hasPermission(session, "equestrian_services") || hasPermission(session, "view_equestrian_beneficiaries")) redirect("/admin/equestrian-services");
     if (hasPermission(session, "view_facilities")) redirect("/admin/facilities");
     redirect("/settings");
   }

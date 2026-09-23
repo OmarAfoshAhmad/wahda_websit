@@ -6,6 +6,7 @@ import {
   parseDateParts,
   parseCellDate,
   escapeRegex,
+  findCardNumberingHeaderRowIndex,
 } from "@/lib/card-import-utils";
 
 // اختبارات مبنية على حالات فعلية واجهناها أثناء استيراد ملفات ترقيم البطاقات:
@@ -128,5 +129,22 @@ describe("escapeRegex", () => {
 
   it("لا يرمي استثناء عند بناء نمط من مدخل يحتوي أقواساً غير متوازنة", () => {
     expect(() => new RegExp(`^${escapeRegex("ATCL(")}`)).not.toThrow();
+  });
+});
+
+describe("findCardNumberingHeaderRowIndex", () => {
+  it("يتجاوز الصف التمهيدي ويختار صف الرقم الوظيفي والاسم", () => {
+    const rows = [
+      ["كشف منتسبي الشركة"],
+      ["الرقم الوظيفي", "الاسم", "صلة القرابة", "تاريخ الميلاد"],
+      [1, "محمد مفتاح سالم", "الموظف", 25370],
+    ];
+
+    expect(findCardNumberingHeaderRowIndex(rows)).toBe(1);
+  });
+
+  it("ينظف محارف الاتجاه المخفية في رؤوس الأعمدة", () => {
+    const rows = [["‫الرقم الوظيفي‬‏", "‫الاسم‬‏", "صلة القرابة"]];
+    expect(findCardNumberingHeaderRowIndex(rows)).toBe(0);
   });
 });

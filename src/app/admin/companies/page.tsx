@@ -27,7 +27,7 @@ export default async function CompaniesPage() {
         }
       },
       service_policies: {
-        where: { service_type: { code: { in: ['DENTAL', 'OPTICS'] } }, is_active: true },
+        where: { service_type: { code: { in: ['DENTAL', 'OPTICS', 'EQUESTRIAN'] } }, is_active: true },
         select: { service_type: { select: { code: true } }, ceiling_amount: true, coverage_percent: true }
       }
     }
@@ -51,6 +51,7 @@ export default async function CompaniesPage() {
   const companiesWithStats = companies.map((c: any) => {
     const dentalPolicy = c.service_policies?.find((p: any) => p.service_type?.code === "DENTAL");
     const opticsPolicy = c.service_policies?.find((p: any) => p.service_type?.code === "OPTICS");
+    const equestrianPolicy = c.service_policies?.find((p: any) => p.service_type?.code === "EQUESTRIAN");
     return {
       id: c.id,
       name: c.name,
@@ -63,6 +64,8 @@ export default async function CompaniesPage() {
       dental_coverage: dentalPolicy ? Number(dentalPolicy.coverage_percent) : 100,
       optics_ceiling: opticsPolicy?.ceiling_amount !== null && opticsPolicy ? Number(opticsPolicy.ceiling_amount) : null,
       optics_coverage: opticsPolicy ? Number(opticsPolicy.coverage_percent) : 100,
+      equestrian_ceiling: equestrianPolicy?.ceiling_amount !== null && equestrianPolicy ? Number(equestrianPolicy.ceiling_amount) : 10000,
+      equestrian_coverage: equestrianPolicy ? Number(equestrianPolicy.coverage_percent) : 100,
       general_ceiling: c.general_ceiling ? Number(c.general_ceiling) : null,
       general_coverage: c.general_coverage ? Number(c.general_coverage) : 80,
       medicine_ceiling: c.medicine_ceiling ? Number(c.medicine_ceiling) : null,
@@ -136,6 +139,9 @@ export default async function CompaniesPage() {
                               </span>
                               <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
                                 البصريات: {company.optics_ceiling !== null ? `${Number(company.optics_ceiling).toLocaleString("ar-LY")} د.ل` : "مفتوح"} | تغطية {Number(company.optics_coverage)}%
+                              </span>
+                              <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                                الفروسية: {company.equestrian_ceiling !== null ? `${Number(company.equestrian_ceiling).toLocaleString("ar-LY")} د.ل` : "مفتوح"} | تغطية {Number(company.equestrian_coverage)}%
                               </span>
                               {company.dental_settings && (() => {
                                 const settings = company.dental_settings;

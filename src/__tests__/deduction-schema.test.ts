@@ -10,9 +10,10 @@ describe('deductionSchema amount rules per wallet', () => {
     expect(parse(100.25, 'GENERAL').success).toBe(true);
   });
 
-  it('does not cap dental or optics invoices, since the annual ceiling governs them', () => {
+  it('does not cap isolated service invoices, since the annual ceiling governs them', () => {
     expect(parse(5500, 'DENTAL').success).toBe(true);
     expect(parse(25000, 'OPTICS').success).toBe(true);
+    expect(parse(10000, 'EQUESTRIAN').success).toBe(true);
     expect(parse(412.5, 'DENTAL').success).toBe(true);
     expect(parse(412.37, 'DENTAL').success).toBe(true);
   });

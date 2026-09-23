@@ -21,6 +21,7 @@ export const TX_TYPES = {
   SETTLEMENT: "SETTLEMENT",
   CANCELLATION: "CANCELLATION",
   PHYSIOTHERAPY: "PHYSIOTHERAPY",
+  EQUESTRIAN: "EQUESTRIAN",
 } as const;
 
 export type TxType = (typeof TX_TYPES)[keyof typeof TX_TYPES];
@@ -33,6 +34,7 @@ export const TX_TYPE_LABELS: Record<TxType, string> = {
   SETTLEMENT: "تسوية",
   CANCELLATION: "—",
   PHYSIOTHERAPY: "علاج طبيعي",
+  EQUESTRIAN: "الفروسية",
 };
 
 // ─── حالات المستفيدين ─────────────────────────────────────────────────────────

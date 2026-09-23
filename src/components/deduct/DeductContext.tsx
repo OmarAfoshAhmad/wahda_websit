@@ -40,7 +40,7 @@ export interface BeneficiarySuggestion {
   replacement_beneficiary_id: string | null;
 }
 
-export type DeductType = "MEDICINE" | "SUPPLIES" | "DENTAL" | "OPTICS" | "PHYSIOTHERAPY" | "GENERAL";
+export type DeductType = "MEDICINE" | "SUPPLIES" | "DENTAL" | "OPTICS" | "PHYSIOTHERAPY" | "EQUESTRIAN" | "GENERAL";
 
 export interface SimulationResult {
   isTpa: boolean;
@@ -85,7 +85,7 @@ interface DeductContextValue {
   type: DeductType;
   setType: (v: DeductType) => void;
   availableServiceTypes: string[];
-  facilityType?: "HOSPITAL" | "PHARMACY" | "DENTAL" | "OPTICS" | "PHYSIOTHERAPY";
+  facilityType?: "HOSPITAL" | "PHARMACY" | "DENTAL" | "OPTICS" | "PHYSIOTHERAPY" | "EQUESTRIAN";
   showConfirm: boolean;
   setShowConfirm: (v: boolean) => void;
   deducting: boolean;
@@ -133,7 +133,7 @@ export function DeductProvider({
   facilityType,
 }: {
   children: React.ReactNode;
-  facilityType?: "HOSPITAL" | "PHARMACY" | "DENTAL" | "OPTICS" | "PHYSIOTHERAPY";
+  facilityType?: "HOSPITAL" | "PHARMACY" | "DENTAL" | "OPTICS" | "PHYSIOTHERAPY" | "EQUESTRIAN";
 }) {
   const toast = useToast();
 
@@ -156,6 +156,8 @@ export function DeductProvider({
       ? "OPTICS"
       : facilityType === "PHYSIOTHERAPY"
       ? "PHYSIOTHERAPY"
+      : facilityType === "EQUESTRIAN"
+      ? "EQUESTRIAN"
       : "GENERAL"
   );
   const [showConfirm, setShowConfirm] = useState(false);
@@ -188,6 +190,8 @@ export function DeductProvider({
       setType("OPTICS");
     } else if (facilityType === "PHYSIOTHERAPY" && type !== "PHYSIOTHERAPY") {
       setType("PHYSIOTHERAPY");
+    } else if (facilityType === "EQUESTRIAN" && type !== "EQUESTRIAN") {
+      setType("EQUESTRIAN");
     }
   }, [facilityType]);
 
@@ -275,6 +279,8 @@ export function DeductProvider({
         ? "OPTICS"
         : facilityType === "PHYSIOTHERAPY"
         ? "PHYSIOTHERAPY"
+        : facilityType === "EQUESTRIAN"
+        ? "EQUESTRIAN"
         : "SUPPLIES"
     );
     setShowConfirm(false);

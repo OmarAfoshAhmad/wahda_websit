@@ -7,7 +7,9 @@ const db = new PrismaClient();
 async function bootstrapServiceTypes() {
   const defaultServices = [
     { code: "DENTAL", name: "الأسنان", is_active: true },
-    { code: "OPTICS", name: "البصريات", is_active: true }
+    { code: "OPTICS", name: "البصريات", is_active: true },
+    { code: "PHYSIOTHERAPY", name: "العلاج الطبيعي", is_active: true },
+    { code: "EQUESTRIAN", name: "الفروسية", is_active: true }
   ];
 
   for (const service of defaultServices) {
@@ -17,7 +19,7 @@ async function bootstrapServiceTypes() {
       create: service,
     });
   }
-  console.log("[bootstrap-admin] Service types (DENTAL, OPTICS) are ready.");
+  console.log("[bootstrap-admin] Service types (DENTAL, OPTICS, PHYSIOTHERAPY, EQUESTRIAN) are ready.");
 }
 
 async function main() {

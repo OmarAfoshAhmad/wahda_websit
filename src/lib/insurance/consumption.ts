@@ -4,7 +4,7 @@ import { getFiscalYearBounds } from "./fiscal-year";
 
 type TxClient = Omit<typeof prisma, "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends">;
 
-export type WalletType = "DENTAL" | "OPTICS" | "PHYSIOTHERAPY" | "GENERAL" | "MEDICINE" | "SUPPLIES";
+export type WalletType = "DENTAL" | "OPTICS" | "PHYSIOTHERAPY" | "EQUESTRIAN" | "GENERAL" | "MEDICINE" | "SUPPLIES";
 
 export const DENTAL_CATEGORIES = ["DENTAL", "DENTAL_ORTHO", "DENTAL_IMPLANT", "DENTAL_PROSTHETICS"] as const;
 

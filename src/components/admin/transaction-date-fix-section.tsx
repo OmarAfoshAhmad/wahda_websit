@@ -19,6 +19,7 @@ const TYPE_LABELS: Record<string, string> = {
   DENTAL: "أسنان",
   OPTICS: "بصريات",
   PHYSIOTHERAPY: "علاج طبيعي",
+  EQUESTRIAN: "الفروسية",
   IMPORT: "استيراد",
 };
 

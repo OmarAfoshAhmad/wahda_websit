@@ -20,7 +20,8 @@ import {
   EMPLOYEE_HOME_NAV,
   DENTAL_NAV,
   OPTICS_NAV,
-  PHYSIOTHERAPY_NAV
+  PHYSIOTHERAPY_NAV,
+  EQUESTRIAN_NAV
 } from "@/lib/navigation";
 import type { ManagerPermissions, Session } from "@/lib/permissions";
 
@@ -105,6 +106,7 @@ export function Shell({
     const showDentalTab = hasPermission(session, "dental_services") || hasPermission(session, "view_dental_beneficiaries");
     const showOpticsTab = hasPermission(session, "optics_services") || hasPermission(session, "view_optics_beneficiaries");
     const showPhysiotherapyTab = hasPermission(session, "physiotherapy_services") || hasPermission(session, "view_physiotherapy_beneficiaries");
+    const showEquestrianTab = hasPermission(session, "equestrian_services") || hasPermission(session, "view_equestrian_beneficiaries");
     const showCashClaim = canUseCashClaim;
 
     if (isAdmin) {
@@ -113,6 +115,7 @@ export function Shell({
         ...(showDentalTab ? [DENTAL_NAV] : []),
         ...(showOpticsTab ? [OPTICS_NAV] : []),
         ...(showPhysiotherapyTab ? [PHYSIOTHERAPY_NAV] : []),
+        ...(showEquestrianTab ? [EQUESTRIAN_NAV] : []),
         ...filteredManagerNav, 
       ];
     }
@@ -125,6 +128,7 @@ export function Shell({
         ...(showDentalTab ? [DENTAL_NAV] : []),
         ...(showOpticsTab ? [OPTICS_NAV] : []),
         ...(showPhysiotherapyTab ? [PHYSIOTHERAPY_NAV] : []),
+        ...(showEquestrianTab ? [EQUESTRIAN_NAV] : []),
         ...filteredManagerNav,
       ];
     }
@@ -134,6 +138,7 @@ export function Shell({
       ...(showDentalTab ? [DENTAL_NAV] : []),
       ...(showOpticsTab ? [OPTICS_NAV] : []),
       ...(showPhysiotherapyTab ? [PHYSIOTHERAPY_NAV] : []),
+      ...(showEquestrianTab ? [EQUESTRIAN_NAV] : []),
     ];
   }, [isAdmin, isManager, isEmployee, canUseCashClaim, allocationWindowEnabled, permsHash, session]);
 

@@ -144,7 +144,7 @@ export default async function TransactionsPage({
   type TxSource = typeof ALLOWED_SOURCE[number];
   const sourceFilter: TxSource = session.is_admin && (ALLOWED_SOURCE as ReadonlyArray<string>).includes(source ?? "") ? source as TxSource : "all";
 
-  const ALLOWED_FACILITY_TYPES = ["all", "HOSPITAL", "PHARMACY", "DENTAL", "OPTICS", "PHYSIOTHERAPY"] as const;
+  const ALLOWED_FACILITY_TYPES = ["all", "HOSPITAL", "PHARMACY", "DENTAL", "OPTICS", "PHYSIOTHERAPY", "EQUESTRIAN"] as const;
   type TxFacilityType = typeof ALLOWED_FACILITY_TYPES[number];
   const facilityTypeFilter: TxFacilityType = session.is_admin && (ALLOWED_FACILITY_TYPES as ReadonlyArray<string>).includes(facilityTypeParam ?? "") ? facilityTypeParam as TxFacilityType : "all";
 
@@ -661,7 +661,7 @@ export default async function TransactionsPage({
                     className="flex h-10 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
                   >
                     <option value="all">كل الأنواع</option>
-                    {(["HOSPITAL", "PHARMACY", "DENTAL", "OPTICS", "PHYSIOTHERAPY"] as FacilityType[]).map((t) => (
+                    {(["HOSPITAL", "PHARMACY", "DENTAL", "OPTICS", "PHYSIOTHERAPY", "EQUESTRIAN"] as FacilityType[]).map((t) => (
                       <option key={t} value={t}>{getFacilityTypeLabel(t)}</option>
                     ))}
                   </select>

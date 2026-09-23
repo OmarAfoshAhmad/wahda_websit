@@ -13,7 +13,7 @@ import {
   validateCorrectedDate,
 } from "@/lib/transaction-date-anomaly";
 
-const CEILING_SENSITIVE_TYPES = new Set(["DENTAL", "OPTICS", "PHYSIOTHERAPY"]);
+const CEILING_SENSITIVE_TYPES = new Set(["DENTAL", "OPTICS", "PHYSIOTHERAPY", "EQUESTRIAN"]);
 
 export type OutOfRangeDateRow = {
   id: string;

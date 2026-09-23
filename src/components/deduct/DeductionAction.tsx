@@ -31,7 +31,7 @@ export function DeductionAction() {
   }
 
   const amountValue = Number(amount);
-  // الحد 5000 يخص الرصيد الأساسي فقط؛ الأسنان/البصريات/العلاج الطبيعي يحكمها سقف السياسة (وقد يكون مفتوحاً).
+  // الحد 5000 يخص الرصيد الأساسي فقط؛ الخدمات ذات السياسات المستقلة يحكمها سقف السياسة (وقد يكون مفتوحاً).
   const amountExceedsMax = isBaseBalanceDeductionType(type) && Number.isFinite(amountValue) && amountValue > MAX_DEDUCTION_AMOUNT;
   const hasAmount = Number.isFinite(amountValue) && amountValue > 0;
 
@@ -41,6 +41,7 @@ export function DeductionAction() {
     DENTAL: "خدمات أسنان",
     OPTICS: "خدمات بصريات / عيون",
     PHYSIOTHERAPY: "خدمات علاج طبيعي",
+    EQUESTRIAN: "الفروسية - طوارئ وعمليات",
     SUPPLIES: "مستلزمات طبية",
   };
 
@@ -60,6 +61,9 @@ export function DeductionAction() {
   } else if (facilityType === "PHYSIOTHERAPY") {
     filteredTypes = filteredTypes.filter(t => t === "PHYSIOTHERAPY");
     if (filteredTypes.length === 0) filteredTypes = ["PHYSIOTHERAPY"];
+  } else if (facilityType === "EQUESTRIAN") {
+    filteredTypes = filteredTypes.filter(t => t === "EQUESTRIAN");
+    if (filteredTypes.length === 0) filteredTypes = ["EQUESTRIAN"];
   } else {
     // For HOSPITAL or general admin view, remove DENTAL unless they are explicitly in a DENTAL facility.
     // The user requested: "في مصرف الوحدة كشف عام و ادوية صرف عام فقط و عندما اكون في وضع الاسنان يظهر فقط قسم الاسنان"

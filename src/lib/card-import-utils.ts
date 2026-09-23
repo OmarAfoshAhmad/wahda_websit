@@ -38,6 +38,26 @@ export const normalizeArabicName = (value: unknown): string =>
     .replace(/ة/g, "ه")
     .replace(/ى/g, "ي");
 
+/** يحدد صف رؤوس جدول الترقيم عند وجود عنوان أو صفوف تمهيدية قبله. */
+export const findCardNumberingHeaderRowIndex = (rows: unknown[][]): number =>
+  rows.findIndex((row) => {
+    const cells = row.map((value) => cleanImportText(value).toLowerCase());
+    const hasEmployeeNumber = cells.some((cell) =>
+      cell.includes("وظيف") ||
+      cell === "رقم الموظف" ||
+      cell === "employee number" ||
+      cell === "empno"
+    );
+    const hasName = cells.some((cell) =>
+      cell === "الاسم" ||
+      cell === "الأسم" ||
+      cell === "الإسم" ||
+      cell.includes("اسم الموظف") ||
+      cell === "name"
+    );
+    return hasEmployeeNumber && hasName;
+  });
+
 /**
  * خريطة صلة القرابة: تغطي "ال" التعريف والهمزات والتاء المربوطة والإنجليزية،
  * وتُرجع مصطلحاً موحّداً تعرفه خريطة الرموز في الخادم.

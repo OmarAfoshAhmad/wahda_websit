@@ -19,16 +19,17 @@ type BackgroundActor = {
  * (وليست جلسات علاج طبيعي، ذات منطق عد مختلف تماماً).
  */
 const DENTAL_CATEGORIES = ["DENTAL", "DENTAL_ORTHO", "DENTAL_IMPLANT", "DENTAL_PROSTHETICS"] as const;
-const CAPPED_CATEGORIES_SCOPE = [...DENTAL_CATEGORIES, "OPTICS"] as const;
+const CAPPED_CATEGORIES_SCOPE = [...DENTAL_CATEGORIES, "OPTICS", "EQUESTRIAN"] as const;
 
-async function resolveServiceTypeIds(): Promise<{ dentalId: string | null; opticsId: string | null }> {
+async function resolveServiceTypeIds(): Promise<{ dentalId: string | null; opticsId: string | null; equestrianId: string | null }> {
   const types = await prisma.serviceType.findMany({
-    where: { code: { in: ["DENTAL", "OPTICS"] } },
+    where: { code: { in: ["DENTAL", "OPTICS", "EQUESTRIAN"] } },
     select: { id: true, code: true },
   });
   return {
     dentalId: types.find((t) => t.code === "DENTAL")?.id ?? null,
     opticsId: types.find((t) => t.code === "OPTICS")?.id ?? null,
+    equestrianId: types.find((t) => t.code === "EQUESTRIAN")?.id ?? null,
   };
 }
 
@@ -72,6 +73,11 @@ function buildDetectionWhereFragment() {
             AND op.ceiling_amount IS NOT NULL
             AND NOT (COALESCE(b.custom_ceilings, '{}'::jsonb) ? 'OPTICS')
           )
+          OR (
+            t.service_category = 'EQUESTRIAN'
+            AND ep.ceiling_amount IS NOT NULL
+            AND NOT (COALESCE(b.custom_ceilings, '{}'::jsonb) ? 'EQUESTRIAN')
+          )
         )
       )
       OR (
@@ -90,16 +96,23 @@ function buildDetectionWhereFragment() {
             AND NOT (COALESCE(b.custom_ceilings, '{}'::jsonb) ? 'OPTICS')
             AND ABS((t.policy_snapshot->>'annual_ceiling')::numeric - op.ceiling_amount) > 0.01
           )
+          OR (
+            t.service_category = 'EQUESTRIAN'
+            AND ep.ceiling_amount IS NOT NULL
+            AND NOT (COALESCE(b.custom_ceilings, '{}'::jsonb) ? 'EQUESTRIAN')
+            AND ABS((t.policy_snapshot->>'annual_ceiling')::numeric - ep.ceiling_amount) > 0.01
+          )
         )
       )
     )
   `;
 }
 
-function buildPolicyJoinsFragment(dentalId: string | null, opticsId: string | null) {
+function buildPolicyJoinsFragment(dentalId: string | null, opticsId: string | null, equestrianId: string | null) {
   return Prisma.sql`
     LEFT JOIN "ServicePolicy" dp ON dp.company_id = t.company_id AND dp.is_active = true AND dp.service_type_id = ${dentalId}
     LEFT JOIN "ServicePolicy" op ON op.company_id = t.company_id AND op.is_active = true AND op.service_type_id = ${opticsId}
+    LEFT JOIN "ServicePolicy" ep ON ep.company_id = t.company_id AND ep.is_active = true AND ep.service_type_id = ${equestrianId}
   `;
 }
 
@@ -136,8 +149,8 @@ export async function checkCeilingExceededAction(companyId?: string): Promise<Ce
   }
 
   try {
-    const { dentalId, opticsId } = await resolveServiceTypeIds();
-    const joins = buildPolicyJoinsFragment(dentalId, opticsId);
+    const { dentalId, opticsId, equestrianId } = await resolveServiceTypeIds();
+    const joins = buildPolicyJoinsFragment(dentalId, opticsId, equestrianId);
     const whereFragment = buildDetectionWhereFragment();
 
     const rows = await prisma.$queryRaw<Array<{ cnt: number; total_excess: number }>>`
@@ -147,7 +160,7 @@ export async function checkCeilingExceededAction(companyId?: string): Promise<Ce
           GREATEST(
             ABS(COALESCE(t.actual_company_share, 0) - COALESCE(t.ceiling_consumed, 0)),
             GREATEST(0, COALESCE(t.consumed_after, 0) - COALESCE((t.policy_snapshot->>'annual_ceiling')::numeric, 999999999)),
-            GREATEST(0, COALESCE(t.consumed_after, 0) - COALESCE(dp.ceiling_amount, op.ceiling_amount, 999999999))
+            GREATEST(0, COALESCE(t.consumed_after, 0) - COALESCE(dp.ceiling_amount, op.ceiling_amount, ep.ceiling_amount, 999999999))
           )
         ), 0)::float8 AS total_excess
       FROM "Transaction" t
@@ -179,8 +192,8 @@ export async function listCeilingExceededAction(companyId: string, limit = 500):
   }
 
   try {
-    const { dentalId, opticsId } = await resolveServiceTypeIds();
-    const joins = buildPolicyJoinsFragment(dentalId, opticsId);
+    const { dentalId, opticsId, equestrianId } = await resolveServiceTypeIds();
+    const joins = buildPolicyJoinsFragment(dentalId, opticsId, equestrianId);
     const whereFragment = buildDetectionWhereFragment();
 
     const rows = await prisma.$queryRaw<CeilingExceededRow[]>`
@@ -196,7 +209,7 @@ export async function listCeilingExceededAction(companyId: string, limit = 500):
         t.actual_company_share::float8 AS actual_company_share,
         t.actual_patient_share::float8 AS actual_patient_share,
         t.ceiling_consumed::float8 AS ceiling_consumed,
-        COALESCE(dp.ceiling_amount::float8, op.ceiling_amount::float8, (t.policy_snapshot->>'annual_ceiling')::float8) AS annual_ceiling,
+        COALESCE(dp.ceiling_amount::float8, op.ceiling_amount::float8, ep.ceiling_amount::float8, (t.policy_snapshot->>'annual_ceiling')::float8) AS annual_ceiling,
         t.consumed_after::float8 AS consumed_after,
         (t.policy_snapshot IS NOT NULL AND (t.policy_snapshot->>'annual_ceiling') IS NOT NULL) AS policy_applied,
         -- فرق الانجراف الحقيقي: هل تجاوز الاستهلاك التراكمي الفعلي السقف الحقيقي الحالي؟
@@ -205,7 +218,7 @@ export async function listCeilingExceededAction(companyId: string, limit = 500):
         GREATEST(
           ABS(COALESCE(t.actual_company_share, 0) - COALESCE(t.ceiling_consumed, 0)),
           GREATEST(0, COALESCE(t.consumed_after, 0) - COALESCE((t.policy_snapshot->>'annual_ceiling')::numeric, 999999999)),
-          GREATEST(0, COALESCE(t.consumed_after, 0) - COALESCE(dp.ceiling_amount, op.ceiling_amount, 999999999))
+          GREATEST(0, COALESCE(t.consumed_after, 0) - COALESCE(dp.ceiling_amount, op.ceiling_amount, ep.ceiling_amount, 999999999))
         )::float8 AS excess_amount,
         t.created_at
       FROM "Transaction" t
@@ -268,13 +281,13 @@ async function resolveCurrentPolicy(
 }
 
 /**
- * يعيد احتساب كل حركات الأسنان/البصريات المتأثرة لكل (مستفيد + فئة + سنة مالية)
+ * يعيد احتساب كل حركات الأسنان/البصريات/الفروسية المتأثرة لكل (مستفيد + فئة + سنة مالية)
  * بالترتيب الزمني عبر InsuranceEngine. يعتمد على policy_snapshot المحفوظ في كل حركة
  * وقت إنشائها متى وُجد؛ وعندما تكون الحركة قد نُفّذت أصلاً دون تطبيق أي سقف (عطل سابق
  * كان يحسبها "بلا حدود" افتراضياً)، يستخدم السياسة الفعلية الحالية للشركة/المستفيد
  * كأساس لإعادة الاحتساب ويُثبّتها في الحركة كـ policy_snapshot صحيح من الآن فصاعداً.
  * يُحدّث فقط الحقول المالية للحركة نفسها (لا تأثير على remaining_balance الأساسي؛
- * الأسنان/البصريات محفظة سقف منفصلة تماماً عن الرصيد الأساسي).
+ * هذه الخدمات محفظة سقف منفصلة تماماً عن الرصيد الأساسي).
  */
 export async function fixCeilingExceededAction(
   actor?: BackgroundActor,
@@ -286,8 +299,8 @@ export async function fixCeilingExceededAction(
   }
 
   try {
-    const { dentalId, opticsId } = await resolveServiceTypeIds();
-    const joins = buildPolicyJoinsFragment(dentalId, opticsId);
+    const { dentalId, opticsId, equestrianId } = await resolveServiceTypeIds();
+    const joins = buildPolicyJoinsFragment(dentalId, opticsId, equestrianId);
     const whereFragment = buildDetectionWhereFragment();
 
     const affected = await prisma.$queryRaw<Array<{ beneficiary_id: string; category_group: string; fiscal_year: number }>>`

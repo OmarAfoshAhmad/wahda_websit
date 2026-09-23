@@ -36,6 +36,9 @@ function getFacilityTypeBadgeClass(fType: FacilityType): string {
   if (fType === "PHYSIOTHERAPY") {
     return "bg-teal-50 text-teal-700 ring-teal-600/20 dark:bg-teal-900/30 dark:text-teal-300 dark:ring-teal-800/60";
   }
+  if (fType === "EQUESTRIAN") {
+    return "bg-rose-50 text-rose-700 ring-rose-600/20 dark:bg-rose-900/30 dark:text-rose-300 dark:ring-rose-800/60";
+  }
   return "bg-sky-50 text-sky-700 ring-sky-600/20 dark:bg-sky-900/30 dark:text-sky-300 dark:ring-sky-800/60";
 }
 
@@ -62,7 +65,7 @@ export default async function FacilitiesPage({
   const where = {
     deleted_at: isDeletedView ? { not: null } : null,
     role: "FACILITY",
-    ...(type && ["HOSPITAL", "PHARMACY", "DENTAL", "OPTICS", "PHYSIOTHERAPY"].includes(type) ? { facility_type: type } : {}),
+    ...(type && ["HOSPITAL", "PHARMACY", "DENTAL", "OPTICS", "PHYSIOTHERAPY", "EQUESTRIAN"].includes(type) ? { facility_type: type } : {}),
     ...(q && q.trim()
       ? {
         OR: getArabicSearchTerms(q.trim()).flatMap(t => [
@@ -76,7 +79,7 @@ export default async function FacilitiesPage({
   const allWhere = {
     deleted_at: isDeletedView ? { not: null } : null,
     role: "FACILITY",
-    ...(type && ["HOSPITAL", "PHARMACY", "DENTAL", "OPTICS", "PHYSIOTHERAPY"].includes(type) ? { facility_type: type } : {}),
+    ...(type && ["HOSPITAL", "PHARMACY", "DENTAL", "OPTICS", "PHYSIOTHERAPY", "EQUESTRIAN"].includes(type) ? { facility_type: type } : {}),
   };
 
   const [facilities, totalCount, allFacilities] = await Promise.all([
@@ -217,6 +220,7 @@ export default async function FacilitiesPage({
                 <option value="DENTAL">عيادة أسنان</option>
                 <option value="OPTICS">مركز بصريات / عيون</option>
                 <option value="PHYSIOTHERAPY">مركز علاج طبيعي</option>
+                <option value="EQUESTRIAN">الفروسية</option>
               </select>
               <Button type="submit" className="h-10 w-full px-5 sm:w-auto sm:shrink-0">بحث</Button>
             </form>

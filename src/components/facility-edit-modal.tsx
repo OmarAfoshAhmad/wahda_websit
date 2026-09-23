@@ -10,7 +10,7 @@ interface Props {
     id: string;
     name: string;
     username: string;
-    facility_type_override?: "HOSPITAL" | "PHARMACY" | "DENTAL" | "OPTICS" | "PHYSIOTHERAPY" | null;
+    facility_type_override?: "HOSPITAL" | "PHARMACY" | "DENTAL" | "OPTICS" | "PHYSIOTHERAPY" | "EQUESTRIAN" | null;
   };
 }
 
@@ -18,7 +18,7 @@ export function FacilityEditModal({ facility }: Props) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(facility.name);
   const [username, setUsername] = useState(facility.username);
-  const [facilityType, setFacilityType] = useState<"AUTO" | "HOSPITAL" | "PHARMACY" | "DENTAL" | "OPTICS" | "PHYSIOTHERAPY">(
+  const [facilityType, setFacilityType] = useState<"AUTO" | "HOSPITAL" | "PHARMACY" | "DENTAL" | "OPTICS" | "PHYSIOTHERAPY" | "EQUESTRIAN">(
     (facility.facility_type_override as any) ?? "AUTO"
   );
   const [resetPassword, setResetPassword] = useState(false);
@@ -128,6 +128,7 @@ export function FacilityEditModal({ facility }: Props) {
                   <option value="DENTAL">عيادة أسنان</option>
                   <option value="OPTICS">مركز بصريات / عيون</option>
                   <option value="PHYSIOTHERAPY">مركز علاج طبيعي</option>
+                  <option value="EQUESTRIAN">الفروسية</option>
                 </select>
               </div>
 

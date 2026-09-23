@@ -39,4 +39,7 @@ export const OPTICS_NAV = { name: "خدمات البصريات", href: "/admin/o
 /** تبويب "خدمات العلاج الطبيعي" */
 export const PHYSIOTHERAPY_NAV = { name: "خدمات العلاج الطبيعي", href: "/admin/physiotherapy-services", icon: Stethoscope };
 
+/** تبويب "الفروسية" — طوارئ وعمليات */
+export const EQUESTRIAN_NAV = { name: "الفروسية", href: "/admin/equestrian-services", icon: Stethoscope };
+
 export const EMPLOYEE_HOME_NAV = { name: "الرئيسية", href: "/cash-claim", icon: Home };

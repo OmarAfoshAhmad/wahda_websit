@@ -53,14 +53,16 @@ export async function createCompany(data: {
         dental_settings: data.dental_settings,
         // @ts-ignore: field is generated but typescript might be stale
         service_aliases: data.service_aliases,
-        service_policies: dentalType ? {
-          create: {
-            service_type_id: dentalType.id,
-            ceiling_amount: data.dental_ceiling !== undefined ? data.dental_ceiling : 3000,
-            coverage_percent: data.dental_coverage !== undefined ? data.dental_coverage : 100,
-            frequency_months: 12,
-          }
-        } : undefined,
+        service_policies: {
+          create: [
+            ...(dentalType ? [{
+              service_type_id: dentalType.id,
+              ceiling_amount: data.dental_ceiling !== undefined ? data.dental_ceiling : 3000,
+              coverage_percent: data.dental_coverage !== undefined ? data.dental_coverage : 100,
+              frequency_months: 12,
+            }] : []),
+          ],
+        },
       },
     });
     revalidatePath("/admin/companies");

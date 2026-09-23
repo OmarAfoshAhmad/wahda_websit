@@ -16,7 +16,7 @@ import {
 } from "@/app/actions/card-numbering";
 import { useToast } from "./toast";
 import { cn } from "./ui";
-import { cleanImportText, lookupRelTerm, parseCellDate } from "@/lib/card-import-utils";
+import { cleanImportText, findCardNumberingHeaderRowIndex, lookupRelTerm, parseCellDate } from "@/lib/card-import-utils";
 
 // مكون فرعي للأزرار (Chips) الخاصة بالفلاتر لضمان التراصف والجمالية
 const StatusChip = ({ active, onClick, label, count, variant }: { 
@@ -135,7 +135,21 @@ export function CardNumberingClient({
           }
         });
 
-        const rawRows = XLSX.utils.sheet_to_json(ws) as any[];
+        // بعض الملفات تحتوي عنواناً أو صفاً فارغاً قبل رؤوس الجدول. اعتماد الصف الأول مباشرة
+        // يجعل صف "الرقم الوظيفي" نفسه سجلاً، ثم قد يُقرأ رقم Excel الخاص بتاريخ الميلاد
+        // (مثل 25370) كرقم وظيفي. نبحث عن صف الرؤوس الحقيقي أولاً.
+        const sheetRows = XLSX.utils.sheet_to_json<unknown[]>(ws, {
+          header: 1,
+          defval: "",
+          raw: false,
+        });
+        const headerRowIndex = findCardNumberingHeaderRowIndex(sheetRows);
+
+        const rawRows = XLSX.utils.sheet_to_json(ws, {
+          ...(headerRowIndex >= 0 ? { range: headerRowIndex } : {}),
+          defval: "",
+          raw: false,
+        }) as any[];
 
         if (rawRows.length === 0) {
           toast.error("الملف فارغ");
@@ -149,7 +163,8 @@ export function CardNumberingClient({
         // البحث عن الأعمدة بأولوية الكلمة المفتاحية (وليس بترتيب أعمدة الملف)،
         // مع تجاهل حالة الأحرف وإمكانية استبعاد أعمدة لا يصح التقاطها (مثل أعمدة الأسماء).
         const findKeysInList = (keysList: string[], keywords: string[], excludeKeywords: string[] = []) => {
-          const norm = (v: unknown) => String(v ?? "").trim().toLowerCase();
+          // عناوين Excel قد تحتوي محارف اتجاه غير مرئية؛ يجب تنظيف العنوان نفسه لا القيمة فقط.
+          const norm = (v: unknown) => cleanImportText(v).replace(/\s+/g, " ").trim().toLowerCase();
           const candidates = keysList.filter(k => !excludeKeywords.some(ex => norm(k).includes(norm(ex))));
           const matches: string[] = [];
           const push = (k?: string) => { if (k && !matches.includes(k)) matches.push(k); };
@@ -177,11 +192,15 @@ export function CardNumberingClient({
         const bDateKeys = findKeysInList(allKeys, ["تاريخ الميلاد", "تاريخ الملاد", "الميلاد", "الملاد", "ميلاد", "المواليد", "Birth Date", "BirthDate", "DOB", "Birth", "BDate", "تاريخ"], NAME_LIKE_KEYS);
         const statusKey = findKeyInList(allKeys, ["الحالة", "Status", "الوضع", "Statue", "الوضعية"]);
         const notesKey = findKeyInList(allKeys, ["ملاحظات", "Notes", "البيان", "ملاحظة"]);
-        const empNumKeys = findKeysInList(
+        const explicitEmpNumKeys = findKeysInList(
           allKeys,
-          ["الرقم الوظيفي", "الرقم الوظيفى", "رقم الوظيفي", "وظيفي", "رقم الموظف", "رقم العضو", "رقم التامين", "رقم التأمين", "EMPNO", "EMP_NO", "EMP NO", "Employee Number", "Emp", "ID", "رقم"],
+          ["الرقم الوظيفي", "الرقم الوظيفى", "رقم الوظيفي", "وظيفي", "رقم الموظف", "رقم العضو", "رقم التامين", "رقم التأمين", "EMPNO", "EMP_NO", "EMP NO", "Employee Number"],
           NAME_LIKE_KEYS
         );
+        // لا نسمح لـ ID أو "رقم" بمنافسة عمود وظيفي صريح؛ كان ذلك يلتقط الرقم الوطني أحياناً.
+        const empNumKeys = explicitEmpNumKeys.length > 0
+          ? [explicitEmpNumKeys[0]]
+          : findKeysInList(allKeys, ["Emp", "ID", "رقم"], [...NAME_LIKE_KEYS, "وطني", "بطاقة", "ميلاد"]);
 
         // parseCellDate مستوردة من src/lib/card-import-utils.ts (مشتركة مع الخادم)
 
@@ -430,10 +449,12 @@ export function CardNumberingClient({
   };
 
   const handleExport = () => {
-    // إذا كان هناك تحديد، نستخدم المحدد، وإلا نستخدم القائمة المفلترة الحالية
-    const rawData = selectedIds.length > 0 
-      ? items.filter(i => selectedIds.includes(i.id)) 
-      : filteredItems;
+    // التحديد القديم قد يحتوي سجلات أصبحت خارج الفلاتر الحالية. لا نصدّر إلا ما يظهر
+    // ضمن نتائج الفلترة، ثم نطبّق التحديد اليدوي داخل هذه النتائج فقط.
+    const selectedFilteredItems = filteredItems.filter((item) => selectedIds.includes(item.id));
+    const rawData = selectedFilteredItems.length > 0
+      ? [...selectedFilteredItems]
+      : [...filteredItems];
     
     if (rawData.length === 0) {
       toast.info("لا توجد سجلات للتصدير.");
@@ -821,7 +842,7 @@ export function CardNumberingClient({
                   نقل للسلة ({selectedIds.length})
                 </Button>
               )}
-              <Button onClick={handleExport} variant="outline" size="sm" disabled={items.length === 0} className="gap-2 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 dark:bg-slate-800 hover:dark:bg-slate-700 h-9">
+              <Button onClick={handleExport} variant="outline" size="sm" disabled={filteredItems.length === 0} className="gap-2 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 dark:bg-slate-800 hover:dark:bg-slate-700 h-9">
                 <FileSpreadsheet className="h-4 w-4" />
                 تصدير
               </Button>

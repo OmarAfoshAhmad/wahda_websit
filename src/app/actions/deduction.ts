@@ -24,7 +24,7 @@ export async function deductBalance(formData: {
   beneficiary_id?: string;
   card_number: string;
   amount: number;
-  type: "MEDICINE" | "SUPPLIES" | "GENERAL" | "DENTAL" | "OPTICS" | "PHYSIOTHERAPY";
+  type: "MEDICINE" | "SUPPLIES" | "GENERAL" | "DENTAL" | "OPTICS" | "PHYSIOTHERAPY" | "EQUESTRIAN";
   transactionDate?: Date;
   facilityId?: string;
   requestId?: string;
@@ -87,6 +87,9 @@ export async function deductBalance(formData: {
     }
     if (session.facility_type === "PHYSIOTHERAPY" && type !== "PHYSIOTHERAPY") {
       return { error: "حسابات مراكز العلاج الطبيعي لا يمكنها تنفيذ سوى خدمات العلاج الطبيعي" };
+    }
+    if (session.facility_type === "EQUESTRIAN" && type !== "EQUESTRIAN") {
+      return { error: "حسابات الفروسية لا يمكنها تنفيذ سوى خدمات الفروسية" };
     }
   }
 
@@ -176,7 +179,7 @@ export async function deductBalance(formData: {
       }
 
       // قيد عزل صارم: الخدمات الطبية العامة (دواء وكشف عام) مقصورة على منتسبي مصرف الوحدة فقط
-      if (type !== "DENTAL" && type !== "OPTICS" && type !== "PHYSIOTHERAPY" && companyId && companyId !== WAHDA_BANK_COMPANY_ID) {
+      if (!["DENTAL", "OPTICS", "PHYSIOTHERAPY", "EQUESTRIAN"].includes(type) && companyId && companyId !== WAHDA_BANK_COMPANY_ID) {
         throw new Error("هذا المستفيد يتبع شركة تأمين خاصة بالأسنان والبصريات فقط. الخدمات العامة مقصورة على مصرف الوحدة.");
       }
 
@@ -227,6 +230,9 @@ export async function deductBalance(formData: {
       }
       if (type === "PHYSIOTHERAPY" && !policyRecord) {
         throw new Error("لا توجد سياسة علاج طبيعي (PHYSIOTHERAPY) نشطة ومُعرّفة لهذه الشركة. لا يمكن إتمام الخصم.");
+      }
+      if (type === "EQUESTRIAN" && !policyRecord) {
+        throw new Error("لا توجد سياسة فروسية (EQUESTRIAN) نشطة ومُعرّفة لهذه الشركة. لا يمكن إتمام الخصم.");
       }
 
       let tpaData: Record<string, unknown> = {};
@@ -315,7 +321,7 @@ export async function deductBalance(formData: {
       if (beneficiary.status === "SUSPENDED") {
         throw new Error("حساب المستفيد موقوف ولا يمكن إجراء خصم عليه");
       }
-      if (beneficiary.status === "FINISHED" && !["DENTAL", "OPTICS", "PHYSIOTHERAPY"].includes(type)) {
+      if (beneficiary.status === "FINISHED" && !["DENTAL", "OPTICS", "PHYSIOTHERAPY", "EQUESTRIAN"].includes(type)) {
         throw new Error("حساب المستفيد مكتمل ولا يمكن الخصم من الرصيد الأساسي");
       }
 
@@ -324,8 +330,8 @@ export async function deductBalance(formData: {
         ? Number(tpaData.actual_company_share)
         : amount;
 
-      // خصم الأسنان والبصريات والعلاج الطبيعي معزول تماماً عن الرصيد الأساسي (remaining_balance)
-      const touchesBaseBalance = !["DENTAL", "OPTICS", "PHYSIOTHERAPY"].includes(type);
+      // خصم الخدمات ذات السياسات المستقلة معزول تماماً عن الرصيد الأساسي (remaining_balance)
+      const touchesBaseBalance = !["DENTAL", "OPTICS", "PHYSIOTHERAPY", "EQUESTRIAN"].includes(type);
 
       // الرصيد المتاح يُقرأ من الدفتر لا من الحقل المخزَّن، حتى لا يُبنى قرار على قيمة منجرفة.
       const ledgerBefore = touchesBaseBalance
@@ -547,9 +553,9 @@ export async function getAvailableServiceTypes(beneficiaryId: string) {
     if (!company) return { serviceTypes: [] };
 
     // All companies support GENERAL, MEDICINE, and DENTAL under consolidated model
-    const policyTypes = new Set<string>(["DENTAL", "GENERAL", "MEDICINE"]);
+    const policyTypes = new Set<string>(["DENTAL", "EQUESTRIAN", "GENERAL", "MEDICINE"]);
     const mappings = company.service_type_mappings as Record<string, string> | null;
-    const allTypes = ["GENERAL", "MEDICINE", "DENTAL", "OPTICS", "PHYSIOTHERAPY", "SUPPLIES"];
+    const allTypes = ["GENERAL", "MEDICINE", "DENTAL", "OPTICS", "PHYSIOTHERAPY", "EQUESTRIAN", "SUPPLIES"];
     let available = allTypes.filter(st => {
       const mapped = mappings?.[st] ?? st;
       return policyTypes.has(mapped);
@@ -564,6 +570,8 @@ export async function getAvailableServiceTypes(beneficiaryId: string) {
         available = available.filter(t => t === "OPTICS");
       } else if (session.facility_type === "PHYSIOTHERAPY") {
         available = ["PHYSIOTHERAPY"];
+      } else if (session.facility_type === "EQUESTRIAN") {
+        available = ["EQUESTRIAN"];
       }
     }
 

@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
   const end_date = searchParams.get("end_date");
   const batch_number = (searchParams.get("batch_number") ?? "").trim();
   const rawFacilityFilter = (searchParams.get("facility_id") ?? "").trim();
-  const ALLOWED_FACILITY_TYPES = ["HOSPITAL", "PHARMACY", "DENTAL", "OPTICS", "PHYSIOTHERAPY"];
+  const ALLOWED_FACILITY_TYPES = ["HOSPITAL", "PHARMACY", "DENTAL", "OPTICS", "PHYSIOTHERAPY", "EQUESTRIAN"];
   const facilityTypeFilter = (searchParams.get("facility_type") ?? "").trim();
   const q = searchParams.get("q");
   const txIdsParam = (searchParams.get("tx_ids") ?? "").trim();

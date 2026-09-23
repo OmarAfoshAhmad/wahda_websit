@@ -14,6 +14,7 @@ const company = (over: Partial<CompanyForPolicy> = {}): CompanyForPolicy => ({
     { service_type: { code: 'DENTAL' }, ceiling_amount: 1000, coverage_percent: 80 },
     { service_type: { code: 'OPTICS' }, ceiling_amount: 400, coverage_percent: 100 },
     { service_type: { code: 'PHYSIOTHERAPY' }, ceiling_amount: 20, coverage_percent: 100 },
+    { service_type: { code: 'EQUESTRIAN' }, ceiling_amount: 10000, coverage_percent: 100 },
   ],
   ...over,
 });
@@ -40,6 +41,12 @@ describe('resolveWalletPolicy', () => {
   it('gives physiotherapy a session ceiling and no copay', () => {
     expect(resolveWalletPolicy({ company: company(), customCeilings: null, walletType: 'PHYSIOTHERAPY' })).toEqual({
       service_type: 'PHYSIOTHERAPY', annual_ceiling: 20, copay_percentage: 0, allow_partial_coverage: true,
+    });
+  });
+
+  it('gives equestrian an annual financial ceiling with full coverage by default', () => {
+    expect(resolveWalletPolicy({ company: company(), customCeilings: null, walletType: 'EQUESTRIAN' })).toEqual({
+      service_type: 'EQUESTRIAN', annual_ceiling: 10000, copay_percentage: 0, allow_partial_coverage: true,
     });
   });
 

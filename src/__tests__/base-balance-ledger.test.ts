@@ -11,6 +11,7 @@ describe("base balance ledger", () => {
       "DENTAL",
       "OPTICS",
       "PHYSIOTHERAPY",
+      "EQUESTRIAN",
     ]);
   });
 

@@ -12,7 +12,8 @@ export type PermissionGroupId =
   | "admin"
   | "companies"
   | "dental"
-  | "optics";
+  | "optics"
+  | "equestrian";
 
 type PermissionDefinition = {
   key: PermissionKey;
@@ -60,6 +61,8 @@ export const PERMISSION_DEFINITIONS: ReadonlyArray<PermissionDefinition> = [
   { key: "view_optics_beneficiaries", label: "عرض مستفيدي خدمات البصريات", group: "optics" },
   { key: "physiotherapy_services", label: "صلاحية خدمات العلاج الطبيعي (خصم، حركات، كشف)", group: "optics" }, // Using optics group for now or create a new group
   { key: "view_physiotherapy_beneficiaries", label: "عرض مستفيدي خدمات العلاج الطبيعي", group: "optics" },
+  { key: "equestrian_services", label: "صلاحية خدمات الفروسية (خصم، حركات، كشف)", group: "equestrian" },
+  { key: "view_equestrian_beneficiaries", label: "عرض مستفيدي خدمات الفروسية", group: "equestrian" },
 ];
 
 export const PERMISSION_KEYS = PERMISSION_DEFINITIONS.map((d) => d.key);
@@ -82,6 +85,7 @@ const PERMISSION_GROUP_LABELS: Record<PermissionGroupId, string> = {
   companies: "شركات التأمين",
   dental: "خدمات الأسنان",
   optics: "خدمات البصريات",
+  equestrian: "خدمات الفروسية",
 };
 
 export const PERMISSION_GROUPS = Object.entries(
@@ -117,6 +121,8 @@ const EMPLOYEE_ALLOWED_PERMISSION_KEYS = [
   "view_optics_beneficiaries",
   "physiotherapy_services",
   "view_physiotherapy_beneficiaries",
+  "equestrian_services",
+  "view_equestrian_beneficiaries",
 ] as const satisfies ReadonlyArray<PermissionKey>;
 
 const FACILITY_ALLOWED_PERMISSION_KEYS = [
@@ -130,6 +136,8 @@ const FACILITY_ALLOWED_PERMISSION_KEYS = [
   "view_optics_beneficiaries",
   "physiotherapy_services",
   "view_physiotherapy_beneficiaries",
+  "equestrian_services",
+  "view_equestrian_beneficiaries",
 ] as const satisfies ReadonlyArray<PermissionKey>;
 
 const ROLE_ALLOWED_PERMISSION_KEYS: Record<PermissionPolicyRole, ReadonlyArray<PermissionKey>> = {
@@ -155,10 +163,12 @@ const ROLE_DEFAULT_ENABLED_PERMISSION_KEYS: Record<
     "view_dental_beneficiaries",
     "view_optics_beneficiaries",
     "view_physiotherapy_beneficiaries",
+    "view_equestrian_beneficiaries",
     "deduct_balance",
     "dental_services",
     "optics_services",
     "physiotherapy_services",
+    "equestrian_services",
   ],
   EMPLOYEE: [
     "view_dashboard",
@@ -167,11 +177,13 @@ const ROLE_DEFAULT_ENABLED_PERMISSION_KEYS: Record<
     "view_dental_beneficiaries",
     "view_optics_beneficiaries",
     "view_physiotherapy_beneficiaries",
+    "view_equestrian_beneficiaries",
     "view_facilities",
     "cash_claim",
     "dental_services",
     "optics_services",
     "physiotherapy_services",
+    "equestrian_services",
   ],
   FACILITY: [
     "view_dashboard",
@@ -180,6 +192,7 @@ const ROLE_DEFAULT_ENABLED_PERMISSION_KEYS: Record<
     "dental_services",
     "optics_services",
     "physiotherapy_services",
+    "equestrian_services",
   ],
 };
 

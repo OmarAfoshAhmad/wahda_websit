@@ -36,7 +36,7 @@ export const loginSchema = z.object({
 
 export const BASE_BALANCE_DEDUCTION_TYPES = ["MEDICINE", "SUPPLIES", "GENERAL"] as const;
 
-/** الحد الأقصى 5000 وقاعدة الكسور يخصان الخصم من الرصيد الأساسي فقط؛ فواتير الأسنان/البصريات يحكمها السقف السنوي. */
+/** الحد الأقصى 5000 وقاعدة الكسور يخصان الخصم من الرصيد الأساسي فقط؛ فواتير الخدمات المعزولة يحكمها السقف السنوي. */
 export function isBaseBalanceDeductionType(type: string): boolean {
   return (BASE_BALANCE_DEDUCTION_TYPES as readonly string[]).includes(type);
 }
@@ -47,7 +47,7 @@ export const SESSIONS_POLICY_ERROR = "عدد جلسات العلاج الطبي�
 export const deductionSchema = z.object({
   card_number: z.string().min(1, "رقم البطاقة مطلوب").max(50, "رقم البطاقة طويل جداً").regex(/^[A-Za-z0-9؀-ۿ\s\-_]+$/, "رقم البطاقة يحتوي على أحرف غير مسموحة"),
   amount: z.coerce.number().positive("يجب أن يكون المبلغ أكبر من الصفر"),
-  type: z.enum(["MEDICINE", "SUPPLIES", "GENERAL", "DENTAL", "OPTICS", "PHYSIOTHERAPY"], {
+  type: z.enum(["MEDICINE", "SUPPLIES", "GENERAL", "DENTAL", "OPTICS", "PHYSIOTHERAPY", "EQUESTRIAN"], {
     message: "يرجى اختيار نوع العملية",
   }),
 }).superRefine((data, ctx) => {
@@ -76,7 +76,7 @@ export const createFacilitySchema = z.object({
     .min(8, "كلمة المرور يجب أن تكون 8 أحرف على الأقل")
     .max(128, "كلمة المرور طويلة جداً")
     .optional(),
-  facility_type: z.enum(["AUTO", "HOSPITAL", "PHARMACY", "DENTAL", "OPTICS", "PHYSIOTHERAPY"]).optional(),
+  facility_type: z.enum(["AUTO", "HOSPITAL", "PHARMACY", "DENTAL", "OPTICS", "PHYSIOTHERAPY", "EQUESTRIAN"]).optional(),
 });
 
 export const updateFacilitySchema = z.object({
@@ -87,7 +87,7 @@ export const updateFacilitySchema = z.object({
     .min(3, "اسم المستخدم يجب أن يكون 3 أحرف على الأقل")
     .max(50, "اسم المستخدم طويل جداً")
     .regex(/^[a-z0-9_]+$/, "اسم المستخدم يجب أن يحتوي على أحرف إنجليزية صغيرة وأرقام وشرطة سفلية فقط"),
-  facility_type: z.enum(["AUTO", "HOSPITAL", "PHARMACY", "DENTAL", "OPTICS", "PHYSIOTHERAPY"]).optional(),
+  facility_type: z.enum(["AUTO", "HOSPITAL", "PHARMACY", "DENTAL", "OPTICS", "PHYSIOTHERAPY", "EQUESTRIAN"]).optional(),
 });
 
 export const changePasswordSchema = z.object({

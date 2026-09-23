@@ -17,6 +17,7 @@ const SERVICE_LABELS: Record<string, string> = {
   DENTAL_PROSTHETICS: "تركيبات الأسنان",
   OPTICS: "البصريات",
   PHYSIOTHERAPY: "العلاج الطبيعي",
+  EQUESTRIAN: "الفروسية",
   GENERAL: "الكشف العام",
   MEDICINE: "الدواء",
   SUPPLIES: "المستلزمات",

@@ -41,7 +41,7 @@ export async function login(user: {
   is_manager: boolean;
   is_employee: boolean;
   must_change_password: boolean;
-  facility_type?: "HOSPITAL" | "PHARMACY" | "DENTAL" | "OPTICS" | "PHYSIOTHERAPY";
+  facility_type?: "HOSPITAL" | "PHARMACY" | "DENTAL" | "OPTICS" | "PHYSIOTHERAPY" | "EQUESTRIAN";
 }) {
   const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
   // SEC-FIX: حفظ وقت إنشاء الجلسة الأصلي لفرض absolute timeout

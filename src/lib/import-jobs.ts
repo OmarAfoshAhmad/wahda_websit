@@ -154,6 +154,37 @@ function createSkippedRowReport(input: {
   } satisfies SkippedImportRowReport;
 }
 
+function describeImportRow(row: PreparedImportRow) {
+  const rowLabel = row.rowNumber === null ? "غير معروف" : String(row.rowNumber);
+  const birthDate = row.data.birth_date?.toISOString().slice(0, 10) ?? "بدون تاريخ ميلاد";
+  return `صف Excel ${rowLabel}، البطاقة ${row.data.card_number}، الاسم ${row.data.name}، الميلاد ${birthDate}`;
+}
+
+function throwPersonIdentityConflict(
+  row: PreparedImportRow,
+  target: { card_number: string; name: string },
+  conflicting: { card_number: string; name: string; birth_date: Date | null },
+): never {
+  const conflictingBirthDate = conflicting.birth_date?.toISOString().slice(0, 10) ?? "بدون تاريخ ميلاد";
+  throw new Error(
+    `تعارض مستفيد في ${describeImportRow(row)}. البطاقة تطابق السجل الحالي (${target.card_number}، ${target.name})، ` +
+    `لكن الاسم وتاريخ الميلاد مستخدمان في سجل نشط آخر (${conflicting.card_number}، ${conflicting.name}، ${conflictingBirthDate}).`,
+  );
+}
+
+async function runImportRowUpdate<T>(
+  row: PreparedImportRow,
+  operation: string,
+  callback: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await callback();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`فشل ${operation} في ${describeImportRow(row)}: ${message}`);
+  }
+}
+
 function toJsonValue(value: unknown) {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
@@ -741,6 +772,14 @@ export async function processImportJob(jobId: string, username: string) {
             keep = exactMatch || activeMatches[0];
           }
 
+          const pKey = personKey(row.data.name, row.data.birth_date);
+          const conflictingPerson = pKey
+            ? (personKeyToActiveRows.get(pKey) ?? []).find((b) => b.id !== keep.id)
+            : undefined;
+          if (conflictingPerson) {
+            throwPersonIdentityConflict(row, keep, conflictingPerson);
+          }
+
           // مسح الحسابات المكررة الصفرية (التي لا تحتوي على أي حركات)
           const deleteList = activeMatches.filter(b => b.id !== keep.id);
           if (deleteList.length > 0) {
@@ -763,8 +802,16 @@ export async function processImportJob(jobId: string, username: string) {
 
           resolvedUpdates.push({ row, activeRow: keep });
         } else if (deletedMatches.length > 0) {
+          const deletedRow = deletedMatches[0];
+          const pKey = personKey(row.data.name, row.data.birth_date);
+          const conflictingPerson = pKey
+            ? (personKeyToActiveRows.get(pKey) ?? []).find((b) => b.id !== deletedRow.id)
+            : undefined;
+          if (conflictingPerson) {
+            throwPersonIdentityConflict(row, deletedRow, conflictingPerson);
+          }
           // استعادة محذوف
-          resolvedRestores.push({ row, deletedRow: deletedMatches[0] });
+          resolvedRestores.push({ row, deletedRow });
         } else {
           // فحص تطابق الاسم والميلاد لتصحيح البطاقة
           const pKey = personKey(row.data.name, row.data.birth_date);
@@ -889,21 +936,23 @@ export async function processImportJob(jobId: string, username: string) {
 
           await ensureCardNumberAvailability(prisma, row.data.card_number, deletedRow.id);
 
-          await prisma.beneficiary.update({
-            where: { id: deletedRow.id },
-            data: {
-              deleted_at: null,
-              card_number: row.data.card_number, // تحديث رقم البطاقة للتنسيق المعتمد بالإكسيل
-              name: row.data.name,
-              ...(row.data.birth_date ? { birth_date: row.data.birth_date } : {}),
-              status: targetStatus as "ACTIVE" | "SUSPENDED" | "FINISHED",
-              ...(rowCompanyId ? { company_id: rowCompanyId } : {}),
-              ...(opts.updateBalance ? {
-                total_balance: balance,
-                remaining_balance: balance,
-              } : {}),
-            },
-          });
+          await runImportRowUpdate(row, "استعادة المستفيد المحذوف", () =>
+            prisma.beneficiary.update({
+              where: { id: deletedRow.id },
+              data: {
+                deleted_at: null,
+                card_number: row.data.card_number, // تحديث رقم البطاقة للتنسيق المعتمد بالإكسيل
+                name: row.data.name,
+                ...(row.data.birth_date ? { birth_date: row.data.birth_date } : {}),
+                status: targetStatus as "ACTIVE" | "SUSPENDED" | "FINISHED",
+                ...(rowCompanyId ? { company_id: rowCompanyId } : {}),
+                ...(opts.updateBalance ? {
+                  total_balance: balance,
+                  remaining_balance: balance,
+                } : {}),
+              },
+            }),
+          );
           rollbackRestoredIds.push(deletedRow.id);
         }
         insertedRows += resolvedRestores.length;
@@ -968,10 +1017,12 @@ export async function processImportJob(jobId: string, username: string) {
             updateData.remaining_balance = balance;
           }
 
-          await prisma.beneficiary.update({
-            where: { id: activeRow.id },
-            data: updateData,
-          });
+          await runImportRowUpdate(row, "تحديث المستفيد", () =>
+            prisma.beneficiary.update({
+              where: { id: activeRow.id },
+              data: updateData,
+            }),
+          );
           successfulUpdates++;
         }
         updatedRows += successfulUpdates;
@@ -1035,10 +1086,12 @@ export async function processImportJob(jobId: string, username: string) {
             updateData.remaining_balance = balance;
           }
 
-          await prisma.beneficiary.update({
-            where: { id: targetRow.id },
-            data: updateData,
-          });
+          await runImportRowUpdate(row, "تصحيح بطاقة المستفيد", () =>
+            prisma.beneficiary.update({
+              where: { id: targetRow.id },
+              data: updateData,
+            }),
+          );
 
           successfulCardFixes++;
         }

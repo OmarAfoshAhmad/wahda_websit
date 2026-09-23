@@ -21,7 +21,7 @@ type TransactionView = {
   is_cancelled: boolean;
 };
 
-type EditableTransactionType = "MEDICINE" | "SUPPLIES" | "DENTAL" | "OPTICS" | "PHYSIOTHERAPY";
+type EditableTransactionType = "MEDICINE" | "SUPPLIES" | "DENTAL" | "OPTICS" | "PHYSIOTHERAPY" | "EQUESTRIAN";
 
 function toMovementType(txType: string): EditableTransactionType {
   // الجلب يكون من "نوع الحركة" لا "المصدر":
@@ -30,6 +30,7 @@ function toMovementType(txType: string): EditableTransactionType {
   if (txType === "DENTAL") return "DENTAL";
   if (txType === "OPTICS") return "OPTICS";
   if (txType === "PHYSIOTHERAPY") return "PHYSIOTHERAPY";
+  if (txType === "EQUESTRIAN") return "EQUESTRIAN";
   return "MEDICINE";
 }
 
@@ -196,6 +197,8 @@ export function TransactionEditModal({
                     <option value="OPTICS">بصريات</option>
                   ) : transaction.type === "PHYSIOTHERAPY" ? (
                     <option value="PHYSIOTHERAPY">علاج طبيعي</option>
+                  ) : transaction.type === "EQUESTRIAN" ? (
+                    <option value="EQUESTRIAN">الفروسية</option>
                   ) : (
                     <>
                       <option value="SUPPLIES">كشف عام</option>

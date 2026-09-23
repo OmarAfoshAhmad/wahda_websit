@@ -114,6 +114,16 @@ function normalizeTransactionType(value: unknown): unknown {
     "العلاج الطبيعي",
   ]);
 
+  const equestrianAliases = new Set([
+    "EQUESTRIAN",
+    "HORSE",
+    "HORSES",
+    "فروسية",
+    "الفروسية",
+    "خيل",
+    "خيول",
+  ]);
+
   if (medicineAliases.has(v)) return "MEDICINE";
   if (suppliesAliases.has(v)) return "SUPPLIES";
   if (importAliases.has(v)) return "IMPORT";
@@ -123,6 +133,7 @@ function normalizeTransactionType(value: unknown): unknown {
   if (opticsAliases.has(v)) return "OPTICS";
   if (generalAliases.has(v)) return "GENERAL";
   if (physiotherapyAliases.has(v)) return "PHYSIOTHERAPY";
+  if (equestrianAliases.has(v)) return "EQUESTRIAN";
 
   return value;
 }
@@ -170,6 +181,7 @@ const transactionSchema = z.object({
     "OPTICS",
     "GENERAL",
     "PHYSIOTHERAPY",
+    "EQUESTRIAN",
   ])),
   is_cancelled: z.boolean().optional().default(false),
   original_transaction_id: z.string().nullable().optional(),
