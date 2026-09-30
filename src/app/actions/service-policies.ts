@@ -5,6 +5,11 @@ import prisma from "@/lib/prisma";
 import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-guard";
 import { EQUESTRIAN_CATEGORY_CEILINGS, EQUESTRIAN_CATEGORIES } from "@/lib/constants";
 
+function isMissingPolicySchema(error: unknown) {
+  return typeof error === "object" && error !== null && "code" in error
+    && ((error as { code?: string }).code === "P2021" || (error as { code?: string }).code === "P2022");
+}
+
 // 1. Get all policies
 export async function getServicePolicies() {
   const session = await getSessionWithFreshPermissions();
@@ -64,6 +69,35 @@ export async function getServicePolicies() {
     return { policies: serializedPolicies, serviceTypes, companies };
   } catch (error: any) {
     console.error("Error fetching service policies:", error);
+    if (isMissingPolicySchema(error)) {
+      const [policies, serviceTypes, companies] = await Promise.all([
+        prisma.servicePolicy.findMany({
+          include: {
+            company: { select: { id: true, name: true, code: true, is_active: true } },
+            service_type: { select: { id: true, name: true, code: true } },
+          },
+          orderBy: [{ company: { name: "asc" } }, { service_type: { name: "asc" } }],
+        }),
+        prisma.serviceType.findMany({ where: { is_active: true }, orderBy: { name: "asc" } }),
+        prisma.insuranceCompany.findMany({
+          where: { is_active: true, deleted_at: null },
+          orderBy: { name: "asc" },
+          select: { id: true, name: true, code: true },
+        }),
+      ]);
+      return {
+        policies: policies.map((policy) => ({
+          ...policy,
+          ceiling_amount: policy.ceiling_amount === null ? null : Number(policy.ceiling_amount),
+          coverage_percent: Number(policy.coverage_percent),
+          pharmacy_config: null,
+          equestrian_config: null,
+        })),
+        serviceTypes,
+        companies,
+        warning: "قاعدة البيانات لم تُرحّل بعد لإعدادات الصيدلية والفروسية. يمكن عرض السياسات الأساسية، لكن يجب تطبيق migrations قبل تعديل الإعدادات التفصيلية.",
+      };
+    }
     return { error: "حدث خطأ أثناء جلب السياسات." };
   }
 }
@@ -255,6 +289,9 @@ export async function upsertServicePolicy(data: {
     return { success: true, policy: serializedPolicy };
   } catch (error: any) {
     console.error("Error upserting service policy:", error);
+    if (isMissingPolicySchema(error)) {
+      return { error: "تعذر حفظ الإعدادات التفصيلية لأن migrations الصيدلية والفروسية لم تُطبق على قاعدة البيانات." };
+    }
     return { error: "حدث خطأ أثناء حفظ السياسة." };
   }
 }

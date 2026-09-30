@@ -12,7 +12,7 @@ export default async function ServicePoliciesPage() {
     redirect("/dashboard");
   }
 
-  const { policies, serviceTypes, companies, error } = await getServicePolicies();
+  const { policies, serviceTypes, companies, error, warning } = await getServicePolicies();
 
   if (error || !policies || !serviceTypes || !companies) {
     return (
@@ -26,11 +26,18 @@ export default async function ServicePoliciesPage() {
 
   return (
     <Shell facilityName={session.name} session={session}>
-      <ServicePoliciesClient
-        initialPolicies={policies}
-        serviceTypes={serviceTypes}
-        companies={companies}
-      />
+      <div className="space-y-4">
+        {warning && (
+          <div role="alert" className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+            {warning}
+          </div>
+        )}
+        <ServicePoliciesClient
+          initialPolicies={policies}
+          serviceTypes={serviceTypes}
+          companies={companies}
+        />
+      </div>
     </Shell>
   );
 }
