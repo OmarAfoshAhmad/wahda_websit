@@ -5,9 +5,11 @@ import prisma from "@/lib/prisma";
 import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 import { revalidatePath } from "next/cache";
 import type { ManagerPermissions } from "@/lib/permissions";
+import type { PermissionKey } from "@/lib/permission-catalog";
 import {
   getDefaultPermissionsForRole,
   normalizeManagerPermissionsForRole,
+  PERMISSION_KEYS,
   resolvePermissionRole,
 } from "@/lib/permission-catalog";
 
@@ -185,6 +187,66 @@ export async function updateManagerPermissions(
   revalidatePath("/admin/managers");
   revalidatePath("/admin/facilities");
   return { success: true };
+}
+
+export async function updateManagersPermissionBulk(
+  managerIds: string[],
+  permission: PermissionKey,
+  enabled: boolean,
+): Promise<{ error?: string; success?: boolean; updatedCount?: number }> {
+  const session = await requireActiveFacilitySession();
+  if (!session || !hasPermission(session, "manage_users")) {
+    return { error: "غير مصرح بهذه العملية" };
+  }
+
+  const uniqueIds = Array.from(new Set(managerIds.map(String))).filter(Boolean);
+  if (uniqueIds.length === 0) return { error: "حدد حساباً واحداً على الأقل" };
+  if (uniqueIds.length > 200) return { error: "الحد الأقصى للعملية الجماعية 200 حساب" };
+  if (!PERMISSION_KEYS.includes(permission)) return { error: "الصلاحية المحددة غير صحيحة" };
+
+  const accounts = await prisma.facility.findMany({
+    where: { id: { in: uniqueIds }, deleted_at: null },
+    select: {
+      id: true,
+      role: true,
+      role_v2: true,
+      is_manager: true,
+      is_employee: true,
+      is_admin: true,
+      manager_permissions: true,
+    },
+  });
+  const manageable = accounts.filter(isPermissionsManagedAccount);
+  if (manageable.length === 0) return { error: "لا توجد حسابات قابلة لتعديل الصلاحيات ضمن المحدد" };
+
+  await prisma.$transaction(async (tx) => {
+    for (const account of manageable) {
+      const role = resolvePermissionRole(account);
+      const current = normalizeManagerPermissionsForRole(role, account.manager_permissions);
+      const next = normalizeManagerPermissionsForRole(role, { ...current, [permission]: enabled });
+      await tx.facility.update({
+        where: { id: account.id },
+        data: { manager_permissions: next as unknown as Record<string, boolean> },
+      });
+    }
+    await tx.auditLog.create({
+      data: {
+        facility_id: session.id,
+        user: session.username,
+        action: "BULK_UPDATE_MANAGER_PERMISSION",
+        metadata: {
+          account_ids: manageable.map((account) => account.id),
+          permission,
+          enabled,
+          updated_count: manageable.length,
+        },
+      },
+    });
+  });
+
+  revalidatePath("/admin/managers");
+  revalidatePath("/admin/facilities");
+  return { success: true, updatedCount: manageable.length };
 }
 
 // ── تعديل اسم حساب إدارة/موظف ───────────────────────────────────────
