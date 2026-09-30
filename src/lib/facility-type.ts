@@ -1,5 +1,14 @@
 export type FacilityType = "HOSPITAL" | "PHARMACY" | "DENTAL" | "OPTICS" | "PHYSIOTHERAPY" | "EQUESTRIAN";
 
+export const FACILITY_TYPES: readonly FacilityType[] = [
+  "HOSPITAL",
+  "PHARMACY",
+  "DENTAL",
+  "OPTICS",
+  "PHYSIOTHERAPY",
+  "EQUESTRIAN",
+];
+
 export function inferFacilityTypeFromText(name: string, username?: string): FacilityType {
   const text = `${name ?? ""} ${username ?? ""}`.toLowerCase();
 

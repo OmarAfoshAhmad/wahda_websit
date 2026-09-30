@@ -17,6 +17,7 @@ import { PrintButton } from "@/components/print-button";
 import { formatDateTripoli } from "@/lib/datetime";
 import { ManagerPermissionsModal } from "@/components/manager-permissions-modal";
 import { normalizeManagerPermissionsForRole } from "@/lib/permission-catalog";
+import { FacilityBulkPermissions } from "@/components/facility-bulk-permissions";
 
 // زيادة عدد العناصر المعروضة إلى 10 على الأقل ومنع التمرير العمودي
 const PAGE_SIZE = 10;
@@ -128,6 +129,7 @@ export default async function FacilitiesPage({
   const canEdit = hasPermission(session, "edit_facility");
   const canDelete = hasPermission(session, "delete_facility");
   const canExport = hasPermission(session, "export_data");
+  const canManagePermissions = hasPermission(session, "manage_users");
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
@@ -195,6 +197,8 @@ export default async function FacilitiesPage({
             <PrintButton />
           </div>
         </div>
+
+        {canManagePermissions && !isDeletedView ? <FacilityBulkPermissions /> : null}
 
         <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
           {/* قائمة المرافق */}

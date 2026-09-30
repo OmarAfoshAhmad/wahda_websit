@@ -4,12 +4,15 @@ import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
 import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 import { createFacilitySchema, updateFacilitySchema } from "@/lib/validation";
-import { inferFacilityTypeFromText, normalizeFacilityTypeOverride } from "@/lib/facility-type";
+import { inferFacilityTypeFromText, normalizeFacilityTypeOverride, type FacilityType } from "@/lib/facility-type";
 import ExcelJS from "exceljs";
 import { revalidatePath } from "next/cache";
 import {
   getAllPermissionsEnabled,
   getDefaultPermissionsForRole,
+  normalizeManagerPermissionsForRole,
+  PERMISSION_KEYS,
+  type PermissionKey,
 } from "@/lib/permission-catalog";
 
 export async function createFacility(prevState: unknown, formData: FormData) {
@@ -480,5 +483,63 @@ export async function importFacilitiesFromExcel(formData: FormData): Promise<{
 
   revalidatePath("/admin/facilities");
   return { created, skipped, errors };
+}
+
+export async function bulkUpdateFacilityPermission(input: {
+  facilityType: FacilityType;
+  permission: PermissionKey;
+  operation: "GRANT" | "REVOKE";
+}): Promise<{ success?: string; error?: string; matched?: number; changed?: number }> {
+  const session = await requireActiveFacilitySession();
+  if (!session || !hasPermission(session, "manage_users")) return { error: "غير مصرح بهذه العملية" };
+  if (!PERMISSION_KEYS.includes(input.permission)) return { error: "الصلاحية المحددة غير صالحة" };
+  if (!normalizeFacilityTypeOverride(input.facilityType)) return { error: "نوع المرفق غير صالح" };
+
+  const enabled = input.operation === "GRANT";
+  const result = await prisma.$transaction(async (tx) => {
+    const facilities = await tx.facility.findMany({
+      where: { deleted_at: null, role: "FACILITY", is_admin: false, is_manager: false, is_employee: false },
+      select: { id: true, name: true, username: true, facility_type: true, manager_permissions: true },
+    });
+    const targets = facilities.filter((facility) => (
+      normalizeFacilityTypeOverride(facility.facility_type)
+        ?? inferFacilityTypeFromText(facility.name, facility.username)
+    ) === input.facilityType);
+    const changedRows = targets.map((facility) => {
+      const before = normalizeManagerPermissionsForRole("FACILITY", facility.manager_permissions);
+      const after = normalizeManagerPermissionsForRole("FACILITY", { ...before, [input.permission]: enabled });
+      return { facility, after, changed: before[input.permission] !== after[input.permission] };
+    }).filter((item) => item.changed);
+
+    for (const item of changedRows) {
+      await tx.facility.update({
+        where: { id: item.facility.id },
+        data: { manager_permissions: item.after as unknown as Record<string, boolean> },
+      });
+    }
+    await tx.auditLog.create({
+      data: {
+        facility_id: session.id,
+        user: session.username,
+        action: "BULK_UPDATE_FACILITY_PERMISSION",
+        metadata: {
+          facility_type: input.facilityType,
+          permission: input.permission,
+          operation: input.operation,
+          matched_count: targets.length,
+          changed_count: changedRows.length,
+          facility_ids: changedRows.map((item) => item.facility.id),
+        },
+      },
+    });
+    return { matched: targets.length, changed: changedRows.length };
+  }, { isolationLevel: "Serializable", timeout: 60_000 });
+
+  revalidatePath("/admin/facilities");
+  return {
+    success: `تم ${enabled ? "منح" : "سحب"} الصلاحية ${enabled ? "لـ" : "من"} ${result.changed.toLocaleString("ar-LY")} مرفق`,
+    matched: result.matched,
+    changed: result.changed,
+  };
 }
 
