@@ -10,7 +10,6 @@ import { ManagerDeleteButton } from "@/components/manager-delete-button";
 import { ManagerResetPasswordButton } from "@/components/manager-reset-password-button";
 import { ManagerRecycleActions } from "@/components/manager-recycle-actions";
 import { ManagerEditNameModal } from "@/components/manager-edit-name-modal";
-import { BulkPermissionsToolbar } from "@/components/bulk-permissions-toolbar";
 import type { ManagerPermissions } from "@/lib/permissions";
 import { formatDateTripoli } from "@/lib/datetime";
 import {
@@ -90,7 +89,6 @@ export default async function ManagersPage({
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           {/* قائمة المديرين — تأخذ ثلثي العرض على الشاشات الكبيرة */}
           <div className="lg:col-span-2">
-            {!isDeletedView && <BulkPermissionsToolbar />}
             {managers.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 py-16 text-center">
                 <UserCog className="mb-3 h-10 w-10 text-slate-300 dark:text-slate-600" />
@@ -123,15 +121,6 @@ export default async function ManagersPage({
                       <div className="mb-3 flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            {managerRole !== "ADMIN" && (
-                              <input
-                                type="checkbox"
-                                name="bulk-account-id"
-                                value={mgr.id}
-                                aria-label={`تحديد ${mgr.name}`}
-                                className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
-                              />
-                            )}
                             <p className="font-black text-sm text-slate-900 dark:text-white truncate">
                               {mgr.name}
                             </p>
