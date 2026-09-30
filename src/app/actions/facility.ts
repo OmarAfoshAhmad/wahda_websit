@@ -486,14 +486,14 @@ export async function importFacilitiesFromExcel(formData: FormData): Promise<{
 }
 
 export async function bulkUpdateFacilityPermission(input: {
-  facilityType: FacilityType;
+  facilityType: FacilityType | "ALL";
   permission: PermissionKey;
   operation: "GRANT" | "REVOKE";
 }): Promise<{ success?: string; error?: string; matched?: number; changed?: number }> {
   const session = await requireActiveFacilitySession();
   if (!session || !hasPermission(session, "manage_users")) return { error: "غير مصرح بهذه العملية" };
   if (!PERMISSION_KEYS.includes(input.permission)) return { error: "الصلاحية المحددة غير صالحة" };
-  if (!normalizeFacilityTypeOverride(input.facilityType)) return { error: "نوع المرفق غير صالح" };
+  if (input.facilityType !== "ALL" && !normalizeFacilityTypeOverride(input.facilityType)) return { error: "نوع المرفق غير صالح" };
 
   const enabled = input.operation === "GRANT";
   const result = await prisma.$transaction(async (tx) => {
@@ -501,10 +501,12 @@ export async function bulkUpdateFacilityPermission(input: {
       where: { deleted_at: null, role: "FACILITY", is_admin: false, is_manager: false, is_employee: false },
       select: { id: true, name: true, username: true, facility_type: true, manager_permissions: true },
     });
-    const targets = facilities.filter((facility) => (
-      normalizeFacilityTypeOverride(facility.facility_type)
-        ?? inferFacilityTypeFromText(facility.name, facility.username)
-    ) === input.facilityType);
+    const targets = input.facilityType === "ALL"
+      ? facilities
+      : facilities.filter((facility) => (
+          normalizeFacilityTypeOverride(facility.facility_type)
+            ?? inferFacilityTypeFromText(facility.name, facility.username)
+        ) === input.facilityType);
     const changedRows = targets.map((facility) => {
       const before = normalizeManagerPermissionsForRole("FACILITY", facility.manager_permissions);
       const after = normalizeManagerPermissionsForRole("FACILITY", { ...before, [input.permission]: enabled });

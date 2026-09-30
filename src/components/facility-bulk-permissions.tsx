@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, ShieldCheck, ShieldMinus } from "lucide-react";
+import { ChevronDown, Loader2, ShieldCheck, ShieldMinus } from "lucide-react";
 import { bulkUpdateFacilityPermission } from "@/app/actions/facility";
 import { FACILITY_TYPES, getFacilityTypeLabel, type FacilityType } from "@/lib/facility-type";
 import { PERMISSION_DEFINITIONS, type PermissionKey } from "@/lib/permission-catalog";
@@ -11,7 +11,8 @@ import { Button } from "@/components/ui";
 export function FacilityBulkPermissions() {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [facilityType, setFacilityType] = useState<FacilityType>("HOSPITAL");
+  const [open, setOpen] = useState(false);
+  const [facilityType, setFacilityType] = useState<FacilityType | "ALL">("ALL");
   const [permission, setPermission] = useState<PermissionKey>("deduct_balance");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -19,7 +20,8 @@ export function FacilityBulkPermissions() {
   const run = (operation: "GRANT" | "REVOKE") => {
     const label = PERMISSION_DEFINITIONS.find((item) => item.key === permission)?.label ?? permission;
     const verb = operation === "GRANT" ? "منح" : "سحب";
-    if (!window.confirm(`${verb} صلاحية «${label}» ${operation === "GRANT" ? "لجميع" : "من جميع"} مرافق نوع «${getFacilityTypeLabel(facilityType)}»؟`)) return;
+    const targetLabel = facilityType === "ALL" ? "كل أنواع المرافق" : getFacilityTypeLabel(facilityType);
+    if (!window.confirm(`${verb} صلاحية «${label}» ${operation === "GRANT" ? "لجميع" : "من جميع"} مرافق «${targetLabel}»؟`)) return;
     setMessage(null);
     setError(null);
     startTransition(async () => {
@@ -33,11 +35,19 @@ export function FacilityBulkPermissions() {
   };
 
   return (
-    <div className="rounded-lg border border-blue-200 bg-blue-50/60 p-4 dark:border-blue-900 dark:bg-blue-950/20 print:hidden">
-      <h2 className="font-black text-slate-900 dark:text-white">الصلاحيات الجماعية حسب نوع المرفق</h2>
-      <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">تطبق على جميع المرافق الصحية النشطة من النوع المحدد، ولا تشمل المشرفين أو المديرين أو الموظفين.</p>
+    <div className="rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900 print:hidden">
+      <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-right">
+        <div>
+          <h2 className="font-black text-slate-900 dark:text-white">الصلاحيات الجماعية للمرافق</h2>
+          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">منح أو سحب صلاحية من نوع محدد أو من كل المرافق دفعة واحدة.</p>
+        </div>
+        <ChevronDown className={`h-5 w-5 shrink-0 text-slate-500 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && <div className="border-t border-slate-200 bg-blue-50/50 p-4 dark:border-slate-700 dark:bg-blue-950/20">
+      <p className="text-xs text-slate-600 dark:text-slate-400">تطبق على المرافق الصحية النشطة فقط، ولا تشمل المشرفين أو المديرين أو الموظفين.</p>
       <div className="mt-3 grid gap-2 md:grid-cols-[220px_1fr_auto_auto]">
-        <select value={facilityType} onChange={(event) => setFacilityType(event.target.value as FacilityType)} className="h-10 rounded-md border bg-white px-3 text-sm dark:bg-slate-900">
+        <select value={facilityType} onChange={(event) => setFacilityType(event.target.value as FacilityType | "ALL")} className="h-10 rounded-md border bg-white px-3 text-sm dark:bg-slate-900">
+          <option value="ALL">كل أنواع المرافق</option>
           {FACILITY_TYPES.map((type) => <option key={type} value={type}>{getFacilityTypeLabel(type)}</option>)}
         </select>
         <select value={permission} onChange={(event) => setPermission(event.target.value as PermissionKey)} className="h-10 rounded-md border bg-white px-3 text-sm dark:bg-slate-900">
@@ -52,6 +62,7 @@ export function FacilityBulkPermissions() {
       </div>
       {message ? <p className="mt-2 text-xs font-bold text-emerald-700">{message}</p> : null}
       {error ? <p className="mt-2 text-xs font-bold text-red-600">{error}</p> : null}
+      </div>}
     </div>
   );
 }
