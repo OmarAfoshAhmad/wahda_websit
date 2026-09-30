@@ -13,11 +13,17 @@ import { assertBeneficiaryBalanceInvariant, buildIdempotencyKey, calculateBenefi
 import { InsuranceEngine } from "@/lib/insurance/engine";
 import { findCompanyByCardNumber, getServiceTypeMapping } from "@/lib/insurance/company-matcher";
 import type { TpaValidation } from "@/lib/insurance/shadow-mode";
-import { WAHDA_BANK_COMPANY_ID } from "@/lib/constants";
+import {
+  EQUESTRIAN_CATEGORIES,
+  EQUESTRIAN_CATEGORY_CEILINGS,
+  EQUESTRIAN_CATEGORY_LABELS,
+  WAHDA_BANK_COMPANY_ID,
+  isEquestrianCategory,
+} from "@/lib/constants";
 import { calculatePhysiotherapySessions } from "@/lib/physiotherapy-sessions";
 import { assertWithinCeiling, assertWithinSessionLimit, isCeilingExceeded, ceilingRejectionMessage } from "@/lib/insurance/ceiling-guard";
 import { getCappedConsumption, type WalletType } from "@/lib/insurance/consumption";
-import { getFiscalYear } from "@/lib/insurance/fiscal-year";
+import { getFiscalYear, getFiscalYearBounds } from "@/lib/insurance/fiscal-year";
 import { resolveWalletPolicy } from "@/lib/insurance/policy";
 
 export async function deductBalance(formData: {
@@ -29,6 +35,7 @@ export async function deductBalance(formData: {
   facilityId?: string;
   requestId?: string;
   dentalSubCategory?: string;
+  equestrianSubCategory?: string;
 }) {
   const session = await requireActiveFacilitySession();
   const canDeduct = !!session && !session.is_employee && (!session.is_manager || hasPermission(session, "deduct_balance"));
@@ -74,6 +81,13 @@ export async function deductBalance(formData: {
 
   const { card_number, amount, type } = validated.data;
   const dentalSubCategory = formData.dentalSubCategory;
+  const equestrianSubCategory = type === "EQUESTRIAN"
+    ? (isEquestrianCategory(formData.equestrianSubCategory) ? formData.equestrianSubCategory : null)
+    : null;
+
+  if (type === "EQUESTRIAN" && !equestrianSubCategory) {
+    return { error: "يرجى اختيار نوع خدمة الفروسية: طوارئ أو إيواء وعمليات" };
+  }
 
   if (!session.is_admin) {
     if (session.facility_type === "PHARMACY" && type !== "MEDICINE") {
@@ -191,18 +205,33 @@ export async function deductBalance(formData: {
         ? await getServiceTypeMapping(companyId, type)
         : type;
 
-      const consumedThisYear = await getCappedConsumption(tx, {
+      let consumedThisYear = await getCappedConsumption(tx, {
         beneficiaryId: beneficiary.id,
         walletType: policyServiceType as WalletType,
         fiscalYear,
       });
+
+      if (type === "EQUESTRIAN" && equestrianSubCategory) {
+        const { start, end } = getFiscalYearBounds(fiscalYear);
+        const equestrianConsumption = await tx.transaction.aggregate({
+          where: {
+            beneficiary_id: beneficiary.id,
+            is_cancelled: false,
+            type: "EQUESTRIAN",
+            service_category: equestrianSubCategory,
+            created_at: { gte: start, lte: end },
+          },
+          _sum: { ceiling_consumed: true },
+        });
+        consumedThisYear = Number(equestrianConsumption._sum.ceiling_consumed ?? 0);
+      }
 
       // [TPA] Fetch Company (Policy consolidated on InsuranceCompany)
       const company = companyId ? await tx.insuranceCompany.findUnique({
         where: { id: companyId },
         include: {
           service_policies: {
-            include: { service_type: true }
+            include: { service_type: true, equestrian_config: true }
           }
         }
       }) : null;
@@ -237,7 +266,14 @@ export async function deductBalance(formData: {
 
       let tpaData: Record<string, unknown> = {};
       if (policyRecord) {
-        const effectiveCeiling = policyRecord.annual_ceiling;
+        const equestrianConfig = type === "EQUESTRIAN"
+          ? company?.service_policies.find((policy) => policy.service_type.code === "EQUESTRIAN")?.equestrian_config
+          : null;
+        const effectiveCeiling = type === "EQUESTRIAN" && equestrianSubCategory
+          ? equestrianSubCategory === EQUESTRIAN_CATEGORIES.EMERGENCY
+            ? Number(equestrianConfig?.emergency_ceiling ?? EQUESTRIAN_CATEGORY_CEILINGS[equestrianSubCategory])
+            : Number(equestrianConfig?.inpatient_surgery_ceiling ?? EQUESTRIAN_CATEGORY_CEILINGS[equestrianSubCategory])
+          : policyRecord.annual_ceiling;
 
         if (type === "PHYSIOTHERAPY") {
           const sessionResult = calculatePhysiotherapySessions({
@@ -294,7 +330,9 @@ export async function deductBalance(formData: {
 
           tpaData = {
             company_id: companyId,
-            service_category: type === "DENTAL" && dentalSubCategory ? dentalSubCategory : policyServiceType,
+            service_category: type === "EQUESTRIAN" && equestrianSubCategory
+              ? equestrianSubCategory
+              : type === "DENTAL" && dentalSubCategory ? dentalSubCategory : policyServiceType,
             original_company_share: calcResult.originalCompanyShare,
             original_patient_share: calcResult.originalPatientShare,
             actual_company_share: calcResult.actualCompanyShare,
@@ -304,7 +342,17 @@ export async function deductBalance(formData: {
             remaining_ceiling_after: calcResult.remainingCeilingAfter,
             consumed_before: calcResult.consumedBefore,
             consumed_after: calcResult.consumedAfter,
-            policy_snapshot: JSON.parse(JSON.stringify(policyRecord)),
+            policy_snapshot: JSON.parse(JSON.stringify({
+              ...policyRecord,
+              annual_ceiling: effectiveCeiling,
+              equestrianSubCategory: equestrianSubCategory
+                ? {
+                    code: equestrianSubCategory,
+                    label: EQUESTRIAN_CATEGORY_LABELS[equestrianSubCategory],
+                    ceiling: effectiveCeiling,
+                  }
+                : undefined,
+            })),
             calc_metadata: { ...calcResult.metadata, tpaValidation },
           };
         }
@@ -394,6 +442,10 @@ export async function deductBalance(formData: {
             card_number,
             amount,
             type,
+            ...(equestrianSubCategory ? {
+              equestrian_sub_category: equestrianSubCategory,
+              equestrian_sub_category_label: EQUESTRIAN_CATEGORY_LABELS[equestrianSubCategory],
+            } : {}),
             balance_before: balanceBefore,
             balance_after: newBalance,
             transaction_id: transaction.id,
@@ -496,6 +548,7 @@ export async function deductBalance(formData: {
             transactionDate: formData.transactionDate,
             facilityId: formData.facilityId,
             requestId: formData.requestId,
+            equestrianSubCategory: formData.equestrianSubCategory,
           },
         },
       });

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Loader2, List } from "lucide-react";
 import { formatDateTripoli } from "@/lib/datetime";
+import { getEquestrianCategoryLabel, isEquestrianCategory } from "@/lib/constants";
 
 type Props = {
   beneficiaryId: string;
@@ -27,6 +28,7 @@ type TxItem = {
   import_source_file_name: string | null;
   actual_company_share: number | null;
   actual_patient_share: number | null;
+  service_category: string | null;
 };
 
 type Payload = {
@@ -86,8 +88,16 @@ type Payload = {
   transactions: TxItem[];
 };
 
-function typeLabel(type: string, idempotencyKey?: string | null) {
+function typeLabel(type: string, idempotencyKey?: string | null, serviceCategory?: string | null) {
   if (idempotencyKey?.startsWith("MIG-")) return "ترحيل بطاقات قديمة";
+  if (type === "EQUESTRIAN") {
+    return isEquestrianCategory(serviceCategory)
+      ? getEquestrianCategoryLabel(serviceCategory)
+      : "فروسية - غير محدد";
+  }
+  if (type === "DENTAL") return "أسنان";
+  if (type === "OPTICS") return "بصريات";
+  if (type === "PHYSIOTHERAPY") return "علاج طبيعي";
   if (type === "SUPPLIES") return "كشف عام";
   if (type === "MEDICINE") return "أدوية";
   if (type === "IMPORT") return "استيراد";
@@ -283,7 +293,7 @@ export function BeneficiaryTransactionsPanelButton({ beneficiaryId, beneficiaryN
                   <table className="w-full border-collapse text-xs">
                     <thead>
                       <tr className="border-b bg-slate-50 text-right dark:border-slate-700 dark:bg-slate-800/60">
-                        <th className="p-2">النوع</th>
+                        <th className="p-2">نوع الحركة</th>
                         <th className="p-2">إجمالي الفاتورة</th>
                         <th className="p-2">حصة الشركة</th>
                         <th className="p-2">حصة المريض</th>
@@ -304,7 +314,7 @@ export function BeneficiaryTransactionsPanelButton({ beneficiaryId, beneficiaryN
                       ) : (
                         displayTransactions.map((tx) => (
                           <tr key={tx.id} className="border-b dark:border-slate-800">
-                            <td className="p-2">{typeLabel(tx.type, tx.idempotency_key)}</td>
+                            <td className="p-2 font-bold">{typeLabel(tx.type, tx.idempotency_key, tx.service_category)}</td>
                             <td className="p-2">{tx.amount.toLocaleString("ar-LY")} د.ل</td>
                             <td className="p-2 text-sky-700 dark:text-sky-300 font-bold">
                               {tx.actual_company_share !== null ? `${tx.actual_company_share.toLocaleString("ar-LY")} د.ل` : "—"}

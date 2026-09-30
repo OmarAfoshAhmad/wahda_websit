@@ -104,6 +104,11 @@ export async function updateCompany(id: string, data: {
     }
   }
 
+  const normalizedCode = data.code?.trim().toUpperCase();
+  if (data.code !== undefined && !normalizedCode) {
+    return { error: "كود الشركة مطلوب" };
+  }
+
   try {
     const oldCompany = await prisma.insuranceCompany.findUnique({
       where: { id },
@@ -128,7 +133,7 @@ export async function updateCompany(id: string, data: {
         dental_settings: data.dental_settings,
         // @ts-ignore: field is generated but typescript might be stale
         service_aliases: data.service_aliases,
-        ...(data.code ? { code: data.code.toUpperCase() } : {}),
+        ...(normalizedCode ? { code: normalizedCode } : {}),
       },
     });
 
@@ -178,7 +183,10 @@ export async function updateCompany(id: string, data: {
     revalidatePath("/beneficiaries");
     clearAllCaches(); // TPA-04: إعادة تحميل كاش الشركات فوراً
     return { success: true };
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.code === "P2002") {
+      return { error: "كود الشركة مستخدم بالفعل" };
+    }
     return { error: "تعذر تحديث بيانات الشركة" };
   }
 }

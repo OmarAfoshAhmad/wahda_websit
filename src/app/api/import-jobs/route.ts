@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import ExcelJS from "exceljs";
+import * as XLSX from "xlsx";
 import { requireActiveFacilitySession } from "@/lib/session-guard";
 import { createImportJob, type ImportOptions } from "@/lib/import-jobs";
 import { assertCompanyAccessForSession } from "@/lib/company-scope";
@@ -41,41 +41,22 @@ export async function POST(request: Request) {
     }
 
     const arrayBuffer = await file.arrayBuffer();
-    const workbook = new ExcelJS.Workbook();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await workbook.xlsx.load(Buffer.from(arrayBuffer) as any);
-
-    const worksheet = workbook.worksheets[0];
+    const workbook = XLSX.read(Buffer.from(arrayBuffer), {
+      type: "buffer",
+      cellDates: false,
+    });
+    const firstSheetName = workbook.SheetNames[0];
+    const worksheet = firstSheetName ? workbook.Sheets[firstSheetName] : undefined;
     if (!worksheet) {
       return NextResponse.json({ error: "ملف Excel لا يحتوي على أي ورقة عمل." }, { status: 400 });
     }
 
-    // استخراج الصفوف كـ objects باستخدام الصف الأول كعناوين
-    const headerRow = worksheet.getRow(1);
-    const headers: string[] = [];
-    headerRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
-      // ضمان أن الفهرس يتطابق مع العمود الفعلي
-      while (headers.length < colNumber - 1) headers.push("");
-      headers.push(String(cell.value ?? "").trim());
+    // raw:false يحافظ على عرض التواريخ كما هو في Excel ويمنع انزياح اليوم بسبب المنطقة الزمنية.
+    const parsedRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, {
+      defval: null,
+      raw: false,
     });
-
-    const rows: Record<string, unknown>[] = [];
-    worksheet.eachRow((row, rowNumber) => {
-      if (rowNumber === 1) return; // تخطي صف العناوين
-      const obj: Record<string, unknown> = { __rowNumber: rowNumber };
-      row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
-        const header = headers[colNumber - 1];
-        if (header) {
-          const v = cell.value;
-          // تحويل كائنات التاريخ إلى ISO string
-          obj[header] = v instanceof Date ? v.toISOString() : v;
-        }
-      });
-      // تخطي الصفوف الفارغة تماماً
-      if (Object.values(obj).some((v) => v !== null && v !== undefined && v !== "")) {
-        rows.push(obj);
-      }
-    });
+    const rows = parsedRows.map((row, index) => ({ ...row, __rowNumber: index + 2 }));
 
     // قراءة خيارات الاستيراد من FormData
     const companyIdParam = formData.get("company_id");

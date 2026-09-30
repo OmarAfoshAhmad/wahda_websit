@@ -20,6 +20,11 @@
 # production
 /build
 
+# generated local artifacts and exports
+/.artifact-work/
+/outputs/
+~$*.xlsx
+
 # misc
 .DS_Store
 *.pem

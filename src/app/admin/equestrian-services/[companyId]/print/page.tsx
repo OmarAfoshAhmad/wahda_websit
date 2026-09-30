@@ -6,6 +6,7 @@ import { formatDateTripoli } from "@/lib/datetime";
 import { BackButton } from "@/components/back-button";
 import { AutoPrint } from "@/components/auto-print";
 import { getServiceAlias } from "@/lib/service-aliases";
+import { EQUESTRIAN_CATEGORIES, EQUESTRIAN_CATEGORY_CEILINGS, EQUESTRIAN_CATEGORY_LABELS, getEquestrianCategoryLabel, isEquestrianCategory, type EquestrianCategory } from "@/lib/constants";
 
 const ROWS_PER_PRINT_PAGE = 30;
 // حد أقصى للحركات في صفحة الطباعة لتجنب تعطل الخادم
@@ -21,6 +22,7 @@ export default async function EquestrianCompanyPrintPage({
     from?: string;
     to?: string;
     facility?: string;
+    category?: string;
   }>;
 }) {
   const session = await getSessionWithFreshPermissions();
@@ -34,6 +36,7 @@ export default async function EquestrianCompanyPrintPage({
   const fromDate = sp.from ?? "";
   const toDate = sp.to ?? "";
   const facilityFilter = (sp.facility ?? "").trim();
+  const categoryFilter = isEquestrianCategory(sp.category) ? sp.category : null;
 
   // جلب بيانات الشركة
   const company = (await prisma.insuranceCompany.findUnique({
@@ -41,7 +44,7 @@ export default async function EquestrianCompanyPrintPage({
     include: {
       service_policies: {
         where: { service_type: { code: 'EQUESTRIAN' } },
-        select: { ceiling_amount: true, coverage_percent: true }
+        select: { ceiling_amount: true, coverage_percent: true, equestrian_config: true }
       }
     }
   })) as any;
@@ -51,6 +54,10 @@ export default async function EquestrianCompanyPrintPage({
   const equestrianPolicy = company.service_policies?.[0];
   const ceiling = equestrianPolicy && equestrianPolicy.ceiling_amount !== null ? Number(equestrianPolicy.ceiling_amount) : null;
   const equestrianCeiling = ceiling;
+  const categoryCeilings: Record<EquestrianCategory, number> = {
+    [EQUESTRIAN_CATEGORIES.EMERGENCY]: Number(equestrianPolicy?.equestrian_config?.emergency_ceiling ?? EQUESTRIAN_CATEGORY_CEILINGS[EQUESTRIAN_CATEGORIES.EMERGENCY]),
+    [EQUESTRIAN_CATEGORIES.INPATIENT_SURGERY]: Number(equestrianPolicy?.equestrian_config?.inpatient_surgery_ceiling ?? EQUESTRIAN_CATEGORY_CEILINGS[EQUESTRIAN_CATEGORIES.INPATIENT_SURGERY]),
+  };
 
   // بناء شروط الاستعلام
   const isFacility = session.role === "FACILITY" || (!session.is_admin && !session.is_manager && !session.is_employee);
@@ -68,6 +75,7 @@ export default async function EquestrianCompanyPrintPage({
     is_cancelled: false,
     ...(isFacility ? { facility_id: session.id } : resolvedFacilityId ? { facility_id: resolvedFacilityId } : {}),
   };
+  if (categoryFilter) where.service_category = categoryFilter;
 
   if (searchQuery) {
     where.OR = [
@@ -118,15 +126,16 @@ export default async function EquestrianCompanyPrintPage({
             <h1 className="text-2xl font-black text-slate-800 mb-2">لا توجد حركات للطباعة</h1>
             <p className="text-slate-500 font-medium">
               لم يتم العثور على أي حركات فروسية
-              {(searchQuery || fromDate || toDate) && " مطابقة للفلاتر المحددة"}
+              {(searchQuery || fromDate || toDate || categoryFilter) && " مطابقة للفلاتر المحددة"}
               {" "}لشركة <strong className="text-slate-700">{company.name}</strong>.
             </p>
-            {(searchQuery || fromDate || toDate) && (
+            {(searchQuery || fromDate || toDate || categoryFilter) && (
               <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
                 <p className="font-bold">الفلاتر المطبقة:</p>
                 {searchQuery && <p>بحث: &quot;{searchQuery}&quot;</p>}
                 {fromDate && <p>من: {fromDate}</p>}
                 {toDate && <p>إلى: {toDate}</p>}
+                {categoryFilter && <p>نوع الحركة: {EQUESTRIAN_CATEGORY_LABELS[categoryFilter]}</p>}
               </div>
             )}
           </div>
@@ -172,7 +181,8 @@ export default async function EquestrianCompanyPrintPage({
   const totalPatientShare = transactions.reduce((sum: number, tx: any) => sum + Number(tx.actual_patient_share || 0), 0);
 
   // ─── حساب الأرصدة المتبقية ديناميكياً ───
-  const uniqueBenIdsForTxs = Array.from(new Set(transactions.map((tx: any) => tx.beneficiary_id))) as string[];
+  const legacyTransactions = transactions.filter((tx: any) => tx.remaining_ceiling_after === null);
+  const uniqueBenIdsForTxs = Array.from(new Set(legacyTransactions.map((tx: any) => tx.beneficiary_id))) as string[];
   const allBenEquestrianTxs = uniqueBenIdsForTxs.length > 0
     ? await prisma.transaction.findMany({
         where: {
@@ -191,22 +201,27 @@ export default async function EquestrianCompanyPrintPage({
           ceiling_consumed: true,
           amount: true,
           actual_company_share: true,
+          service_category: true,
         },
       })
     : [];
 
-  const txsByBenMap = new Map();
+  const txsByBenMap = new Map<string, typeof allBenEquestrianTxs>();
   for (const t of allBenEquestrianTxs) {
-    if (!txsByBenMap.has(t.beneficiary_id)) {
-      txsByBenMap.set(t.beneficiary_id, []);
+    if (!isEquestrianCategory(t.service_category)) continue;
+    const balanceKey = `${t.beneficiary_id}:${t.service_category}`;
+    if (!txsByBenMap.has(balanceKey)) {
+      txsByBenMap.set(balanceKey, []);
     }
-    txsByBenMap.get(t.beneficiary_id).push(t);
+    txsByBenMap.get(balanceKey)!.push(t);
   }
 
   const remainingAfterTxId = new Map();
   const accumulatedSpentByTxId = new Map();
 
-  for (const [, benTxs] of txsByBenMap.entries()) {
+  for (const [balanceKey, benTxs] of txsByBenMap.entries()) {
+    const category = balanceKey.slice(balanceKey.lastIndexOf(":") + 1) as EquestrianCategory;
+    const categoryCeiling = categoryCeilings[category];
     let accumulatedSpent = 0;
     for (const t of benTxs) {
       const consumed = t.ceiling_consumed !== null
@@ -214,7 +229,7 @@ export default async function EquestrianCompanyPrintPage({
         : Number(t.actual_company_share ?? t.amount);
       accumulatedSpent += consumed;
       accumulatedSpentByTxId.set(t.id, accumulatedSpent);
-      remainingAfterTxId.set(t.id, equestrianCeiling === null ? 999999999 : Math.max(0, equestrianCeiling - accumulatedSpent));
+      remainingAfterTxId.set(t.id, Math.max(0, categoryCeiling - accumulatedSpent));
     }
   }
 
@@ -276,12 +291,12 @@ export default async function EquestrianCompanyPrintPage({
                 <div className="text-center">
                   <h2 className="text-lg font-black text-teal-800">كشف حركات {getServiceAlias(company, 'EQUESTRIAN', "الفروسية")} المخصصة</h2>
                   <p className="text-xs font-bold text-slate-600 mt-0.5">شركة التأمين: {company.name}</p>
-                  {copay > 0 && (
-                    <p className="text-[10px] font-black text-amber-700 mt-0.5">نسبة التحمل: {copay}% | السقف: {equestrianCeiling !== null ? `${equestrianCeiling.toLocaleString("ar-LY")} د.ل` : "مفتوح"}</p>
-                  )}
-                  {(searchQuery || fromDate || toDate) && (
+                  <p className="text-[10px] font-black text-amber-700 mt-0.5">
+                    {copay > 0 ? `نسبة التحمل: ${copay}% | ` : ""}طوارئ: {categoryCeilings[EQUESTRIAN_CATEGORIES.EMERGENCY].toLocaleString("ar-LY")} د.ل | إيواء وعمليات: {categoryCeilings[EQUESTRIAN_CATEGORIES.INPATIENT_SURGERY].toLocaleString("ar-LY")} د.ل
+                  </p>
+                  {(searchQuery || fromDate || toDate || categoryFilter) && (
                     <p className="text-[10px] font-black text-teal-700 mt-0.5">
-                      {searchQuery ? `بحث: "${searchQuery}" ` : ""}{fromDate ? `من: ${fromDate} ` : ""}{toDate ? `إلى: ${toDate}` : ""}
+                      {searchQuery ? `بحث: "${searchQuery}" ` : ""}{categoryFilter ? `نوع الحركة: ${EQUESTRIAN_CATEGORY_LABELS[categoryFilter]} ` : ""}{fromDate ? `من: ${fromDate} ` : ""}{toDate ? `إلى: ${toDate}` : ""}
                     </p>
                   )}
                 </div>
@@ -301,6 +316,7 @@ export default async function EquestrianCompanyPrintPage({
                     <th className="border border-slate-400 px-2 py-2 text-center font-black w-8">#</th>
                     <th className="border border-slate-400 px-2 py-2 font-black">اسم المستفيد</th>
                     <th className="border border-slate-400 px-2 py-2 font-black">رقم البطاقة</th>
+                    <th className="border border-slate-400 px-2 py-2 text-center font-black">نوع الحركة</th>
                     <th className="border border-slate-400 px-2 py-2 text-center font-black">قيمة الفاتورة</th>
                     <th className="border border-slate-400 px-2 py-2 text-center font-black">حصة الشركة</th>
                     <th className="border border-slate-400 px-2 py-2 text-center font-black">حصة المؤمن (كاش)</th>
@@ -316,7 +332,13 @@ export default async function EquestrianCompanyPrintPage({
                     const amount = Number(tx.amount || 0);
                     const companyShare = tx.actual_company_share !== null ? Number(tx.actual_company_share) : 0;
                     const patientShare = tx.actual_patient_share !== null ? Number(tx.actual_patient_share) : 0;
-                    const remaining = remainingAfterTxId.get(tx.id) ?? (tx.remaining_ceiling_after !== null ? Number(tx.remaining_ceiling_after) : (equestrianCeiling !== null ? (equestrianCeiling - companyShare) : 999999999));
+                    const transactionCategory: EquestrianCategory | null = isEquestrianCategory(tx.service_category)
+                      ? tx.service_category as EquestrianCategory
+                      : null;
+                    const categoryCeiling = transactionCategory ? categoryCeilings[transactionCategory] : equestrianCeiling;
+                    const remaining = tx.remaining_ceiling_after !== null
+                      ? Number(tx.remaining_ceiling_after)
+                      : remainingAfterTxId.get(tx.id) ?? (categoryCeiling !== null ? Math.max(0, categoryCeiling - companyShare) : 999999999);
                     const consumedAccumulated = accumulatedSpentByTxId.get(tx.id) ?? companyShare;
                     const rowNum = globalStart + idx + 1;
                     const isEven = rowNum % 2 === 0;
@@ -326,6 +348,7 @@ export default async function EquestrianCompanyPrintPage({
                         <td className="border border-slate-300 px-2 py-1.5 text-center font-bold text-slate-600">{rowNum}</td>
                         <td className="border border-slate-300 px-2 py-1.5 font-black text-slate-900">{tx.beneficiary?.name || "—"}</td>
                         <td className="border border-slate-300 px-2 py-1.5 font-mono font-bold text-slate-700">{tx.beneficiary?.card_number || "—"}</td>
+                        <td className="border border-slate-300 px-2 py-1.5 text-center font-bold text-slate-700">{getEquestrianCategoryLabel(tx.service_category)}</td>
                         <td className="border border-slate-300 px-2 py-1.5 text-center font-mono font-black">{amount.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل</td>
                         <td className="border border-slate-300 px-2 py-1.5 text-center font-mono font-black text-teal-800">{companyShare.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل</td>
                         <td className="border border-slate-300 px-2 py-1.5 text-center font-mono font-black text-amber-700">{patientShare.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل</td>
@@ -348,7 +371,7 @@ export default async function EquestrianCompanyPrintPage({
                 {pageIdx === totalPrintPages - 1 && (
                   <tfoot>
                     <tr className="bg-slate-200 text-slate-900 font-black text-[11px]">
-                      <td colSpan={3} className="border border-slate-400 px-2 py-2.5 text-right font-black text-slate-800">
+                      <td colSpan={4} className="border border-slate-400 px-2 py-2.5 text-right font-black text-slate-800">
                         الإجمالي الكلي ({shownCount} حركة{isTruncated ? ` من ${totalCount}` : ""})
                       </td>
                       <td className="border border-slate-400 px-2 py-2.5 text-center font-black text-slate-900">
@@ -360,7 +383,7 @@ export default async function EquestrianCompanyPrintPage({
                       <td className="border border-slate-400 px-2 py-2.5 text-center font-black text-amber-700">
                         {totalPatientShare.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل
                       </td>
-                      <td colSpan={2} className="border border-slate-400 px-2 py-2.5" />
+                      <td colSpan={3} className="border border-slate-400 px-2 py-2.5" />
                     </tr>
                   </tfoot>
                 )}

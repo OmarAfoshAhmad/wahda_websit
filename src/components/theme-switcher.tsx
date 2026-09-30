@@ -16,7 +16,7 @@ export function ThemeSwitcher() {
 
   if (!mounted) {
     return (
-      <Button variant="outline" className="h-9 w-9 p-0 opacity-0">
+      <Button variant="outline" className="h-9 w-9 p-0 opacity-0" aria-label="تغيير المظهر" disabled>
         <Sun className="h-4 w-4" />
       </Button>
     );
@@ -32,6 +32,7 @@ export function ThemeSwitcher() {
       className="h-9 w-9 p-0 bg-white text-slate-700 transition-colors hover:bg-slate-100 hover:text-primary dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-primary-light"
       onClick={toggleTheme}
       title={theme === "dark" ? "التبديل للوضع الفاتح" : "التبديل للوضع المظلم"}
+      aria-label={theme === "dark" ? "التبديل للوضع الفاتح" : "التبديل للوضع المظلم"}
     >
       {theme === "dark" ? (
         <Sun className="h-4 w-4" />

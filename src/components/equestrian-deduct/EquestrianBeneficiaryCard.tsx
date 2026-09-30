@@ -10,10 +10,11 @@ export function EquestrianBeneficiaryCard() {
   const {
     beneficiary,
     resetSearchState,
-    annualCeiling,
     copayPercentage,
     yearlyConsumed,
     remainingCeiling,
+    selectedCategoryLabel,
+    selectedCategoryCeiling,
   } = useEquestrianDeductContext();
 
   if (!beneficiary) return null;
@@ -57,9 +58,9 @@ export function EquestrianBeneficiaryCard() {
       {/* ─── السياسة المالية للفروسية (4 كروت صغيرة) ─── */}
       <div className="grid grid-cols-2 gap-3 mb-4 sm:grid-cols-4">
         <div className="rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 p-3 text-center">
-          <p className="text-[9px] font-black uppercase tracking-wider text-slate-400">السقف السنوي</p>
+          <p className="text-[9px] font-black uppercase tracking-wider text-slate-400">سقف {selectedCategoryLabel}</p>
           <p className="mt-1.5 text-base font-black text-slate-800 dark:text-slate-200">
-            {annualCeiling !== null ? `${formatCurrency(annualCeiling)} د.ل` : "مفتوح"}
+            {formatCurrency(selectedCategoryCeiling)} د.ل
           </p>
         </div>
 

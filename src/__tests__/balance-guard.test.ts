@@ -98,7 +98,7 @@ describe('Balance Guard Invariant', () => {
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
         type: {
-          notIn: ['CANCELLATION', 'DENTAL', 'OPTICS', 'PHYSIOTHERAPY'],
+          notIn: ['CANCELLATION', 'DENTAL', 'OPTICS', 'PHYSIOTHERAPY', 'EQUESTRIAN'],
         },
       }),
     }));

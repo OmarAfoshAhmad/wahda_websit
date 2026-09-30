@@ -5,6 +5,7 @@ import ExcelJS from "exceljs";
 import { Prisma } from "@prisma/client";
 import { getServiceAlias } from "@/lib/service-aliases";
 import { getAllowedCompanyIds } from "@/lib/company-scope";
+import { getEquestrianCategoryLabel, isEquestrianCategory } from "@/lib/constants";
 
 export async function GET(request: Request) {
   const session = await requireActiveFacilitySession();
@@ -25,6 +26,7 @@ export async function GET(request: Request) {
   const fromDate = url.searchParams.get("from") ?? "";
   const toDate = url.searchParams.get("to") ?? "";
   const facilityFilter = (url.searchParams.get("facility") ?? "").trim();
+  const categoryFilter = url.searchParams.get("category");
 
   // بناء الشروط
   const where: Prisma.TransactionWhereInput = {
@@ -46,6 +48,7 @@ export async function GET(request: Request) {
   }
 
   where.company_id = companyId ?? { in: allowedCompanyIds };
+  if (isEquestrianCategory(categoryFilter)) where.service_category = categoryFilter;
 
   if (fromDate) {
     const from = new Date(fromDate);
@@ -75,6 +78,7 @@ export async function GET(request: Request) {
       actual_patient_share: true,
       remaining_ceiling_after: true,
       created_at: true,
+      service_category: true,
       beneficiary: { select: { name: true, card_number: true } },
       facility: { select: { name: true } },
       company: { select: { name: true, code: true, service_aliases: true } },
@@ -93,6 +97,7 @@ export async function GET(request: Request) {
     { header: "اسم المستفيد", key: "name", width: 28 },
     { header: "رقم البطاقة", key: "card", width: 18 },
     { header: "شركة التأمين", key: "company", width: 24 },
+    { header: "نوع الحركة", key: "category", width: 18 },
     { header: "قيمة الفاتورة", key: "amount", width: 16 },
     { header: "حصة الشركة", key: "company_share", width: 16 },
     { header: "حصة المؤمن", key: "patient_share", width: 16 },
@@ -114,6 +119,7 @@ export async function GET(request: Request) {
       name: tx.beneficiary?.name ?? "—",
       card: tx.beneficiary?.card_number ?? "—",
       company: tx.company ? `${tx.company.name} (${tx.company.code})` : "—",
+      category: getEquestrianCategoryLabel(tx.service_category),
       amount: Number(tx.amount),
       company_share: tx.actual_company_share !== null ? Number(tx.actual_company_share) : "—",
       patient_share: tx.actual_patient_share !== null ? Number(tx.actual_patient_share) : "—",
@@ -138,6 +144,7 @@ export async function GET(request: Request) {
     name: "الإجمالي",
     card: "",
     company: "",
+    category: "",
     amount: transactions.reduce((s, t) => s + Number(t.amount), 0),
     company_share: transactions.reduce((s, t) => s + (t.actual_company_share !== null ? Number(t.actual_company_share) : 0), 0),
     patient_share: transactions.reduce((s, t) => s + (t.actual_patient_share !== null ? Number(t.actual_patient_share) : 0), 0),

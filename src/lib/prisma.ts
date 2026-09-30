@@ -107,7 +107,7 @@ declare global {
   var prismaVersion: undefined | string;
 }
 
-const PRISMA_CLIENT_VERSION = "v3-pool-tuning";
+const PRISMA_CLIENT_VERSION = "v4-equestrian-policy-config";
 
 let prisma: ReturnType<typeof prismaClientSingleton>;
 const cachedPrisma = globalThis.prisma;

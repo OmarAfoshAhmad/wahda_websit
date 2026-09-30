@@ -4,6 +4,12 @@ import React, { createContext, useContext, useState, useEffect, useRef, useCallb
 import { searchCompanyBeneficiaries, getEquestrianBeneficiaryDetail } from "@/app/actions/equestrian";
 import { deductBalance } from "@/app/actions/deduction";
 import { useToast } from "@/components/toast";
+import {
+  EQUESTRIAN_CATEGORIES,
+  EQUESTRIAN_CATEGORY_CEILINGS,
+  EQUESTRIAN_CATEGORY_LABELS,
+  type EquestrianCategory,
+} from "@/lib/constants";
 
 export interface EquestrianBeneficiary {
   id: string;
@@ -59,6 +65,11 @@ interface EquestrianDeductContextValue {
   yearlyConsumed: number;
   setYearlyConsumed: (v: number) => void;
   remainingCeiling: number | null;
+  selectedCategory: EquestrianCategory;
+  setSelectedCategory: (v: EquestrianCategory) => void;
+  selectedCategoryLabel: string;
+  selectedCategoryCeiling: number;
+  consumptionByCategory: Record<EquestrianCategory, number>;
 
   // Deduction
   amount: string;
@@ -107,6 +118,15 @@ export function EquestrianDeductProvider({
   const [beneficiary, setBeneficiary] = useState<EquestrianBeneficiary | null>(null);
   const [selectedBeneficiaryId, setSelectedBeneficiaryId] = useState<string | null>(null);
   const [yearlyConsumed, setYearlyConsumed] = useState(0);
+  const [selectedCategory, setSelectedCategoryState] = useState<EquestrianCategory>(EQUESTRIAN_CATEGORIES.EMERGENCY);
+  const [consumptionByCategory, setConsumptionByCategory] = useState<Record<EquestrianCategory, number>>({
+    [EQUESTRIAN_CATEGORIES.EMERGENCY]: 0,
+    [EQUESTRIAN_CATEGORIES.INPATIENT_SURGERY]: 0,
+  });
+  const [categoryCeilings, setCategoryCeilings] = useState<Record<EquestrianCategory, number>>({
+    [EQUESTRIAN_CATEGORIES.EMERGENCY]: EQUESTRIAN_CATEGORY_CEILINGS[EQUESTRIAN_CATEGORIES.EMERGENCY],
+    [EQUESTRIAN_CATEGORIES.INPATIENT_SURGERY]: EQUESTRIAN_CATEGORY_CEILINGS[EQUESTRIAN_CATEGORIES.INPATIENT_SURGERY],
+  });
 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -220,7 +240,17 @@ export function EquestrianDeductProvider({
     setError(null);
     setSuccess(null);
     setYearlyConsumed(0);
+    setConsumptionByCategory({
+      [EQUESTRIAN_CATEGORIES.EMERGENCY]: 0,
+      [EQUESTRIAN_CATEGORIES.INPATIENT_SURGERY]: 0,
+    });
   }, []);
+
+  const setSelectedCategory = useCallback((category: EquestrianCategory) => {
+    setSelectedCategoryState(category);
+    setShowConfirm(false);
+    setYearlyConsumed(consumptionByCategory[category] ?? 0);
+  }, [consumptionByCategory]);
 
   const handleSelectSuggestion = useCallback((item: EquestrianSuggestion) => {
     setCardNumber(item.card_number);
@@ -270,7 +300,13 @@ export function EquestrianDeductProvider({
         setCardNumber(b.card_number);
         setSearchInput(`${b.name} - ${b.card_number}`);
         setBeneficiary(b);
-        setYearlyConsumed(res.yearlyConsumed ?? 0);
+        const nextConsumption = {
+          [EQUESTRIAN_CATEGORIES.EMERGENCY]: res.consumptionByCategory?.[EQUESTRIAN_CATEGORIES.EMERGENCY] ?? 0,
+          [EQUESTRIAN_CATEGORIES.INPATIENT_SURGERY]: res.consumptionByCategory?.[EQUESTRIAN_CATEGORIES.INPATIENT_SURGERY] ?? 0,
+        };
+        setConsumptionByCategory(nextConsumption);
+        if (res.categoryCeilings) setCategoryCeilings(res.categoryCeilings);
+        setYearlyConsumed(nextConsumption[selectedCategory] ?? 0);
 
         saveRecentBeneficiary({
           id: b.id,
@@ -313,6 +349,7 @@ export function EquestrianDeductProvider({
         card_number: beneficiary.card_number,
         amount: amountNum,
         type: "EQUESTRIAN",
+        equestrianSubCategory: selectedCategory,
         requestId: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
       });
 
@@ -326,17 +363,18 @@ export function EquestrianDeductProvider({
         setSuccess("تمت عملية الاقتطاع بنجاح");
         toast.success(`تم تسجيل خصم بقيمة ${amountNum.toLocaleString("ar-LY")} د.ل بنجاح!`);
         
-        let categoryCoverage = 100 - copayPercentage; // default coverage
-
-        const effectiveCopay = 100 - categoryCoverage;
+        const effectiveCopay = copayPercentage;
         const copayFactor = effectiveCopay / 100;
         const originalCompanyShare = amountNum * (1 - copayFactor);
-        const remaining = annualCeiling !== null ? Math.max(0, annualCeiling - yearlyConsumed) : Infinity;
-        const addedCompanyShare = annualCeiling === null
-          ? originalCompanyShare
-          : Math.min(originalCompanyShare, remaining);
+        const categoryCeiling = categoryCeilings[selectedCategory];
+        const remaining = Math.max(0, categoryCeiling - yearlyConsumed);
+        const addedCompanyShare = Math.min(originalCompanyShare, remaining);
           
         setYearlyConsumed((prev) => prev + addedCompanyShare);
+        setConsumptionByCategory((prev) => ({
+          ...prev,
+          [selectedCategory]: (prev[selectedCategory] ?? 0) + addedCompanyShare,
+        }));
         setAmount("");
         setTimeout(() => setSuccess(null), 5000);
       }
@@ -345,9 +383,11 @@ export function EquestrianDeductProvider({
       setShowConfirm(false);
       setError("حدث خطأ في الاتصال. حاول مرة أخرى.");
     }
-  }, [beneficiary, amount, yearlyConsumed, annualCeiling, copayPercentage, toast]);
+  }, [beneficiary, amount, yearlyConsumed, selectedCategory, categoryCeilings, copayPercentage, toast]);
 
-  const remainingCeiling = annualCeiling !== null ? Math.max(0, annualCeiling - yearlyConsumed) : null;
+  const selectedCategoryCeiling = categoryCeilings[selectedCategory];
+  const selectedCategoryLabel = EQUESTRIAN_CATEGORY_LABELS[selectedCategory];
+  const remainingCeiling = Math.max(0, selectedCategoryCeiling - yearlyConsumed);
 
   return (
     <EquestrianDeductContext.Provider
@@ -378,6 +418,11 @@ export function EquestrianDeductProvider({
         yearlyConsumed,
         setYearlyConsumed,
         remainingCeiling,
+        selectedCategory,
+        setSelectedCategory,
+        selectedCategoryLabel,
+        selectedCategoryCeiling,
+        consumptionByCategory,
         amount,
         setAmount,
         showConfirm,

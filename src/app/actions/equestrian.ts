@@ -6,6 +6,11 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { getArabicNormalization } from "@/lib/normalize";
 import { logger } from "@/lib/logger";
 import { assertCompanyAccessForSession, ScopeAccessError } from "@/lib/company-scope";
+import {
+  EQUESTRIAN_CATEGORIES,
+  EQUESTRIAN_CATEGORY_CEILINGS,
+  type EquestrianCategory,
+} from "@/lib/constants";
 
 function canReadEquestrian(session: Parameters<typeof hasPermission>[0]) {
   return hasPermission(session, "equestrian_services") || hasPermission(session, "view_equestrian_beneficiaries");
@@ -59,7 +64,7 @@ export async function searchCompanyBeneficiaries(query: string, companyId: strin
           select: {
             service_policies: {
               where: { service_type: { code: "EQUESTRIAN" } },
-              select: { ceiling_amount: true, coverage_percent: true, frequency_months: true }
+              select: { ceiling_amount: true, coverage_percent: true, frequency_months: true, equestrian_config: true }
             }
           }
         }
@@ -71,7 +76,7 @@ export async function searchCompanyBeneficiaries(query: string, companyId: strin
     return {
       items: rows.map(r => {
         const policy = r.company?.service_policies?.[0];
-        let equestrianCeiling = policy?.ceiling_amount !== null && policy?.ceiling_amount !== undefined ? Number(policy.ceiling_amount) : 3000;
+        let equestrianCeiling = policy?.ceiling_amount !== null && policy?.ceiling_amount !== undefined ? Number(policy.ceiling_amount) : 10000;
         let hasCustomCeiling = false;
         
         if (r.custom_ceilings && typeof r.custom_ceilings === "object" && "EQUESTRIAN" in (r.custom_ceilings as any)) {
@@ -128,7 +133,7 @@ export async function getEquestrianBeneficiaryDetail(beneficiaryId: string, comp
             logo: true,
             service_policies: {
               where: { service_type: { code: "EQUESTRIAN" } },
-              select: { ceiling_amount: true, coverage_percent: true, frequency_months: true }
+              select: { ceiling_amount: true, coverage_percent: true, frequency_months: true, equestrian_config: true }
             },
             service_aliases: true
           } as any
@@ -153,7 +158,8 @@ export async function getEquestrianBeneficiaryDetail(beneficiaryId: string, comp
     const startDate = new Date();
     startDate.setMonth(new Date().getMonth() - frequencyMonths);
 
-    const agg = await prisma.transaction.aggregate({
+    const agg = await prisma.transaction.groupBy({
+      by: ["service_category"],
       where: {
         beneficiary_id: beneficiary.id,
         company_id: companyId,
@@ -164,7 +170,30 @@ export async function getEquestrianBeneficiaryDetail(beneficiaryId: string, comp
       _sum: { ceiling_consumed: true },
     });
 
-    const yearlyConsumed = Number(agg._sum.ceiling_consumed ?? 0);
+    const consumptionByCategory: Record<EquestrianCategory, number> = {
+      [EQUESTRIAN_CATEGORIES.EMERGENCY]: 0,
+      [EQUESTRIAN_CATEGORIES.INPATIENT_SURGERY]: 0,
+    };
+
+    for (const row of agg) {
+      const category = row.service_category as EquestrianCategory | null;
+      if (category && category in consumptionByCategory) {
+        consumptionByCategory[category] = Number(row._sum.ceiling_consumed ?? 0);
+      }
+    }
+
+    const yearlyConsumed = Object.values(consumptionByCategory).reduce((sum, value) => sum + value, 0);
+
+    const categoryCeilings: Record<EquestrianCategory, number> = {
+      [EQUESTRIAN_CATEGORIES.EMERGENCY]: Number(
+        policy?.equestrian_config?.emergency_ceiling
+        ?? EQUESTRIAN_CATEGORY_CEILINGS[EQUESTRIAN_CATEGORIES.EMERGENCY]
+      ),
+      [EQUESTRIAN_CATEGORIES.INPATIENT_SURGERY]: Number(
+        policy?.equestrian_config?.inpatient_surgery_ceiling
+        ?? EQUESTRIAN_CATEGORY_CEILINGS[EQUESTRIAN_CATEGORIES.INPATIENT_SURGERY]
+      ),
+    };
 
     let equestrianCeiling = policy?.ceiling_amount !== null && policy?.ceiling_amount !== undefined
       ? Number(policy.ceiling_amount)
@@ -177,7 +206,8 @@ export async function getEquestrianBeneficiaryDetail(beneficiaryId: string, comp
       hasCustomCeiling = true;
     }
 
-    const dynamicRemaining = equestrianCeiling === null ? null : Math.max(0, equestrianCeiling - yearlyConsumed);
+    const totalCategoryCeiling = Object.values(categoryCeilings).reduce((sum, value) => sum + value, 0);
+    const dynamicRemaining = equestrianCeiling === null ? null : Math.max(0, totalCategoryCeiling - yearlyConsumed);
     const dynamicStatus = beneficiary.status === "SUSPENDED"
       ? "SUSPENDED"
       : (dynamicRemaining !== null && dynamicRemaining <= 0 ? "FINISHED" : "ACTIVE");
@@ -188,6 +218,11 @@ export async function getEquestrianBeneficiaryDetail(beneficiaryId: string, comp
         ...p,
         ceiling_amount: p.ceiling_amount !== null ? Number(p.ceiling_amount) : null,
         coverage_percent: p.coverage_percent !== null ? Number(p.coverage_percent) : null,
+        equestrian_config: p.equestrian_config ? {
+          ...p.equestrian_config,
+          emergency_ceiling: Number(p.equestrian_config.emergency_ceiling),
+          inpatient_surgery_ceiling: Number(p.equestrian_config.inpatient_surgery_ceiling),
+        } : null,
       }))
     } : null;
 
@@ -199,11 +234,13 @@ export async function getEquestrianBeneficiaryDetail(beneficiaryId: string, comp
         card_number: beneficiary.card_number,
         status: dynamicStatus,
         remaining_balance: dynamicRemaining,
-        total_balance: equestrianCeiling,
+        total_balance: equestrianCeiling ?? totalCategoryCeiling,
         hasCustomCeiling,
         company: companyData
       },
-      yearlyConsumed
+      yearlyConsumed,
+      consumptionByCategory,
+      categoryCeilings,
     };
   } catch (error) {
     if (error instanceof ScopeAccessError) return { error: "غير مصرح" };

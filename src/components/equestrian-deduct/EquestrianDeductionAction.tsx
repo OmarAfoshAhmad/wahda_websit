@@ -16,9 +16,11 @@ export function EquestrianDeductionAction() {
     deducting,
     handleDeduct,
     yearlyConsumed,
-    annualCeiling,
     copayPercentage,
-    remainingCeiling,
+    selectedCategory,
+    setSelectedCategory,
+    selectedCategoryLabel,
+    selectedCategoryCeiling,
     companyName,
     error,
     success,
@@ -35,7 +37,7 @@ export function EquestrianDeductionAction() {
 
   // حساب فوري للحصص
   const serviceAliases = beneficiary?.company?.service_aliases ? (beneficiary.company.service_aliases as any) : null;
-  const equestrianLabel = serviceAliases?.EQUESTRIAN || "الفروسية - طوارئ وعمليات";
+  const equestrianLabel = serviceAliases?.EQUESTRIAN || "الفروسية";
   let categoryCoverage = 100 - copayPercentage; // default coverage
 
   const effectiveCopayPercentage = 100 - categoryCoverage;
@@ -43,7 +45,7 @@ export function EquestrianDeductionAction() {
   const originalCompanyShare = amountNum * (1 - copayFactor);
   const originalPatientShare = amountNum * copayFactor;
 
-  const actualAnnualCeiling = beneficiary.total_balance;
+  const actualAnnualCeiling = selectedCategoryCeiling;
 
   // تطبيق السقف السنوي
   const remaining = actualAnnualCeiling !== null ? Math.max(0, actualAnnualCeiling - yearlyConsumed) : Infinity;
@@ -90,12 +92,37 @@ export function EquestrianDeductionAction() {
         )}
       </div>
 
-
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={() => setSelectedCategory("EQUESTRIAN_EMERGENCY")}
+          className={`rounded-lg border px-3 py-3 text-sm font-black transition-colors ${
+            selectedCategory === "EQUESTRIAN_EMERGENCY"
+              ? "border-teal-500 bg-teal-50 text-teal-800 dark:border-teal-500 dark:bg-teal-950/30 dark:text-teal-300"
+              : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300"
+          }`}
+        >
+          طوارئ
+          <span className="mt-1 block text-[11px] font-bold opacity-75">سقف 3,000 د.ل</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setSelectedCategory("EQUESTRIAN_INPATIENT_SURGERY")}
+          className={`rounded-lg border px-3 py-3 text-sm font-black transition-colors ${
+            selectedCategory === "EQUESTRIAN_INPATIENT_SURGERY"
+              ? "border-teal-500 bg-teal-50 text-teal-800 dark:border-teal-500 dark:bg-teal-950/30 dark:text-teal-300"
+              : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300"
+          }`}
+        >
+          إيواء وعمليات
+          <span className="mt-1 block text-[11px] font-bold opacity-75">سقف 7,000 د.ل</span>
+        </button>
+      </div>
 
       {/* حقل القيمة */}
       <div className="space-y-1.5">
         <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
-          قيمة فاتورة {equestrianLabel}
+          قيمة فاتورة {equestrianLabel} - {selectedCategoryLabel}
         </label>
         <div className="relative">
           <div className="absolute right-3 top-1/2 -translate-y-1/2 text-teal-600 dark:text-teal-400">
@@ -132,14 +159,14 @@ export function EquestrianDeductionAction() {
         }`}>
           {isCeilingExhausted ? (
             <div className="text-center py-2">
-              <p className="font-black text-red-700 dark:text-red-400">انتهى السقف السنوي لـ {equestrianLabel}</p>
+              <p className="font-black text-red-700 dark:text-red-400">انتهى سقف {selectedCategoryLabel}</p>
               <p className="text-xs text-red-600 dark:text-red-500 mt-1">لا يمكن إجراء اقتطاع — المستهلك: {formatCurrency(yearlyConsumed)} / {actualAnnualCeiling?.toLocaleString("ar-LY")} د.ل</p>
             </div>
           ) : (
             <>
               {isPartial && (
                 <div className="text-[10px] font-bold text-amber-700 dark:text-amber-400 bg-amber-100/50 dark:bg-amber-900/30 rounded px-2.5 py-1 flex items-center gap-1">
-                  ⚠️ سقف الفروسية غير كافٍ لتغطية كامل حصة الشركة. سيتم تطبيق تغطية جزئية.
+                  ⚠️ سقف {selectedCategoryLabel} غير كافٍ لتغطية كامل حصة الشركة. سيتم تطبيق تغطية جزئية.
                 </div>
               )}
               <div className="grid grid-cols-2 gap-4">
@@ -198,7 +225,7 @@ export function EquestrianDeductionAction() {
         onClose={() => !deducting && setShowConfirm(false)}
         onConfirm={handleDeduct}
         title="السقف السنوي لا يكفي — تحميل نقدي على المؤمَّن"
-        description={`سقف ${equestrianLabel} المتبقي لـ ${beneficiary.name} لا يكفي لتغطية كامل حصة ${companyName} عن هذه الفاتورة. ستتحمل ${companyName} مبلغ ${formatCurrency(actualCompanyShare)} د.ل فقط (كامل الباقي من السقف)، وسيُحمَّل المؤمَّن نقداً مبلغ ${formatCurrency(actualPatientShare)} د.ل من إجمالي ${formatCurrency(amountNum)} د.ل. تأكد من إبلاغ المؤمَّن والحصول على موافقته قبل المتابعة.`}
+        description={`سقف ${selectedCategoryLabel} المتبقي لـ ${beneficiary.name} لا يكفي لتغطية كامل حصة ${companyName} عن هذه الفاتورة. ستتحمل ${companyName} مبلغ ${formatCurrency(actualCompanyShare)} د.ل فقط (كامل الباقي من السقف)، وسيُحمَّل المؤمَّن نقداً مبلغ ${formatCurrency(actualPatientShare)} د.ل من إجمالي ${formatCurrency(amountNum)} د.ل. تأكد من إبلاغ المؤمَّن والحصول على موافقته قبل المتابعة.`}
         confirmLabel="نعم، أبلغت المؤمَّن ووافق — أكمل الخصم"
         cancelLabel="إلغاء"
         variant="warning"

@@ -42,4 +42,7 @@ export const PHYSIOTHERAPY_NAV = { name: "خدمات العلاج الطبيعي
 /** تبويب "الفروسية" — طوارئ وعمليات */
 export const EQUESTRIAN_NAV = { name: "الفروسية", href: "/admin/equestrian-services", icon: Stethoscope };
 
+/** تبويب "خدمات الصيدلية" — يتبع نفس مدخل الشركات والسياسات لبقية الخدمات */
+export const PHARMACY_NAV = { name: "خدمات الصيدلية", href: "/admin/pharmacy-services", icon: Stethoscope };
+
 export const EMPLOYEE_HOME_NAV = { name: "الرئيسية", href: "/cash-claim", icon: Home };

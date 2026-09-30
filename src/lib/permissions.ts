@@ -35,6 +35,8 @@ export type ManagerPermissions = {
   view_physiotherapy_beneficiaries: boolean; // عرض مستفيدي العلاج الطبيعي
   equestrian_services: boolean; // صلاحية خدمات الفروسية
   view_equestrian_beneficiaries: boolean; // عرض مستفيدي الفروسية
+  pharmacy_services: boolean; // صلاحية خدمات الصيدلية
+  view_pharmacy_beneficiaries: boolean; // عرض مستفيدي الصيدلية
   add_manual_transaction: boolean; // صلاحية إضافة حركات يدوية
   edit_any_facility_transaction: boolean; // تعديل حركات خارج المرفق
 };

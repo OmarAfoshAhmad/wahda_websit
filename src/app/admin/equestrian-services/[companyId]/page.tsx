@@ -21,6 +21,7 @@ import { BeneficiaryRestoreActions } from "@/components/beneficiary-restore-acti
 import { BeneficiariesBulkActionButton, SelectAllCheckbox, EmptyRecycleBinButton } from "@/components/beneficiaries-bulk-action-button";
 import { TransactionsBulkActionButton, SelectAllTransactionsCheckbox } from "@/components/transactions-bulk-action-button";
 import { getServiceAlias } from "@/lib/service-aliases";
+import { EQUESTRIAN_CATEGORIES, EQUESTRIAN_CATEGORY_CEILINGS, getEquestrianCategoryLabel, isEquestrianCategory, type EquestrianCategory } from "@/lib/constants";
 
 export default async function EquestrianCompanyPage({
   params,
@@ -40,6 +41,7 @@ export default async function EquestrianCompanyPage({
     completed_via?: string;
     balance_range?: string;
     facility?: string;
+    category?: string;
   }>;
 }) {
   const session = await getSessionWithFreshPermissions();
@@ -66,6 +68,7 @@ export default async function EquestrianCompanyPage({
   const fromDate = sp.from ?? "";
   const toDate = sp.to ?? "";
   const facilityFilter = (sp.facility ?? "").trim();
+  const categoryFilter = isEquestrianCategory(sp.category) ? sp.category : "all";
   const statusFilter = sp.status || "all";
   const completedViaFilter = sp.completed_via || "all";
   const balanceRangeFilter = sp.balance_range || "all";
@@ -79,7 +82,7 @@ export default async function EquestrianCompanyPage({
       },
       service_policies: {
         where: { service_type: { code: 'EQUESTRIAN' }, is_active: true },
-        select: { ceiling_amount: true, coverage_percent: true }
+        select: { ceiling_amount: true, coverage_percent: true, equestrian_config: true }
       }
     },
   })) as any;
@@ -88,6 +91,11 @@ export default async function EquestrianCompanyPage({
 
   const policy = company.service_policies[0];
   const ceiling = policy && policy.ceiling_amount !== null ? Number(policy.ceiling_amount) : null;
+  const categoryCeilings: Record<EquestrianCategory, number> = {
+    [EQUESTRIAN_CATEGORIES.EMERGENCY]: Number(policy.equestrian_config?.emergency_ceiling ?? EQUESTRIAN_CATEGORY_CEILINGS[EQUESTRIAN_CATEGORIES.EMERGENCY]),
+    [EQUESTRIAN_CATEGORIES.INPATIENT_SURGERY]: Number(policy.equestrian_config?.inpatient_surgery_ceiling ?? EQUESTRIAN_CATEGORY_CEILINGS[EQUESTRIAN_CATEGORIES.INPATIENT_SURGERY]),
+  };
+  const equestrianCeiling = ceiling;
   const copay = Math.max(0, 100 - (policy ? Number(policy.coverage_percent) : 100));
   const equestrianPolicy = true;
 
@@ -114,6 +122,7 @@ export default async function EquestrianCompanyPage({
     is_cancelled: false,
     ...(isFacility ? { facility_id: session.id } : selectedFacility ? { facility_id: selectedFacility.id } : {}),
   };
+  if (categoryFilter !== "all") where.service_category = categoryFilter;
 
   if (searchQuery) {
     where.OR = [
@@ -188,7 +197,8 @@ export default async function EquestrianCompanyPage({
   const totalPatientShare = Number(stats._sum.actual_patient_share ?? 0);
 
   // ─── حساب الأرصدة المتبقية لحركات الفروسية ديناميكياً لتجنب مشاكل الـ null والـ 600 ───
-  const uniqueBenIdsForTxs = Array.from(new Set(recentTransactions.map((tx) => tx.beneficiary_id)));
+  const legacyTransactions = recentTransactions.filter((tx) => tx.remaining_ceiling_after === null);
+  const uniqueBenIdsForTxs = Array.from(new Set(legacyTransactions.map((tx) => tx.beneficiary_id)));
   const allBenEquestrianTxs = uniqueBenIdsForTxs.length > 0
     ? await prisma.transaction.findMany({
         where: {
@@ -207,23 +217,26 @@ export default async function EquestrianCompanyPage({
           ceiling_consumed: true,
           amount: true,
           actual_company_share: true,
+          service_category: true,
         },
       })
     : [];
 
-  const txsByBenMap = new Map();
+  const txsByBenMap = new Map<string, typeof allBenEquestrianTxs>();
   for (const t of allBenEquestrianTxs) {
-    if (!txsByBenMap.has(t.beneficiary_id)) {
-      txsByBenMap.set(t.beneficiary_id, []);
+    if (!isEquestrianCategory(t.service_category)) continue;
+    const balanceKey = `${t.beneficiary_id}:${t.service_category}`;
+    if (!txsByBenMap.has(balanceKey)) {
+      txsByBenMap.set(balanceKey, []);
     }
-    txsByBenMap.get(t.beneficiary_id).push(t);
+    txsByBenMap.get(balanceKey)!.push(t);
   }
 
   const remainingAfterTxId = new Map();
   const accumulatedSpentByTxId = new Map();
-  const equestrianCeiling = ceiling;
-
-  for (const [_benId, benTxs] of txsByBenMap.entries()) {
+  for (const [balanceKey, benTxs] of txsByBenMap.entries()) {
+    const category = balanceKey.slice(balanceKey.lastIndexOf(":") + 1) as EquestrianCategory;
+    const categoryCeiling = categoryCeilings[category];
     let accumulatedSpent = 0;
     for (const t of benTxs) {
       const consumed = t.ceiling_consumed !== null
@@ -231,7 +244,7 @@ export default async function EquestrianCompanyPage({
         : Number(t.actual_company_share ?? t.amount);
       accumulatedSpent += consumed;
       accumulatedSpentByTxId.set(t.id, accumulatedSpent);
-      remainingAfterTxId.set(t.id, equestrianCeiling === null ? 999999999 : Math.max(0, equestrianCeiling - accumulatedSpent));
+      remainingAfterTxId.set(t.id, Math.max(0, categoryCeiling - accumulatedSpent));
     }
   }
 
@@ -454,6 +467,7 @@ export default async function EquestrianCompanyPage({
     if (fromDate && activeTab === "transactions") params.set("from", fromDate);
     if (toDate && activeTab === "transactions") params.set("to", toDate);
     if (facilityFilter && activeTab === "transactions") params.set("facility", facilityFilter);
+    if (categoryFilter !== "all" && activeTab === "transactions") params.set("category", categoryFilter);
     if (isDeletedView && activeTab === "beneficiaries") params.set("view", "deleted");
     if (activeTab === "beneficiaries") {
       if (statusFilter !== "all") params.set("status", statusFilter);
@@ -564,6 +578,13 @@ export default async function EquestrianCompanyPage({
               </div>
             )}
 
+            <div className="flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs dark:border-red-900 dark:bg-red-950/30">
+              <span className="font-black text-red-700 dark:text-red-300">طوارئ {categoryCeilings[EQUESTRIAN_CATEGORIES.EMERGENCY].toLocaleString("ar-LY")} د.ل</span>
+            </div>
+            <div className="flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs dark:border-sky-900 dark:bg-sky-950/30">
+              <span className="font-black text-sky-700 dark:text-sky-300">إيواء وعمليات {categoryCeilings[EQUESTRIAN_CATEGORIES.INPATIENT_SURGERY].toLocaleString("ar-LY")} د.ل</span>
+            </div>
+
             {copay > 0 && (
               <div className="flex items-center gap-1.5 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-2.5 py-1.5 text-xs">
                 <span className="font-black text-amber-800 dark:text-amber-300">تحمل {copay}%</span>
@@ -633,8 +654,8 @@ export default async function EquestrianCompanyPage({
               </Card>
             </div>
 
-            <Card className="p-4 overflow-x-auto">
-              <form method="GET" action={`/admin/equestrian-services/${companyId}`} className="flex flex-nowrap items-center gap-3 min-w-max">
+            <Card className="p-4">
+              <form method="GET" action={`/admin/equestrian-services/${companyId}`} className="flex w-full flex-nowrap items-center gap-2">
                 <input type="hidden" name="tab" value="transactions" />
                 <div className="relative min-w-0 flex-1">
                   <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
@@ -647,7 +668,7 @@ export default async function EquestrianCompanyPage({
                   />
                 </div>
                 {!isFacility && (
-                  <div className="relative w-52 shrink-0">
+                  <div className="relative w-40 shrink-0">
                     <Building2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
                     <input
                       type="text"
@@ -665,32 +686,41 @@ export default async function EquestrianCompanyPage({
                     </datalist>
                   </div>
                 )}
-                <div className="flex shrink-0 items-center gap-2">
+                <select
+                  name="category"
+                  defaultValue={categoryFilter}
+                  className="h-10 w-40 shrink-0 rounded-md border border-slate-200 bg-white px-2 py-2 text-xs font-bold text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                >
+                  <option value="all">كل أنواع الحركة</option>
+                  <option value={EQUESTRIAN_CATEGORIES.EMERGENCY}>طوارئ</option>
+                  <option value={EQUESTRIAN_CATEGORIES.INPATIENT_SURGERY}>إيواء وعمليات</option>
+                </select>
+                <div className="flex shrink-0 items-center gap-1">
                   <span className="text-xs font-bold text-slate-500">من</span>
                   <input
                     type="date" lang="en-GB"
                     name="from"
                     defaultValue={fromDate}
-                    className="flex h-10 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-bold text-slate-900 dark:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/30"
+                    className="flex h-10 w-32 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-2 text-xs font-bold text-slate-900 dark:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/30"
                   />
                   <span className="text-xs font-bold text-slate-500">إلى</span>
                   <input
                     type="date" lang="en-GB"
                     name="to"
                     defaultValue={toDate}
-                    className="flex h-10 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-bold text-slate-900 dark:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/30"
+                    className="flex h-10 w-32 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-2 text-xs font-bold text-slate-900 dark:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/30"
                   />
                 </div>
-                <div className="flex shrink-0 items-center gap-2">
+                <div className="flex shrink-0 items-center gap-1.5">
                   <button
                     type="submit"
-                    className="inline-flex h-10 items-center justify-center rounded-md bg-teal-600 hover:bg-teal-700 px-5 text-sm font-black text-white transition-colors cursor-pointer"
+                    className="inline-flex h-10 items-center justify-center rounded-md bg-teal-600 hover:bg-teal-700 px-4 text-xs font-black text-white transition-colors cursor-pointer"
                   >
                     تطبيق
                   </button>
                   <Link
                     href={`/admin/equestrian-services/${companyId}?tab=transactions`}
-                    className="inline-flex h-10 items-center justify-center rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 text-sm font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                    className="inline-flex h-10 items-center justify-center whitespace-nowrap rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                   >
                     إعادة تعيين
                   </Link>
@@ -733,6 +763,7 @@ export default async function EquestrianCompanyPage({
                       from: fromDate,
                       to: toDate,
                       ...(facilityFilter ? { facility: facilityFilter } : {}),
+                      ...(categoryFilter !== "all" ? { category: categoryFilter } : {}),
                     }).toString()}`}
                     target="_blank"
                     className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 text-xs font-black text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-slate-350 transition-colors shadow-sm"
@@ -743,7 +774,7 @@ export default async function EquestrianCompanyPage({
 
                   {canExport && (
                     <a
-                      href={`/api/equestrian-export?company=${companyId}&q=${encodeURIComponent(searchQuery)}&from=${encodeURIComponent(fromDate)}&to=${encodeURIComponent(toDate)}${facilityFilter ? `&facility=${encodeURIComponent(facilityFilter)}` : ""}`}
+                      href={`/api/equestrian-export?company=${companyId}&q=${encodeURIComponent(searchQuery)}&from=${encodeURIComponent(fromDate)}&to=${encodeURIComponent(toDate)}${facilityFilter ? `&facility=${encodeURIComponent(facilityFilter)}` : ""}${categoryFilter !== "all" ? `&category=${encodeURIComponent(categoryFilter)}` : ""}`}
                       target="_blank"
                       className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 text-xs font-black text-emerald-700 dark:text-emerald-400 hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-slate-350 transition-colors shadow-sm"
                     >
@@ -779,11 +810,12 @@ export default async function EquestrianCompanyPage({
                         )}
                         <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400">المستفيد</th>
                         <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400">رقم البطاقة</th>
+                        <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">نوع الحركة</th>
                         <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">قيمة الفاتورة</th>
                         <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">حصة الشركة</th>
                         <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">حصة المؤمن</th>
                         <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400 text-center">
-                           {equestrianCeiling === null ? "الرصيد المستهلك" : "الرصيد المتبقي"}
+                           الرصيد المتبقي من نوع الحركة
                         </th>
                         <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400">المرفق</th>
                         <th className="px-4 py-3 font-black text-slate-500 dark:text-slate-400">التاريخ</th>
@@ -795,7 +827,7 @@ export default async function EquestrianCompanyPage({
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                       {recentTransactions.length === 0 ? (
                         <tr>
-                          <td colSpan={9 + ((session.is_admin || canEditTransaction) ? 1 : 0)} className="px-4 py-12 text-center text-slate-500 dark:text-slate-400 font-bold">
+                          <td colSpan={10 + ((session.is_admin || canEditTransaction) ? 1 : 0)} className="px-4 py-12 text-center text-slate-500 dark:text-slate-400 font-bold">
                             لا توجد حركات مطابقة للبحث أو معايير الفلترة المحددة.
                           </td>
                         </tr>
@@ -804,7 +836,10 @@ export default async function EquestrianCompanyPage({
                           const amount = Number(tx.amount);
                           const companyShare = tx.actual_company_share !== null ? Number(tx.actual_company_share) : 0;
                           const patientShare = tx.actual_patient_share !== null ? Number(tx.actual_patient_share) : 0;
-                          const remaining = remainingAfterTxId.get(tx.id) ?? (tx.remaining_ceiling_after !== null ? Number(tx.remaining_ceiling_after) : (equestrianCeiling !== null ? (equestrianCeiling - companyShare) : 999999999));
+                          const categoryCeiling = isEquestrianCategory(tx.service_category) ? categoryCeilings[tx.service_category] : ceiling;
+                          const remaining = tx.remaining_ceiling_after !== null
+                            ? Number(tx.remaining_ceiling_after)
+                            : remainingAfterTxId.get(tx.id) ?? (categoryCeiling !== null ? Math.max(0, categoryCeiling - companyShare) : 999999999);
                           const consumedAccumulated = accumulatedSpentByTxId.get(tx.id) ?? companyShare;
 
                           return (
@@ -824,6 +859,9 @@ export default async function EquestrianCompanyPage({
                               </td>
                               <td className="px-4 py-3.5 font-mono font-bold text-slate-650 dark:text-slate-400 text-xs">
                                 {tx.beneficiary?.card_number ?? "—"}
+                              </td>
+                              <td className="px-4 py-3.5 text-center text-xs font-black text-slate-700 dark:text-slate-300">
+                                {getEquestrianCategoryLabel(tx.service_category)}
                               </td>
                               <td className="px-4 py-3.5 text-center font-mono font-black text-slate-900 dark:text-white">
                                 {amount.toLocaleString("ar-LY", { minimumFractionDigits: 2 })} د.ل

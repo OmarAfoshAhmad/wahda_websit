@@ -213,9 +213,8 @@ export function CompanyForm({ company }: Props) {
                   required
                   dir="ltr"
                   placeholder="مثال: WAB, MDAR"
-                  disabled={!!company}
                 />
-                <p className="mt-1 text-xs text-slate-400">كود فريد للتعريف بالنظام (لا يمكن تغييره لاحقاً)</p>
+                <p className="mt-1 text-xs text-slate-400">كود فريد للتعريف بالنظام. يمكن تعديله، ويجب أن يطابق بادئة أرقام البطاقات.</p>
               </div>
 
               <div>

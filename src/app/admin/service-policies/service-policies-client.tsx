@@ -6,6 +6,10 @@ import { Card, Button, Input } from "@/components/ui";
 import { useToast } from "@/components/toast";
 import { deleteServicePolicy } from "@/app/actions/service-policies";
 import { ServicePolicyModal } from "./service-policy-modal";
+import {
+  EQUESTRIAN_CATEGORIES,
+  EQUESTRIAN_CATEGORY_CEILINGS,
+} from "@/lib/constants";
 
 interface ServicePoliciesClientProps {
   initialPolicies: any[];
@@ -125,6 +129,23 @@ export function ServicePoliciesClient({
                       <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-100 dark:bg-slate-800 text-xs font-black text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
                         {policy.service_type.name}
                       </div>
+                      {policy.service_type.code === "MEDICINE" && policy.pharmacy_config && (
+                        <div className="mt-1.5 flex flex-wrap gap-1">
+                          {policy.pharmacy_config.routine_enabled && <span className="rounded bg-sky-50 px-1.5 py-0.5 text-[9px] font-bold text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">روتينية: {policy.pharmacy_config.routine_ceiling === null ? "مفتوح" : `${Number(policy.pharmacy_config.routine_ceiling).toLocaleString("ar-LY")} د.ل`} · {policy.pharmacy_config.routine_coverage_percent ?? policy.coverage_percent}% · كل {policy.pharmacy_config.routine_frequency_months ?? policy.frequency_months ?? "-"} شهر</span>}
+                          {policy.pharmacy_config.chronic_enabled && <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[9px] font-bold text-violet-700 dark:bg-violet-950/40 dark:text-violet-300">مزمنة: {policy.pharmacy_config.chronic_ceiling === null ? "مفتوح" : `${Number(policy.pharmacy_config.chronic_ceiling).toLocaleString("ar-LY")} د.ل`} · {policy.pharmacy_config.chronic_coverage_percent ?? policy.coverage_percent}% · كل {policy.pharmacy_config.chronic_frequency_months ?? policy.frequency_months ?? "-"} شهر</span>}
+                          {policy.pharmacy_config.chemical_enabled && <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[9px] font-bold text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">كيميائية: {policy.pharmacy_config.chemical_ceiling === null ? "مفتوح" : `${Number(policy.pharmacy_config.chemical_ceiling).toLocaleString("ar-LY")} د.ل`} · {policy.pharmacy_config.chemical_coverage_percent ?? policy.coverage_percent}% · كل {policy.pharmacy_config.chemical_frequency_months ?? policy.frequency_months ?? "-"} شهر</span>}
+                        </div>
+                      )}
+                      {policy.service_type.code === "EQUESTRIAN" && (
+                        <div className="mt-1.5 flex flex-wrap gap-1">
+                          <span className="rounded bg-sky-50 px-1.5 py-0.5 text-[9px] font-bold text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">
+                            طوارئ: {Number(policy.equestrian_config?.emergency_ceiling ?? EQUESTRIAN_CATEGORY_CEILINGS[EQUESTRIAN_CATEGORIES.EMERGENCY]).toLocaleString("ar-LY")} د.ل
+                          </span>
+                          <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                            إيواء وعمليات: {Number(policy.equestrian_config?.inpatient_surgery_ceiling ?? EQUESTRIAN_CATEGORY_CEILINGS[EQUESTRIAN_CATEGORIES.INPATIENT_SURGERY]).toLocaleString("ar-LY")} د.ل
+                          </span>
+                        </div>
+                      )}
                     </td>
                     <td className="px-5 py-3.5 text-center font-black text-sm">
                       {policy.ceiling_amount === null ? (

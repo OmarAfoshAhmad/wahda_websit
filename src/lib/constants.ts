@@ -37,6 +37,32 @@ export const TX_TYPE_LABELS: Record<TxType, string> = {
   EQUESTRIAN: "الفروسية",
 };
 
+// ─── تقسيمات وسقوف خدمة الفروسية ─────────────────────────────────────────────
+export const EQUESTRIAN_CATEGORIES = {
+  EMERGENCY: "EQUESTRIAN_EMERGENCY",
+  INPATIENT_SURGERY: "EQUESTRIAN_INPATIENT_SURGERY",
+} as const;
+
+export type EquestrianCategory = (typeof EQUESTRIAN_CATEGORIES)[keyof typeof EQUESTRIAN_CATEGORIES];
+
+export const EQUESTRIAN_CATEGORY_LABELS: Record<EquestrianCategory, string> = {
+  [EQUESTRIAN_CATEGORIES.EMERGENCY]: "طوارئ",
+  [EQUESTRIAN_CATEGORIES.INPATIENT_SURGERY]: "إيواء وعمليات",
+};
+
+export const EQUESTRIAN_CATEGORY_CEILINGS: Record<EquestrianCategory, number> = {
+  [EQUESTRIAN_CATEGORIES.EMERGENCY]: 3000,
+  [EQUESTRIAN_CATEGORIES.INPATIENT_SURGERY]: 7000,
+};
+
+export function isEquestrianCategory(value: unknown): value is EquestrianCategory {
+  return typeof value === "string" && Object.values(EQUESTRIAN_CATEGORIES).includes(value as EquestrianCategory);
+}
+
+export function getEquestrianCategoryLabel(value: unknown, fallback = "غير محدد"): string {
+  return isEquestrianCategory(value) ? EQUESTRIAN_CATEGORY_LABELS[value] : fallback;
+}
+
 // ─── حالات المستفيدين ─────────────────────────────────────────────────────────
 export const BENEFICIARY_STATUS = {
   ACTIVE: "ACTIVE",

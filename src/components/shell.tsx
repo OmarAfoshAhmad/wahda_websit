@@ -21,7 +21,8 @@ import {
   DENTAL_NAV,
   OPTICS_NAV,
   PHYSIOTHERAPY_NAV,
-  EQUESTRIAN_NAV
+  EQUESTRIAN_NAV,
+  PHARMACY_NAV
 } from "@/lib/navigation";
 import type { ManagerPermissions, Session } from "@/lib/permissions";
 
@@ -107,6 +108,7 @@ export function Shell({
     const showOpticsTab = hasPermission(session, "optics_services") || hasPermission(session, "view_optics_beneficiaries");
     const showPhysiotherapyTab = hasPermission(session, "physiotherapy_services") || hasPermission(session, "view_physiotherapy_beneficiaries");
     const showEquestrianTab = hasPermission(session, "equestrian_services") || hasPermission(session, "view_equestrian_beneficiaries");
+    const showPharmacyTab = hasPermission(session, "pharmacy_services") || hasPermission(session, "view_pharmacy_beneficiaries");
     const showCashClaim = canUseCashClaim;
 
     if (isAdmin) {
@@ -116,6 +118,7 @@ export function Shell({
         ...(showOpticsTab ? [OPTICS_NAV] : []),
         ...(showPhysiotherapyTab ? [PHYSIOTHERAPY_NAV] : []),
         ...(showEquestrianTab ? [EQUESTRIAN_NAV] : []),
+        ...(showPharmacyTab ? [PHARMACY_NAV] : []),
         ...filteredManagerNav, 
       ];
     }
@@ -129,6 +132,7 @@ export function Shell({
         ...(showOpticsTab ? [OPTICS_NAV] : []),
         ...(showPhysiotherapyTab ? [PHYSIOTHERAPY_NAV] : []),
         ...(showEquestrianTab ? [EQUESTRIAN_NAV] : []),
+        ...(showPharmacyTab ? [PHARMACY_NAV] : []),
         ...filteredManagerNav,
       ];
     }
@@ -139,6 +143,7 @@ export function Shell({
       ...(showOpticsTab ? [OPTICS_NAV] : []),
       ...(showPhysiotherapyTab ? [PHYSIOTHERAPY_NAV] : []),
       ...(showEquestrianTab ? [EQUESTRIAN_NAV] : []),
+      ...(showPharmacyTab ? [PHARMACY_NAV] : []),
     ];
   }, [isAdmin, isManager, isEmployee, canUseCashClaim, allocationWindowEnabled, permsHash, session]);
 
@@ -160,6 +165,14 @@ export function Shell({
           <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between" suppressHydrationWarning>
             <div className="flex items-center justify-between gap-4" suppressHydrationWarning>
               <div className="flex items-center gap-3" suppressHydrationWarning>
+                <Image
+                  src="/waad-logo.png"
+                  alt="شعار وعد"
+                  width={64}
+                  height={31}
+                  priority
+                  className="h-8 w-auto shrink-0 object-contain"
+                />
                 <Image src="/logo.png" alt="Waha Health Care" width={38} height={38} priority className="h-auto w-auto object-contain dark:brightness-110" />
                 <div suppressHydrationWarning>
                   <h1 className="text-sm font-black leading-tight text-slate-900 dark:text-white">شركة الواحة</h1>

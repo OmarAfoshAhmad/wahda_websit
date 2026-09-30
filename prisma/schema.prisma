@@ -9,66 +9,73 @@ datasource db {
 }
 
 model InsuranceCompany {
-  id                    String                 @id @default(cuid())
-  name                  String
-  code                  String                 @unique
-  card_pattern          String?
-  is_active             Boolean                @default(true)
-  created_at            DateTime               @default(now())
-  updated_at            DateTime               @updatedAt
-  deleted_at            DateTime?
-  service_type_mappings Json?
-  logo                  String?
-  dental_ceiling        Decimal?               @db.Decimal(12, 2)
-  dental_coverage       Decimal                @default(100.00) @db.Decimal(5, 2)
-  general_ceiling       Decimal?               @db.Decimal(12, 2)
-  general_coverage      Decimal                @default(80.00) @db.Decimal(5, 2)
-  medicine_ceiling      Decimal?               @db.Decimal(12, 2)
-  medicine_coverage     Decimal                @default(80.00) @db.Decimal(5, 2)
-  dental_settings       Json?
-  service_aliases       Json?
-  beneficiaries         Beneficiary[]
-  claims                Claim[]
-  service_policies      ServicePolicy[]
-  service_mappings      ServiceTypeMapping[]
-  transactions          Transaction[]
-  account_accesses      AccountCompanyAccess[]
-  audit_logs            AuditLog[]
-  import_jobs           ImportJob[]
-  restore_jobs          RestoreJob[]
+  id                     String                 @id @default(cuid())
+  name                   String
+  code                   String                 @unique
+  card_pattern           String?
+  is_active              Boolean                @default(true)
+  created_at             DateTime               @default(now())
+  updated_at             DateTime               @updatedAt
+  deleted_at             DateTime?
+  service_type_mappings  Json?
+  logo                   String?
+  dental_ceiling         Decimal?               @db.Decimal(12, 2)
+  dental_coverage        Decimal                @default(100.00) @db.Decimal(5, 2)
+  general_ceiling        Decimal?               @db.Decimal(12, 2)
+  general_coverage       Decimal                @default(80.00) @db.Decimal(5, 2)
+  medicine_ceiling       Decimal?               @db.Decimal(12, 2)
+  medicine_coverage      Decimal                @default(80.00) @db.Decimal(5, 2)
+  dental_settings        Json?
+  service_aliases        Json?
+  beneficiaries          Beneficiary[]
+  claims                 Claim[]
+  service_policies       ServicePolicy[]
+  service_mappings       ServiceTypeMapping[]
+  transactions           Transaction[]
+  account_accesses       AccountCompanyAccess[]
+  audit_logs             AuditLog[]
+  import_jobs            ImportJob[]
+  restore_jobs           RestoreJob[]
   family_import_archives FamilyImportArchive[]
+  pharmacy_dispenses     PharmacyDispense[]
+  pharmacy_prescriptions PharmacyPrescription[]
 
   @@index([code])
 }
 
 model Facility {
-  id                           String                      @id @default(cuid())
+  id                           String                       @id @default(cuid())
   name                         String
-  username                     String                      @unique
+  username                     String                       @unique
   password_hash                String
-  created_at                   DateTime                    @default(now())
-  is_admin                     Boolean                     @default(false)
+  created_at                   DateTime                     @default(now())
+  is_admin                     Boolean                      @default(false)
   deleted_at                   DateTime?
-  must_change_password         Boolean                     @default(false)
-  is_manager                   Boolean                     @default(false)
+  must_change_password         Boolean                      @default(false)
+  is_manager                   Boolean                      @default(false)
   manager_permissions          Json?
-  is_employee                  Boolean                     @default(false)
+  is_employee                  Boolean                      @default(false)
   facility_type                String?
-  role                         String                      @default("FACILITY")
+  role                         String                       @default("FACILITY")
   role_v2                      AccountRole?
   parent_manager_id            String?
   created_by_id                String?
   transactions                 Transaction[]
-  parent_manager               Facility?                   @relation("ManagerEmployees", fields: [parent_manager_id], references: [id], onDelete: SetNull)
-  employees                    Facility[]                  @relation("ManagerEmployees")
-  created_by                   Facility?                   @relation("AccountCreator", fields: [created_by_id], references: [id], onDelete: SetNull)
-  created_accounts             Facility[]                  @relation("AccountCreator")
-  company_accesses             AccountCompanyAccess[]      @relation("AccountCompanyAccessAccount")
-  company_accesses_created     AccountCompanyAccess[]      @relation("AccountCompanyAccessCreator")
-  service_accesses             AccountServiceAccess[]      @relation("AccountServiceAccessAccount")
-  service_accesses_created     AccountServiceAccess[]      @relation("AccountServiceAccessCreator")
-  service_capabilities         FacilityServiceCapability[] @relation("FacilityServiceCapabilityFacility")
-  service_capabilities_created FacilityServiceCapability[] @relation("FacilityServiceCapabilityCreator")
+  parent_manager               Facility?                    @relation("ManagerEmployees", fields: [parent_manager_id], references: [id], onDelete: SetNull)
+  employees                    Facility[]                   @relation("ManagerEmployees")
+  created_by                   Facility?                    @relation("AccountCreator", fields: [created_by_id], references: [id], onDelete: SetNull)
+  created_accounts             Facility[]                   @relation("AccountCreator")
+  company_accesses             AccountCompanyAccess[]       @relation("AccountCompanyAccessAccount")
+  company_accesses_created     AccountCompanyAccess[]       @relation("AccountCompanyAccessCreator")
+  service_accesses             AccountServiceAccess[]       @relation("AccountServiceAccessAccount")
+  service_accesses_created     AccountServiceAccess[]       @relation("AccountServiceAccessCreator")
+  service_capabilities         FacilityServiceCapability[]  @relation("FacilityServiceCapabilityFacility")
+  service_capabilities_created FacilityServiceCapability[]  @relation("FacilityServiceCapabilityCreator")
+  pharmacy_dispenses           PharmacyDispense[]
+  pharmacy_attachments         PharmacyDispenseAttachment[]
+  created_pharmacy_prescriptions PharmacyPrescription[]
+  reserved_pharmacy_items         PharmacyPrescriptionItem[] @relation("PharmacyItemReservationFacility")
+  dispensed_pharmacy_items        PharmacyPrescriptionItem[] @relation("PharmacyItemDispensingFacility")
 
   @@index([deleted_at])
   @@index([is_manager], map: "idx_facility_is_manager_fixed")
@@ -129,30 +136,33 @@ model FacilityServiceCapability {
 
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model Beneficiary {
-  id                           String              @id @default(cuid())
+  id                           String                   @id @default(cuid())
   card_number                  String
   name                         String
-  total_balance                Decimal             @default(600) @db.Decimal(12, 2)
-  remaining_balance            Decimal             @default(600) @db.Decimal(12, 2)
-  status                       BeneficiaryStatus   @default(ACTIVE)
-  created_at                   DateTime            @default(now())
+  total_balance                Decimal                  @default(600) @db.Decimal(12, 2)
+  remaining_balance            Decimal                  @default(600) @db.Decimal(12, 2)
+  status                       BeneficiaryStatus        @default(ACTIVE)
+  created_at                   DateTime                 @default(now())
   birth_date                   DateTime?
   deleted_at                   DateTime?
-  failed_attempts              Int                 @default(0)
+  failed_attempts              Int                      @default(0)
   locked_until                 DateTime?
   pin_hash                     String?
   completed_via                String?
-  is_legacy_card               Boolean             @default(false)
+  is_legacy_card               Boolean                  @default(false)
   city                         String?
   batch_number                 String?
   phone_number                 String?
   company_id                   String?
-  birth_date_synced_from_truth Boolean             @default(false)
+  birth_date_synced_from_truth Boolean                  @default(false)
   custom_ceilings              Json?
-  company                      InsuranceCompany?   @relation(fields: [company_id], references: [id])
+  company                      InsuranceCompany?        @relation(fields: [company_id], references: [id])
   claims                       Claim[]
   notifications                Notification[]
   transactions                 Transaction[]
+  chronic_drugs                BeneficiaryChronicDrug[]
+  pharmacy_dispenses           PharmacyDispense[]
+  pharmacy_prescriptions       PharmacyPrescription[]
 
   @@index([card_number])
   @@index([deleted_at])
@@ -196,6 +206,7 @@ model Transaction {
   original_transaction     Transaction?      @relation("TransactionCorrection", fields: [original_transaction_id], references: [id])
   corrections              Transaction[]     @relation("TransactionCorrection")
   service_type             ServiceType?      @relation(fields: [service_type_id], references: [id])
+  pharmacy_dispense        PharmacyDispense?
 
   @@index([beneficiary_id])
   @@index([facility_id])
@@ -203,6 +214,7 @@ model Transaction {
   @@index([created_at])
   @@index([beneficiary_id, is_cancelled, type])
   @@index([is_cancelled, type])
+  @@index([company_id, beneficiary_id, type, is_cancelled, service_category, created_at], map: "idx_tx_equestrian_balance_history")
   @@index([service_category, created_at])
   @@index([service_type_id])
 }
@@ -277,23 +289,212 @@ model ServiceType {
 }
 
 model ServicePolicy {
-  id               String           @id @default(cuid())
+  id               String                @id @default(cuid())
   company_id       String
   service_type_id  String
-  ceiling_amount   Decimal?         @db.Decimal(12, 2)
-  coverage_percent Decimal          @db.Decimal(5, 2)
+  ceiling_amount   Decimal?              @db.Decimal(12, 2)
+  coverage_percent Decimal               @db.Decimal(5, 2)
   frequency_months Int?
-  is_active        Boolean          @default(true)
-  created_at       DateTime         @default(now())
-  updated_at       DateTime         @updatedAt
-  company          InsuranceCompany @relation(fields: [company_id], references: [id])
-  service_type     ServiceType      @relation(fields: [service_type_id], references: [id])
+  is_active        Boolean               @default(true)
+  created_at       DateTime              @default(now())
+  updated_at       DateTime              @updatedAt
+  company          InsuranceCompany      @relation(fields: [company_id], references: [id])
+  service_type     ServiceType           @relation(fields: [service_type_id], references: [id])
+  pharmacy_config  PharmacyPolicyConfig?
+  equestrian_config EquestrianPolicyConfig?
 
   @@unique([company_id, service_type_id])
   @@index([company_id])
   @@index([service_type_id])
 }
 
+model EquestrianPolicyConfig {
+  id                         String        @id @default(cuid())
+  service_policy_id          String        @unique
+  emergency_ceiling          Decimal       @default(3000) @db.Decimal(12, 2)
+  inpatient_surgery_ceiling  Decimal       @default(7000) @db.Decimal(12, 2)
+  created_at                 DateTime      @default(now())
+  updated_at                 DateTime      @updatedAt
+  service_policy             ServicePolicy @relation(fields: [service_policy_id], references: [id], onDelete: Cascade)
+
+  @@index([service_policy_id])
+}
+
+model PharmacyPolicyConfig {
+  id                           String        @id @default(cuid())
+  service_policy_id            String        @unique
+  default_prescription_limit   Int?
+  routine_enabled              Boolean       @default(true)
+  routine_ceiling              Decimal?      @db.Decimal(12, 2)
+  routine_coverage_percent     Decimal?      @db.Decimal(5, 2)
+  routine_frequency_months     Int?
+  routine_prescription_limit   Int?
+  chronic_enabled              Boolean       @default(true)
+  chronic_ceiling              Decimal?      @db.Decimal(12, 2)
+  chronic_coverage_percent     Decimal?      @db.Decimal(5, 2)
+  chronic_frequency_months     Int?
+  chronic_prescription_limit   Int?
+  chemical_enabled             Boolean       @default(false)
+  chemical_ceiling             Decimal?      @db.Decimal(12, 2)
+  chemical_coverage_percent    Decimal?      @db.Decimal(5, 2)
+  chemical_frequency_months    Int?
+  chemical_prescription_limit  Int?
+  chemical_attachment_required Boolean       @default(true)
+  max_attachments              Int           @default(2)
+  sequence_pricing_rules       Json?
+  created_at                   DateTime      @default(now())
+  updated_at                   DateTime      @updatedAt
+  service_policy               ServicePolicy @relation(fields: [service_policy_id], references: [id], onDelete: Cascade)
+
+  @@index([service_policy_id])
+}
+
+model DrugCatalog {
+  id              String                   @id @default(cuid())
+  name            String
+  normalized_name String                   @unique
+  active          Boolean                  @default(true)
+  created_at      DateTime                 @default(now())
+  updated_at      DateTime                 @updatedAt
+  beneficiaries   BeneficiaryChronicDrug[]
+  dispense_items  PharmacyDispenseItem[]
+
+  @@index([active, name])
+}
+
+model BeneficiaryChronicDrug {
+  id             String      @id @default(cuid())
+  beneficiary_id String
+  drug_id        String
+  active         Boolean     @default(true)
+  sort_order     Int         @default(0)
+  notes          String?
+  created_at     DateTime    @default(now())
+  updated_at     DateTime    @updatedAt
+  beneficiary    Beneficiary @relation(fields: [beneficiary_id], references: [id], onDelete: Cascade)
+  drug           DrugCatalog @relation(fields: [drug_id], references: [id], onDelete: Restrict)
+
+  @@unique([beneficiary_id, drug_id])
+  @@index([beneficiary_id, active, sort_order])
+}
+
+model PharmacyDispense {
+  id                  String                       @id @default(cuid())
+  beneficiary_id      String
+  company_id          String
+  facility_id         String
+  medicine_category   MedicineCategory
+  item_count          Int
+  gross_total         Decimal                      @db.Decimal(12, 2)
+  company_total       Decimal                      @db.Decimal(12, 2)
+  patient_total       Decimal                      @db.Decimal(12, 2)
+  transaction_id      String                       @unique
+  idempotency_key     String                       @unique
+  status              PharmacyDispenseStatus       @default(COMPLETED)
+  created_at          DateTime                     @default(now())
+  cancelled_at        DateTime?
+  cancellation_reason String?
+  prescription_id     String?
+  beneficiary         Beneficiary                  @relation(fields: [beneficiary_id], references: [id], onDelete: Restrict)
+  company             InsuranceCompany             @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  facility            Facility                     @relation(fields: [facility_id], references: [id], onDelete: Restrict)
+  transaction         Transaction                  @relation(fields: [transaction_id], references: [id], onDelete: Restrict)
+  prescription        PharmacyPrescription?        @relation(fields: [prescription_id], references: [id], onDelete: Restrict)
+  items               PharmacyDispenseItem[]
+  attachments         PharmacyDispenseAttachment[]
+
+  @@index([beneficiary_id, created_at])
+  @@index([company_id, created_at])
+  @@index([facility_id, created_at])
+  @@index([status, created_at])
+  @@index([prescription_id])
+}
+
+model PharmacyPrescription {
+  id                     String                     @id @default(cuid())
+  beneficiary_id         String
+  company_id             String
+  created_by_facility_id String
+  medicine_category      MedicineCategory
+  prescription_number    Int
+  total_item_count       Int
+  status                 PharmacyPrescriptionStatus @default(OPEN)
+  created_at             DateTime                   @default(now())
+  updated_at             DateTime                   @updatedAt
+  completed_at           DateTime?
+  beneficiary            Beneficiary                @relation(fields: [beneficiary_id], references: [id], onDelete: Restrict)
+  company                InsuranceCompany           @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  created_by_facility    Facility                   @relation(fields: [created_by_facility_id], references: [id], onDelete: Restrict)
+  dispenses              PharmacyDispense[]
+  dispense_items         PharmacyDispenseItem[]
+  slots                  PharmacyPrescriptionItem[]
+  attachments            PharmacyDispenseAttachment[]
+
+  @@unique([beneficiary_id, medicine_category, prescription_number, status])
+  @@index([beneficiary_id, medicine_category, status])
+  @@index([company_id, created_at])
+}
+
+model PharmacyPrescriptionItem {
+  id                       String                         @id @default(cuid())
+  prescription_id          String
+  sequence                 Int
+  status                   PharmacyPrescriptionItemStatus @default(AVAILABLE)
+  reserved_by_facility_id  String?
+  reserved_at              DateTime?
+  reservation_expires_at   DateTime?
+  dispensed_by_facility_id String?
+  dispensed_at             DateTime?
+  created_at               DateTime                       @default(now())
+  updated_at               DateTime                       @updatedAt
+  prescription             PharmacyPrescription           @relation(fields: [prescription_id], references: [id], onDelete: Cascade)
+  reserved_by_facility     Facility?                      @relation("PharmacyItemReservationFacility", fields: [reserved_by_facility_id], references: [id], onDelete: SetNull)
+  dispensed_by_facility    Facility?                      @relation("PharmacyItemDispensingFacility", fields: [dispensed_by_facility_id], references: [id], onDelete: SetNull)
+  dispense_item            PharmacyDispenseItem?
+
+  @@unique([prescription_id, sequence])
+  @@index([status, reservation_expires_at])
+  @@index([reserved_by_facility_id])
+}
+
+model PharmacyDispenseItem {
+  id               String           @id @default(cuid())
+  dispense_id      String
+  sequence         Int
+  drug_id          String?
+  prescription_id  String?
+  prescription_item_id String? @unique
+  price            Decimal          @db.Decimal(12, 2)
+  coverage_percent Decimal          @db.Decimal(5, 2)
+  company_share    Decimal          @db.Decimal(12, 2)
+  patient_share    Decimal          @db.Decimal(12, 2)
+  dispense         PharmacyDispense @relation(fields: [dispense_id], references: [id], onDelete: Cascade)
+  drug             DrugCatalog?     @relation(fields: [drug_id], references: [id], onDelete: Restrict)
+  prescription     PharmacyPrescription? @relation(fields: [prescription_id], references: [id], onDelete: Restrict)
+  prescription_item PharmacyPrescriptionItem? @relation(fields: [prescription_item_id], references: [id], onDelete: Restrict)
+
+  @@unique([dispense_id, sequence])
+  @@index([drug_id])
+  @@unique([prescription_id, sequence])
+}
+
+model PharmacyDispenseAttachment {
+  id             String           @id @default(cuid())
+  dispense_id    String?
+  prescription_id String?
+  uploaded_by_id String
+  file_name      String
+  mime_type      String
+  file_size      Int
+  storage_path   String
+  created_at     DateTime         @default(now())
+  dispense       PharmacyDispense? @relation(fields: [dispense_id], references: [id], onDelete: Cascade)
+  prescription   PharmacyPrescription? @relation(fields: [prescription_id], references: [id], onDelete: Cascade)
+  uploaded_by    Facility         @relation(fields: [uploaded_by_id], references: [id], onDelete: Restrict)
+
+  @@index([dispense_id])
+  @@index([prescription_id])
+}
 
 model ServiceTypeMapping {
   id           String           @id @default(cuid())
@@ -369,19 +570,19 @@ model SystemSetting {
 }
 
 model FamilyImportArchive {
-  id                      String   @id @default(cuid())
+  id                      String           @id @default(cuid())
   company_id              String
   company                 InsuranceCompany @relation(fields: [company_id], references: [id], onDelete: Cascade)
   family_base_card        String
   family_count_from_file  Int?
-  total_balance_from_file Decimal? @db.Decimal(12, 2)
-  used_balance_from_file  Decimal? @db.Decimal(12, 2)
+  total_balance_from_file Decimal?         @db.Decimal(12, 2)
+  used_balance_from_file  Decimal?         @db.Decimal(12, 2)
   source_row_number       Int?
   source_file_name        String?
   imported_by             String
   last_imported_at        DateTime
-  created_at              DateTime @default(now())
-  updated_at              DateTime @updatedAt
+  created_at              DateTime         @default(now())
+  updated_at              DateTime         @updatedAt
 
   @@unique([company_id, family_base_card])
   @@index([family_base_card])
@@ -480,6 +681,29 @@ enum TransactionType {
   GENERAL
   PHYSIOTHERAPY
   EQUESTRIAN
+}
+
+enum MedicineCategory {
+  ROUTINE
+  CHRONIC
+  CHEMICAL
+}
+
+enum PharmacyDispenseStatus {
+  COMPLETED
+  CANCELLED
+}
+
+enum PharmacyPrescriptionStatus {
+  OPEN
+  COMPLETED
+  CANCELLED
+}
+
+enum PharmacyPrescriptionItemStatus {
+  AVAILABLE
+  RESERVED
+  DISPENSED
 }
 
 enum ImportJobStatus {

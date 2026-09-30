@@ -28,7 +28,7 @@ export default async function EquestrianServicesPage({
 
   // تحديد شروط الحركات بناءً على نوع المستخدم (المرفق يرى حركاته فقط)
   const isFacility = session.role === "FACILITY" || (!session.is_admin && !session.is_manager && !session.is_employee);
-  const transactionFilter: any = { is_cancelled: false, service_category: "EQUESTRIAN" };
+  const transactionFilter: any = { is_cancelled: false, type: "EQUESTRIAN" };
   if (isFacility) {
     transactionFilter.facility_id = session.id;
   }
@@ -50,7 +50,7 @@ export default async function EquestrianServicesPage({
       },
       service_policies: {
         where: { service_type: { code: 'EQUESTRIAN' }, is_active: true },
-        select: { ceiling_amount: true, coverage_percent: true }
+        select: { ceiling_amount: true, coverage_percent: true, equestrian_config: true }
       }
     },
   });
@@ -142,6 +142,8 @@ export default async function EquestrianServicesPage({
                   const colors = EQUESTRIAN_COLORS[idx % EQUESTRIAN_COLORS.length];
                   const policy = company.service_policies?.[0];
                   const ceiling = policy && policy.ceiling_amount !== null ? Number(policy.ceiling_amount) : null;
+                  const emergencyCeiling = Number(policy?.equestrian_config?.emergency_ceiling ?? 3000);
+                  const inpatientSurgeryCeiling = Number(policy?.equestrian_config?.inpatient_surgery_ceiling ?? 7000);
                   const copay = Math.max(0, 100 - (policy ? Number(policy.coverage_percent) : 100));
                   const beneficiaryCount = company._count.beneficiaries;
                   const transactionCount = company._count.transactions;
@@ -155,7 +157,7 @@ export default async function EquestrianServicesPage({
                       <div className="flex items-center justify-between mb-4 gap-4">
                         {/* اليمين: اسم الشركة والكود */}
                         <div className="min-w-0">
-                          <h3 className="text-base font-black text-slate-900 dark:text-white mb-1 leading-snug">{company.name}</h3>
+                          <h2 className="text-base font-black text-slate-900 dark:text-white mb-1 leading-snug">{company.name}</h2>
                           <p className="text-xs font-bold text-slate-500 dark:text-slate-400 font-mono">{company.code}</p>
                         </div>
                         {/* اليسار: الشعار والـ Chevron */}
@@ -173,6 +175,12 @@ export default async function EquestrianServicesPage({
                       </div>
 
                       <div className="flex flex-wrap gap-2">
+                        <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/30 dark:text-red-300 dark:border-red-900">
+                          طوارئ {emergencyCeiling.toLocaleString("ar-LY")} د.ل
+                        </span>
+                        <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full bg-sky-50 text-sky-700 border border-sky-200 dark:bg-sky-950/30 dark:text-sky-300 dark:border-sky-900">
+                          إيواء وعمليات {inpatientSurgeryCeiling.toLocaleString("ar-LY")} د.ل
+                        </span>
                         <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full ${colors.badge} dark:bg-slate-700 dark:text-slate-300`}>
                           <Users className="h-3 w-3" />
                           {beneficiaryCount.toLocaleString("ar-LY")} مستفيد نشط
