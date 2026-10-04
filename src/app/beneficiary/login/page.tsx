@@ -17,6 +17,7 @@ export default function BeneficiaryLoginPage() {
   const [employeeNumber, setEmployeeNumber] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [otpLength, setOtpLength] = useState(6);
+  const [previewCode, setPreviewCode] = useState<string | null>(null);
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
   const [timeLeft, setTimeLeft] = useState(0);
   const [error, setError] = useState("");
@@ -87,7 +88,8 @@ export default function BeneficiaryLoginPage() {
       if (data.status === "otp_sent") {
         const length = data.length || 6;
         setOtpLength(length);
-        setOtp(Array(length).fill(""));
+        setOtp(typeof data.previewCode === "string" ? data.previewCode.split("").slice(0, length) : Array(length).fill(""));
+        setPreviewCode(typeof data.previewCode === "string" ? data.previewCode : null);
         setTimeLeft(data.expiresIn || 300);
         setStep("otp");
         setTimeout(() => otpRefs.current[0]?.focus(), 100);
@@ -257,6 +259,13 @@ export default function BeneficiaryLoginPage() {
             </form>
           ) : (
             <div className="space-y-5">
+              {previewCode && (
+                <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-center text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">
+                  <p className="text-xs font-black">وضع التجربة — لم تُرسل رسالة SMS</p>
+                  <p className="mt-1 text-2xl font-black tracking-[0.4em]" dir="ltr">{previewCode}</p>
+                  <button type="button" onClick={() => void submitOtp(previewCode)} disabled={loading} className="mt-2 h-10 w-full rounded-lg bg-amber-500 text-sm font-black text-white disabled:opacity-60">دخول بهذا الرمز</button>
+                </div>
+              )}
               <div>
                 <p className="text-center text-xs font-black uppercase tracking-widest text-slate-400 dark:text-slate-500">
                   رمز التفعيل (OTP)

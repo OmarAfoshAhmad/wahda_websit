@@ -206,9 +206,12 @@ export async function POST(req: NextRequest) {
     VALUES (gen_random_uuid()::text, ${phone_number}, ${code}, ${expiresAt}, false)
   `;
 
+  // معاينة الرمز للتجربة: فقط في وضع المحاكاة (بلا مزود رسائل) وعلى خادم التطوير أو خادم اختبار فُعّل فيه OTP_PREVIEW=true.
+  const previewAllowed = otpSettings.provider !== "RESALA" && (process.env.NODE_ENV !== "production" || process.env.OTP_PREVIEW === "true");
   return NextResponse.json({
     status: "otp_sent",
     length,
     expiresIn: expiryMinutes * 60,
+    ...(previewAllowed ? { previewCode: code } : {}),
   });
 }
