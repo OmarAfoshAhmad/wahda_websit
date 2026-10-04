@@ -66,10 +66,14 @@ export async function parseChronicImportWorkbook(buffer: Buffer): Promise<{ rows
     if (rowNumber === 1) return;
     const read = (column?: number) => (column ? cellText(row.getCell(column).value) : "");
     const card = read(columns.card);
-    const drugName = read(columns.drug).replace(/\s+/g, " ");
+    // الجرعة جزء من هوية الدواء: نفس الدواء بتركيزين (adalat 30mg و60mg) دواءان مختلفان،
+    // ولكل منهما دورة صرف مستقلة.
+    const baseDrug = read(columns.drug).replace(/\s+/g, " ");
+    const dose = read(columns.dose).replace(/\s+/g, " ");
+    const drugName = baseDrug && dose && !baseDrug.toLowerCase().includes(dose.toLowerCase()) ? `${baseDrug} ${dose}` : baseDrug;
     if (!drugName && !card) return;
-        // الجرعة والتكرار والملاحظات تُحفظ معًا في ملاحظات الربط لتظهر للصيدلي عند الصرف.
-    const notes = [read(columns.dose), read(columns.frequency), read(columns.notes)].filter(Boolean).join(" | ");
+        // التكرار والملاحظات تُحفظ في ملاحظات الربط لتظهر للصيدلي عند الصرف.
+    const notes = [read(columns.frequency), read(columns.notes)].filter(Boolean).join(" | ");
     rows.push({ rowNumber, card: card ? normalizeCardNumber(card) : "", beneficiaryName: read(columns.beneficiary), drugName, notes });
   });
   if (rows.length === 0) return { error: "الملف لا يحتوي على صفوف بيانات" };
@@ -90,7 +94,7 @@ export async function buildChronicImportTemplate() {
   [
     "صف واحد لكل دواء لكل مستفيد. المستفيد الذي له 3 أدوية يأخذ 3 صفوف بنفس رقم البطاقة.",
     "الأعمدة الإلزامية: اسم الدواء، ورقم البطاقة أو اسم المستفيد. إن لم توجد البطاقة يُطابق المستفيد بالاسم الكامل إذا كان فريدًا في الشركة (مع تنبيه).",
-    "الجرعة والتكرار والملاحظات اختيارية وتظهر للصيدلي عند الصرف.",
+    "الجرعة تُضاف إلى اسم الدواء (نفس الدواء بجرعتين يُعد دواءين). التكرار والملاحظات اختيارية وتظهر للصيدلي عند الصرف.",
     "اكتب اسم الدواء بنفس الصيغة دائمًا (مثل Metformin 500mg) حتى لا يُسجَّل الدواء نفسه باسمين.",
     "الشركة تُختار في صفحة الاستيراد، ولا تُكتب في الملف.",
     "وضع الإضافة: يضيف الأدوية الجديدة ويبقي الموجودة. وضع الاستبدال: قائمة كل مستفيد في الملف تصبح مطابقة للملف تمامًا.",

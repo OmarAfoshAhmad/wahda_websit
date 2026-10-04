@@ -26,7 +26,7 @@ const securityHeaders = [
   { key: "X-Frame-Options", value: "SAMEORIGIN" },
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(self)" },
   // تشديد سياسة HSTS وتأمين ملفات الارتباط (CSRF Protection)
   { 
     key: "Strict-Transport-Security", 
@@ -43,7 +43,8 @@ const nextConfig: NextConfig = {
   // رفع حد Server Actions لمنع أخطاء 502 على الطلبات الكبيرة
   experimental: {
     serverActions: {
-      bodySizeLimit: "4mb",
+      // صرف المزمن يرسل البطاقة والوصفة معًا (حتى 8 ميجابايت لكل ملف PDF).
+      bodySizeLimit: "18mb",
     },
   },
   compiler: {

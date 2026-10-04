@@ -13,7 +13,7 @@ export type ChronicImportRowResult = {
   beneficiaryName: string;
   drugName: string;
   notes: string;
-  status: "NEW" | "EXISTING" | "ERROR";
+  status: "NEW" | "EXISTING" | "DUPLICATE" | "ERROR";
   message: string | null;
   warning: string | null;
 };
@@ -37,48 +37,64 @@ export async function downloadChronicImportTemplate() {
   return { fileName: "قالب_استيراد_الأدوية_المزمنة.xlsx", base64: (await buildChronicImportTemplate()).toString("base64") };
 }
 
+// مفتاح مقارنة الأسماء: توحيد الهمزات والتاء المربوطة والياء، وحذف المسافات ("عبد الله" = "عبدالله").
+const nameKey = (value: string) => getArabicNormalization(value.toUpperCase()).replace(/ى/g, "ي").replace(/\s+/g, "");
+
+// البطاقة المختصرة في الكتيبات: أرقام العائلة + رمز الصلة، مثل 24801F وهي JMR202524801F1 في المنظومة.
+const SHORT_CARD = /^(\d{2,6})([A-Z]{1,2})?(\d{0,2})$/;
+
 /** يفحص كل صف مقابل بيانات الشركة دون أي كتابة. يُستخدم للمعاينة وللتنفيذ معًا حتى لا تختلف النتيجة. */
 async function analyzeRows(companyId: string, rows: ChronicImportRow[]) {
-  const cards = [...new Set(rows.map((row) => row.card).filter(Boolean))];
   const beneficiaries = await prisma.beneficiary.findMany({
-    where: { company_id: companyId, deleted_at: null, card_number: { in: cards } },
+    where: { company_id: companyId, deleted_at: null },
     select: { id: true, card_number: true, name: true, chronic_drugs: { select: { active: true, drug: { select: { normalized_name: true } } } } },
   });
+  type Candidate = (typeof beneficiaries)[number];
   const byCard = new Map(beneficiaries.map((beneficiary) => [beneficiary.card_number, beneficiary]));
-
-  // مطابقة احتياطية بالاسم الكامل عند غياب البطاقة أو عدم وجودها؛ تُقبل فقط إن كان الاسم فريدًا في الشركة.
-  const nameKey = (value: string) => getArabicNormalization(value.toUpperCase()).replace(/\s+/g, " ").trim();
-  const unmatchedNames = [...new Set(rows.filter((row) => (!row.card || !byCard.has(row.card)) && row.beneficiaryName).map((row) => row.beneficiaryName.trim().replace(/\s+/g, " ")))];
-  const byName = new Map<string, Array<(typeof beneficiaries)[number]>>();
-  if (unmatchedNames.length > 0) {
-    const candidates = await prisma.beneficiary.findMany({
-      where: { company_id: companyId, deleted_at: null, OR: unmatchedNames.map((name) => ({ name: { equals: name, mode: "insensitive" as const } })) },
-      select: { id: true, card_number: true, name: true, chronic_drugs: { select: { active: true, drug: { select: { normalized_name: true } } } } },
-    });
-    for (const candidate of candidates) byName.set(nameKey(candidate.name), [...(byName.get(nameKey(candidate.name)) ?? []), candidate]);
+  const byName = new Map<string, Candidate[]>();
+  for (const beneficiary of beneficiaries) {
+    const key = nameKey(beneficiary.name);
+    byName.set(key, [...(byName.get(key) ?? []), beneficiary]);
   }
-  const seen = new Set<string>();
 
+  const matchShortCard = (card: string, pool: Candidate[]) => {
+    const parts = SHORT_CARD.exec(card);
+    if (!parts) return [];
+    const [, digits, relation = "", index = ""] = parts;
+    const suffix = new RegExp(`${digits}${relation}${index || "\\d*"}$`);
+    return pool.filter((candidate) => suffix.test(candidate.card_number));
+  };
+
+  const resolve = (row: ChronicImportRow): { beneficiary?: Candidate; via?: string; error?: string } => {
+    const exact = row.card ? byCard.get(row.card) : undefined;
+    if (exact) return { beneficiary: exact };
+    const named = row.beneficiaryName ? byName.get(nameKey(row.beneficiaryName)) ?? [] : [];
+    if (named.length === 1) return { beneficiary: named[0], via: "الاسم" };
+    if (named.length > 1) {
+      const narrowed = row.card ? matchShortCard(row.card, named) : [];
+      if (narrowed.length === 1) return { beneficiary: narrowed[0], via: "الاسم ورقم البطاقة" };
+      return { error: `الاسم مكرر لدى ${named.length} مستفيدين ولم يحسمه رقم البطاقة` };
+    }
+    const byShort = row.card ? matchShortCard(row.card, beneficiaries) : [];
+    if (byShort.length === 1) return { beneficiary: byShort[0], via: "رقم البطاقة المختصر" };
+    if (byShort.length > 1) return { error: `رقم البطاقة المختصر يطابق ${byShort.length} بطاقات ولم يطابق الاسم` };
+    return { error: row.card ? "رقم البطاقة غير موجود ضمن الشركة ولم يُطابق الاسم" : "لا يوجد رقم بطاقة ولم يُطابق الاسم" };
+  };
+
+  const seen = new Set<string>();
   const results: Array<ChronicImportRowResult & { beneficiaryId: string | null; normalizedDrug: string }> = rows.map((row) => {
     const normalizedDrug = normalizeDrugName(row.drugName);
     const base = { ...row, beneficiaryId: null as string | null, normalizedDrug, warning: null as string | null };
     if (!row.drugName) return { ...base, status: "ERROR" as const, message: "اسم الدواء فارغ" };
     if (row.drugName.length > 200) return { ...base, status: "ERROR" as const, message: "اسم الدواء أطول من 200 حرف" };
-    let beneficiary = row.card ? byCard.get(row.card) : undefined;
-    let matchedByName = false;
-    if (!beneficiary && row.beneficiaryName) {
-      const matches = byName.get(nameKey(row.beneficiaryName)) ?? [];
-      if (matches.length > 1) return { ...base, status: "ERROR" as const, message: `البطاقة غير موجودة، والاسم مكرر لدى ${matches.length} مستفيدين` };
-      beneficiary = matches[0];
-      matchedByName = Boolean(beneficiary);
-    }
-    if (!beneficiary) return { ...base, status: "ERROR" as const, message: row.card ? "رقم البطاقة غير موجود ضمن الشركة المختارة ولم يُطابق الاسم" : "لا يوجد رقم بطاقة ولم يُطابق الاسم" };
+    const { beneficiary, via, error } = resolve(row);
+    if (!beneficiary) return { ...base, status: "ERROR" as const, message: error ?? "تعذرت المطابقة" };
     const key = `${beneficiary.id}:${normalizedDrug}`;
-    if (seen.has(key)) return { ...base, beneficiaryId: beneficiary.id, status: "ERROR" as const, message: "صف مكرر: نفس الدواء لنفس المستفيد" };
+    if (seen.has(key)) return { ...base, beneficiaryId: beneficiary.id, status: "DUPLICATE" as const, message: null, warning: "مكرر في الملف: نفس الدواء لنفس المستفيد، يُتجاهل" };
     seen.add(key);
-    const warning = matchedByName ? `طوبق بالاسم: البطاقة في المنظومة ${beneficiary.card_number}` : row.beneficiaryName && getArabicNormalization(row.beneficiaryName.toUpperCase()).replace(/\s+/g, " ") !== getArabicNormalization(beneficiary.name.toUpperCase()).replace(/\s+/g, " ")
-      ? `الاسم في المنظومة: ${beneficiary.name}`
-      : null;
+    const warning = via
+      ? `طوبق عبر ${via}: ${beneficiary.name} (${beneficiary.card_number})`
+      : row.beneficiaryName && nameKey(row.beneficiaryName) !== nameKey(beneficiary.name) ? `الاسم في المنظومة: ${beneficiary.name}` : null;
     const existing = beneficiary.chronic_drugs.some((link) => link.active && link.drug.normalized_name === normalizedDrug);
     return { ...base, beneficiaryId: beneficiary.id, warning, status: existing ? "EXISTING" as const : "NEW" as const, message: null };
   });
@@ -100,8 +116,9 @@ function summarize(results: ChronicImportRowResult[]) {
     newCount: results.filter((row) => row.status === "NEW").length,
     existingCount: results.filter((row) => row.status === "EXISTING").length,
     errorCount: results.filter((row) => row.status === "ERROR").length,
+    duplicateCount: results.filter((row) => row.status === "DUPLICATE").length,
     warningCount: results.filter((row) => row.warning).length,
-    beneficiaryCount: new Set(results.filter((row) => row.status !== "ERROR").map((row) => row.card)).size,
+    beneficiaryCount: new Set(results.filter((row) => row.status === "NEW" || row.status === "EXISTING").map((row) => (row as { beneficiaryId?: string | null }).beneficiaryId ?? row.card)).size,
   };
 }
 
@@ -126,7 +143,7 @@ export async function applyChronicDrugImport(companyId: string, fileBase64: stri
   if (mode !== "ADD" && mode !== "REPLACE") return { error: "وضع الاستيراد غير صالح" };
   const upload = await readUpload(companyId, fileBase64);
   if ("error" in upload) return { error: upload.error };
-  const valid = upload.results.filter((row) => row.status !== "ERROR" && row.beneficiaryId);
+  const valid = upload.results.filter((row) => (row.status === "NEW" || row.status === "EXISTING") && row.beneficiaryId);
   if (valid.length === 0) return { error: "لا توجد صفوف سليمة للاستيراد" };
 
   const outcome = await prisma.$transaction(async (tx) => {

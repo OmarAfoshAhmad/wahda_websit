@@ -1,14 +1,15 @@
 "use server";
 
+import { copyFile, unlink } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { mkdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { Prisma, type PharmacyAttachmentKind } from "@prisma/client";
+import type { PharmacyAttachmentKind } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-guard";
 import { assertCompanyAccessForSession } from "@/lib/company-scope";
 import { calculatePharmacyDispense } from "@/lib/pharmacy/calculation";
-import { convertPharmacyAttachment } from "@/lib/pharmacy/attachment-conversion";
+import { getChronicDrugStatuses, getPharmacyConsumption, getPharmacyUsage, loadPharmacyPolicy } from "@/lib/pharmacy/summary";
+import { ATTACHMENT_KINDS, ATTACHMENT_LABELS, storeAttachmentFile, type StoredFile } from "@/lib/pharmacy/attachments";
 import {
   getNextChronicEligibleDate,
   getPolicyYearWindow,
@@ -45,61 +46,8 @@ async function requirePharmacySession(companyId: string | null, mode: "read" | "
   return { session } as const;
 }
 
-const ATTACHMENT_KINDS: PharmacyAttachmentKind[] = ["INSURANCE_CARD", "PRESCRIPTION"];
-const ATTACHMENT_LABELS: Record<PharmacyAttachmentKind, string> = { INSURANCE_CARD: "صورة البطاقة التأمينية", PRESCRIPTION: "صورة الوصفة" };
-const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
+const MAX_PRESCRIPTION_LINE = 50;
 
-/** يحدد نوع الملف من محتواه الفعلي لا من الامتداد أو نوع المتصفح. */
-function sniffFileType(bytes: Buffer): { mime: string } | null {
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return { mime: "image/jpeg" };
-  if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return { mime: "image/png" };
-  if (bytes.length >= 12 && bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP") return { mime: "image/webp" };
-  if (bytes.length >= 5 && bytes.subarray(0, 5).toString("ascii") === "%PDF-") return { mime: "application/pdf" };
-  return null;
-}
-
-function sanitizeFileName(name: string) {
-  return name.replace(/[\\/\u0000-\u001f<>:"|?*]+/g, "_").slice(0, 120) || "file";
-}
-
-type StoredFile = { kind: PharmacyAttachmentKind; fileName: string; mime: string; size: number; storagePath: string; absolutePath: string };
-
-async function storeAttachmentFile(file: File, kind: PharmacyAttachmentKind): Promise<StoredFile | { error: string }> {
-  if (file.size === 0) return { error: `أرفق ${ATTACHMENT_LABELS[kind]}` };
-  if (file.size > MAX_ATTACHMENT_BYTES) return { error: `حجم ${ATTACHMENT_LABELS[kind]} يجب ألا يتجاوز 8 ميجابايت` };
-  const bytes = Buffer.from(await file.arrayBuffer());
-  const detected = sniffFileType(bytes);
-  if (!detected) return { error: `${ATTACHMENT_LABELS[kind]}: يسمح فقط بملفات PDF أو صور JPG وPNG وWEBP` };
-
-  let converted;
-  try {
-    converted = await convertPharmacyAttachment(bytes, detected.mime);
-  } catch {
-    return { error: `${ATTACHMENT_LABELS[kind]}: تعذرت قراءة الملف، تأكد أنه غير تالف` };
-  }
-
-  const directory = path.join(process.cwd(), "storage", "pharmacy-prescriptions");
-  await mkdir(directory, { recursive: true });
-  const storedName = `${randomUUID()}${converted.extension}`;
-  const absolutePath = path.join(directory, storedName);
-  await writeFile(absolutePath, converted.bytes);
-  const baseName = sanitizeFileName(file.name).replace(/\.[^.]+$/, "");
-  return {
-    kind,
-    fileName: `${baseName}${converted.extension}`,
-    mime: converted.mime,
-    size: converted.bytes.length,
-    storagePath: path.join("storage", "pharmacy-prescriptions", storedName),
-    absolutePath,
-  };
-}
-
-async function loadPharmacyPolicy(client: Tx | typeof prisma, companyId: string) {
-  return client.servicePolicy.findFirst({
-    where: { company_id: companyId, service_type: { code: "MEDICINE" }, is_active: true },
-    include: { pharmacy_config: true },
-  });
-}
 
 async function findMissingAttachment(tx: Tx, prescriptionId: string) {
   const present = await tx.pharmacyDispenseAttachment.findMany({ where: { prescription_id: prescriptionId, kind: { not: null } }, select: { kind: true } });
@@ -108,18 +56,6 @@ async function findMissingAttachment(tx: Tx, prescriptionId: string) {
 
 async function lockBeneficiary(tx: Tx, beneficiaryId: string) {
   await tx.$queryRaw`SELECT "id" FROM "Beneficiary" WHERE "id" = ${beneficiaryId} FOR UPDATE`;
-}
-
-/** استهلاك السقف خلال السنة التأمينية: للفئة وللخدمة كاملة، من الصرفيات المكتملة. */
-async function getPharmacyConsumption(tx: Tx, beneficiaryId: string, category: MedicineCategoryValue, window: { start: Date; end: Date }) {
-  const rows = await tx.pharmacyDispense.groupBy({
-    by: ["medicine_category"],
-    where: { beneficiary_id: beneficiaryId, status: "COMPLETED", created_at: { gte: window.start, lt: window.end } },
-    _sum: { gross_total: true },
-  });
-  const overall = rows.reduce((sum, row) => sum.plus(row._sum.gross_total ?? 0), new Prisma.Decimal(0));
-  const categoryRow = rows.find((row) => row.medicine_category === category);
-  return { overall, category: new Prisma.Decimal(categoryRow?._sum.gross_total ?? 0) };
 }
 
 export async function searchPharmacyBeneficiaries(companyId: string, query: string) {
@@ -185,11 +121,6 @@ export async function getPharmacyBeneficiaryWorkspace(companyId: string, benefic
           items: { orderBy: { sequence: "asc" }, select: { sequence: true, price: true, drug: { select: { name: true } } } },
         },
       },
-      chronic_drugs: {
-        where: { active: true },
-        orderBy: [{ sort_order: "asc" }, { created_at: "asc" }],
-        select: { id: true, notes: true, drug: { select: { id: true, name: true } } },
-      },
       pharmacy_prescriptions: {
         where: { status: "OPEN" },
         orderBy: { created_at: "desc" },
@@ -222,50 +153,12 @@ export async function getPharmacyBeneficiaryWorkspace(companyId: string, benefic
   });
   if (!beneficiary) return { error: "المستفيد غير موجود ضمن الشركة المختارة" };
 
-  const policy = await loadPharmacyPolicy(prisma, companyId);
-  const now = new Date();
-  const chronicInterval = policy?.pharmacy_config?.chronic_interval_days ?? 28;
-  const drugIds = beneficiary.chronic_drugs.map((link) => link.drug.id);
-  const lastChronicItems = drugIds.length === 0 ? [] : await prisma.pharmacyDispenseItem.findMany({
-    where: { drug_id: { in: drugIds }, dispense: { beneficiary_id: beneficiary.id, medicine_category: "CHRONIC", status: "COMPLETED" } },
-    orderBy: { dispense: { created_at: "desc" } },
-    distinct: ["drug_id"],
-    select: { drug_id: true, price: true, dispense: { select: { created_at: true, facility: { select: { name: true } } } } },
-  });
-  const lastByDrug = new Map(lastChronicItems.map((item) => [item.drug_id, item]));
-
-  const usage = policy?.pharmacy_config
-    ? await (async (tx: Tx) => {
-        const window = getPolicyYearWindow(now, policy.pharmacy_config!.policy_year_start_month);
-        const today = getTripoliDayWindow(now);
-        const categories = (["ROUTINE", "CHRONIC", "CHEMICAL"] as const).map(async (category) => {
-          const resolved = resolvePharmacyCategoryPolicy(policy, policy.pharmacy_config!, category);
-          const consumption = await getPharmacyConsumption(tx, beneficiary.id, category, window);
-          const todayCount = resolved.dailyLimit === null ? null : await tx.pharmacyPrescription.count({
-            where: { beneficiary_id: beneficiary.id, medicine_category: category, status: { not: "CANCELLED" }, created_at: { gte: today.start, lt: today.end } },
-          });
-          const remaining = [resolved.categoryCeiling === null ? null : resolved.categoryCeiling - Number(consumption.category), resolved.overallCeiling === null ? null : resolved.overallCeiling - Number(consumption.overall)]
-            .filter((value): value is number => value !== null);
-          return {
-            category,
-            enabled: resolved.enabled,
-            coveragePercent: resolved.coveragePercent,
-            categoryCeiling: resolved.categoryCeiling,
-            overallCeiling: resolved.overallCeiling,
-            consumedCategory: Number(consumption.category),
-            consumedOverall: Number(consumption.overall),
-            remaining: remaining.length === 0 ? null : Math.max(0, Math.min(...remaining)),
-            dailyLimit: resolved.dailyLimit,
-            todayCount,
-          };
-        });
-        return { policyYearStart: window.start.toISOString(), policyYearEnd: window.end.toISOString(), categories: await Promise.all(categories) };
-      })(prisma)
-    : null;
+  const { usage, chronicIntervalDays } = await getPharmacyUsage(beneficiary.id, companyId);
+  const chronicDrugs = await getChronicDrugStatuses(beneficiary.id, chronicIntervalDays);
 
   return {
     usage,
-    chronicIntervalDays: chronicInterval,
+    chronicIntervalDays,
     beneficiary: {
       ...beneficiary,
       birth_date: beneficiary.birth_date?.toISOString() ?? null,
@@ -279,21 +172,7 @@ export async function getPharmacyBeneficiaryWorkspace(companyId: string, benefic
         prescription: dispense.prescription ? { prescription_number: dispense.prescription.prescription_number, total_item_count: dispense.prescription.total_item_count } : null,
         items: dispense.items.map((item) => ({ sequence: item.sequence, price: Number(item.price), drug_name: item.drug?.name ?? null })),
       })),
-      chronic_drugs: beneficiary.chronic_drugs.map((link) => {
-        const last = lastByDrug.get(link.drug.id);
-        const lastAt = last?.dispense.created_at ?? null;
-        return {
-          id: link.id,
-          drug_id: link.drug.id,
-          drug_name: link.drug.name,
-          notes: link.notes,
-          last_dispensed_at: lastAt?.toISOString() ?? null,
-          last_facility_name: last?.dispense.facility.name ?? null,
-          last_price: last ? Number(last.price) : null,
-          eligible: isChronicDrugEligible(lastAt, chronicInterval, now),
-          next_eligible_at: lastAt ? getNextChronicEligibleDate(lastAt, chronicInterval).toISOString() : null,
-        };
-      }),
+      chronic_drugs: chronicDrugs,
       pharmacy_prescriptions: beneficiary.pharmacy_prescriptions.map((prescription) => ({
         ...prescription,
         created_at: prescription.created_at.toISOString(),
@@ -366,13 +245,11 @@ export async function createPharmacyPrescription(input: {
   companyId: string;
   beneficiaryId: string;
   category: "ROUTINE" | "CHRONIC" | "CHEMICAL";
-  totalItemCount: number;
 }) {
   const access = await requirePharmacySession(input.companyId, "write");
   if ("error" in access) return { error: access.error };
   const { session } = access;
   if (input.category === "CHRONIC") return { error: "صرف الأدوية المزمنة يتم من قائمة الأدوية المرتبطة بالمستفيد" };
-  if (!Number.isInteger(input.totalItemCount) || input.totalItemCount < 1 || input.totalItemCount > 50) return { error: "عدد البنود يجب أن يكون بين 1 و50" };
 
   const policy = await loadPharmacyPolicy(prisma, input.companyId);
   if (!policy?.pharmacy_config) return { error: "سياسة الصيدلية غير مهيأة" };
@@ -402,8 +279,8 @@ export async function createPharmacyPrescription(input: {
         created_by_facility_id: session.id,
         medicine_category: input.category,
         prescription_number: (latest._max.prescription_number ?? 0) + 1,
-        total_item_count: input.totalItemCount,
-        slots: { create: Array.from({ length: input.totalItemCount }, (_, index) => ({ sequence: index + 1 })) },
+        // لا يُحدد عدد البنود مسبقًا: كل بند يُسجَّل عند صرفه، والحد هو أعلى رقم بند مقبول.
+        total_item_count: MAX_PRESCRIPTION_LINE,
       },
       select: { id: true },
     });
@@ -663,6 +540,8 @@ export async function dispensePharmacyPrescriptionItems(input: {
       if (missingAttachment) throw new PharmacyRuleError(`يجب إرفاق ${ATTACHMENT_LABELS[missingAttachment]} قبل الصرف`);
 
       const now = new Date();
+      // البنود تُنشأ عند أول صرف لها؛ القيد الفريد (prescription_id, sequence) يمنع التكرار.
+      await tx.pharmacyPrescriptionItem.createMany({ data: sequences.map((sequence) => ({ prescription_id: prescription.id, sequence })), skipDuplicates: true });
       const slots = await tx.pharmacyPrescriptionItem.findMany({
         where: { prescription_id: prescription.id, sequence: { in: sequences } },
         include: { reserved_by_facility: { select: { name: true } }, dispensed_by_facility: { select: { name: true } } },
@@ -688,8 +567,6 @@ export async function dispensePharmacyPrescriptionItems(input: {
         where: { prescription_id: prescription.id, sequence: { in: sequences } },
         data: { status: "DISPENSED", dispensed_by_facility_id: session.id, dispensed_at: now, reserved_by_facility_id: null, reserved_at: null, reservation_expires_at: null },
       });
-      const remainingSlots = await tx.pharmacyPrescriptionItem.count({ where: { prescription_id: prescription.id, status: { not: "DISPENSED" } } });
-      if (remainingSlots === 0) await tx.pharmacyPrescription.update({ where: { id: prescription.id }, data: { status: "COMPLETED", completed_at: now } });
 
       return { success: true, duplicated: false, ...result };
     });
@@ -700,8 +577,8 @@ export async function dispensePharmacyPrescriptionItems(input: {
 
 /**
  * صرف الأدوية المزمنة: لا وصفات، بل الأدوية المرتبطة بالمستفيد فقط. كل دواء يُصرف مرة كل
- * chronic_interval_days يومًا (من أي مرفق)، ويجب إرفاق البطاقة التأمينية والوصفة مع الطلب نفسه.
- * FormData: companyId, beneficiaryId, idempotencyKey, items (JSON: [{ chronicDrugId, price }]), insuranceCard, prescription.
+ * chronic_interval_days يومًا (من أي مرفق). يُرفق مع الطلب صورة البطاقة التأمينية فقط؛ لا وصفة لأن الأدوية مرتبطة بالمستفيد.
+ * FormData: companyId, beneficiaryId, idempotencyKey, items (JSON: [{ chronicDrugId, price }]), insuranceCard أو orderId (لاستخدام بطاقة الطلب).
  */
 export async function dispenseChronicDrugs(formData: FormData) {
   const companyId = String(formData.get("companyId") ?? "");
@@ -726,9 +603,24 @@ export async function dispenseChronicDrugs(formData: FormData) {
   const existing = await prisma.pharmacyDispense.findUnique({ where: { idempotency_key: idempotencyKey }, select: { id: true } });
   if (existing) return { success: true, duplicated: true, dispenseId: existing.id };
 
-  const files: Array<[PharmacyAttachmentKind, FormDataEntryValue | null]> = [["INSURANCE_CARD", formData.get("insuranceCard")], ["PRESCRIPTION", formData.get("prescription")]];
+  const files: Array<[PharmacyAttachmentKind, FormDataEntryValue | null]> = [["INSURANCE_CARD", formData.get("insuranceCard")]];
   const stored: StoredFile[] = [];
   const cleanup = () => Promise.all(stored.map((file) => unlink(file.absolutePath).catch(() => undefined)));
+  // عند الصرف من طلب المستفيد تُستخدم البطاقة التي أرسلها في المحادثة (نسخة مستقلة) بدل إعادة رفعها.
+  const orderId = String(formData.get("orderId") ?? "");
+  if (orderId && !(files[0][1] instanceof File)) {
+    const card = await prisma.pharmacyOrderMessage.findFirst({
+      where: { order: { id: orderId, facility_id: session.id, beneficiary_id: beneficiaryId }, sender: "BENEFICIARY", attachment_kind: "INSURANCE_CARD" },
+      orderBy: { created_at: "desc" },
+      select: { file_name: true, mime_type: true, storage_path: true },
+    });
+    if (!card?.storage_path) return { error: "لم يُرسل المستفيد صورة البطاقة في الطلب" };
+    const storagePath = path.join("storage", "pharmacy-prescriptions", `${randomUUID()}${path.extname(card.storage_path)}`);
+    const absolutePath = path.join(process.cwd(), storagePath);
+    await copyFile(path.join(process.cwd(), card.storage_path), absolutePath);
+    stored.push({ kind: "INSURANCE_CARD", fileName: card.file_name ?? "card", mime: card.mime_type ?? "image/webp", size: 0, storagePath, absolutePath });
+    files.length = 0;
+  }
   for (const [kind, file] of files) {
     if (!(file instanceof File)) {
       await cleanup();

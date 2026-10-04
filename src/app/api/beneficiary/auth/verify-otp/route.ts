@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { beneficiaryLogin } from "@/lib/beneficiary-auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { normalizeCardInput } from "@/lib/card-number";
+import { resolveCardByEmployeeNumber } from "@/lib/beneficiary-employee-number";
 
 const MAX_ATTEMPTS = 5;
 const LOCK_MINUTES = 10;
@@ -16,14 +17,22 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => null);
-  const card_number = typeof body?.card_number === "string" ? normalizeCardInput(body.card_number) : "";
   const phone_number = typeof body?.phone_number === "string" ? body.phone_number.trim() : "";
+  // الدخول بالشركة + الرقم الوظيفي (الجزء بعد رمز الشركة والسنة)، مع بقاء الدخول برقم البطاقة الكامل مدعومًا.
+  let card_number = typeof body?.card_number === "string" ? normalizeCardInput(body.card_number) : "";
   const code = typeof body?.code === "string" ? body.code.trim() : "";
 
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
   const rateLimitError = await checkRateLimit(`beneficiary-otp-verify:${ip}`, "login");
   if (rateLimitError) {
     return NextResponse.json({ error: rateLimitError }, { status: 429 });
+  }
+
+  // تحويل الرقم الوظيفي بعد حد المعدل حتى لا يُستغل لتخمين الأرقام.
+  if (!card_number && typeof body?.company_id === "string" && typeof body?.employee_number === "string") {
+    const resolved = await resolveCardByEmployeeNumber(body.company_id, body.employee_number, phone_number);
+    if ("error" in resolved) return NextResponse.json({ error: resolved.error }, { status: 401 });
+    card_number = normalizeCardInput(resolved.cardNumber);
   }
 
   if (!card_number || !phone_number || !code) {

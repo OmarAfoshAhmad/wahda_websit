@@ -11,8 +11,8 @@ import {
 } from "@/app/actions/pharmacy-chronic-import";
 import { Button, Card } from "@/components/ui";
 
-type Summary = { total: number; newCount: number; existingCount: number; errorCount: number; warningCount: number; beneficiaryCount: number };
-type Filter = "ALL" | "ERROR" | "WARNING" | "NEW";
+type Summary = { total: number; newCount: number; existingCount: number; errorCount: number; duplicateCount: number; warningCount: number; beneficiaryCount: number };
+type Filter = "ALL" | "ERROR" | "WARNING" | "NEW" | "DUPLICATE";
 
 function saveBase64(fileName: string, base64: string) {
   const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
@@ -55,7 +55,7 @@ export function ChronicImportClient({ companies }: { companies: Array<{ id: stri
   const [confirmReplace, setConfirmReplace] = useState(false);
   const [pending, startTransition] = useTransition();
 
-  const visibleRows = useMemo(() => rows.filter((row) => filter === "ALL" || (filter === "ERROR" && row.status === "ERROR") || (filter === "WARNING" && row.warning) || (filter === "NEW" && row.status === "NEW")).slice(0, 500), [rows, filter]);
+  const visibleRows = useMemo(() => rows.filter((row) => filter === "ALL" || (filter === "ERROR" && row.status === "ERROR") || (filter === "WARNING" && row.warning) || (filter === "NEW" && row.status === "NEW") || (filter === "DUPLICATE" && row.status === "DUPLICATE")).slice(0, 500), [rows, filter]);
 
   const reset = () => { setSummary(null); setRows([]); setResult(""); setError(""); setConfirmReplace(false); };
 
@@ -128,12 +128,13 @@ export function ChronicImportClient({ companies }: { companies: Array<{ id: stri
       {summary && (
         <Card className="space-y-4 p-4 sm:p-5">
           <h2 className="text-base font-black text-slate-900 dark:text-white">4. راجع النتيجة</h2>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-6">
             {[
               ["الصفوف", summary.total, "ALL"],
               ["ربط جديد", summary.newCount, "NEW"],
               ["موجود مسبقًا", summary.existingCount, "ALL"],
               ["مرفوض", summary.errorCount, "ERROR"],
+              ["مكرر يُتجاهل", summary.duplicateCount, "DUPLICATE"],
               ["تنبيه اسم", summary.warningCount, "WARNING"],
             ].map(([label, value, target]) => (
               <button key={label as string} type="button" onClick={() => setFilter(target as Filter)} className={`rounded-md border p-2 text-start ${filter === target ? "border-teal-500 bg-teal-50 dark:bg-teal-950/30" : "border-slate-200 dark:border-slate-700"}`}>
@@ -155,7 +156,7 @@ export function ChronicImportClient({ companies }: { companies: Array<{ id: stri
                     <td className="p-2" dir="ltr">{row.card}</td>
                     <td className="p-2">{row.beneficiaryName}{row.warning && <div className="mt-0.5 flex items-center gap-1 text-xs text-amber-700"><AlertTriangle className="h-3 w-3" /> {row.warning}</div>}</td>
                     <td className="p-2" dir="auto">{row.drugName}{row.notes && <div className="text-xs text-slate-500">{row.notes}</div>}</td>
-                    <td className="p-2">{row.status === "ERROR" ? <span className="text-xs font-bold text-rose-700">{row.message}</span> : row.status === "NEW" ? <span className="text-xs font-bold text-emerald-700">جديد</span> : <span className="text-xs font-bold text-slate-500">موجود</span>}</td>
+                    <td className="p-2">{row.status === "ERROR" ? <span className="text-xs font-bold text-rose-700">{row.message}</span> : row.status === "DUPLICATE" ? <span className="text-xs font-bold text-slate-500">مكرر</span> : row.status === "NEW" ? <span className="text-xs font-bold text-emerald-700">جديد</span> : <span className="text-xs font-bold text-slate-500">موجود</span>}</td>
                   </tr>
                 ))}
                 {visibleRows.length === 0 && <tr><td colSpan={5} className="p-4 text-center text-sm text-slate-500">لا توجد صفوف في هذا التصنيف</td></tr>}

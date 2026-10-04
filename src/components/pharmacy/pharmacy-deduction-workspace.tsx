@@ -11,14 +11,13 @@ import {
   uploadPharmacyPrescriptionAttachment,
 } from "@/app/actions/pharmacy";
 import { Button, Card, Input } from "@/components/ui";
+import { ACCEPTED_FILES, prepareFile } from "@/lib/pharmacy/client-files";
 
 type CategoryValue = "ROUTINE" | "CHRONIC" | "CHEMICAL";
 type AttachmentKind = "INSURANCE_CARD" | "PRESCRIPTION";
 
 const CATEGORY_LABELS: Record<CategoryValue, string> = { ROUTINE: "أدوية روتينية", CHRONIC: "أدوية مزمنة", CHEMICAL: "أدوية كيميائية" };
 const ATTACHMENT_LABELS: Record<AttachmentKind, string> = { INSURANCE_CARD: "صورة البطاقة التأمينية", PRESCRIPTION: "صورة الوصفة" };
-const ACCEPTED_FILES = "image/jpeg,image/png,image/webp,application/pdf";
-const MAX_FILE_BYTES = 8 * 1024 * 1024;
 
 type SearchItem = { id: string; card_number: string; name: string; phone_number: string | null; status: string };
 
@@ -110,27 +109,25 @@ function estimate(prices: number[], usage: Usage | undefined) {
   return { gross, company, patient: gross - company, remainingAfter: available };
 }
 
-function validateFile(file: File) {
-  if (!ACCEPTED_FILES.split(",").includes(file.type)) return "يسمح فقط بملفات PDF أو صور JPG وPNG وWEBP";
-  if (file.size > MAX_FILE_BYTES) return "حجم الملف يجب ألا يتجاوز 8 ميجابايت";
-  return null;
-}
 
 export function PharmacyDeductionWorkspace({
   company,
   enabledCategories,
   currentFacility,
+  fromOrder,
 }: {
   company: { id: string; name: string; code: string; logo: string | null };
   enabledCategories: CategoryValue[];
   currentFacility: { id: string; name: string };
+  /** عند الفتح من طلب مستفيد: المستفيد والفئة والأدوية المزمنة المطلوبة محددة مسبقًا. */
+  fromOrder?: { orderId: string; beneficiaryId: string; beneficiaryLabel: string; category: CategoryValue; chronicDrugIds: string[] } | null;
 }) {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(fromOrder?.beneficiaryLabel ?? "");
   const [results, setResults] = useState<SearchItem[]>([]);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [searchError, setSearchError] = useState("");
   const [hasSearched, setHasSearched] = useState(false);
-  const [category, setCategory] = useState<CategoryValue>(enabledCategories[0] ?? "ROUTINE");
+  const [category, setCategory] = useState<CategoryValue>(fromOrder && enabledCategories.includes(fromOrder.category) ? fromOrder.category : enabledCategories[0] ?? "ROUTINE");
   const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [pending, setPending] = useState<PendingDispense | null>(null);
   const [searching, startSearch] = useTransition();
@@ -178,6 +175,14 @@ export function PharmacyDeductionWorkspace({
   };
 
   const reload = async () => { if (beneficiary) await loadWorkspace(beneficiary.id); };
+
+  // الفتح من طلب مستفيد: تحميل ملفه مباشرة دون بحث.
+  useEffect(() => {
+    if (!fromOrder) return;
+    startBeneficiaryLoad(async () => { await loadWorkspace(fromOrder.beneficiaryId); });
+    // يُنفذ مرة واحدة عند الفتح.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const usageFor = (value: CategoryValue) => workspace?.usage?.categories.find((item) => item.category === value);
   const chronicLinked = (beneficiary?.chronic_drugs.length ?? 0) > 0;
@@ -278,6 +283,7 @@ export function PharmacyDeductionWorkspace({
                     <ChronicTab
                       key={`chronic-${beneficiary.id}`}
                       drugs={beneficiary.chronic_drugs}
+                      orderCard={fromOrder?.beneficiaryId === beneficiary.id ? { orderId: fromOrder.orderId, preselect: fromOrder.chronicDrugIds } : null}
                       usage={usageFor("CHRONIC")}
                       intervalDays={workspace.chronicIntervalDays}
                       onReview={setPending}
@@ -287,8 +293,8 @@ export function PharmacyDeductionWorkspace({
                         formData.set("beneficiaryId", beneficiary.id);
                         formData.set("idempotencyKey", idempotencyKey);
                         formData.set("items", JSON.stringify(items));
-                        formData.set("insuranceCard", files.INSURANCE_CARD);
-                        formData.set("prescription", files.PRESCRIPTION);
+                        if (files.INSURANCE_CARD) formData.set("insuranceCard", files.INSURANCE_CARD);
+                        else if (fromOrder?.beneficiaryId === beneficiary.id) formData.set("orderId", fromOrder.orderId);
                         const response = await dispenseChronicDrugs(formData);
                         if ("error" in response && response.error) return { error: response.error };
                         setNotice({ type: "success", text: "grossTotal" in response ? `تم صرف الأدوية المزمنة: الإجمالي ${money(response.grossTotal)}، حصة الشركة ${money(response.companyTotal)}، على المستفيد ${money(response.patientTotal)}` : "تم الصرف" });
@@ -299,16 +305,14 @@ export function PharmacyDeductionWorkspace({
                   ) : (
                     <PrescriptionTab
                       key={`${category}-${beneficiary.id}`}
-                      category={category}
                       prescriptions={beneficiary.pharmacy_prescriptions.filter((item) => item.medicine_category === category)}
                       usage={usageFor(category)}
                       onError={(text) => setNotice({ type: "error", text })}
                       onReview={setPending}
                       reload={reload}
-                      createPrescription={async (totalItemCount) => {
-                        const response = await createPharmacyPrescription({ companyId: company.id, beneficiaryId: beneficiary.id, category, totalItemCount });
+                      createPrescription={async () => {
+                        const response = await createPharmacyPrescription({ companyId: company.id, beneficiaryId: beneficiary.id, category });
                         if ("error" in response && response.error) return { error: response.error };
-                        await reload();
                         return { prescriptionId: "prescriptionId" in response ? response.prescriptionId : undefined };
                       }}
                       submit={async (prescriptionId, items, idempotencyKey) => {
@@ -441,8 +445,13 @@ function Totals({ prices, usage }: { prices: number[]; usage: Usage | undefined 
 
 type LineDraft = { key: string; sequence: string; price: string };
 
+const tripoliDayKey = (value: string | Date) => new Date(value).toLocaleDateString("en-CA", { timeZone: "Africa/Tripoli" });
+
+/**
+ * تبويب الروتيني والكيميائي: تظهر مباشرة بطاقات وصفات اليوم بعدد الحد اليومي في السياسة.
+ * البطاقة الفارغة تتحول إلى وصفة فعلية عند أول رفع لمرفقاتها.
+ */
 function PrescriptionTab({
-  category,
   prescriptions,
   usage,
   onError,
@@ -451,87 +460,111 @@ function PrescriptionTab({
   createPrescription,
   submit,
 }: {
-  category: CategoryValue;
   prescriptions: Prescription[];
   usage: Usage | undefined;
   onError: (text: string) => void;
   onReview: (pending: PendingDispense) => void;
   reload: () => Promise<void>;
-  createPrescription: (totalItemCount: number) => Promise<{ error?: string; prescriptionId?: string }>;
+  createPrescription: () => Promise<{ error?: string; prescriptionId?: string }>;
   submit: (prescriptionId: string, items: Array<{ sequence: number; price: number }>, idempotencyKey: string) => Promise<{ error?: string } | undefined>;
 }) {
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const [itemCount, setItemCount] = useState("3");
+  const dailyLimit = usage?.dailyLimit ?? 2;
+  const today = tripoliDayKey(new Date());
+  const todays = prescriptions
+    .filter((item) => tripoliDayKey(item.created_at) === today)
+    .sort((a, b) => a.prescription_number - b.prescription_number);
+  const emptySlots = Math.max(0, dailyLimit - Math.max(usage?.todayCount ?? 0, todays.length));
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-slate-600 dark:text-slate-300">مسموح {dailyLimit} وصفات يوميًا، ويتجدد الحد عند منتصف الليل.</p>
+      {todays.map((prescription, index) => (
+        <PrescriptionCard key={prescription.id} title={`الوصفة ${index + 1}`} prescription={prescription} usage={usage} onError={onError} onReview={onReview} reload={reload} createPrescription={createPrescription} submit={submit} />
+      ))}
+      {Array.from({ length: emptySlots }, (_, index) => (
+        <PrescriptionCard key={`empty-${todays.length + index}`} title={`الوصفة ${todays.length + index + 1}`} prescription={null} usage={usage} onError={onError} onReview={onReview} reload={reload} createPrescription={createPrescription} submit={submit} />
+      ))}
+      {todays.length === 0 && emptySlots === 0 && <EmptyState text="استنفد المستفيد وصفات اليوم" />}
+    </div>
+  );
+}
+
+function PrescriptionCard({
+  title,
+  prescription,
+  usage,
+  onError,
+  onReview,
+  reload,
+  createPrescription,
+  submit,
+}: {
+  title: string;
+  prescription: Prescription | null;
+  usage: Usage | undefined;
+  onError: (text: string) => void;
+  onReview: (pending: PendingDispense) => void;
+  reload: () => Promise<void>;
+  createPrescription: () => Promise<{ error?: string; prescriptionId?: string }>;
+  submit: (prescriptionId: string, items: Array<{ sequence: number; price: number }>, idempotencyKey: string) => Promise<{ error?: string } | undefined>;
+}) {
   const [lines, setLines] = useState<LineDraft[]>([{ key: newKey(), sequence: "", price: "" }]);
   const [uploading, setUploading] = useState<AttachmentKind | null>(null);
   const [busy, startBusy] = useTransition();
 
-  const active = prescriptions.find((item) => item.id === activeId) ?? prescriptions[0] ?? null;
-  const dailyLimit = usage?.dailyLimit ?? 2;
-  const todayCount = usage?.todayCount ?? 0;
-  const attachmentOf = (kind: AttachmentKind) => active?.attachments.find((item) => item.kind === kind) ?? null;
+  const attachmentOf = (kind: AttachmentKind) => prescription?.attachments.find((item) => item.kind === kind) ?? null;
   const hasAttachments = Boolean(attachmentOf("INSURANCE_CARD") && attachmentOf("PRESCRIPTION"));
-
-  const slotStatus = (slot: Slot) => {
-    const reservedActive = slot.status === "RESERVED" && slot.reservation_expires_at && new Date(slot.reservation_expires_at) > new Date();
-    if (slot.status === "DISPENSED") return { blocked: true, text: `صُرف لدى ${slot.dispensed_by_facility?.name ?? "مرفق آخر"}` };
-    if (reservedActive && !slot.reserved_by_current_facility) return { blocked: true, text: `محجوز لدى ${slot.reserved_by_facility?.name ?? "مرفق آخر"}` };
-    return { blocked: false, text: "متاح" };
-  };
+  const dispensedSlots = prescription?.slots.filter((slot) => slot.status === "DISPENSED") ?? [];
 
   const lineError = (line: LineDraft, index: number) => {
-    if (!active || line.sequence === "") return null;
+    if (line.sequence === "") return null;
     const sequence = Number(line.sequence);
-    if (!Number.isInteger(sequence) || sequence < 1 || sequence > active.total_item_count) return `رقم البند بين 1 و${active.total_item_count}`;
+    if (!Number.isInteger(sequence) || sequence < 1 || sequence > 50) return "رقم البند بين 1 و50";
     if (lines.some((other, otherIndex) => otherIndex < index && Number(other.sequence) === sequence)) return "رقم مكرر";
-    const slot = active.slots.find((item) => item.sequence === sequence);
-    if (slot && slotStatus(slot).blocked) return slotStatus(slot).text;
+    const slot = prescription?.slots.find((item) => item.sequence === sequence);
+    if (slot?.status === "DISPENSED") return `صُرف لدى ${slot.dispensed_by_facility?.name ?? "مرفق آخر"}`;
     if (line.price !== "" && !(Number(line.price) > 0)) return "السعر يجب أن يكون أكبر من صفر";
     return null;
   };
 
   const filledLines = lines.filter((line) => line.sequence !== "" || line.price !== "");
   const errors = lines.map(lineError);
-  const overCeiling = usage?.remaining != null && filledLines.reduce((sum, line) => sum + (Number(line.price) || 0), 0) > usage.remaining;
-  const ready = Boolean(active) && hasAttachments && !overCeiling && filledLines.length > 0 && errors.every((error) => !error) && filledLines.every((line) => line.sequence !== "" && Number(line.price) > 0);
+  const gross = filledLines.reduce((sum, line) => sum + (Number(line.price) || 0), 0);
+  const overCeiling = usage?.remaining != null && gross > usage.remaining;
+  const ready = Boolean(prescription) && hasAttachments && !overCeiling && filledLines.length > 0 && errors.every((error) => !error) && filledLines.every((line) => line.sequence !== "" && Number(line.price) > 0);
 
-  const upload = (kind: AttachmentKind, file: File) => {
-    if (!active) return;
-    const invalid = validateFile(file);
-    if (invalid) { onError(`${ATTACHMENT_LABELS[kind]}: ${invalid}`); return; }
+  const upload = (kind: AttachmentKind, original: File) => {
     setUploading(kind);
     startBusy(async () => {
+      const prepared = await prepareFile(original);
+      if ("error" in prepared) { setUploading(null); onError(`${ATTACHMENT_LABELS[kind]}: ${prepared.error}`); return; }
+      const file = prepared.file;
+      let prescriptionId = prescription?.id;
+      if (!prescriptionId) {
+        const created = await createPrescription();
+        if (created.error || !created.prescriptionId) { setUploading(null); onError(created.error ?? "تعذر إنشاء الوصفة"); return; }
+        prescriptionId = created.prescriptionId;
+      }
       const formData = new FormData();
-      formData.set("prescriptionId", active.id);
+      formData.set("prescriptionId", prescriptionId);
       formData.set("kind", kind);
       formData.set("file", file);
       const response = await uploadPharmacyPrescriptionAttachment(formData);
       setUploading(null);
-      if (response.error) { onError(response.error); return; }
+      if (response.error) onError(response.error);
       await reload();
     });
   };
 
-  const addPrescription = () => {
-    const count = Number(itemCount);
-    if (!Number.isInteger(count) || count < 1 || count > 50) { onError("عدد البنود في الوصفة يجب أن يكون بين 1 و50"); return; }
-    startBusy(async () => {
-      const response = await createPrescription(count);
-      if (response.error) { onError(response.error); return; }
-      setActiveId(response.prescriptionId ?? null);
-      setLines([{ key: newKey(), sequence: "", price: "" }]);
-    });
-  };
-
   const review = () => {
-    if (!active || !ready) return;
+    if (!prescription || !ready) return;
     const items = filledLines.map((line) => ({ sequence: Number(line.sequence), price: Number(line.price) }));
     const idempotencyKey = newKey();
     onReview({
-      lines: items.map((item) => ({ label: `البند ${item.sequence} من الوصفة ${active.prescription_number}`, price: item.price })),
-      files: active.attachments.map((item) => item.file_name),
+      lines: items.map((item) => ({ label: `البند ${item.sequence} — ${title}`, price: item.price })),
+      files: prescription.attachments.map((item) => item.file_name),
       submit: async () => {
-        const result = await submit(active.id, items, idempotencyKey);
+        const result = await submit(prescription.id, items, idempotencyKey);
         if (!result?.error) setLines([{ key: newKey(), sequence: "", price: "" }]);
         return result;
       },
@@ -539,58 +572,33 @@ function PrescriptionTab({
   };
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-end justify-between gap-2 rounded-lg border border-slate-200 p-2.5 dark:border-slate-700">
-        <div>
-          <p className="text-sm font-black">وصفات اليوم: {todayCount} من {dailyLimit}</p>
-          <p className="text-xs text-slate-500">يتجدد الحد عند منتصف الليل. الوصفة المفتوحة يمكن إكمال بنودها من أي مرفق.</p>
-        </div>
-        <div className="flex items-end gap-2">
-          <label className="text-xs font-bold text-slate-500">عدد بنود الوصفة
-            <Input className="mt-1 h-9 w-20" type="number" inputMode="numeric" dir="ltr" min="1" max="50" value={itemCount} onChange={(event) => setItemCount(event.target.value)} />
-          </label>
-          <Button type="button" onClick={addPrescription} disabled={busy || todayCount >= dailyLimit} title={todayCount >= dailyLimit ? "بلغ المستفيد الحد اليومي" : undefined} className="h-9 px-3 text-sm">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} وصفة جديدة</Button>
-        </div>
+    <section aria-label={title} className={`space-y-3 rounded-xl border p-3 ${prescription ? "border-teal-200 dark:border-teal-900" : "border-dashed border-slate-300 dark:border-slate-700"}`}>
+      <div className="flex flex-wrap items-baseline justify-between gap-1">
+        <h3 className="text-base font-black">{title}</h3>
+        <span className="text-xs font-bold text-slate-500">{prescription ? `أنشأها ${prescription.created_by_facility.name}` : "لم تُستخدم بعد: ارفع المرفقين للبدء"}</span>
       </div>
 
-      {prescriptions.length > 1 && (
-        <div className="flex flex-wrap gap-2" role="group" aria-label="الوصفات المفتوحة">
-          {prescriptions.map((prescription) => (
-            <button key={prescription.id} type="button" aria-pressed={active?.id === prescription.id} onClick={() => { setActiveId(prescription.id); setLines([{ key: newKey(), sequence: "", price: "" }]); }} className={`rounded-md border px-3 py-1.5 text-sm font-black ${active?.id === prescription.id ? "border-teal-500 bg-teal-50 text-teal-700 dark:bg-teal-950/30" : "border-slate-200 dark:border-slate-700"}`}>
-              وصفة {prescription.prescription_number} · {tripoliDate(prescription.created_at)}
-            </button>
-          ))}
-        </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {(["INSURANCE_CARD", "PRESCRIPTION"] as const).map((kind) => (
+          <FileZone key={kind} kind={kind} fileName={attachmentOf(kind)?.file_name ?? null} href={attachmentOf(kind) ? `/api/pharmacy/attachments/${attachmentOf(kind)!.id}` : undefined} busy={uploading === kind} disabled={busy && uploading !== kind} onPick={(file) => upload(kind, file)} />
+        ))}
+      </div>
+
+      {dispensedSlots.length > 0 && (
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+          <span className="font-black">مصروف مسبقًا: </span>
+          {dispensedSlots.map((slot) => `البند ${slot.sequence} (${slot.dispensed_by_facility?.name ?? "مرفق آخر"})`).join("، ")}
+        </p>
       )}
 
-      {!active ? (
-        <div className="rounded-lg border border-dashed border-slate-300 p-5 text-center text-sm font-bold text-slate-500 dark:border-slate-700">لا توجد وصفة مفتوحة. أدخل عدد بنود الوصفة واضغط «وصفة جديدة».</div>
-      ) : (
-        <div className="space-y-3 rounded-xl border border-teal-200 p-3 dark:border-teal-900">
-          <p className="text-sm font-black">وصفة رقم {active.prescription_number} · {active.total_item_count} بنود · أنشأها {active.created_by_facility.name}</p>
-
-          <div className="grid gap-2 sm:grid-cols-2">
-            {(["INSURANCE_CARD", "PRESCRIPTION"] as const).map((kind) => (
-              <FileZone key={kind} kind={kind} fileName={attachmentOf(kind)?.file_name ?? null} href={attachmentOf(kind) ? `/api/pharmacy/attachments/${attachmentOf(kind)!.id}` : undefined} busy={uploading === kind} disabled={busy && uploading !== kind} onPick={(file) => upload(kind, file)} />
-            ))}
-          </div>
-
-          <div>
-            <p className="mb-1.5 text-xs font-bold text-slate-500">حالة بنود الوصفة</p>
-            <div className="flex flex-wrap gap-1.5">
-              {active.slots.map((slot) => {
-                const status = slotStatus(slot);
-                return <span key={slot.id} title={status.text} className={`inline-flex min-w-9 items-center justify-center gap-1 rounded-md px-2 py-1 text-xs font-black tabular-nums ${status.blocked ? "bg-slate-200 text-slate-500 line-through dark:bg-slate-800" : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"}`}>{status.blocked && <LockKeyhole className="h-3 w-3" aria-hidden />}{slot.sequence}</span>;
-              })}
-            </div>
-          </div>
-
+      {prescription && (
+        <>
           <fieldset disabled={!hasAttachments || busy} className="space-y-2 disabled:opacity-50">
-            <legend className="mb-1 text-sm font-black">البنود المصروفة الآن {!hasAttachments && <span className="text-xs font-bold text-amber-700">(ارفع المرفقين أولًا)</span>}</legend>
+            <legend className="mb-1 text-sm font-black">رقم البند كما في الوصفة والسعر {!hasAttachments && <span className="text-xs font-bold text-amber-700">(ارفع المرفقين أولًا)</span>}</legend>
             {lines.map((line, index) => (
               <div key={line.key}>
                 <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto] gap-2">
-                  <Input aria-label={`رقم البند ${index + 1}`} placeholder="رقم البند" type="number" inputMode="numeric" dir="ltr" min="1" max={active.total_item_count} value={line.sequence} onChange={(event) => setLines((current) => current.map((item) => item.key === line.key ? { ...item, sequence: event.target.value } : item))} className="h-10" />
+                  <Input aria-label={`رقم البند ${index + 1}`} placeholder="رقم البند" type="number" inputMode="numeric" dir="ltr" min="1" max="50" value={line.sequence} onChange={(event) => setLines((current) => current.map((item) => item.key === line.key ? { ...item, sequence: event.target.value } : item))} className="h-10" />
                   <Input aria-label={`سعر البند ${index + 1}`} placeholder="السعر (د.ل)" type="number" inputMode="decimal" dir="ltr" min="0" step="0.01" value={line.price} onChange={(event) => setLines((current) => current.map((item) => item.key === line.key ? { ...item, price: event.target.value } : item))} className="h-10" />
                   <button type="button" onClick={() => setLines((current) => current.length === 1 ? [{ key: newKey(), sequence: "", price: "" }] : current.filter((item) => item.key !== line.key))} aria-label={`حذف السطر ${index + 1}`} className="px-2 text-slate-400 hover:text-rose-600"><Trash2 className="h-4 w-4" /></button>
                 </div>
@@ -602,50 +610,56 @@ function PrescriptionTab({
 
           <Totals prices={filledLines.map((line) => Number(line.price) || 0)} usage={usage} />
           <Button type="button" onClick={review} disabled={!ready || busy} className="h-10 w-full text-sm">مراجعة وتأكيد الصرف</Button>
-        </div>
+        </>
       )}
-      <span className="sr-only">{CATEGORY_LABELS[category]}</span>
-    </div>
+    </section>
   );
 }
 
+
 function ChronicTab({
   drugs,
+  orderCard,
   usage,
   intervalDays,
   onReview,
   submit,
 }: {
   drugs: ChronicDrug[];
+  /** صرف من طلب: تُستخدم بطاقة المستفيد المرسلة في المحادثة، وتُحدد أدويته المطلوبة مسبقًا. */
+  orderCard: { orderId: string; preselect: string[] } | null;
   usage: Usage | undefined;
   intervalDays: number;
   onReview: (pending: PendingDispense) => void;
-  submit: (items: Array<{ chronicDrugId: string; price: number }>, files: Record<AttachmentKind, File>, idempotencyKey: string) => Promise<{ error?: string } | undefined>;
+  submit: (items: Array<{ chronicDrugId: string; price: number }>, files: { INSURANCE_CARD?: File }, idempotencyKey: string) => Promise<{ error?: string } | undefined>;
 }) {
-  const [selected, setSelected] = useState<Record<string, string>>({});
-  const [files, setFiles] = useState<Partial<Record<AttachmentKind, File>>>({});
+  const [selected, setSelected] = useState<Record<string, string>>(() => Object.fromEntries(
+    drugs.filter((drug) => drug.eligible && orderCard?.preselect.includes(drug.id)).map((drug) => [drug.id, drug.last_price ? String(drug.last_price) : ""]),
+  ));
+  // المزمن يحتاج صورة البطاقة التأمينية فقط.
+  const [files, setFiles] = useState<{ INSURANCE_CARD?: File }>({});
   const [fileError, setFileError] = useState("");
 
   const chosen = drugs.filter((drug) => drug.id in selected);
   const prices = chosen.map((drug) => Number(selected[drug.id]) || 0);
   const overCeiling = usage?.remaining != null && prices.reduce((sum, price) => sum + price, 0) > usage.remaining;
-  const ready = chosen.length > 0 && !overCeiling && prices.every((price) => price > 0) && Boolean(files.INSURANCE_CARD && files.PRESCRIPTION);
+  const ready = chosen.length > 0 && !overCeiling && prices.every((price) => price > 0) && Boolean(files.INSURANCE_CARD || orderCard);
 
-  const pick = (kind: AttachmentKind, file: File) => {
-    const invalid = validateFile(file);
-    if (invalid) { setFileError(`${ATTACHMENT_LABELS[kind]}: ${invalid}`); return; }
+  const pick = async (kind: AttachmentKind, original: File) => {
+    const prepared = await prepareFile(original);
+    if ("error" in prepared) { setFileError(`${ATTACHMENT_LABELS[kind]}: ${prepared.error}`); return; }
     setFileError("");
-    setFiles((current) => ({ ...current, [kind]: file }));
+    setFiles((current) => ({ ...current, [kind]: prepared.file }));
   };
 
   const review = () => {
     if (!ready) return;
     const items = chosen.map((drug) => ({ chronicDrugId: drug.id, price: Number(selected[drug.id]) }));
     const idempotencyKey = newKey();
-    const attached = files as Record<AttachmentKind, File>;
+    const attached = { INSURANCE_CARD: files.INSURANCE_CARD };
     onReview({
       lines: chosen.map((drug) => ({ label: drug.drug_name, price: Number(selected[drug.id]) })),
-      files: [attached.INSURANCE_CARD.name, attached.PRESCRIPTION.name],
+      files: [attached.INSURANCE_CARD?.name ?? "البطاقة المرسلة في طلب المستفيد"],
       submit: async () => {
         const result = await submit(items, attached, idempotencyKey);
         if (!result?.error) { setSelected({}); setFiles({}); }
@@ -680,16 +694,14 @@ function ChronicTab({
         })}
       </ul>
 
-      <div className="grid gap-2 sm:grid-cols-2">
-        {(["INSURANCE_CARD", "PRESCRIPTION"] as const).map((kind) => (
-          <FileZone key={kind} kind={kind} fileName={files[kind]?.name ?? null} onPick={(file) => pick(kind, file)} onClear={() => setFiles((current) => ({ ...current, [kind]: undefined }))} />
-        ))}
+      <div className="sm:max-w-md">
+        <FileZone kind="INSURANCE_CARD" fileName={files.INSURANCE_CARD?.name ?? (orderCard ? "البطاقة المرسلة في طلب المستفيد" : null)} onPick={(file) => pick("INSURANCE_CARD", file)} onClear={() => setFiles({})} />
       </div>
       {fileError && <p role="alert" className="text-sm font-bold text-rose-600">{fileError}</p>}
 
       <Totals prices={prices} usage={usage} />
       <Button type="button" onClick={review} disabled={!ready} className="h-10 w-full text-sm">
-        {chosen.length === 0 ? "اختر دواءً واحدًا على الأقل" : !files.INSURANCE_CARD || !files.PRESCRIPTION ? "أرفق البطاقة والوصفة" : "مراجعة وتأكيد الصرف"}
+        {chosen.length === 0 ? "اختر دواءً واحدًا على الأقل" : !files.INSURANCE_CARD && !orderCard ? "أرفق صورة البطاقة التأمينية" : "مراجعة وتأكيد الصرف"}
       </Button>
     </div>
   );

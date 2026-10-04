@@ -76,6 +76,8 @@ model Facility {
   created_pharmacy_prescriptions PharmacyPrescription[]
   reserved_pharmacy_items         PharmacyPrescriptionItem[] @relation("PharmacyItemReservationFacility")
   dispensed_pharmacy_items        PharmacyPrescriptionItem[] @relation("PharmacyItemDispensingFacility")
+  pharmacy_profile                PharmacyProfile?
+  pharmacy_orders                 PharmacyOrder[]
 
   @@index([deleted_at])
   @@index([is_manager], map: "idx_facility_is_manager_fixed")
@@ -163,6 +165,7 @@ model Beneficiary {
   chronic_drugs                BeneficiaryChronicDrug[]
   pharmacy_dispenses           PharmacyDispense[]
   pharmacy_prescriptions       PharmacyPrescription[]
+  pharmacy_orders              PharmacyOrder[]
 
   @@index([card_number])
   @@index([deleted_at])
@@ -504,6 +507,77 @@ model PharmacyDispenseAttachment {
   @@index([prescription_id])
 }
 
+/// بيانات الصيدلية التي يديرها حساب المرفق بنفسه: الموقع وساعات العمل واستقبال الطلبات والتوصيل.
+model PharmacyProfile {
+  id                String   @id @default(cuid())
+  facility_id       String   @unique
+  accepts_orders    Boolean  @default(false)
+  address           String?
+  city              String?
+  phone             String?
+  latitude          Float?
+  longitude         Float?
+  /// HH:MM بتوقيت طرابلس
+  opens_at          String?
+  closes_at         String?
+  delivery_enabled  Boolean  @default(false)
+  /// قيمة التوصيل خارج التأمين ويدفعها المستفيد: أساس + لكل كم، ضمن مسافة قصوى
+  delivery_base_fee Decimal  @default(0) @db.Decimal(10, 2)
+  delivery_per_km   Decimal  @default(0) @db.Decimal(10, 2)
+  delivery_max_km   Decimal? @db.Decimal(6, 2)
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+  facility          Facility @relation(fields: [facility_id], references: [id], onDelete: Cascade)
+
+  @@index([accepts_orders])
+}
+
+/// طلب المستفيد من صيدلية: محادثة للتحقق من التوفر، ثم استلام بنفسه أو توصيل.
+model PharmacyOrder {
+  id                  String                 @id @default(cuid())
+  beneficiary_id      String
+  facility_id         String
+  company_id          String
+  medicine_category   MedicineCategory
+  fulfillment         PharmacyFulfillment
+  status              PharmacyOrderStatus    @default(PENDING)
+  /// لقطة وقت الطلب: قيمة التوصيل والمسافة والعنوان (خارج التأمين)
+  delivery_fee        Decimal?               @db.Decimal(10, 2)
+  delivery_distance_km Float?
+  delivery_latitude   Float?
+  delivery_longitude  Float?
+  delivery_address    String?
+  /// الأدوية المزمنة المطلوبة (معرفات BeneficiaryChronicDrug)
+  chronic_drug_ids    Json?
+  note                String?
+  prescription_id     String?
+  status_changed_at   DateTime               @default(now())
+  created_at          DateTime               @default(now())
+  updated_at          DateTime               @updatedAt
+  beneficiary         Beneficiary            @relation(fields: [beneficiary_id], references: [id], onDelete: Restrict)
+  facility            Facility               @relation(fields: [facility_id], references: [id], onDelete: Restrict)
+  messages            PharmacyOrderMessage[]
+
+  @@index([beneficiary_id, created_at])
+  @@index([facility_id, status, created_at])
+}
+
+model PharmacyOrderMessage {
+  id             String             @id @default(cuid())
+  order_id       String
+  sender         PharmacyChatSender
+  body           String?
+  attachment_kind PharmacyAttachmentKind?
+  file_name      String?
+  mime_type      String?
+  storage_path   String?
+  read_at        DateTime?
+  created_at     DateTime           @default(now())
+  order          PharmacyOrder      @relation(fields: [order_id], references: [id], onDelete: Cascade)
+
+  @@index([order_id, created_at])
+}
+
 model ServiceTypeMapping {
   id           String           @id @default(cuid())
   company_id   String
@@ -695,6 +769,29 @@ enum MedicineCategory {
   ROUTINE
   CHRONIC
   CHEMICAL
+}
+
+enum PharmacyFulfillment {
+  PICKUP
+  DELIVERY
+}
+
+enum PharmacyOrderStatus {
+  /// أرسله المستفيد وينتظر رد الصيدلية
+  PENDING
+  /// أكدت الصيدلية التوفر
+  AVAILABLE
+  /// أكد المستفيد الطلب بعد معرفة التوفر وقيمة التوصيل
+  CONFIRMED
+  OUT_FOR_DELIVERY
+  COMPLETED
+  REJECTED
+  CANCELLED
+}
+
+enum PharmacyChatSender {
+  BENEFICIARY
+  FACILITY
 }
 
 enum PharmacyAttachmentKind {

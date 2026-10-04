@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Bell, CalendarDays, Wallet, LogOut, CheckCheck, Volume2, VolumeX } from "lucide-react";
+import Link from "next/link";
+import { Bell, CalendarDays, Wallet, LogOut, CheckCheck, MessageCircle, Volume2, VolumeX } from "lucide-react";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { formatCurrency } from "@/lib/money";
 import { formatDateTripoli, formatDateTimeTripoli } from "@/lib/datetime";
+import { PharmacySection, type PharmacyData } from "./pharmacy-section";
 
 type Notification = {
   id: string;
@@ -33,6 +35,7 @@ type DashboardData = {
   status: string;
   transactions: Tx[];
   notifications: Notification[];
+  pharmacy: PharmacyData;
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -267,6 +270,16 @@ export function BeneficiaryDashboardClient({ initialData }: { initialData: Dashb
           </p>
         )}
       </div>
+
+      <Link href="/beneficiary/pharmacy" className="mt-4 flex items-center justify-between gap-3 rounded-2xl bg-teal-600 p-4 text-white shadow-md">
+        <span>
+          <span className="block text-base font-black">اطلب دواءك من صيدلية</span>
+          <span className="block text-xs text-teal-100">أرسل وصفتك، تحقق من التوفر، واختر الاستلام أو التوصيل</span>
+        </span>
+        <MessageCircle className="h-6 w-6 shrink-0" aria-hidden />
+      </Link>
+
+      <PharmacySection data={data.pharmacy} />
 
       {/* Transactions */}
       <div className="mt-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">

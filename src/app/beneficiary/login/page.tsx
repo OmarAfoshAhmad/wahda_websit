@@ -3,14 +3,18 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, ShieldAlert, Phone, CreditCard, Eye, EyeOff, Timer } from "lucide-react";
-import { normalizeCardInput } from "@/lib/card-number";
+
+type LoginCompany = { id: string; name: string; prefix: string };
 
 type Step = "credentials" | "otp";
 
 export default function BeneficiaryLoginPage() {
   const router = useRouter();
   const [step, setStep] = useState<Step>("credentials");
-  const [cardNumber, setCardNumber] = useState("");
+  // الدخول بالشركة + الرقم الوظيفي: ما بعد رمز الشركة والسنة في البطاقة (مثل 10540W1 من JMR202510540W1).
+  const [companies, setCompanies] = useState<LoginCompany[]>([]);
+  const [companyId, setCompanyId] = useState("");
+  const [employeeNumber, setEmployeeNumber] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [otpLength, setOtpLength] = useState(6);
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
@@ -21,6 +25,25 @@ export default function BeneficiaryLoginPage() {
   const [showOtp, setShowOtp] = useState(false);
 
   const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const company = companies.find((item) => item.id === companyId) ?? null;
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/beneficiary/companies")
+      .then((res) => res.json())
+      .then((data: { companies?: LoginCompany[] }) => {
+        if (cancelled) return;
+        setCompanies(data.companies ?? []);
+        try {
+          const remembered = localStorage.getItem("beneficiary-company");
+          if (remembered && data.companies?.some((item) => item.id === remembered)) setCompanyId(remembered);
+        } catch {
+          // التخزين المحلي غير متاح
+        }
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
 
   // عداد الوقت
   useEffect(() => {
@@ -43,16 +66,16 @@ export default function BeneficiaryLoginPage() {
   const handleCredentialsSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    const trimmedCard = normalizeCardInput(cardNumber);
     const trimmedPhone = phoneNumber.trim();
-    if (!trimmedCard || !trimmedPhone) return;
+    if (!companyId || !employeeNumber.trim() || !trimmedPhone) return;
+    try { localStorage.setItem("beneficiary-company", companyId); } catch { /* غير متاح */ }
 
     setLoading(true);
     try {
       const res = await fetch("/api/beneficiary/auth/request-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ card_number: trimmedCard, phone_number: trimmedPhone }),
+        body: JSON.stringify({ company_id: companyId, employee_number: employeeNumber, phone_number: trimmedPhone }),
       });
       const data = await res.json();
 
@@ -72,7 +95,7 @@ export default function BeneficiaryLoginPage() {
     } finally {
       setLoading(false);
     }
-  }, [cardNumber, phoneNumber, triggerErrorFeedback]);
+  }, [companyId, employeeNumber, phoneNumber, triggerErrorFeedback]);
 
   // ── الخطوة 2: إدخال OTP ───────────────────────────────────────────
   const handleOtpChange = useCallback(async (index: number, value: string) => {
@@ -107,11 +130,10 @@ export default function BeneficiaryLoginPage() {
     setLoading(true);
     setError("");
     try {
-      const trimmedCard = normalizeCardInput(cardNumber);
       const res = await fetch("/api/beneficiary/auth/verify-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ card_number: trimmedCard, phone_number: phoneNumber.trim(), code: fullOtp }),
+        body: JSON.stringify({ company_id: companyId, employee_number: employeeNumber, phone_number: phoneNumber.trim(), code: fullOtp }),
       });
       const data = await res.json();
 
@@ -126,7 +148,7 @@ export default function BeneficiaryLoginPage() {
     } finally {
       setLoading(false);
     }
-  }, [cardNumber, phoneNumber, otpLength, timeLeft, router, triggerErrorFeedback]);
+  }, [companyId, employeeNumber, phoneNumber, otpLength, timeLeft, router, triggerErrorFeedback]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -150,25 +172,50 @@ export default function BeneficiaryLoginPage() {
           {step === "credentials" ? (
             <form onSubmit={handleCredentialsSubmit} className="space-y-5">
               <div className="space-y-1.5">
-                <label htmlFor="card_number" className="block text-xs font-black uppercase tracking-widest text-slate-400 dark:text-slate-500">
-                  رقم البطاقة
+                <label htmlFor="company" className="block text-xs font-black uppercase tracking-widest text-slate-400 dark:text-slate-500">
+                  الشركة
                 </label>
-                <div className="relative">
-                  <CreditCard className="absolute right-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+                <select
+                  id="company"
+                  value={companyId}
+                  onChange={(e) => { setCompanyId(e.target.value); setError(""); }}
+                  className="h-14 w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-4 text-base font-bold text-slate-900 dark:text-white focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  required
+                >
+                  <option value="" disabled>{companies.length === 0 ? "جارٍ التحميل…" : "اختر شركتك"}</option>
+                  {companies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label htmlFor="employee_number" className="block text-xs font-black uppercase tracking-widest text-slate-400 dark:text-slate-500">
+                  الرقم الوظيفي
+                </label>
+                {/* البادئة ثابتة يسارًا والمستفيد يكتب ما بعدها فقط؛ الحروف تتحول تلقائيًا إلى كبيرة. */}
+                <div dir="ltr" className="flex h-14 w-full overflow-hidden rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20">
+                  <span className="flex items-center gap-1.5 border-r border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 px-3 text-base font-black tracking-wider text-slate-500" aria-hidden>
+                    <CreditCard className="h-4 w-4" />{company?.prefix ?? "····"}
+                  </span>
                   <input
-                    id="card_number"
-                    name="card_number"
+                    id="employee_number"
+                    name="employee_number"
                     type="text"
                     inputMode="text"
                     autoComplete="off"
-                    autoFocus
-                    value={cardNumber}
-                    onChange={(e) => { setCardNumber(e.target.value); setError(""); }}
-                    placeholder="رقم البطاقة المستلمة"
-                    className="h-14 w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 pr-12 pl-4 text-center text-lg font-bold tracking-widest text-slate-900 dark:text-white placeholder:text-slate-300 dark:placeholder:text-slate-500 focus:border-primary focus:bg-white dark:focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-colors"
+                    autoCapitalize="characters"
+                    spellCheck={false}
+                    maxLength={20}
+                    value={employeeNumber}
+                    onChange={(e) => { setEmployeeNumber(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "")); setError(""); }}
+                    placeholder="10540W1"
+                    aria-describedby="employee_number_hint"
+                    className="min-w-0 flex-1 bg-transparent px-4 text-lg font-bold uppercase tracking-widest text-slate-900 dark:text-white placeholder:text-slate-300 dark:placeholder:text-slate-600 focus:outline-none"
                     required
                   />
                 </div>
+                <p id="employee_number_hint" className="text-xs text-slate-500 dark:text-slate-400">
+                  اكتب الجزء الذي يأتي بعد {company ? <span dir="ltr" className="font-bold">{company.prefix}</span> : "رمز الشركة والسنة"} في بطاقتك.
+                </p>
               </div>
 
               <div className="space-y-1.5">
@@ -201,7 +248,7 @@ export default function BeneficiaryLoginPage() {
 
               <button
                 type="submit"
-                disabled={loading || !phoneNumber.trim() || !cardNumber.trim()}
+                disabled={loading || !phoneNumber.trim() || !companyId || !employeeNumber.trim()}
                 className="flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-primary text-base font-black text-white shadow-sm transition hover:bg-primary-dark disabled:opacity-60"
               >
                 {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : null}

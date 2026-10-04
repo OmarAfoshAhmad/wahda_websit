@@ -6,12 +6,18 @@ import { PharmacyDeductionWorkspace } from "@/components/pharmacy/pharmacy-deduc
 import prisma from "@/lib/prisma";
 import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-guard";
 
-export default async function PharmacyCompanyPage({ params }: { params: Promise<{ companyId: string }> }) {
+export default async function PharmacyCompanyPage({ params, searchParams }: { params: Promise<{ companyId: string }>; searchParams: Promise<{ order?: string }> }) {
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
   if (!hasPermission(session, "pharmacy_services") && !hasPermission(session, "view_pharmacy_beneficiaries")) redirect("/dashboard");
 
   const { companyId } = await params;
+  const { order: orderId } = await searchParams;
+  // الفتح من صندوق طلبات المستفيدين: الطلب يجب أن يكون موجهًا لهذا المرفق ولهذه الشركة.
+  const order = orderId ? await prisma.pharmacyOrder.findFirst({
+    where: { id: orderId, facility_id: session.id, company_id: companyId },
+    select: { id: true, beneficiary_id: true, medicine_category: true, chronic_drug_ids: true, beneficiary: { select: { name: true, card_number: true } } },
+  }) : null;
   const company = await prisma.insuranceCompany.findFirst({
     where: { id: companyId, deleted_at: null, is_active: true },
     select: {
@@ -58,6 +64,13 @@ export default async function PharmacyCompanyPage({ params }: { params: Promise<
         <PharmacyDeductionWorkspace
           company={{ id: company.id, name: company.name, code: company.code, logo: company.logo }}
           enabledCategories={enabledCategories}
+          fromOrder={order ? {
+            orderId: order.id,
+            beneficiaryId: order.beneficiary_id,
+            beneficiaryLabel: `${order.beneficiary.name} - ${order.beneficiary.card_number}`,
+            category: order.medicine_category,
+            chronicDrugIds: Array.isArray(order.chronic_drug_ids) ? (order.chronic_drug_ids as string[]) : [],
+          } : null}
           currentFacility={{ id: session.id, name: session.name }}
         />
       </div>

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Building2, ChevronLeft, Pill, ShieldCheck, Users } from "lucide-react";
+import { Building2, ChevronLeft, MessagesSquare, Pill, ShieldCheck, Store, Users } from "lucide-react";
+import { getFacilityOrdersBadge } from "@/app/actions/pharmacy-orders";
 import { Shell } from "@/components/shell";
 import { Card } from "@/components/ui";
 import prisma from "@/lib/prisma";
@@ -72,6 +73,7 @@ export default async function PharmacyServicesPage() {
     },
   });
 
+  const ordersBadge = hasPermission(session, "pharmacy_services") ? (await getFacilityOrdersBadge()).count : 0;
   const pharmacyCompanies = companies.filter((company) => company.service_policies.length > 0);
 
   return (
@@ -87,11 +89,24 @@ export default async function PharmacyServicesPage() {
           <p className="text-sm text-slate-500 dark:text-slate-400">
             إدارة صرف الأدوية لمستفيدي شركات التأمين وفق السقوف ونسب التغطية المعتمدة.
           </p>
+          <div className="flex flex-wrap gap-2">
+          {hasPermission(session, "pharmacy_services") && (
+            <>
+              <Link href="/admin/pharmacy-services/orders" className="inline-flex w-fit items-center gap-1.5 rounded-md bg-teal-600 px-3 py-2 text-sm font-bold text-white hover:bg-teal-700">
+                <MessagesSquare className="h-4 w-4" /> طلبات المستفيدين
+                {ordersBadge > 0 && <span className="rounded-full bg-white px-1.5 text-xs font-black text-teal-700">{ordersBadge}</span>}
+              </Link>
+              <Link href="/admin/pharmacy-services/my-pharmacy" className="inline-flex w-fit items-center gap-1.5 rounded-md border border-teal-300 px-3 py-2 text-sm font-bold text-teal-700 hover:bg-teal-50 dark:border-teal-800 dark:text-teal-300 dark:hover:bg-teal-950/30">
+                <Store className="h-4 w-4" /> بيانات صيدليتي
+              </Link>
+            </>
+          )}
           {hasPermission(session, "manage_companies") && (
             <Link href="/admin/pharmacy-services/chronic-import" className="inline-flex w-fit items-center gap-1.5 rounded-md border border-teal-300 px-3 py-2 text-sm font-bold text-teal-700 hover:bg-teal-50 dark:border-teal-800 dark:text-teal-300 dark:hover:bg-teal-950/30">
               <Pill className="h-4 w-4" /> استيراد الأدوية المزمنة من Excel
             </Link>
           )}
+          </div>
         </div>
 
         {pharmacyCompanies.length === 0 ? (
