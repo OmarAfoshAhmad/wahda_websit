@@ -130,6 +130,10 @@ export async function upsertServicePolicy(data: {
     chemical_prescription_limit: number | null;
     chemical_attachment_required: boolean;
     max_attachments: number;
+    routine_daily_limit?: number;
+    chemical_daily_limit?: number;
+    chronic_interval_days?: number;
+    policy_year_start_month?: number;
   };
   equestrian_config?: {
     emergency_ceiling: number;
@@ -206,6 +210,16 @@ export async function upsertServicePolicy(data: {
       if (prescriptionLimits.some((limit) => limit !== null && (!Number.isInteger(limit) || limit < 1 || limit > 4))) {
         return { error: "عدد الوصفات يجب أن يكون بين 1 و4 أو يُترك فارغًا." };
       }
+      const isIntInRange = (value: number | undefined, min: number, max: number) => value === undefined || (Number.isInteger(value) && value >= min && value <= max);
+      if (!isIntInRange(config.routine_daily_limit, 1, 20) || !isIntInRange(config.chemical_daily_limit, 1, 20)) {
+        return { error: "عدد الوصفات اليومي يجب أن يكون بين 1 و20." };
+      }
+      if (!isIntInRange(config.chronic_interval_days, 1, 365)) {
+        return { error: "فترة صرف المزمن يجب أن تكون بين يوم و365 يومًا." };
+      }
+      if (!isIntInRange(config.policy_year_start_month, 1, 12)) {
+        return { error: "شهر بداية السنة التأمينية يجب أن يكون بين 1 و12." };
+      }
     }
 
     const pharmacyConfig = selectedServiceType.code === "MEDICINE"
@@ -228,6 +242,10 @@ export async function upsertServicePolicy(data: {
           chemical_prescription_limit: data.pharmacy_config?.chemical_prescription_limit ?? null,
           chemical_attachment_required: data.pharmacy_config?.chemical_attachment_required ?? true,
           max_attachments: Math.min(5, Math.max(1, data.pharmacy_config?.max_attachments ?? 2)),
+          routine_daily_limit: data.pharmacy_config?.routine_daily_limit ?? 2,
+          chemical_daily_limit: data.pharmacy_config?.chemical_daily_limit ?? 2,
+          chronic_interval_days: data.pharmacy_config?.chronic_interval_days ?? 28,
+          policy_year_start_month: data.pharmacy_config?.policy_year_start_month ?? 1,
         }
       : null;
 

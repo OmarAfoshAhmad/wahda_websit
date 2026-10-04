@@ -32,42 +32,12 @@ export default async function PharmacyCompanyPage({ params }: { params: Promise<
   });
   if (!company || company.service_policies.length === 0 || !company.service_policies[0].pharmacy_config) notFound();
 
-  const policy = company.service_policies[0];
-  const config = policy.pharmacy_config!;
-  const defaultCoverage = Number(policy.coverage_percent);
-  const defaultFrequency = policy.frequency_months;
-  const categories = [
-    config.routine_enabled ? {
-      value: "ROUTINE" as const,
-      label: "أدوية روتينية",
-      ceiling: config.routine_ceiling === null ? null : Number(config.routine_ceiling),
-      coverage: config.routine_coverage_percent === null ? defaultCoverage : Number(config.routine_coverage_percent),
-      frequencyMonths: config.routine_frequency_months ?? defaultFrequency,
-      prescriptionLimit: config.routine_prescription_limit ?? config.default_prescription_limit,
-      attachmentRequired: true,
-      maxAttachments: config.max_attachments,
-    } : null,
-    config.chronic_enabled ? {
-      value: "CHRONIC" as const,
-      label: "أدوية مزمنة",
-      ceiling: config.chronic_ceiling === null ? null : Number(config.chronic_ceiling),
-      coverage: config.chronic_coverage_percent === null ? defaultCoverage : Number(config.chronic_coverage_percent),
-      frequencyMonths: config.chronic_frequency_months ?? defaultFrequency,
-      prescriptionLimit: config.chronic_prescription_limit ?? config.default_prescription_limit,
-      attachmentRequired: false,
-      maxAttachments: config.max_attachments,
-    } : null,
-    config.chemical_enabled ? {
-      value: "CHEMICAL" as const,
-      label: "أدوية كيميائية",
-      ceiling: config.chemical_ceiling === null ? null : Number(config.chemical_ceiling),
-      coverage: config.chemical_coverage_percent === null ? defaultCoverage : Number(config.chemical_coverage_percent),
-      frequencyMonths: config.chemical_frequency_months ?? defaultFrequency,
-      prescriptionLimit: config.chemical_prescription_limit ?? config.default_prescription_limit,
-      attachmentRequired: config.chemical_attachment_required,
-      maxAttachments: config.max_attachments,
-    } : null,
-  ].filter((category): category is NonNullable<typeof category> => category !== null);
+  const config = company.service_policies[0].pharmacy_config!;
+  const enabledCategories = ([
+    config.routine_enabled ? "ROUTINE" : null,
+    config.chronic_enabled ? "CHRONIC" : null,
+    config.chemical_enabled ? "CHEMICAL" : null,
+  ] as const).filter((value): value is "ROUTINE" | "CHRONIC" | "CHEMICAL" => value !== null);
 
   return (
     <Shell facilityName={session.name} session={session}>
@@ -87,7 +57,7 @@ export default async function PharmacyCompanyPage({ params }: { params: Promise<
 
         <PharmacyDeductionWorkspace
           company={{ id: company.id, name: company.name, code: company.code, logo: company.logo }}
-          categories={categories}
+          enabledCategories={enabledCategories}
           currentFacility={{ id: session.id, name: session.name }}
         />
       </div>

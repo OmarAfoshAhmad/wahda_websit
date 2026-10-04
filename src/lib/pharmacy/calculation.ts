@@ -9,6 +9,10 @@ export type PharmacyCalculationInput = {
   sequenceRules?: SequenceCoverageRule[] | null;
   ceilingAmount: MoneyInput | null;
   consumedBefore: MoneyInput;
+  /** GROSS: السقف يُستهلك بإجمالي سعر البند المغطى. COMPANY_SHARE: بحصة الشركة فقط. */
+  ceilingBasis?: "GROSS" | "COMPANY_SHARE";
+  /** سقوف إضافية تُطبَّق معًا (مثل السقف العام فوق سقف الفئة)؛ المتاح هو الأصغر بينها. */
+  additionalCeilings?: Array<{ ceilingAmount: MoneyInput | null; consumedBefore: MoneyInput }>;
 };
 
 const ZERO = new Prisma.Decimal(0);
@@ -24,17 +28,32 @@ function percentage(value: MoneyInput) {
 export function calculatePharmacyDispense(input: PharmacyCalculationInput) {
   const fallback = percentage(input.defaultCoveragePercent);
   const rules = input.sequenceRules ?? [];
-  const ceiling = input.ceilingAmount === null ? null : money(input.ceilingAmount);
   const consumedBefore = money(input.consumedBefore);
-  let available = ceiling === null ? null : Prisma.Decimal.max(ZERO, ceiling.minus(consumedBefore));
+  const basis = input.ceilingBasis ?? "COMPANY_SHARE";
+  const remainingOf = (amount: MoneyInput | null, consumed: MoneyInput) =>
+    amount === null ? null : Prisma.Decimal.max(ZERO, money(amount).minus(money(consumed)));
+  const remainings = [remainingOf(input.ceilingAmount, input.consumedBefore), ...(input.additionalCeilings ?? []).map((extra) => remainingOf(extra.ceilingAmount, extra.consumedBefore))]
+    .filter((value): value is Prisma.Decimal => value !== null);
+  const initialAvailable = remainings.length === 0 ? null : Prisma.Decimal.min(...remainings);
+  let available = initialAvailable;
+  let ceilingConsumption = ZERO;
 
   const items = input.items.filter((item) => money(item.price).gt(0)).sort((a, b) => a.sequence - b.sequence).map((item) => {
     const price = money(item.price);
     const rule = rules.find((candidate) => item.sequence >= candidate.from && (candidate.to === null || item.sequence <= candidate.to));
     const coveragePercent = rule ? percentage(rule.coveragePercent) : fallback;
     const coveredBeforeCeiling = price.mul(coveragePercent).div(HUNDRED).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
-    const companyShare = available === null ? coveredBeforeCeiling : Prisma.Decimal.min(coveredBeforeCeiling, available);
-    if (available !== null) available = available.minus(companyShare);
+    let companyShare: Prisma.Decimal;
+    if (basis === "GROSS") {
+      const coveredGross = available === null ? price : Prisma.Decimal.min(price, available);
+      companyShare = coveredGross.mul(coveragePercent).div(HUNDRED).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+      ceilingConsumption = ceilingConsumption.plus(coveredGross);
+      if (available !== null) available = available.minus(coveredGross);
+    } else {
+      companyShare = available === null ? coveredBeforeCeiling : Prisma.Decimal.min(coveredBeforeCeiling, available);
+      ceilingConsumption = ceilingConsumption.plus(companyShare);
+      if (available !== null) available = available.minus(companyShare);
+    }
     return { sequence: item.sequence, drugId: item.drugId ?? null, price, coveragePercent, companyShare, patientShare: price.minus(companyShare) };
   });
 
@@ -48,11 +67,11 @@ export function calculatePharmacyDispense(input: PharmacyCalculationInput) {
     grossTotal,
     companyTotal,
     patientTotal,
-    ceilingConsumption: companyTotal,
+    ceilingConsumption,
     consumedBefore,
-    consumedAfter: consumedBefore.plus(companyTotal),
-    remainingBefore: ceiling === null ? null : Prisma.Decimal.max(ZERO, ceiling.minus(consumedBefore)),
-    remainingAfter: ceiling === null ? null : available,
+    consumedAfter: consumedBefore.plus(ceilingConsumption),
+    remainingBefore: initialAvailable,
+    remainingAfter: available,
   };
 }
 

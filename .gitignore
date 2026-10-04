@@ -48,3 +48,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# مرفقات الصيدلية المرفوعة (بطاقات ووصفات المستفيدين) لا تُرفع إلى المستودع
+/storage/

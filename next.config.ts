@@ -39,7 +39,7 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
-  serverExternalPackages: [],
+  serverExternalPackages: ["sharp", "pdfjs-dist", "@napi-rs/canvas"],
   // رفع حد Server Actions لمنع أخطاء 502 على الطلبات الكبيرة
   experimental: {
     serverActions: {

@@ -342,6 +342,13 @@ model PharmacyPolicyConfig {
   chemical_attachment_required Boolean       @default(true)
   max_attachments              Int           @default(2)
   sequence_pricing_rules       Json?
+  /// عدد الوصفات المسموح بها يوميًا (بتوقيت طرابلس) للروتيني والكيميائي
+  routine_daily_limit          Int           @default(2)
+  chemical_daily_limit         Int           @default(2)
+  /// الحد الأدنى بالأيام بين صرفين لنفس الدواء المزمن
+  chronic_interval_days        Int           @default(28)
+  /// شهر بداية السنة التأمينية (1-12) التي تُحسب عليها السقوف
+  policy_year_start_month      Int           @default(1)
   created_at                   DateTime      @default(now())
   updated_at                   DateTime      @updatedAt
   service_policy               ServicePolicy @relation(fields: [service_policy_id], references: [id], onDelete: Cascade)
@@ -430,7 +437,7 @@ model PharmacyPrescription {
   slots                  PharmacyPrescriptionItem[]
   attachments            PharmacyDispenseAttachment[]
 
-  @@unique([beneficiary_id, medicine_category, prescription_number, status])
+  @@unique([beneficiary_id, medicine_category, prescription_number])
   @@index([beneficiary_id, medicine_category, status])
   @@index([company_id, created_at])
 }
@@ -482,6 +489,7 @@ model PharmacyDispenseAttachment {
   id             String           @id @default(cuid())
   dispense_id    String?
   prescription_id String?
+  kind           PharmacyAttachmentKind?
   uploaded_by_id String
   file_name      String
   mime_type      String
@@ -687,6 +695,11 @@ enum MedicineCategory {
   ROUTINE
   CHRONIC
   CHEMICAL
+}
+
+enum PharmacyAttachmentKind {
+  INSURANCE_CARD
+  PRESCRIPTION
 }
 
 enum PharmacyDispenseStatus {

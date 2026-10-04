@@ -1,100 +1,150 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
-import { Building2, FileText, Loader2, LockKeyhole, Paperclip, Phone, Plus, Search, Upload, UserRound } from "lucide-react";
-import { createPharmacyPrescription, getPharmacyBeneficiaryWorkspace, reservePharmacyPrescriptionItems, searchPharmacyBeneficiaries, uploadPharmacyPrescriptionAttachment } from "@/app/actions/pharmacy";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { AlertTriangle, CheckCircle2, CreditCard, FileText, History, Loader2, LockKeyhole, Phone, Plus, Search, Trash2, Upload, UserRound, X } from "lucide-react";
+import {
+  createPharmacyPrescription,
+  dispenseChronicDrugs,
+  dispensePharmacyPrescriptionItems,
+  getPharmacyBeneficiaryWorkspace,
+  searchPharmacyBeneficiaries,
+  uploadPharmacyPrescriptionAttachment,
+} from "@/app/actions/pharmacy";
 import { Button, Card, Input } from "@/components/ui";
 
-type Category = {
-  value: "ROUTINE" | "CHRONIC" | "CHEMICAL";
-  label: string;
-  ceiling: number | null;
-  coverage: number;
-  frequencyMonths: number | null;
-  prescriptionLimit: number | null;
-  attachmentRequired: boolean;
-  maxAttachments: number;
+type CategoryValue = "ROUTINE" | "CHRONIC" | "CHEMICAL";
+type AttachmentKind = "INSURANCE_CARD" | "PRESCRIPTION";
+
+const CATEGORY_LABELS: Record<CategoryValue, string> = { ROUTINE: "أدوية روتينية", CHRONIC: "أدوية مزمنة", CHEMICAL: "أدوية كيميائية" };
+const ATTACHMENT_LABELS: Record<AttachmentKind, string> = { INSURANCE_CARD: "صورة البطاقة التأمينية", PRESCRIPTION: "صورة الوصفة" };
+const ACCEPTED_FILES = "image/jpeg,image/png,image/webp,application/pdf";
+const MAX_FILE_BYTES = 8 * 1024 * 1024;
+
+type SearchItem = { id: string; card_number: string; name: string; phone_number: string | null; status: string };
+
+type Usage = {
+  category: CategoryValue;
+  enabled: boolean;
+  coveragePercent: number;
+  categoryCeiling: number | null;
+  overallCeiling: number | null;
+  remaining: number | null;
+  dailyLimit: number | null;
+  todayCount: number | null;
 };
 
-type SearchItem = {
+type Slot = {
   id: string;
-  card_number: string;
-  name: string;
-  phone_number: string | null;
-  status: string;
+  sequence: number;
+  status: "AVAILABLE" | "RESERVED" | "DISPENSED";
+  reservation_expires_at: string | null;
+  reserved_by_facility: { id: string; name: string } | null;
+  dispensed_by_facility: { id: string; name: string } | null;
+  reserved_by_current_facility: boolean;
+  price: number | null;
+};
+
+type Prescription = {
+  id: string;
+  prescription_number: number;
+  medicine_category: CategoryValue;
+  total_item_count: number;
+  created_at: string;
+  created_by_facility: { id: string; name: string };
+  attachments: Array<{ id: string; kind: AttachmentKind | null; file_name: string }>;
+  slots: Slot[];
+};
+
+type ChronicDrug = {
+  id: string;
+  drug_name: string;
+  notes: string | null;
+  last_dispensed_at: string | null;
+  last_facility_name: string | null;
+  last_price: number | null;
+  eligible: boolean;
+  next_eligible_at: string | null;
 };
 
 type WorkspaceBeneficiary = SearchItem & {
   birth_date: string | null;
-  company: { id: string; name: string; code: string; logo: string | null } | null;
+  company: { id: string; name: string } | null;
   pharmacy_dispenses: Array<{
     id: string;
-    medicine_category: "ROUTINE" | "CHRONIC" | "CHEMICAL";
+    medicine_category: CategoryValue;
     gross_total: number;
     status: string;
     created_at: string;
-    facility_id: string;
     facility: { name: string };
+    prescription: { prescription_number: number; total_item_count: number } | null;
     owned_by_current_facility: boolean;
-    items: Array<{ sequence: number; price: number }>;
+    attachments: Array<{ id: string; kind: AttachmentKind | null }>;
+    items: Array<{ sequence: number; price: number; drug_name: string | null }>;
   }>;
-  pharmacy_prescriptions: Array<{
-    id: string;
-    prescription_number: number;
-    medicine_category: Category["value"];
-    total_item_count: number;
-    created_at: string;
-    created_by_facility: { id: string; name: string };
-    attachments: Array<{ id: string; file_name: string; mime_type: string; created_at: string }>;
-    slots: Array<{
-      id: string;
-      sequence: number;
-      status: "AVAILABLE" | "RESERVED" | "DISPENSED";
-      reservation_expires_at: string | null;
-      reserved_by_facility: { id: string; name: string } | null;
-      dispensed_by_facility: { id: string; name: string } | null;
-      reserved_by_current_facility: boolean;
-      dispensed_by_current_facility: boolean;
-      price: number | null;
-    }>;
-  }>;
+  pharmacy_prescriptions: Prescription[];
+  chronic_drugs: ChronicDrug[];
 };
+
+type Workspace = { beneficiary: WorkspaceBeneficiary; usage: { categories: Usage[] } | null; chronicIntervalDays: number };
+
+type ReviewLine = { label: string; price: number };
+type PendingDispense = { lines: ReviewLine[]; files: string[]; submit: () => Promise<{ error?: string } | undefined> };
+
+const money = (value: number) => `${value.toLocaleString("ar-LY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} د.ل`;
+const tripoliDate = (value: string) => new Date(value).toLocaleDateString("ar-LY", { timeZone: "Africa/Tripoli" });
+const newKey = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
+
+/** تقدير الحصص في الواجهة بنفس قاعدة الخادم: السقف يُستهلك بالإجمالي، والصرف فوق المتبقي مرفوض. الخادم هو المرجع النهائي. */
+function estimate(prices: number[], usage: Usage | undefined) {
+  const coverage = (usage?.coveragePercent ?? 0) / 100;
+  let available = usage?.remaining ?? null;
+  let company = 0;
+  let gross = 0;
+  for (const price of prices) {
+    if (!(price > 0)) continue;
+    gross += price;
+    const covered = available === null ? price : Math.min(price, available);
+    if (available !== null) available -= covered;
+    company += Math.round(covered * coverage * 100) / 100;
+  }
+  return { gross, company, patient: gross - company, remainingAfter: available };
+}
+
+function validateFile(file: File) {
+  if (!ACCEPTED_FILES.split(",").includes(file.type)) return "يسمح فقط بملفات PDF أو صور JPG وPNG وWEBP";
+  if (file.size > MAX_FILE_BYTES) return "حجم الملف يجب ألا يتجاوز 8 ميجابايت";
+  return null;
+}
 
 export function PharmacyDeductionWorkspace({
   company,
-  categories,
+  enabledCategories,
   currentFacility,
 }: {
   company: { id: string; name: string; code: string; logo: string | null };
-  categories: Category[];
+  enabledCategories: CategoryValue[];
   currentFacility: { id: string; name: string };
 }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchItem[]>([]);
-  const [beneficiary, setBeneficiary] = useState<WorkspaceBeneficiary | null>(null);
-  const [error, setError] = useState("");
+  const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [searchError, setSearchError] = useState("");
   const [hasSearched, setHasSearched] = useState(false);
-  const [category, setCategory] = useState<Category["value"]>(categories[0]?.value ?? "ROUTINE");
-  const [selectedSequences, setSelectedSequences] = useState<number[]>([]);
-  const [prices, setPrices] = useState<Record<number, string>>({});
-  const [activePrescriptionId, setActivePrescriptionId] = useState<string | null>(null);
-  const [newPrescriptionItemCount, setNewPrescriptionItemCount] = useState("5");
+  const [category, setCategory] = useState<CategoryValue>(enabledCategories[0] ?? "ROUTINE");
+  const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [pending, setPending] = useState<PendingDispense | null>(null);
   const [searching, startSearch] = useTransition();
   const [loadingBeneficiary, startBeneficiaryLoad] = useTransition();
-  const [updatingPrescription, startPrescriptionUpdate] = useTransition();
 
-  const selectedCategory = categories.find((item) => item.value === category) ?? categories[0];
-  const gross = useMemo(() => selectedSequences.reduce((sum, sequence) => sum + (Number(prices[sequence]) || 0), 0), [prices, selectedSequences]);
-  const companyShare = gross * ((selectedCategory?.coverage ?? 0) / 100);
-  const patientShare = gross - companyShare;
+  const beneficiary = workspace?.beneficiary ?? null;
 
   const runSearch = (searchQuery = query) => {
-    setError("");
+    setSearchError("");
     setHasSearched(true);
     startSearch(async () => {
       const response = await searchPharmacyBeneficiaries(company.id, searchQuery);
       setResults(response.items ?? []);
-      if (response.error) setError(response.error);
+      if (response.error) setSearchError(response.error);
     });
   };
 
@@ -111,69 +161,30 @@ export function PharmacyDeductionWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, beneficiary, loadingBeneficiary, company.id]);
 
+  const loadWorkspace = async (beneficiaryId: string) => {
+    const response = await getPharmacyBeneficiaryWorkspace(company.id, beneficiaryId);
+    if ("error" in response && response.error) { setSearchError(response.error); return false; }
+    if (!("beneficiary" in response) || !response.beneficiary) { setSearchError("تعذر تحميل بيانات المستفيد"); return false; }
+    setWorkspace({ beneficiary: response.beneficiary as unknown as WorkspaceBeneficiary, usage: response.usage ?? null, chronicIntervalDays: response.chronicIntervalDays ?? 28 });
+    return true;
+  };
+
   const selectBeneficiary = (item: SearchItem) => {
-    setError("");
+    setSearchError("");
+    setNotice(null);
     setResults([]);
     setQuery(`${item.name} - ${item.card_number}`);
-    startBeneficiaryLoad(async () => {
-      const response = await getPharmacyBeneficiaryWorkspace(company.id, item.id);
-      if (response.error || !response.beneficiary) {
-        setError(response.error ?? "تعذر تحميل بيانات المستفيد");
-        return;
-      }
-      setBeneficiary(response.beneficiary as WorkspaceBeneficiary);
-    });
+    startBeneficiaryLoad(async () => { await loadWorkspace(item.id); });
   };
 
-  const categoryLabel = (value: string) => categories.find((item) => item.value === value)?.label ?? value;
-  const categoryPrescriptions = beneficiary?.pharmacy_prescriptions.filter((item) => item.medicine_category === category) ?? [];
-  const activePrescription = categoryPrescriptions.find((item) => item.id === activePrescriptionId) ?? categoryPrescriptions[0] ?? null;
-  const prescriptionLimit = Math.min(4, selectedCategory?.prescriptionLimit ?? 4);
+  const reload = async () => { if (beneficiary) await loadWorkspace(beneficiary.id); };
 
-  const reloadBeneficiary = async () => {
-    if (!beneficiary) return;
-    const response = await getPharmacyBeneficiaryWorkspace(company.id, beneficiary.id);
-    if (response.error || !response.beneficiary) {
-      setError(response.error ?? "تعذر تحديث الوصفات");
-      return;
-    }
-    setBeneficiary(response.beneficiary as WorkspaceBeneficiary);
-  };
-
-  const addPrescription = () => {
-    if (!beneficiary) return;
-    setError("");
-    startPrescriptionUpdate(async () => {
-      const response = await createPharmacyPrescription({ companyId: company.id, beneficiaryId: beneficiary.id, category, totalItemCount: Number(newPrescriptionItemCount) });
-      if (response.error) { setError(response.error); return; }
-      await reloadBeneficiary();
-      setActivePrescriptionId(response.prescriptionId ?? null);
-      setSelectedSequences([]);
-      setPrices({});
-    });
-  };
-
-  const reserveSelectedItems = () => {
-    if (!activePrescription || selectedSequences.length === 0) return;
-    setError("");
-    startPrescriptionUpdate(async () => {
-      const response = await reservePharmacyPrescriptionItems(activePrescription.id, selectedSequences);
-      if (response.error) { setError(response.error); return; }
-      await reloadBeneficiary();
-    });
-  };
-
-  const uploadPrescriptionFile = (file: File) => {
-    if (!activePrescription) return;
-    setError("");
-    startPrescriptionUpdate(async () => {
-      const formData = new FormData();
-      formData.set("prescriptionId", activePrescription.id);
-      formData.set("file", file);
-      const response = await uploadPharmacyPrescriptionAttachment(formData);
-      if (response.error) { setError(response.error); return; }
-      await reloadBeneficiary();
-    });
+  const usageFor = (value: CategoryValue) => workspace?.usage?.categories.find((item) => item.category === value);
+  const chronicLinked = (beneficiary?.chronic_drugs.length ?? 0) > 0;
+  const tabDisabledReason = (value: CategoryValue) => {
+    if (!enabledCategories.includes(value)) return "غير مفعل في سياسة الشركة";
+    if (value === "CHRONIC" && beneficiary && !chronicLinked) return "لا توجد أدوية مزمنة مرتبطة بالمستفيد";
+    return null;
   };
 
   return (
@@ -181,24 +192,24 @@ export function PharmacyDeductionWorkspace({
       <Card className="p-2">
         <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); runSearch(); }}>
           <div className="relative flex-1">
-            <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <Input value={query} onChange={(event) => { setQuery(event.target.value); setBeneficiary(null); }} className="h-10 pr-9" placeholder="ابحث برقم البطاقة أو الاسم أو رقم الهاتف" />
+            <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
+            <Input aria-label="بحث عن مستفيد" value={query} onChange={(event) => { setQuery(event.target.value); setWorkspace(null); setNotice(null); }} className="h-10 pr-9" placeholder="ابحث برقم البطاقة أو الاسم أو رقم الهاتف" />
           </div>
           <Button type="submit" disabled={searching || query.trim().length < 2} className="min-w-24">
             {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />} بحث
           </Button>
         </form>
-        {error && <p className="mt-2 text-xs font-bold text-red-600">{error}</p>}
+        {searchError && <p role="alert" className="mt-2 text-sm font-bold text-red-600">{searchError}</p>}
         {!beneficiary && query.trim().length >= 2 && (
           <div className="mt-2 overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
             {searching ? (
               <div className="flex items-center gap-2 px-3 py-3 text-sm font-bold text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> جاري البحث عن المستفيدين...</div>
             ) : results.length > 0 ? results.map((item) => (
               <button key={item.id} type="button" onClick={() => selectBeneficiary(item)} className="flex w-full items-center justify-between border-b border-slate-100 px-3 py-2 text-right last:border-0 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800">
-                <span><strong className="block text-sm">{item.name}</strong><span className="text-xs text-slate-500">{item.card_number}</span></span>
-                <span className="text-xs text-slate-500">{item.phone_number || "دون هاتف"}</span>
+                <span><strong className="block text-sm">{item.name}</strong><span className="text-sm text-slate-500" dir="ltr">{item.card_number}</span></span>
+                <span className="text-sm text-slate-500" dir="ltr">{item.phone_number || "دون هاتف"}</span>
               </button>
-            )) : hasSearched && !error ? (
+            )) : hasSearched && !searchError ? (
               <p className="px-3 py-3 text-sm font-bold text-slate-500">لا توجد أسماء مطابقة داخل شركة {company.name}.</p>
             ) : null}
           </div>
@@ -207,157 +218,522 @@ export function PharmacyDeductionWorkspace({
 
       {loadingBeneficiary && <Card className="flex items-center justify-center gap-2 p-10 text-sm font-bold text-slate-500"><Loader2 className="h-5 w-5 animate-spin" /> جاري تحميل ملف المستفيد</Card>}
 
-      {beneficiary && !loadingBeneficiary && (
-        <div className="grid items-start gap-4 lg:grid-cols-2">
-          <div className="space-y-3">
-            <Card className="p-4">
-              <div className="mb-3 flex items-start justify-between border-b border-slate-200 pb-3 dark:border-slate-800">
-                <div>
-                  <h2 className="text-lg font-black text-slate-900 dark:text-white">{beneficiary.name}</h2>
-                  <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-black ${beneficiary.status === "ACTIVE" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>{beneficiary.status === "ACTIVE" ? "نشط" : "غير نشط"}</span>
-                </div>
-                <UserRound className="h-8 w-8 text-teal-600" />
-              </div>
-              <dl className="grid gap-2 text-sm sm:grid-cols-2">
-                <div className="rounded-md bg-slate-50 p-2 dark:bg-slate-800"><dt className="text-[10px] font-bold text-slate-400">رقم البطاقة</dt><dd className="font-black">{beneficiary.card_number}</dd></div>
-                <div className="rounded-md bg-slate-50 p-2 dark:bg-slate-800"><dt className="flex items-center gap-1 text-[10px] font-bold text-slate-400"><Phone className="h-3 w-3" /> رقم الهاتف</dt><dd className="font-black" dir="ltr">{beneficiary.phone_number || "غير مسجل"}</dd></div>
-                <div className="rounded-md bg-slate-50 p-2 dark:bg-slate-800"><dt className="text-[10px] font-bold text-slate-400">شركة التأمين</dt><dd className="font-black">{beneficiary.company?.name}</dd></div>
-                <div className="rounded-md bg-slate-50 p-2 dark:bg-slate-800"><dt className="text-[10px] font-bold text-slate-400">تاريخ الميلاد</dt><dd className="font-black">{beneficiary.birth_date ? new Date(beneficiary.birth_date).toLocaleDateString("ar-LY") : "غير مسجل"}</dd></div>
-              </dl>
-            </Card>
+      {beneficiary && workspace && !loadingBeneficiary && (
+        <>
+          <Card className="flex flex-wrap items-center gap-x-6 gap-y-2 p-3">
+            <div className="flex items-center gap-2">
+              <UserRound className="h-6 w-6 text-teal-600" aria-hidden />
+              <h2 className="text-lg font-black text-slate-900 dark:text-white">{beneficiary.name}</h2>
+              <span className={`rounded-full px-2 py-0.5 text-xs font-black ${beneficiary.status === "ACTIVE" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>{beneficiary.status === "ACTIVE" ? "نشط" : "غير نشط"}</span>
+            </div>
+            <span className="text-sm text-slate-600 dark:text-slate-300">البطاقة: <strong dir="ltr">{beneficiary.card_number}</strong></span>
+            <span className="flex items-center gap-1 text-sm text-slate-600 dark:text-slate-300"><Phone className="h-3.5 w-3.5" aria-hidden /> <span dir="ltr">{beneficiary.phone_number || "غير مسجل"}</span></span>
+            <span className="text-sm text-slate-600 dark:text-slate-300">المرفق المنفذ: <strong>{currentFacility.name}</strong></span>
+          </Card>
 
-            <Card className="p-4">
-              <h3 className="mb-3 flex items-center gap-2 text-sm font-black"><FileText className="h-4 w-4 text-teal-600" /> الوصفات السابقة</h3>
-              {beneficiary.pharmacy_dispenses.length === 0 ? <p className="text-xs text-slate-500">لا توجد وصفات مسجلة لهذا المستفيد.</p> : (
-                <div className="space-y-2">
-                  {beneficiary.pharmacy_dispenses.map((dispense) => (
-                    <div key={dispense.id} className="flex items-center justify-between rounded-md border border-slate-200 p-2 dark:border-slate-700">
-                      <div>
-                        <p className="text-xs font-black">{categoryLabel(dispense.medicine_category)} · {dispense.gross_total.toLocaleString("ar-LY")} د.ل</p>
-                        <p className="mt-0.5 text-[10px] text-slate-500">{new Date(dispense.created_at).toLocaleDateString("ar-LY")} · {dispense.facility.name}</p>
-                      </div>
-                      {dispense.owned_by_current_facility ? (
-                        <span className="rounded-full bg-teal-100 px-2 py-1 text-[10px] font-bold text-teal-700">من هذا المرفق</span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-1 text-[10px] font-bold text-amber-700"><LockKeyhole className="h-3 w-3" /> مرفق آخر — للعرض فقط</span>
-                      )}
-                    </div>
-                  ))}
-                </div>
+          {notice && (
+            <div role={notice.type === "error" ? "alert" : "status"} className={`flex items-start gap-2 rounded-md border p-3 text-sm font-bold ${notice.type === "error" ? "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300" : "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300"}`}>
+              {notice.type === "error" ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
+              <span className="flex-1">{notice.text}</span>
+              <button type="button" onClick={() => setNotice(null)} aria-label="إغلاق"><X className="h-4 w-4" /></button>
+            </div>
+          )}
+
+          <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+            <HistoryPanel beneficiary={beneficiary} />
+
+            {/* على الجوال تأتي نافذة الصرف أولاً، وعلى الشاشات الواسعة يبقى السجل يمينًا */}
+            <Card className="order-first p-3 sm:p-4 lg:order-none">
+              <div role="tablist" aria-label="نوع الأدوية" className="mb-3 grid grid-cols-3 gap-2">
+                {(["ROUTINE", "CHRONIC", "CHEMICAL"] as const).map((value) => {
+                  const reason = tabDisabledReason(value);
+                  const usage = usageFor(value);
+                  const active = category === value && !reason;
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      aria-disabled={Boolean(reason)}
+                      title={reason ?? undefined}
+                      onClick={() => { if (!reason) { setCategory(value); setNotice(null); } }}
+                      className={`rounded-lg border p-2 text-start transition ${active ? "border-teal-500 bg-teal-50 ring-1 ring-teal-500 dark:bg-teal-950/30" : reason ? "cursor-not-allowed border-slate-200 opacity-50 dark:border-slate-700" : "border-slate-200 hover:border-teal-300 dark:border-slate-700"}`}
+                    >
+                      <span className="block text-sm font-black">{CATEGORY_LABELS[value]}</span>
+                      <span className="mt-0.5 block text-xs font-bold text-slate-500">
+                        {reason ?? (value === "CHRONIC" ? `${beneficiary.chronic_drugs.filter((drug) => drug.eligible).length} من ${beneficiary.chronic_drugs.length} متاح` : `اليوم ${usage?.todayCount ?? 0} من ${usage?.dailyLimit ?? 2}`)}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {tabDisabledReason(category) ? (
+                <EmptyState text={tabDisabledReason(category)!} />
+              ) : (
+                <>
+                  <PolicyStrip usage={usageFor(category)} />
+                  {category === "CHRONIC" ? (
+                    <ChronicTab
+                      key={`chronic-${beneficiary.id}`}
+                      drugs={beneficiary.chronic_drugs}
+                      usage={usageFor("CHRONIC")}
+                      intervalDays={workspace.chronicIntervalDays}
+                      onReview={setPending}
+                      submit={async (items, files, idempotencyKey) => {
+                        const formData = new FormData();
+                        formData.set("companyId", company.id);
+                        formData.set("beneficiaryId", beneficiary.id);
+                        formData.set("idempotencyKey", idempotencyKey);
+                        formData.set("items", JSON.stringify(items));
+                        formData.set("insuranceCard", files.INSURANCE_CARD);
+                        formData.set("prescription", files.PRESCRIPTION);
+                        const response = await dispenseChronicDrugs(formData);
+                        if ("error" in response && response.error) return { error: response.error };
+                        setNotice({ type: "success", text: "grossTotal" in response ? `تم صرف الأدوية المزمنة: الإجمالي ${money(response.grossTotal)}، حصة الشركة ${money(response.companyTotal)}، على المستفيد ${money(response.patientTotal)}` : "تم الصرف" });
+                        await reload();
+                        return undefined;
+                      }}
+                    />
+                  ) : (
+                    <PrescriptionTab
+                      key={`${category}-${beneficiary.id}`}
+                      category={category}
+                      prescriptions={beneficiary.pharmacy_prescriptions.filter((item) => item.medicine_category === category)}
+                      usage={usageFor(category)}
+                      onError={(text) => setNotice({ type: "error", text })}
+                      onReview={setPending}
+                      reload={reload}
+                      createPrescription={async (totalItemCount) => {
+                        const response = await createPharmacyPrescription({ companyId: company.id, beneficiaryId: beneficiary.id, category, totalItemCount });
+                        if ("error" in response && response.error) return { error: response.error };
+                        await reload();
+                        return { prescriptionId: "prescriptionId" in response ? response.prescriptionId : undefined };
+                      }}
+                      submit={async (prescriptionId, items, idempotencyKey) => {
+                        const response = await dispensePharmacyPrescriptionItems({ prescriptionId, items, idempotencyKey });
+                        if ("error" in response && response.error) return { error: response.error };
+                        setNotice({ type: "success", text: "grossTotal" in response ? `تم الصرف: الإجمالي ${money(response.grossTotal)}، حصة الشركة ${money(response.companyTotal)}، على المستفيد ${money(response.patientTotal)}` : "تم الصرف" });
+                        await reload();
+                        return undefined;
+                      }}
+                    />
+                  )}
+                </>
               )}
             </Card>
           </div>
+        </>
+      )}
 
-          <Card className="p-4">
-            <div className="mb-3 flex items-center justify-between border-b border-slate-200 pb-3 dark:border-slate-800">
-              <div><h2 className="text-lg font-black">الوصفة والأسعار</h2><p className="text-xs text-slate-500">المرفق المنفذ: {currentFacility.name}</p></div>
-              <Building2 className="h-6 w-6 text-teal-600" />
-            </div>
-            <label className="mb-1 block text-xs font-black text-slate-500">نوع الوصفة</label>
-            <select value={category} onChange={(event) => { setCategory(event.target.value as Category["value"]); setActivePrescriptionId(null); setSelectedSequences([]); setPrices({}); }} className="mb-3 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-bold dark:border-slate-700 dark:bg-slate-900">
-              {categories.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-            </select>
+      {pending && workspace && (
+        <ReviewDialog
+          pending={pending}
+          usage={usageFor(category)}
+          categoryLabel={CATEGORY_LABELS[category]}
+          onClose={() => setPending(null)}
+          onDone={(error) => { setPending(null); if (error) setNotice({ type: "error", text: error }); }}
+        />
+      )}
+    </div>
+  );
+}
 
-            <div className="mb-2 grid grid-cols-3 gap-2 rounded-md bg-teal-50 p-2 text-center text-[10px] font-bold text-teal-800 dark:bg-teal-950/30 dark:text-teal-300">
-              <span>التغطية {selectedCategory?.coverage}%</span>
-              <span>السقف {selectedCategory?.ceiling === null ? "مفتوح" : `${selectedCategory?.ceiling} د.ل`}</span>
-              <span>{selectedCategory?.frequencyMonths ? `كل ${selectedCategory.frequencyMonths} شهر` : "دون دورة"}</span>
-            </div>
+function EmptyState({ text }: { text: string }) {
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-dashed border-amber-300 bg-amber-50 p-5 text-sm font-bold text-amber-800 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
+      <LockKeyhole className="h-5 w-5 shrink-0" aria-hidden /> {text}
+    </div>
+  );
+}
 
-            <div className="mb-3 flex flex-wrap items-end justify-between gap-2 rounded-lg border border-slate-200 p-2.5 dark:border-slate-700">
-              <div>
-                <p className="text-xs font-black">الوصفات: {categoryPrescriptions.length} من {prescriptionLimit}</p>
-                <p className="text-[10px] text-slate-500">أنشئ وصفة ثم أكمل مرفقها وبنودها في البطاقة نفسها.</p>
+function PolicyStrip({ usage }: { usage: Usage | undefined }) {
+  if (!usage) return null;
+  const ceilingText = usage.remaining === null ? "سقف مفتوح" : `المتبقي من السقف ${money(usage.remaining)}`;
+  return (
+    <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 rounded-md bg-teal-50 px-3 py-2 text-sm font-bold text-teal-800 dark:bg-teal-950/30 dark:text-teal-300">
+      <span>التغطية {usage.coveragePercent}%</span>
+      <span>{ceilingText}</span>
+      {usage.categoryCeiling !== null && <span className="text-teal-700/80 dark:text-teal-400/80">سقف الفئة {money(usage.categoryCeiling)}</span>}
+      {usage.overallCeiling !== null && <span className="text-teal-700/80 dark:text-teal-400/80">السقف العام {money(usage.overallCeiling)}</span>}
+    </div>
+  );
+}
+
+function HistoryPanel({ beneficiary }: { beneficiary: WorkspaceBeneficiary }) {
+  return (
+    <Card className="p-3 sm:p-4">
+      <h3 className="mb-3 flex items-center gap-2 text-base font-black"><History className="h-4 w-4 text-teal-600" aria-hidden /> سجل الصرف</h3>
+      {beneficiary.pharmacy_dispenses.length === 0 ? <p className="text-sm text-slate-500">لم يُصرف للمستفيد شيء بعد.</p> : (
+        <ol className="space-y-2">
+          {beneficiary.pharmacy_dispenses.map((dispense) => (
+            <li key={dispense.id} className={`rounded-md border p-2.5 ${dispense.status === "CANCELLED" ? "border-slate-200 opacity-60 dark:border-slate-700" : "border-slate-200 dark:border-slate-700"}`}>
+              <div className="flex flex-wrap items-center justify-between gap-1">
+                <span className="text-sm font-black">{CATEGORY_LABELS[dispense.medicine_category]}{dispense.prescription ? ` · وصفة ${dispense.prescription.prescription_number}` : ""}</span>
+                <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${dispense.owned_by_current_facility ? "bg-teal-100 text-teal-700" : "bg-amber-100 text-amber-800"}`}>{dispense.owned_by_current_facility ? "هذا المرفق" : "مرفق آخر"}</span>
               </div>
-              <div className="flex items-end gap-2">
-                <label className="text-[10px] font-bold text-slate-500">عدد البنود
-                  <Input className="mt-1 h-8 w-20" type="number" min="1" max="50" value={newPrescriptionItemCount} onChange={(event) => setNewPrescriptionItemCount(event.target.value)} />
-                </label>
-                <Button type="button" onClick={addPrescription} disabled={updatingPrescription || categoryPrescriptions.length >= prescriptionLimit} className="h-8 px-3 text-xs"><Plus className="h-3.5 w-3.5" /> وصفة جديدة</Button>
-              </div>
-            </div>
-
-            {categoryPrescriptions.length > 1 && (
-              <div className="mb-2 flex flex-wrap gap-2">
-                {categoryPrescriptions.map((prescription) => (
-                  <button key={prescription.id} type="button" onClick={() => { setActivePrescriptionId(prescription.id); setSelectedSequences([]); setPrices({}); }} className={`rounded-md border px-3 py-1.5 text-xs font-black ${activePrescription?.id === prescription.id ? "border-teal-500 bg-teal-50 text-teal-700 dark:bg-teal-950/30" : "border-slate-200 dark:border-slate-700"}`}>
-                    وصفة {prescription.prescription_number}
-                  </button>
+              <p className="mt-0.5 text-sm text-slate-600 dark:text-slate-300">{dispense.facility.name} · {tripoliDate(dispense.created_at)}{dispense.status === "CANCELLED" ? " · ملغى" : ""}</p>
+              <ul className="mt-1.5 space-y-0.5 text-sm">
+                {dispense.items.map((item) => (
+                  <li key={item.sequence} className="flex justify-between gap-2 text-slate-700 dark:text-slate-300">
+                    <span className="truncate">{item.drug_name ?? `البند ${item.sequence}`}</span>
+                    <span className="tabular-nums text-slate-500">{money(item.price)}</span>
+                  </li>
                 ))}
+              </ul>
+              <div className="mt-1 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-1 dark:border-slate-800">
+                <span className="text-sm font-black tabular-nums">الإجمالي {money(dispense.gross_total)}</span>
+                <span className="flex gap-2">
+                  {dispense.attachments.map((attachment) => (
+                    <a key={attachment.id} href={`/api/pharmacy/attachments/${attachment.id}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-bold text-teal-700 hover:underline dark:text-teal-300">
+                      {attachment.kind === "INSURANCE_CARD" ? <CreditCard className="h-3.5 w-3.5" aria-hidden /> : <FileText className="h-3.5 w-3.5" aria-hidden />}
+                      {attachment.kind === "INSURANCE_CARD" ? "البطاقة" : "الوصفة"}
+                    </a>
+                  ))}
+                </span>
               </div>
-            )}
+            </li>
+          ))}
+        </ol>
+      )}
+    </Card>
+  );
+}
 
-            {activePrescription ? (
-              <div className="overflow-hidden rounded-xl border border-teal-200 dark:border-teal-900">
-                <div className="flex items-center justify-between bg-teal-50 px-3 py-2 dark:bg-teal-950/30">
-                  <div><p className="text-sm font-black">وصفة رقم {activePrescription.prescription_number}</p><p className="text-[10px] text-slate-500">{activePrescription.total_item_count} بنود · أنشأها {activePrescription.created_by_facility.name}</p></div>
-                  <span className="rounded-full bg-white px-2 py-1 text-[10px] font-black text-teal-700 dark:bg-slate-900">{selectedCategory?.label}</span>
-                </div>
+function FileZone({ kind, fileName, href, busy, disabled, onPick, onClear }: { kind: AttachmentKind; fileName: string | null; href?: string; busy?: boolean; disabled?: boolean; onPick: (file: File) => void; onClear?: () => void }) {
+  const Icon = kind === "INSURANCE_CARD" ? CreditCard : FileText;
+  return (
+    <div className={`flex min-h-16 items-center gap-2 rounded-lg border-2 border-dashed p-2.5 focus-within:ring-2 focus-within:ring-teal-500 ${fileName ? "border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/20" : "border-slate-300 dark:border-slate-700"}`}>
+      <Icon className={`h-6 w-6 shrink-0 ${fileName ? "text-emerald-600" : "text-slate-400"}`} aria-hidden />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-black">{ATTACHMENT_LABELS[kind]} <span className="text-red-500" aria-hidden>*</span></p>
+        {href && fileName
+          ? <a href={href} target="_blank" rel="noopener noreferrer" className="block truncate text-xs font-bold text-teal-700 hover:underline dark:text-teal-300">{fileName}</a>
+          : <p className="truncate text-xs text-slate-500">{fileName ?? "PDF أو JPG أو PNG · حتى 8 ميجابايت"}</p>}
+      </div>
+      {busy ? <Loader2 className="h-4 w-4 animate-spin text-teal-600" /> : (
+        <>
+          <label className={`rounded-md border border-teal-300 ${disabled ? "pointer-events-none opacity-40" : "cursor-pointer"} px-2.5 py-1.5 text-xs font-black text-teal-700 hover:bg-teal-50 dark:border-teal-800 dark:text-teal-300`}>
+            {fileName ? "استبدال" : <span className="inline-flex items-center gap-1"><Upload className="h-3.5 w-3.5" /> رفع</span>}
+            <input type="file" accept={ACCEPTED_FILES} disabled={disabled} className="sr-only" aria-label={ATTACHMENT_LABELS[kind]} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) onPick(file); }} />
+          </label>
+          {fileName && onClear && <button type="button" onClick={onClear} aria-label={`حذف ${ATTACHMENT_LABELS[kind]}`} className="text-slate-400 hover:text-rose-600"><Trash2 className="h-4 w-4" /></button>}
+        </>
+      )}
+    </div>
+  );
+}
 
-                <div className="border-b border-slate-200 p-3 dark:border-slate-700">
-                  <div className="flex items-center justify-between gap-3">
-                    <div><p className="flex items-center gap-1.5 text-xs font-black"><Paperclip className="h-4 w-4 text-teal-600" /> مرفق الوصفة <span className="text-red-500">*</span></p><p className="text-[10px] text-slate-500">إجباري قبل اختيار البنود والأسعار · بحد أقصى {selectedCategory?.maxAttachments ?? 1}</p></div>
-                    <label className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-3 py-2 text-xs font-black ${updatingPrescription || activePrescription.attachments.length >= (selectedCategory?.maxAttachments ?? 1) ? "pointer-events-none opacity-40" : "border-teal-300 text-teal-700 hover:bg-teal-50 dark:border-teal-800 dark:text-teal-300"}`}>
-                      {updatingPrescription ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} إرفاق ملف
-                      <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) uploadPrescriptionFile(file); event.target.value = ""; }} />
-                    </label>
-                  </div>
-                  {activePrescription.attachments.length > 0 ? <div className="mt-2 flex flex-wrap gap-1">{activePrescription.attachments.map((attachment) => <div key={attachment.id} className="flex max-w-56 items-center gap-2 rounded-md bg-emerald-50 px-2 py-1 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"><Paperclip className="h-3 w-3 shrink-0" /><span className="truncate text-[10px] font-bold">{attachment.file_name}</span></div>)}</div> : <p className="mt-1 text-[10px] font-bold text-amber-600">أرفق ملف الوصفة لتفعيل اختيار البنود والأسعار.</p>}
-                </div>
+function Totals({ prices, usage }: { prices: number[]; usage: Usage | undefined }) {
+  const totals = estimate(prices, usage);
+  return (
+    <div className="grid grid-cols-3 gap-2 rounded-lg bg-slate-50 p-3 text-center dark:bg-slate-900/50">
+      <div><p className="text-xs font-bold text-slate-500">الإجمالي</p><p className="font-black tabular-nums">{money(totals.gross)}</p></div>
+      <div><p className="text-xs font-bold text-slate-500">حصة الشركة</p><p className="font-black tabular-nums text-teal-700 dark:text-teal-400">{money(totals.company)}</p></div>
+      <div><p className="text-xs font-bold text-slate-500">على المستفيد</p><p className="font-black tabular-nums text-amber-700 dark:text-amber-400">{money(totals.patient)}</p></div>
+      {usage?.remaining !== null && usage?.remaining !== undefined && totals.gross > usage.remaining && (
+        <p className="col-span-3 text-xs font-bold text-rose-700">الإجمالي يتجاوز المتبقي من السقف المخصص؛ لا يُسمح بالصرف فوق السقف.</p>
+      )}
+    </div>
+  );
+}
 
-                <div className="divide-y divide-slate-200 dark:divide-slate-700">
-                  {activePrescription.slots.map((slot) => {
-                    const expired = slot.reservation_expires_at ? new Date(slot.reservation_expires_at) <= new Date() : false;
-                    const reservedElsewhere = slot.status === "RESERVED" && !expired && !slot.reserved_by_current_facility;
-                    const dispensed = slot.status === "DISPENSED";
-                    const occupiedInAnotherPrescription = categoryPrescriptions
-                      .filter((prescription) => prescription.id !== activePrescription.id)
-                      .flatMap((prescription) => prescription.slots.map((otherSlot) => ({ prescription, slot: otherSlot })))
-                      .find(({ slot: otherSlot }) => {
-                        if (otherSlot.sequence !== slot.sequence) return false;
-                        if (otherSlot.status === "DISPENSED") return true;
-                        return otherSlot.status === "RESERVED" && (!otherSlot.reservation_expires_at || new Date(otherSlot.reservation_expires_at) > new Date());
-                      });
-                    const hasPrescriptionFile = activePrescription.attachments.length > 0;
-                    const selectable = hasPrescriptionFile && !reservedElsewhere && !dispensed && !occupiedInAnotherPrescription;
-                    const selected = selectedSequences.includes(slot.sequence);
-                    const otherPrescriptionFacility = occupiedInAnotherPrescription?.slot.status === "DISPENSED"
-                      ? occupiedInAnotherPrescription.slot.dispensed_by_facility?.name
-                      : occupiedInAnotherPrescription?.slot.reserved_by_facility?.name;
-                    const statusText = occupiedInAnotherPrescription
-                      ? `مستخدم في وصفة ${occupiedInAnotherPrescription.prescription.prescription_number}${otherPrescriptionFacility ? ` · ${otherPrescriptionFacility}` : ""}`
-                      : dispensed
-                        ? `صُرف بواسطة ${slot.dispensed_by_facility?.name ?? "مرفق آخر"}`
-                        : reservedElsewhere
-                          ? `محجوز لدى ${slot.reserved_by_facility?.name ?? "مرفق آخر"}`
-                          : slot.reserved_by_current_facility ? "محجوز لهذا المرفق" : hasPrescriptionFile ? "متاح" : "أرفق الوصفة أولًا";
-                    return (
-                      <div key={slot.id} className={`grid grid-cols-[7rem_1fr_9rem] items-center gap-2 px-3 py-2 ${reservedElsewhere || dispensed || occupiedInAnotherPrescription ? "bg-slate-50 opacity-75 dark:bg-slate-900/50" : ""}`}>
-                        <label className={`flex items-center gap-2 text-xs font-black ${selectable ? "cursor-pointer" : ""}`}>
-                          <input type="checkbox" checked={selected} disabled={!selectable} onChange={() => { setSelectedSequences((current) => selected ? current.filter((value) => value !== slot.sequence) : [...current, slot.sequence].sort((a, b) => a - b)); if (selected) setPrices((current) => { const next = { ...current }; delete next[slot.sequence]; return next; }); }} />
-                          البند {slot.sequence}
-                        </label>
-                        <span className={`flex min-w-0 items-center gap-1 text-[10px] font-bold ${reservedElsewhere || occupiedInAnotherPrescription ? "text-amber-700" : dispensed ? "text-slate-500" : "text-teal-700"}`}>{(reservedElsewhere || dispensed || occupiedInAnotherPrescription) && <LockKeyhole className="h-3 w-3 shrink-0" />}<span className="truncate">{statusText}</span></span>
-                        {selected ? <Input className="h-8" type="number" min="0" step="0.01" value={prices[slot.sequence] ?? ""} onChange={(event) => setPrices((current) => ({ ...current, [slot.sequence]: event.target.value }))} placeholder="السعر" aria-label={`سعر البند ${slot.sequence}`} /> : <span className="text-left text-xs font-black text-slate-500">{slot.price === null ? "—" : `${slot.price.toFixed(2)} د.ل`}</span>}
-                      </div>
-                    );
-                  })}
-                </div>
-                <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-900/50">
-                  <span className="text-[10px] font-bold text-slate-500">تم اختيار {selectedSequences.length} بند</span>
-                  <Button type="button" onClick={reserveSelectedItems} disabled={updatingPrescription || activePrescription.attachments.length === 0 || selectedSequences.length === 0} className="h-8 text-xs">{updatingPrescription && <Loader2 className="h-3.5 w-3.5 animate-spin" />} حجز البنود المحددة</Button>
-                </div>
-              </div>
-            ) : <div className="rounded-lg border border-dashed border-slate-300 p-5 text-center text-xs font-bold text-slate-500 dark:border-slate-700">لا توجد وصفة. حدد عدد البنود واضغط «وصفة جديدة».</div>}
+type LineDraft = { key: string; sequence: string; price: string };
 
-            <div className="mt-4 grid grid-cols-3 gap-2 border-t border-slate-200 pt-3 text-center dark:border-slate-800">
-              <div><p className="text-[10px] text-slate-400">الإجمالي</p><p className="font-black">{gross.toFixed(2)} د.ل</p></div>
-              <div><p className="text-[10px] text-slate-400">الشركة</p><p className="font-black text-teal-600">{companyShare.toFixed(2)} د.ل</p></div>
-              <div><p className="text-[10px] text-slate-400">المستفيد</p><p className="font-black text-amber-600">{patientShare.toFixed(2)} د.ل</p></div>
-            </div>
-          </Card>
+function PrescriptionTab({
+  category,
+  prescriptions,
+  usage,
+  onError,
+  onReview,
+  reload,
+  createPrescription,
+  submit,
+}: {
+  category: CategoryValue;
+  prescriptions: Prescription[];
+  usage: Usage | undefined;
+  onError: (text: string) => void;
+  onReview: (pending: PendingDispense) => void;
+  reload: () => Promise<void>;
+  createPrescription: (totalItemCount: number) => Promise<{ error?: string; prescriptionId?: string }>;
+  submit: (prescriptionId: string, items: Array<{ sequence: number; price: number }>, idempotencyKey: string) => Promise<{ error?: string } | undefined>;
+}) {
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [itemCount, setItemCount] = useState("3");
+  const [lines, setLines] = useState<LineDraft[]>([{ key: newKey(), sequence: "", price: "" }]);
+  const [uploading, setUploading] = useState<AttachmentKind | null>(null);
+  const [busy, startBusy] = useTransition();
+
+  const active = prescriptions.find((item) => item.id === activeId) ?? prescriptions[0] ?? null;
+  const dailyLimit = usage?.dailyLimit ?? 2;
+  const todayCount = usage?.todayCount ?? 0;
+  const attachmentOf = (kind: AttachmentKind) => active?.attachments.find((item) => item.kind === kind) ?? null;
+  const hasAttachments = Boolean(attachmentOf("INSURANCE_CARD") && attachmentOf("PRESCRIPTION"));
+
+  const slotStatus = (slot: Slot) => {
+    const reservedActive = slot.status === "RESERVED" && slot.reservation_expires_at && new Date(slot.reservation_expires_at) > new Date();
+    if (slot.status === "DISPENSED") return { blocked: true, text: `صُرف لدى ${slot.dispensed_by_facility?.name ?? "مرفق آخر"}` };
+    if (reservedActive && !slot.reserved_by_current_facility) return { blocked: true, text: `محجوز لدى ${slot.reserved_by_facility?.name ?? "مرفق آخر"}` };
+    return { blocked: false, text: "متاح" };
+  };
+
+  const lineError = (line: LineDraft, index: number) => {
+    if (!active || line.sequence === "") return null;
+    const sequence = Number(line.sequence);
+    if (!Number.isInteger(sequence) || sequence < 1 || sequence > active.total_item_count) return `رقم البند بين 1 و${active.total_item_count}`;
+    if (lines.some((other, otherIndex) => otherIndex < index && Number(other.sequence) === sequence)) return "رقم مكرر";
+    const slot = active.slots.find((item) => item.sequence === sequence);
+    if (slot && slotStatus(slot).blocked) return slotStatus(slot).text;
+    if (line.price !== "" && !(Number(line.price) > 0)) return "السعر يجب أن يكون أكبر من صفر";
+    return null;
+  };
+
+  const filledLines = lines.filter((line) => line.sequence !== "" || line.price !== "");
+  const errors = lines.map(lineError);
+  const overCeiling = usage?.remaining != null && filledLines.reduce((sum, line) => sum + (Number(line.price) || 0), 0) > usage.remaining;
+  const ready = Boolean(active) && hasAttachments && !overCeiling && filledLines.length > 0 && errors.every((error) => !error) && filledLines.every((line) => line.sequence !== "" && Number(line.price) > 0);
+
+  const upload = (kind: AttachmentKind, file: File) => {
+    if (!active) return;
+    const invalid = validateFile(file);
+    if (invalid) { onError(`${ATTACHMENT_LABELS[kind]}: ${invalid}`); return; }
+    setUploading(kind);
+    startBusy(async () => {
+      const formData = new FormData();
+      formData.set("prescriptionId", active.id);
+      formData.set("kind", kind);
+      formData.set("file", file);
+      const response = await uploadPharmacyPrescriptionAttachment(formData);
+      setUploading(null);
+      if (response.error) { onError(response.error); return; }
+      await reload();
+    });
+  };
+
+  const addPrescription = () => {
+    const count = Number(itemCount);
+    if (!Number.isInteger(count) || count < 1 || count > 50) { onError("عدد البنود في الوصفة يجب أن يكون بين 1 و50"); return; }
+    startBusy(async () => {
+      const response = await createPrescription(count);
+      if (response.error) { onError(response.error); return; }
+      setActiveId(response.prescriptionId ?? null);
+      setLines([{ key: newKey(), sequence: "", price: "" }]);
+    });
+  };
+
+  const review = () => {
+    if (!active || !ready) return;
+    const items = filledLines.map((line) => ({ sequence: Number(line.sequence), price: Number(line.price) }));
+    const idempotencyKey = newKey();
+    onReview({
+      lines: items.map((item) => ({ label: `البند ${item.sequence} من الوصفة ${active.prescription_number}`, price: item.price })),
+      files: active.attachments.map((item) => item.file_name),
+      submit: async () => {
+        const result = await submit(active.id, items, idempotencyKey);
+        if (!result?.error) setLines([{ key: newKey(), sequence: "", price: "" }]);
+        return result;
+      },
+    });
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-end justify-between gap-2 rounded-lg border border-slate-200 p-2.5 dark:border-slate-700">
+        <div>
+          <p className="text-sm font-black">وصفات اليوم: {todayCount} من {dailyLimit}</p>
+          <p className="text-xs text-slate-500">يتجدد الحد عند منتصف الليل. الوصفة المفتوحة يمكن إكمال بنودها من أي مرفق.</p>
+        </div>
+        <div className="flex items-end gap-2">
+          <label className="text-xs font-bold text-slate-500">عدد بنود الوصفة
+            <Input className="mt-1 h-9 w-20" type="number" inputMode="numeric" dir="ltr" min="1" max="50" value={itemCount} onChange={(event) => setItemCount(event.target.value)} />
+          </label>
+          <Button type="button" onClick={addPrescription} disabled={busy || todayCount >= dailyLimit} title={todayCount >= dailyLimit ? "بلغ المستفيد الحد اليومي" : undefined} className="h-9 px-3 text-sm">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} وصفة جديدة</Button>
+        </div>
+      </div>
+
+      {prescriptions.length > 1 && (
+        <div className="flex flex-wrap gap-2" role="group" aria-label="الوصفات المفتوحة">
+          {prescriptions.map((prescription) => (
+            <button key={prescription.id} type="button" aria-pressed={active?.id === prescription.id} onClick={() => { setActiveId(prescription.id); setLines([{ key: newKey(), sequence: "", price: "" }]); }} className={`rounded-md border px-3 py-1.5 text-sm font-black ${active?.id === prescription.id ? "border-teal-500 bg-teal-50 text-teal-700 dark:bg-teal-950/30" : "border-slate-200 dark:border-slate-700"}`}>
+              وصفة {prescription.prescription_number} · {tripoliDate(prescription.created_at)}
+            </button>
+          ))}
         </div>
       )}
+
+      {!active ? (
+        <div className="rounded-lg border border-dashed border-slate-300 p-5 text-center text-sm font-bold text-slate-500 dark:border-slate-700">لا توجد وصفة مفتوحة. أدخل عدد بنود الوصفة واضغط «وصفة جديدة».</div>
+      ) : (
+        <div className="space-y-3 rounded-xl border border-teal-200 p-3 dark:border-teal-900">
+          <p className="text-sm font-black">وصفة رقم {active.prescription_number} · {active.total_item_count} بنود · أنشأها {active.created_by_facility.name}</p>
+
+          <div className="grid gap-2 sm:grid-cols-2">
+            {(["INSURANCE_CARD", "PRESCRIPTION"] as const).map((kind) => (
+              <FileZone key={kind} kind={kind} fileName={attachmentOf(kind)?.file_name ?? null} href={attachmentOf(kind) ? `/api/pharmacy/attachments/${attachmentOf(kind)!.id}` : undefined} busy={uploading === kind} disabled={busy && uploading !== kind} onPick={(file) => upload(kind, file)} />
+            ))}
+          </div>
+
+          <div>
+            <p className="mb-1.5 text-xs font-bold text-slate-500">حالة بنود الوصفة</p>
+            <div className="flex flex-wrap gap-1.5">
+              {active.slots.map((slot) => {
+                const status = slotStatus(slot);
+                return <span key={slot.id} title={status.text} className={`inline-flex min-w-9 items-center justify-center gap-1 rounded-md px-2 py-1 text-xs font-black tabular-nums ${status.blocked ? "bg-slate-200 text-slate-500 line-through dark:bg-slate-800" : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"}`}>{status.blocked && <LockKeyhole className="h-3 w-3" aria-hidden />}{slot.sequence}</span>;
+              })}
+            </div>
+          </div>
+
+          <fieldset disabled={!hasAttachments || busy} className="space-y-2 disabled:opacity-50">
+            <legend className="mb-1 text-sm font-black">البنود المصروفة الآن {!hasAttachments && <span className="text-xs font-bold text-amber-700">(ارفع المرفقين أولًا)</span>}</legend>
+            {lines.map((line, index) => (
+              <div key={line.key}>
+                <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto] gap-2">
+                  <Input aria-label={`رقم البند ${index + 1}`} placeholder="رقم البند" type="number" inputMode="numeric" dir="ltr" min="1" max={active.total_item_count} value={line.sequence} onChange={(event) => setLines((current) => current.map((item) => item.key === line.key ? { ...item, sequence: event.target.value } : item))} className="h-10" />
+                  <Input aria-label={`سعر البند ${index + 1}`} placeholder="السعر (د.ل)" type="number" inputMode="decimal" dir="ltr" min="0" step="0.01" value={line.price} onChange={(event) => setLines((current) => current.map((item) => item.key === line.key ? { ...item, price: event.target.value } : item))} className="h-10" />
+                  <button type="button" onClick={() => setLines((current) => current.length === 1 ? [{ key: newKey(), sequence: "", price: "" }] : current.filter((item) => item.key !== line.key))} aria-label={`حذف السطر ${index + 1}`} className="px-2 text-slate-400 hover:text-rose-600"><Trash2 className="h-4 w-4" /></button>
+                </div>
+                {errors[index] && <p className="mt-1 text-xs font-bold text-rose-600">{errors[index]}</p>}
+              </div>
+            ))}
+            <button type="button" onClick={() => setLines((current) => [...current, { key: newKey(), sequence: "", price: "" }])} className="inline-flex items-center gap-1 text-sm font-black text-teal-700 hover:underline dark:text-teal-300"><Plus className="h-4 w-4" /> إضافة بند</button>
+          </fieldset>
+
+          <Totals prices={filledLines.map((line) => Number(line.price) || 0)} usage={usage} />
+          <Button type="button" onClick={review} disabled={!ready || busy} className="h-10 w-full text-sm">مراجعة وتأكيد الصرف</Button>
+        </div>
+      )}
+      <span className="sr-only">{CATEGORY_LABELS[category]}</span>
+    </div>
+  );
+}
+
+function ChronicTab({
+  drugs,
+  usage,
+  intervalDays,
+  onReview,
+  submit,
+}: {
+  drugs: ChronicDrug[];
+  usage: Usage | undefined;
+  intervalDays: number;
+  onReview: (pending: PendingDispense) => void;
+  submit: (items: Array<{ chronicDrugId: string; price: number }>, files: Record<AttachmentKind, File>, idempotencyKey: string) => Promise<{ error?: string } | undefined>;
+}) {
+  const [selected, setSelected] = useState<Record<string, string>>({});
+  const [files, setFiles] = useState<Partial<Record<AttachmentKind, File>>>({});
+  const [fileError, setFileError] = useState("");
+
+  const chosen = drugs.filter((drug) => drug.id in selected);
+  const prices = chosen.map((drug) => Number(selected[drug.id]) || 0);
+  const overCeiling = usage?.remaining != null && prices.reduce((sum, price) => sum + price, 0) > usage.remaining;
+  const ready = chosen.length > 0 && !overCeiling && prices.every((price) => price > 0) && Boolean(files.INSURANCE_CARD && files.PRESCRIPTION);
+
+  const pick = (kind: AttachmentKind, file: File) => {
+    const invalid = validateFile(file);
+    if (invalid) { setFileError(`${ATTACHMENT_LABELS[kind]}: ${invalid}`); return; }
+    setFileError("");
+    setFiles((current) => ({ ...current, [kind]: file }));
+  };
+
+  const review = () => {
+    if (!ready) return;
+    const items = chosen.map((drug) => ({ chronicDrugId: drug.id, price: Number(selected[drug.id]) }));
+    const idempotencyKey = newKey();
+    const attached = files as Record<AttachmentKind, File>;
+    onReview({
+      lines: chosen.map((drug) => ({ label: drug.drug_name, price: Number(selected[drug.id]) })),
+      files: [attached.INSURANCE_CARD.name, attached.PRESCRIPTION.name],
+      submit: async () => {
+        const result = await submit(items, attached, idempotencyKey);
+        if (!result?.error) { setSelected({}); setFiles({}); }
+        return result;
+      },
+    });
+  };
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-slate-600 dark:text-slate-300">يُصرف كل دواء مرة كل {intervalDays} يومًا من أي مرفق. الأدوية المقفلة صُرفت خلال الدورة الحالية.</p>
+      <ul className="divide-y divide-slate-200 rounded-lg border border-slate-200 dark:divide-slate-700 dark:border-slate-700">
+        {drugs.map((drug) => {
+          const checked = drug.id in selected;
+          return (
+            <li key={drug.id} className={`grid gap-2 p-2.5 sm:grid-cols-[minmax(0,1fr)_9rem] sm:items-center ${drug.eligible ? "" : "bg-slate-50 dark:bg-slate-900/50"}`}>
+              <label className={`flex items-start gap-2 ${drug.eligible ? "cursor-pointer" : "cursor-not-allowed"}`}>
+                <input type="checkbox" className="mt-1" disabled={!drug.eligible} checked={checked} onChange={() => setSelected((current) => { const next = { ...current }; if (checked) delete next[drug.id]; else next[drug.id] = drug.last_price ? String(drug.last_price) : ""; return next; })} />
+                <span className="min-w-0">
+                  <span className="block text-sm font-black" dir="auto">{drug.drug_name}</span>
+                  {drug.notes && <span className="block text-xs text-slate-500" dir="auto">{drug.notes}</span>}
+                  <span className={`mt-0.5 flex items-center gap-1 text-xs font-bold ${drug.eligible ? "text-slate-500" : "text-amber-700"}`}>
+                    {!drug.eligible && <LockKeyhole className="h-3 w-3" aria-hidden />}
+                    {drug.last_dispensed_at ? `آخر صرف ${tripoliDate(drug.last_dispensed_at)} لدى ${drug.last_facility_name}` : "لم يُصرف من قبل"}
+                    {!drug.eligible && drug.next_eligible_at ? ` · متاح من ${tripoliDate(drug.next_eligible_at)}` : ""}
+                  </span>
+                </span>
+              </label>
+              {checked && <Input aria-label={`سعر ${drug.drug_name}`} placeholder="السعر (د.ل)" type="number" inputMode="decimal" dir="ltr" min="0" step="0.01" value={selected[drug.id]} onChange={(event) => setSelected((current) => ({ ...current, [drug.id]: event.target.value }))} className="h-10" />}
+            </li>
+          );
+        })}
+      </ul>
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        {(["INSURANCE_CARD", "PRESCRIPTION"] as const).map((kind) => (
+          <FileZone key={kind} kind={kind} fileName={files[kind]?.name ?? null} onPick={(file) => pick(kind, file)} onClear={() => setFiles((current) => ({ ...current, [kind]: undefined }))} />
+        ))}
+      </div>
+      {fileError && <p role="alert" className="text-sm font-bold text-rose-600">{fileError}</p>}
+
+      <Totals prices={prices} usage={usage} />
+      <Button type="button" onClick={review} disabled={!ready} className="h-10 w-full text-sm">
+        {chosen.length === 0 ? "اختر دواءً واحدًا على الأقل" : !files.INSURANCE_CARD || !files.PRESCRIPTION ? "أرفق البطاقة والوصفة" : "مراجعة وتأكيد الصرف"}
+      </Button>
+    </div>
+  );
+}
+
+function ReviewDialog({ pending, usage, categoryLabel, onClose, onDone }: { pending: PendingDispense; usage: Usage | undefined; categoryLabel: string; onClose: () => void; onDone: (error?: string) => void }) {
+  const [submitting, startSubmit] = useTransition();
+  const confirmRef = useRef<HTMLButtonElement>(null);
+  const totals = useMemo(() => estimate(pending.lines.map((line) => line.price), usage), [pending, usage]);
+
+  useEffect(() => {
+    confirmRef.current?.focus();
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape" && !submitting) onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, submitting]);
+
+  const confirm = () => startSubmit(async () => {
+    const result = await pending.submit();
+    onDone(result?.error);
+  });
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-end justify-center bg-slate-900/50 p-0 sm:items-center sm:p-4" dir="rtl">
+      <div role="dialog" aria-modal="true" aria-labelledby="dispense-review-title" className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-white p-4 shadow-xl dark:bg-slate-900 sm:rounded-2xl">
+        <h2 id="dispense-review-title" className="text-lg font-black">تأكيد صرف {categoryLabel}</h2>
+        <ul className="mt-3 divide-y divide-slate-100 text-sm dark:divide-slate-800">
+          {pending.lines.map((line, index) => (
+            <li key={index} className="flex justify-between gap-3 py-1.5"><span dir="auto">{line.label}</span><span className="tabular-nums">{money(line.price)}</span></li>
+          ))}
+        </ul>
+        <dl className="mt-3 grid grid-cols-2 gap-2 rounded-lg bg-slate-50 p-3 text-sm dark:bg-slate-800">
+          <dt className="text-slate-500">الإجمالي</dt><dd className="text-left font-black tabular-nums">{money(totals.gross)}</dd>
+          <dt className="text-slate-500">حصة الشركة (تقديرية)</dt><dd className="text-left font-black tabular-nums text-teal-700 dark:text-teal-400">{money(totals.company)}</dd>
+          <dt className="text-slate-500">على المستفيد</dt><dd className="text-left font-black tabular-nums text-amber-700 dark:text-amber-400">{money(totals.patient)}</dd>
+          {totals.remainingAfter !== null && <><dt className="text-slate-500">المتبقي من السقف بعد الصرف</dt><dd className="text-left font-black tabular-nums">{money(totals.remainingAfter)}</dd></>}
+        </dl>
+        <p className="mt-2 text-xs text-slate-500">المرفقات: {pending.files.join("، ")}</p>
+        <p className="mt-1 text-xs text-slate-500">يُعاد احتساب الحصص على الخادم عند التأكيد، وتُعتمد القيم المسجلة في السجل.</p>
+        <div className="mt-4 flex gap-2">
+          <Button ref={confirmRef} type="button" onClick={confirm} disabled={submitting} className="h-10 flex-1 text-sm">{submitting && <Loader2 className="h-4 w-4 animate-spin" />} تأكيد الصرف</Button>
+          <Button type="button" variant="outline" onClick={onClose} disabled={submitting} className="h-10 text-sm">رجوع</Button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -57,6 +57,10 @@ export function ServicePolicyModal({
   const [chemicalPrescriptionLimit, setChemicalPrescriptionLimit] = useState("");
   const [chemicalAttachmentRequired, setChemicalAttachmentRequired] = useState(true);
   const [maxAttachments, setMaxAttachments] = useState("2");
+  const [routineDailyLimit, setRoutineDailyLimit] = useState("2");
+  const [chemicalDailyLimit, setChemicalDailyLimit] = useState("2");
+  const [chronicIntervalDays, setChronicIntervalDays] = useState("28");
+  const [policyYearStartMonth, setPolicyYearStartMonth] = useState("1");
   const [equestrianEmergencyCeiling, setEquestrianEmergencyCeiling] = useState("3000");
   const [equestrianInpatientSurgeryCeiling, setEquestrianInpatientSurgeryCeiling] = useState("7000");
 
@@ -97,6 +101,10 @@ export function ServicePolicyModal({
         setChemicalPrescriptionLimit(initialData.pharmacy_config?.chemical_prescription_limit != null ? String(initialData.pharmacy_config.chemical_prescription_limit) : "");
         setChemicalAttachmentRequired(initialData.pharmacy_config?.chemical_attachment_required ?? true);
         setMaxAttachments(String(initialData.pharmacy_config?.max_attachments ?? 2));
+        setRoutineDailyLimit(String(initialData.pharmacy_config?.routine_daily_limit ?? 2));
+        setChemicalDailyLimit(String(initialData.pharmacy_config?.chemical_daily_limit ?? 2));
+        setChronicIntervalDays(String(initialData.pharmacy_config?.chronic_interval_days ?? 28));
+        setPolicyYearStartMonth(String(initialData.pharmacy_config?.policy_year_start_month ?? 1));
         setEquestrianEmergencyCeiling(String(initialData.equestrian_config?.emergency_ceiling ?? EQUESTRIAN_CATEGORY_CEILINGS[EQUESTRIAN_CATEGORIES.EMERGENCY]));
         setEquestrianInpatientSurgeryCeiling(String(initialData.equestrian_config?.inpatient_surgery_ceiling ?? EQUESTRIAN_CATEGORY_CEILINGS[EQUESTRIAN_CATEGORIES.INPATIENT_SURGERY]));
       } else {
@@ -128,6 +136,10 @@ export function ServicePolicyModal({
         setChemicalPrescriptionLimit("");
         setChemicalAttachmentRequired(true);
         setMaxAttachments("2");
+        setRoutineDailyLimit("2");
+        setChemicalDailyLimit("2");
+        setChronicIntervalDays("28");
+        setPolicyYearStartMonth("1");
         setEquestrianEmergencyCeiling("3000");
         setEquestrianInpatientSurgeryCeiling("7000");
       }
@@ -174,6 +186,10 @@ export function ServicePolicyModal({
         chemical_prescription_limit: chemicalPrescriptionLimit === "" ? null : Number(chemicalPrescriptionLimit),
         chemical_attachment_required: chemicalAttachmentRequired,
         max_attachments: Number(maxAttachments) || 2,
+        routine_daily_limit: Number(routineDailyLimit),
+        chemical_daily_limit: Number(chemicalDailyLimit),
+        chronic_interval_days: Number(chronicIntervalDays),
+        policy_year_start_month: Number(policyYearStartMonth),
       } : undefined,
       equestrian_config: isEquestrianPolicy ? {
         emergency_ceiling: Number(equestrianEmergencyCeiling),
@@ -370,6 +386,17 @@ export function ServicePolicyModal({
                     <label className="text-[10px] font-black text-slate-500">أقصى عدد للمرفقات</label>
                     <Input className="h-8" type="number" min="1" max="5" value={maxAttachments} onChange={(event) => setMaxAttachments(event.target.value)} />
                   </div>
+                  {([
+                    ["وصفات الروتيني يوميًا", routineDailyLimit, setRoutineDailyLimit, 1, 20],
+                    ["وصفات الكيميائي يوميًا", chemicalDailyLimit, setChemicalDailyLimit, 1, 20],
+                    ["فترة صرف المزمن (يوم)", chronicIntervalDays, setChronicIntervalDays, 1, 365],
+                    ["شهر بداية السنة التأمينية", policyYearStartMonth, setPolicyYearStartMonth, 1, 12],
+                  ] as const).map(([label, value, setValue, min, max]) => (
+                    <div key={label} className="space-y-1">
+                      <label className="text-xs font-black text-slate-500">{label}</label>
+                      <Input className="h-8" type="number" inputMode="numeric" dir="ltr" min={min} max={max} value={value} onChange={(event) => setValue(event.target.value)} />
+                    </div>
+                  ))}
                 </div>
               )}
             </div>

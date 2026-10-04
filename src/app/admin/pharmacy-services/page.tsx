@@ -87,6 +87,11 @@ export default async function PharmacyServicesPage() {
           <p className="text-sm text-slate-500 dark:text-slate-400">
             إدارة صرف الأدوية لمستفيدي شركات التأمين وفق السقوف ونسب التغطية المعتمدة.
           </p>
+          {hasPermission(session, "manage_companies") && (
+            <Link href="/admin/pharmacy-services/chronic-import" className="inline-flex w-fit items-center gap-1.5 rounded-md border border-teal-300 px-3 py-2 text-sm font-bold text-teal-700 hover:bg-teal-50 dark:border-teal-800 dark:text-teal-300 dark:hover:bg-teal-950/30">
+              <Pill className="h-4 w-4" /> استيراد الأدوية المزمنة من Excel
+            </Link>
+          )}
         </div>
 
         {pharmacyCompanies.length === 0 ? (
