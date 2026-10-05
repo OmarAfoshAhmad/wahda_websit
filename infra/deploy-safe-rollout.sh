@@ -56,9 +56,15 @@ backup_database() {
     --network "$NETWORK_NAME" \
     -v "$BACKUP_DIR:/backups" \
     postgres:16-alpine \
-    sh -c "pg_dump \"\$DATABASE_URL\" -Fc -f \"/backups/$(basename "$backup_file")\""
+    sh -c "pg_dump \"\${DATABASE_URL%%\?*}\" -Fc -f \"/backups/$(basename "$backup_file")\""
+  # pg_dump يرفض معاملات Prisma في الرابط (مثل ?schema=public)، لذا تُحذف أعلاه.
+  # لا ترحيلات بلا نسخة احتياطية صالحة: الملف الفارغ يعني فشل النسخ.
+  if [[ ! -s "$backup_file" ]]; then
+    log "Backup file is empty: $backup_file. Aborting before migrations."
+    exit 1
+  fi
 
-  log "Database backup completed: $backup_file"
+  log "Database backup completed: $backup_file ($(du -h "$backup_file" | cut -f1))"
 }
 
 wait_for_container_health() {
