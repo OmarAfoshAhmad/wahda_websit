@@ -58,3 +58,39 @@ export function orderByIds<T extends { id: string }>(rows: T[], ids: string[]) {
   const position = new Map(ids.map((id, index) => [id, index]));
   return [...rows].sort((a, b) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0));
 }
+
+/** هل المدخل رقم بطاقة أو رقم وظيفي (حروف لاتينية وأرقام فقط، وفيه رقم)؟ */
+export function isCardLikeQuery(query: string) {
+  const compact = query.replace(/[\s-]/g, "");
+  return /^[A-Za-z0-9]+$/.test(compact) && /\d/.test(compact);
+}
+
+/**
+ * شرط SQL لمطابقة البطاقة بدقة: البطاقة كاملة، أو الرقم الوظيفي (بلا الأصفار البادئة)، أو بطاقة تنتهي بالمدخل.
+ * `column` عمود رقم البطاقة، مثل Prisma.sql`b.card_number`.
+ */
+export function preciseCardMatchSql(column: Prisma.Sql, query: string) {
+  const card = query.replace(/[\s-]/g, "").toUpperCase();
+  const employee = card.replace(/^0+(?=.)/, "");
+  const normalized = Prisma.sql`UPPER(REPLACE(REPLACE(${column}, ' ', ''), '-', ''))`;
+  const safe = card.replace(/[^A-Z0-9]/g, "");
+  // "تنتهي بـ" من 3 خانات فأكثر (حتى لا يطابق "1" كل بطاقة آخرها 1)، و"تحتوي" للأجزاء الطويلة المقصودة (7+).
+  const suffix = safe.length >= 3 ? Prisma.sql`OR ${normalized} LIKE ${"%" + safe}` : Prisma.empty;
+  const contains = safe.length >= 7 ? Prisma.sql`OR ${normalized} LIKE ${"%" + safe + "%"}` : Prisma.empty;
+  return Prisma.sql`(
+    ${normalized} = ${card}
+    OR regexp_replace(regexp_replace(${normalized}, ${EMPLOYEE_NUMBER_SQL_PATTERN}, ''), '^0+(?=.)', '') = ${employee}
+    ${suffix} ${contains}
+  )`;
+}
+
+/**
+ * فلتر البحث في قوائم المستفيدين (مع ترقيم الصفحات): الرقم يطابق البطاقة بدقة بدل "يحتوي"
+ * (001 = SJR2026000001 فقط لا كل بطاقة فيها 001)، والنص يبحث في الاسم والبطاقة كما كان.
+ */
+export function beneficiaryListSearchSql(alias: string, query: string) {
+  const name = Prisma.raw(`${alias}.name`);
+  const card = Prisma.raw(`${alias}.card_number`);
+  if (isCardLikeQuery(query)) return [preciseCardMatchSql(card, query)];
+  return query.split(/\s+/).filter(Boolean).map((term) => Prisma.sql`(${name} ILIKE ${"%" + term + "%"} OR ${card} ILIKE ${"%" + term + "%"})`);
+}

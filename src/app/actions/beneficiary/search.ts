@@ -10,6 +10,7 @@ import { roundCurrency } from "@/lib/money";
 import * as utils from "./utils";
 import { getAllowedCompanyIds, resolveAllowedScope } from "@/lib/company-scope";
 import { Prisma } from "@prisma/client";
+import { isCardLikeQuery, preciseCardMatchSql } from "@/lib/beneficiary-search";
 
 export async function searchBeneficiaries(query: string) {
   type SearchBeneficiaryItem = {
@@ -90,8 +91,12 @@ export async function searchBeneficiaries(query: string) {
           name ILIKE ${likePattern}
           OR name ILIKE ${normalizedPattern}
           OR card_number ILIKE ${likePattern}
+          ${isCardLikeQuery(q) ? Prisma.sql`OR ${preciseCardMatchSql(Prisma.sql`card_number`, q)}` : Prisma.empty}
         )
-      ORDER BY GREATEST(
+      ORDER BY
+        -- تطابق البطاقة أو الرقم الوظيفي أولًا، ثم تشابه الاسم
+        CASE WHEN ${isCardLikeQuery(q) ? preciseCardMatchSql(Prisma.sql`card_number`, q) : Prisma.sql`false`} THEN 0 ELSE 1 END,
+        GREATEST(
         word_similarity(${q}, name),
         word_similarity(${normalizedQ}, name),
         word_similarity(${q}, card_number)

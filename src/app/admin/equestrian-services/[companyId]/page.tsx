@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getFiscalYear, getFiscalYearBounds } from "@/lib/insurance/fiscal-year";
 import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
+import { beneficiaryListSearchSql } from "@/lib/beneficiary-search";
 import { Prisma } from "@prisma/client";
 import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-guard";
 import { Shell } from "@/components/shell";
@@ -301,10 +302,8 @@ export default async function EquestrianCompanyPage({
 
     // Search query
     if (searchQuery) {
-      const searchTerms = searchQuery.split(/\s+/).filter(Boolean);
-      for (const t of searchTerms) {
-        filterConds.push(Prisma.sql`(b.name ILIKE ${'%' + t + '%'} OR b.card_number ILIKE ${'%' + t + '%'})`);
-      }
+      // الرقم يطابق البطاقة أو الرقم الوظيفي بدقة، والنص يبحث في الاسم (انظر beneficiaryListSearchSql).
+      filterConds.push(...beneficiaryListSearchSql("b", searchQuery));
     }
 
     // Status filter
