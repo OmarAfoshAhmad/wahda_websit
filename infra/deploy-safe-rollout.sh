@@ -174,7 +174,8 @@ if [[ "$RUN_MIGRATIONS" == "true" ]]; then
     --env-file "$ROOT_DIR/.env.production" \
     --network "$NETWORK_NAME" \
     "$NEW_TAG" \
-    npx prisma migrate deploy
+    node node_modules/prisma/build/index.js migrate deploy
+  # صورة التشغيل تنسخ حزمة prisma دون node_modules/.bin، فلا يجد npx الأمر؛ نشغّل الـ CLI مباشرة.
 fi
 
 log "Cutover: updating compose app service to new image."
