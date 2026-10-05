@@ -178,6 +178,19 @@ if [[ "$RUN_MIGRATIONS" == "true" ]]; then
   # صورة التشغيل تنسخ حزمة prisma دون node_modules/.bin، فلا يجد npx الأمر؛ نشغّل الـ CLI مباشرة.
 fi
 
+# docker-compose.prod.yml يشترط REDIS_PASSWORD؛ يُحمَّل من .env.production أو من الحاوية الحالية إن لم يُضبط.
+if [[ -z "${REDIS_PASSWORD:-}" ]]; then
+  REDIS_PASSWORD="$(grep '^REDIS_PASSWORD=' "$ROOT_DIR/.env.production" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true)"
+  if [[ -z "$REDIS_PASSWORD" ]] && docker inspect "$APP_CONTAINER" >/dev/null 2>&1; then
+    REDIS_PASSWORD="$(docker inspect "$APP_CONTAINER" --format '{{range .Config.Env}}{{println .}}{{end}}' | grep '^REDIS_URL=' | sed -E 's#^REDIS_URL=redis://:([^@]*)@.*#\1#' || true)"
+  fi
+  if [[ -z "$REDIS_PASSWORD" ]]; then
+    log "REDIS_PASSWORD is not set and could not be loaded. Export it and rerun; migrations are already applied."
+    exit 1
+  fi
+  export REDIS_PASSWORD
+fi
+
 log "Cutover: updating compose app service to new image."
 APP_IMAGE="$NEW_TAG" docker compose -f "$COMPOSE_FILE" up -d --no-deps "$APP_SERVICE"
 
