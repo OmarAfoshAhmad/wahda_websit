@@ -9,6 +9,12 @@ import {
   type MedicineCategoryValue,
 } from "@/lib/pharmacy/policy";
 
+/**
+ * الصرف "الساري" يُعرف من الدفتر المالي نفسه: حالة الصرف مكتملة وحركته غير ملغاة.
+ * بهذا لا ينشأ انجراف إن أُلغيت الحركة من أي شاشة (الحركات العامة أو الصيدلية): السقف والمزمن يتبعان الدفتر تلقائيًا.
+ */
+export const ACTIVE_DISPENSE = { status: "COMPLETED", transaction: { is_cancelled: false } } as const;
+
 export type PharmacyClient = Omit<typeof prisma, "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends">;
 
 export async function loadPharmacyPolicy(client: PharmacyClient, companyId: string) {
@@ -22,7 +28,7 @@ export async function loadPharmacyPolicy(client: PharmacyClient, companyId: stri
 export async function getPharmacyConsumption(client: PharmacyClient, beneficiaryId: string, category: MedicineCategoryValue, window: { start: Date; end: Date }) {
   const rows = await client.pharmacyDispense.groupBy({
     by: ["medicine_category"],
-    where: { beneficiary_id: beneficiaryId, status: "COMPLETED", created_at: { gte: window.start, lt: window.end } },
+    where: { beneficiary_id: beneficiaryId, ...ACTIVE_DISPENSE, created_at: { gte: window.start, lt: window.end } },
     _sum: { gross_total: true },
   });
   const overall = rows.reduce((sum, row) => sum.plus(row._sum.gross_total ?? 0), new Prisma.Decimal(0));
@@ -101,7 +107,7 @@ export async function getChronicDrugStatuses(beneficiaryId: string, intervalDays
   });
   if (links.length === 0) return [];
   const lastItems = await prisma.pharmacyDispenseItem.findMany({
-    where: { drug_id: { in: links.map((link) => link.drug.id) }, dispense: { beneficiary_id: beneficiaryId, medicine_category: "CHRONIC", status: "COMPLETED" } },
+    where: { drug_id: { in: links.map((link) => link.drug.id) }, dispense: { beneficiary_id: beneficiaryId, medicine_category: "CHRONIC", ...ACTIVE_DISPENSE } },
     orderBy: { dispense: { created_at: "desc" } },
     distinct: ["drug_id"],
     select: { drug_id: true, price: true, dispense: { select: { created_at: true, facility: { select: { name: true } } } } },

@@ -70,20 +70,20 @@ export function OrderChat({
             <li key={message.id}>
               {showDay && <p className="my-2 text-center text-xs font-bold text-slate-400">{dayOf(message.created_at)}</p>}
               <div className={`flex ${mine ? "justify-start" : "justify-end"}`}>
-                <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm shadow-sm ${mine ? "rounded-ss-sm bg-teal-600 text-white" : "rounded-se-sm border border-slate-200 bg-white text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"}`}>
+                <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm shadow-sm ${mine ? "rounded-ss-sm bg-primary text-white" : "rounded-se-sm border border-slate-200 bg-white text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"}`}>
                   {message.attachment_kind && (
                     <a href={`/api/pharmacy/order-files/${message.id}`} target="_blank" rel="noopener noreferrer" className="mb-1 block">
                       {message.file_name?.endsWith(".pdf") ? (
-                        <span className={`inline-flex items-center gap-1.5 font-bold underline ${mine ? "text-white" : "text-teal-700 dark:text-teal-300"}`}><FileText className="h-4 w-4" /> {message.file_name}</span>
+                        <span className={`inline-flex items-center gap-1.5 font-bold underline ${mine ? "text-white" : "text-primary dark:text-blue-300"}`}><FileText className="h-4 w-4" /> {message.file_name}</span>
                       ) : (
                         // eslint-disable-next-line @next/next/no-img-element -- صورة محمية تُخدم من مسار مصادق، لا يناسبها next/image
                         <img src={`/api/pharmacy/order-files/${message.id}`} alt={message.attachment_kind === "INSURANCE_CARD" ? "صورة البطاقة التأمينية" : "صورة الوصفة"} className="max-h-56 rounded-lg" loading="lazy" />
                       )}
-                      <span className={`mt-0.5 block text-xs ${mine ? "text-teal-100" : "text-slate-500"}`}>{message.attachment_kind === "INSURANCE_CARD" ? "البطاقة التأمينية" : "الوصفة"}</span>
+                      <span className={`mt-0.5 block text-xs ${mine ? "text-blue-100" : "text-slate-500"}`}>{message.attachment_kind === "INSURANCE_CARD" ? "البطاقة التأمينية" : "الوصفة"}</span>
                     </a>
                   )}
                   {message.body && <p className="whitespace-pre-wrap break-words" dir="auto">{message.body}</p>}
-                  <span className={`mt-0.5 flex items-center justify-end gap-1 text-[11px] ${mine ? "text-teal-100" : "text-slate-400"}`}>
+                  <span className={`mt-0.5 flex items-center justify-end gap-1 text-[11px] ${mine ? "text-blue-100" : "text-slate-400"}`}>
                     {timeOf(message.created_at)}
                     {mine && (message.read_at ? <CheckCheck className="h-3.5 w-3.5" aria-label="مقروءة" /> : <Check className="h-3.5 w-3.5" aria-label="مرسلة" />)}
                   </span>
@@ -113,7 +113,7 @@ export function OrderChat({
           )}
           {error && <p role="alert" className="mb-1 text-xs font-bold text-rose-600">{error}</p>}
           <form className="flex items-end gap-2" onSubmit={(event) => { event.preventDefault(); submit(); }}>
-            <label className="inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 focus-within:ring-2 focus-within:ring-teal-500 dark:hover:bg-slate-800" title="إرفاق صورة">
+            <label className="inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 focus-within:ring-2 focus-within:ring-primary dark:hover:bg-slate-800" title="إرفاق صورة">
               <ImagePlus className="h-5 w-5" aria-hidden />
               <input type="file" accept={ACCEPTED_FILES} className="sr-only" aria-label="إرفاق صورة" onChange={(event) => { const picked = event.target.files?.[0]; event.target.value = ""; if (picked) setFile(picked); }} />
             </label>
@@ -127,7 +127,7 @@ export function OrderChat({
               aria-label="نص الرسالة"
               className="max-h-28 min-h-10 flex-1 resize-none rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
             />
-            <button type="submit" disabled={sending || (!text.trim() && !file)} aria-label="إرسال" className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-teal-600 text-white disabled:opacity-40">
+            <button type="submit" disabled={sending || (!text.trim() && !file)} aria-label="إرسال" className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-white disabled:opacity-40">
               {sending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5 -scale-x-100" />}
             </button>
           </form>
@@ -162,7 +162,7 @@ export type OrderEvent =
 export const ORDER_STATUS_LABELS: Record<string, { label: string; tone: string }> = {
   PENDING: { label: "بانتظار رد الصيدلية", tone: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300" },
   AVAILABLE: { label: "متوفر — بانتظار تأكيدك", tone: "bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-300" },
-  CONFIRMED: { label: "مؤكد — قيد التجهيز", tone: "bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300" },
+  CONFIRMED: { label: "مؤكد — قيد التجهيز", tone: "bg-primary-light text-primary-dark dark:bg-primary/20 dark:text-blue-300" },
   OUT_FOR_DELIVERY: { label: "خرج للتوصيل", tone: "bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300" },
   COMPLETED: { label: "تم التسليم", tone: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300" },
   REJECTED: { label: "اعتذرت الصيدلية", tone: "bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300" },

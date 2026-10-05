@@ -18,7 +18,7 @@ const card = "rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate
 
 function FilePick({ label, file, onPick }: { label: string; file: File | null; onPick: (file: File) => void }) {
   return (
-    <label className={`flex cursor-pointer items-center gap-3 rounded-xl border-2 border-dashed p-3 focus-within:ring-2 focus-within:ring-teal-500 ${file ? "border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/20" : "border-slate-300 dark:border-slate-700"}`}>
+    <label className={`flex cursor-pointer items-center gap-3 rounded-xl border-2 border-dashed p-3 focus-within:ring-2 focus-within:ring-primary ${file ? "border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/20" : "border-slate-300 dark:border-slate-700"}`}>
       <Upload className={`h-5 w-5 shrink-0 ${file ? "text-emerald-600" : "text-slate-400"}`} aria-hidden />
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-black">{label} <span className="text-red-500" aria-hidden>*</span></span>
@@ -140,7 +140,7 @@ export function PharmacyOrderClient({ categories, chronicDrugs, contextError, or
                   const active = selected?.facilityId === pharmacy.facilityId;
                   return (
                     <li key={pharmacy.facilityId}>
-                      <button type="button" role="radio" aria-checked={active} onClick={() => { setSelected(pharmacy); if (!pharmacy.delivery.available) setFulfillment("PICKUP"); }} className={`w-full rounded-xl border p-3 text-start ${active ? "border-teal-500 bg-teal-50 ring-1 ring-teal-500 dark:bg-teal-950/30" : "border-slate-200 dark:border-slate-700"}`}>
+                      <button type="button" role="radio" aria-checked={active} onClick={() => { setSelected(pharmacy); if (!pharmacy.delivery.available) setFulfillment("PICKUP"); }} className={`w-full rounded-xl border p-3 text-start ${active ? "border-primary bg-primary-light ring-1 ring-primary dark:bg-primary/20" : "border-slate-200 dark:border-slate-700"}`}>
                         <span className="flex items-start justify-between gap-2">
                           <span className="text-sm font-black">{pharmacy.name}</span>
                           <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-bold ${pharmacy.openNow ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"}`}>{pharmacy.openNow ? "مفتوحة" : "مغلقة الآن"}</span>
@@ -150,11 +150,11 @@ export function PharmacyOrderClient({ categories, chronicDrugs, contextError, or
                           {(pharmacy.address || pharmacy.city) && <span>{[pharmacy.city, pharmacy.address].filter(Boolean).join(" · ")}</span>}
                           {pharmacy.hours && <span className="inline-flex items-center gap-0.5"><Clock className="h-3 w-3" /> {pharmacy.hours}</span>}
                         </span>
-                        <span className={`mt-1 flex items-center gap-1 text-xs font-bold ${pharmacy.delivery.available ? "text-teal-700 dark:text-teal-300" : "text-slate-500"}`}>
+                        <span className={`mt-1 flex items-center gap-1 text-xs font-bold ${pharmacy.delivery.available ? "text-primary dark:text-blue-300" : "text-slate-500"}`}>
                           <Bike className="h-3.5 w-3.5" /> {pharmacy.delivery.available ? `توصيل ${pharmacy.delivery.fee} د.ل (خارج التأمين)` : pharmacy.delivery.reason}
                         </span>
                       </button>
-                      {active && pharmacy.phone && <a href={`tel:${pharmacy.phone}`} className="mt-1 inline-flex items-center gap-1 text-xs font-bold text-teal-700 dark:text-teal-300" dir="ltr"><Phone className="h-3 w-3" /> {pharmacy.phone}</a>}
+                      {active && pharmacy.phone && <a href={`tel:${pharmacy.phone}`} className="mt-1 inline-flex items-center gap-1 text-xs font-bold text-primary dark:text-blue-300" dir="ltr"><Phone className="h-3 w-3" /> {pharmacy.phone}</a>}
                     </li>
                   );
                 })}
@@ -169,7 +169,7 @@ export function PharmacyOrderClient({ categories, chronicDrugs, contextError, or
                 {(["ROUTINE", "CHRONIC", "CHEMICAL"] as const).map((value) => {
                   const allowed = categories.includes(value);
                   return (
-                    <button key={value} type="button" role="radio" aria-checked={category === value} disabled={!allowed} onClick={() => setCategory(value)} className={`rounded-xl border p-2 text-xs font-black ${category === value ? "border-teal-500 bg-teal-50 dark:bg-teal-950/30" : "border-slate-200 dark:border-slate-700"} disabled:opacity-40`}>
+                    <button key={value} type="button" role="radio" aria-checked={category === value} disabled={!allowed} onClick={() => setCategory(value)} className={`rounded-xl border p-2 text-xs font-black ${category === value ? "border-primary bg-primary-light dark:bg-primary/20" : "border-slate-200 dark:border-slate-700"} disabled:opacity-40`}>
                       {CATEGORY_LABELS[value]}
                     </button>
                   );
@@ -193,10 +193,10 @@ export function PharmacyOrderClient({ categories, chronicDrugs, contextError, or
               {needsRx && <FilePick label="صورة الوصفة" file={rxFile} onPick={(file) => pickFile(file, setRxFile)} />}
 
               <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="طريقة الاستلام">
-                <button type="button" role="radio" aria-checked={fulfillment === "PICKUP"} onClick={() => setFulfillment("PICKUP")} className={`flex flex-col items-center gap-1 rounded-xl border p-2.5 text-xs font-black ${fulfillment === "PICKUP" ? "border-teal-500 bg-teal-50 dark:bg-teal-950/30" : "border-slate-200 dark:border-slate-700"}`}>
+                <button type="button" role="radio" aria-checked={fulfillment === "PICKUP"} onClick={() => setFulfillment("PICKUP")} className={`flex flex-col items-center gap-1 rounded-xl border p-2.5 text-xs font-black ${fulfillment === "PICKUP" ? "border-primary bg-primary-light dark:bg-primary/20" : "border-slate-200 dark:border-slate-700"}`}>
                   <Store className="h-5 w-5" /> أستلمه بنفسي
                 </button>
-                <button type="button" role="radio" aria-checked={fulfillment === "DELIVERY"} disabled={!selected.delivery.available} onClick={() => setFulfillment("DELIVERY")} className={`flex flex-col items-center gap-1 rounded-xl border p-2.5 text-xs font-black disabled:opacity-40 ${fulfillment === "DELIVERY" ? "border-teal-500 bg-teal-50 dark:bg-teal-950/30" : "border-slate-200 dark:border-slate-700"}`}>
+                <button type="button" role="radio" aria-checked={fulfillment === "DELIVERY"} disabled={!selected.delivery.available} onClick={() => setFulfillment("DELIVERY")} className={`flex flex-col items-center gap-1 rounded-xl border p-2.5 text-xs font-black disabled:opacity-40 ${fulfillment === "DELIVERY" ? "border-primary bg-primary-light dark:bg-primary/20" : "border-slate-200 dark:border-slate-700"}`}>
                   <Bike className="h-5 w-5" /> توصيل {selected.delivery.available ? `${selected.delivery.fee} د.ل` : ""}
                 </button>
               </div>
@@ -209,7 +209,7 @@ export function PharmacyOrderClient({ categories, chronicDrugs, contextError, or
               <textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={1000} rows={2} placeholder="ملاحظة للصيدلية (اختياري)" aria-label="ملاحظة للصيدلية" className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900" />
 
               {error && <p role="alert" className="text-sm font-bold text-rose-600">{error}</p>}
-              <button type="button" onClick={submit} disabled={!ready || submitting} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-teal-600 text-sm font-black text-white disabled:opacity-40">
+              <button type="button" onClick={submit} disabled={!ready || submitting} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary text-sm font-black text-white disabled:opacity-40">
                 {submitting && <Loader2 className="h-4 w-4 animate-spin" />} إرسال الطلب ومحادثة الصيدلية
               </button>
               <p className="text-center text-xs text-slate-500">ستتحقق الصيدلية من توفر الأدوية وترد عليك في المحادثة.</p>

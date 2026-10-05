@@ -27,7 +27,8 @@ export async function resolveCardByEmployeeNumber(companyId: string, employeeNum
     SELECT card_number, phone_number FROM "Beneficiary"
     WHERE company_id = ${companyId}
       AND deleted_at IS NULL
-      AND regexp_replace(UPPER(REPLACE(REPLACE(card_number, ' ', ''), '-', '')), ${EMPLOYEE_NUMBER_SQL_PATTERN}, '') = ${normalized}
+      -- الأصفار البادئة لا تُحتسب: 001 = 1 = 000001 (الفروسية مثلًا SJR2026000001)
+      AND regexp_replace(regexp_replace(UPPER(REPLACE(REPLACE(card_number, ' ', ''), '-', '')), ${EMPLOYEE_NUMBER_SQL_PATTERN}, ''), '^0+(?=.)', '') = ${normalized.replace(/^0+(?=.)/, "")}
     LIMIT 5
   `;
   if (matches.length === 0) return { error: "لم يتم العثور على هذا الرقم الوظيفي في الشركة المختارة" } as const;

@@ -27,7 +27,8 @@
     "backup:drive:install-cron": "bash scripts/install-backup-drive-cron.sh",
     "report:duplicates": "node scripts/export-duplicate-beneficiaries-report.js",
     "db:reset": "node scripts/reset-dev-db.js --apply",
-    "db:reset:dry": "node scripts/reset-dev-db.js"
+    "db:reset:dry": "node scripts/reset-dev-db.js",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json"
   },
   "dependencies": {
     "@napi-rs/canvas": "^1.0.10",

@@ -1,9 +1,10 @@
 "use server";
 
 import prisma from "@/lib/prisma";
+import { orderByIds, rankBeneficiaryIds } from "@/lib/beneficiary-search";
 import { requireActiveFacilitySession, hasPermission } from "@/lib/session-guard";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { getArabicNormalization } from "@/lib/normalize";
+
 import { logger } from "@/lib/logger";
 import { assertCompanyAccessForSession, ScopeAccessError } from "@/lib/company-scope";
 import {
@@ -38,19 +39,16 @@ export async function searchCompanyBeneficiaries(query: string, companyId: strin
   }
 
   try {
-    const normalizedQ = getArabicNormalization(q);
     // البحث عن مستفيدي هذه الشركة فقط
-    const rows = await prisma.beneficiary.findMany({
+    // ترتيب بالأقرب (البطاقة ثم الرقم الوظيفي ثم الاسم) بدل الأبجدي، حتى لا يضيع المقصود في الإدخال القصير.
+    const rankedIds = await rankBeneficiaryIds({ query: q, companyId, statuses: ["ACTIVE", "FINISHED"] });
+    const unorderedRows = await prisma.beneficiary.findMany({
       where: {
         company_id: companyId,
         deleted_at: null,
         status: { in: ["ACTIVE", "FINISHED"] },
         company: { is_active: true, deleted_at: null },
-        OR: [
-          { name: { contains: q, mode: "insensitive" } },
-          { name: { contains: normalizedQ, mode: "insensitive" } },
-          { card_number: { contains: q, mode: "insensitive" } }
-        ]
+        id: { in: rankedIds }
       },
       select: {
         id: true,
@@ -69,9 +67,9 @@ export async function searchCompanyBeneficiaries(query: string, companyId: strin
           }
         }
       },
-      orderBy: { name: "asc" },
       take: 20
     });
+    const rows = orderByIds(unorderedRows, rankedIds);
 
     return {
       items: rows.map(r => {

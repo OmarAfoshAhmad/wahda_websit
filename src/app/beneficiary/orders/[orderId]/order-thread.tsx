@@ -54,7 +54,7 @@ export function BeneficiaryOrderThread({ initial }: { initial: Thread }) {
             <h1 className="truncate text-base font-black">{thread.facility.name}</h1>
             <p className="text-xs text-slate-500">{CATEGORY_LABELS[thread.category]}</p>
           </div>
-          {thread.facility.phone && <a href={`tel:${thread.facility.phone}`} aria-label="اتصال بالصيدلية" className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-teal-700 dark:border-slate-700"><Phone className="h-4 w-4" /></a>}
+          {thread.facility.phone && <a href={`tel:${thread.facility.phone}`} aria-label="اتصال بالصيدلية" className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-primary dark:border-slate-700"><Phone className="h-4 w-4" /></a>}
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
           <OrderStatusBadge status={thread.status} />
@@ -64,7 +64,7 @@ export function BeneficiaryOrderThread({ initial }: { initial: Thread }) {
         {(thread.status === "AVAILABLE" || ["PENDING", "CONFIRMED"].includes(thread.status)) && (
           <div className="flex gap-2">
             {thread.status === "AVAILABLE" && (
-              <button type="button" onClick={() => act("CONFIRM")} disabled={acting} className="flex h-10 flex-1 items-center justify-center gap-1 rounded-xl bg-teal-600 text-sm font-black text-white disabled:opacity-50">
+              <button type="button" onClick={() => act("CONFIRM")} disabled={acting} className="flex h-10 flex-1 items-center justify-center gap-1 rounded-xl bg-primary text-sm font-black text-white disabled:opacity-50">
                 {acting && <Loader2 className="h-4 w-4 animate-spin" />} تأكيد الطلب{thread.fulfillment === "DELIVERY" ? ` مع التوصيل (${thread.deliveryFee} د.ل)` : ""}
               </button>
             )}

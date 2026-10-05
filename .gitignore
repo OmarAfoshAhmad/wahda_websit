@@ -51,3 +51,34 @@ next-env.d.ts
 
 # مرفقات الصيدلية المرفوعة (بطاقات ووصفات المستفيدين) لا تُرفع إلى المستودع
 /storage/
+
+# ── ملفات خارج المنظومة (بيانات وتجارب) — تُحفظ خارج المستودع، لا داخله ──
+# ملفات بيانات المستفيدين والحركات لا تُرفع أبدًا
+*.xlsx
+*.xls
+*.csv
+*.wbk
+*.rar
+*.zip
+/*.pdf
+/*.jpg
+/*.jpeg
+/*.png
+# سكربتات وتجارب مؤقتة في الجذر (ملفات الإعداد المعروفة مستثناة)
+/*.js
+!/ecosystem.config.js
+!/postcss.config.js
+/*.txt
+/*.json
+!/package.json
+!/package-lock.json
+!/tsconfig.json
+!/tsconfig.typecheck.json
+/scratch/
+/exports/
+/reports/
+/outputs/
+/backups/
+/playwright-report/
+/test-results/
+tsconfig.tsbuildinfo

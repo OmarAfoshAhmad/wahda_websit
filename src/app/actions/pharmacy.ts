@@ -5,10 +5,11 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { PharmacyAttachmentKind } from "@prisma/client";
 import prisma from "@/lib/prisma";
+import { orderByIds, rankBeneficiaryIds } from "@/lib/beneficiary-search";
 import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-guard";
 import { assertCompanyAccessForSession } from "@/lib/company-scope";
 import { calculatePharmacyDispense } from "@/lib/pharmacy/calculation";
-import { getChronicDrugStatuses, getPharmacyConsumption, getPharmacyUsage, loadPharmacyPolicy } from "@/lib/pharmacy/summary";
+import { ACTIVE_DISPENSE, getChronicDrugStatuses, getPharmacyConsumption, getPharmacyUsage, loadPharmacyPolicy } from "@/lib/pharmacy/summary";
 import { ATTACHMENT_KINDS, ATTACHMENT_LABELS, storeAttachmentFile, type StoredFile } from "@/lib/pharmacy/attachments";
 import {
   getNextChronicEligibleDate,
@@ -19,6 +20,7 @@ import {
   type MedicineCategoryValue,
 } from "@/lib/pharmacy/policy";
 import { assertBeneficiaryBalanceInvariant, calculateBeneficiaryBalance, settleBeneficiaryBalance } from "@/lib/tx-balance-guard";
+import { cancelTransactionInTx } from "@/lib/transaction-cancel";
 
 type PharmacySession = NonNullable<Awaited<ReturnType<typeof getSessionWithFreshPermissions>>>;
 type Tx = Omit<typeof prisma, "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends">;
@@ -65,18 +67,9 @@ export async function searchPharmacyBeneficiaries(companyId: string, query: stri
   const normalizedQuery = query.trim();
   if (normalizedQuery.length < 2) return { error: "أدخل حرفين على الأقل للبحث", items: [] };
 
-  const beneficiaries = await prisma.beneficiary.findMany({
-    where: {
-      company_id: companyId,
-      deleted_at: null,
-      OR: [
-        { card_number: { contains: normalizedQuery, mode: "insensitive" } },
-        { name: { contains: normalizedQuery, mode: "insensitive" } },
-        { phone_number: { contains: normalizedQuery, mode: "insensitive" } },
-      ],
-    },
-    orderBy: { name: "asc" },
-    take: 10,
+  const rankedIds = await rankBeneficiaryIds({ query: normalizedQuery, companyId, includePhone: true, limit: 10 });
+  const unordered = await prisma.beneficiary.findMany({
+    where: { id: { in: rankedIds } },
     select: {
       id: true,
       card_number: true,
@@ -87,7 +80,7 @@ export async function searchPharmacyBeneficiaries(companyId: string, query: stri
     },
   });
 
-  return { items: beneficiaries };
+  return { items: orderByIds(unordered, rankedIds) };
 }
 
 export async function getPharmacyBeneficiaryWorkspace(companyId: string, beneficiaryId: string) {
@@ -116,6 +109,7 @@ export async function getPharmacyBeneficiaryWorkspace(companyId: string, benefic
           created_at: true,
           facility_id: true,
           facility: { select: { name: true } },
+          transaction: { select: { is_cancelled: true } },
           prescription: { select: { prescription_number: true, total_item_count: true, attachments: { select: { id: true, kind: true } } } },
           attachments: { select: { id: true, kind: true } },
           items: { orderBy: { sequence: "asc" }, select: { sequence: true, price: true, drug: { select: { name: true } } } },
@@ -144,7 +138,7 @@ export async function getPharmacyBeneficiaryWorkspace(companyId: string, benefic
               reservation_expires_at: true,
               reserved_by_facility: { select: { id: true, name: true } },
               dispensed_by_facility: { select: { id: true, name: true } },
-              dispense_item: { select: { price: true } },
+              dispense_item: { select: { price: true, dispense: { select: { status: true, transaction: { select: { is_cancelled: true } } } } } },
             },
           },
         },
@@ -167,6 +161,7 @@ export async function getPharmacyBeneficiaryWorkspace(companyId: string, benefic
         gross_total: Number(dispense.gross_total),
         created_at: dispense.created_at.toISOString(),
         owned_by_current_facility: dispense.facility_id === session.id,
+        status: dispense.status === "CANCELLED" || dispense.transaction.is_cancelled ? "CANCELLED" : "COMPLETED",
         // الروتيني والكيميائي يرفقان على الوصفة، والمزمن على الصرف نفسه.
         attachments: [...dispense.attachments, ...(dispense.prescription?.attachments ?? [])],
         prescription: dispense.prescription ? { prescription_number: dispense.prescription.prescription_number, total_item_count: dispense.prescription.total_item_count } : null,
@@ -180,13 +175,19 @@ export async function getPharmacyBeneficiaryWorkspace(companyId: string, benefic
           ...attachment,
           created_at: attachment.created_at.toISOString(),
         })),
-        slots: prescription.slots.map(({ dispense_item, ...slot }) => ({
+        slots: prescription.slots.map(({ dispense_item, ...slot }) => {
+          // البند المصروف بحركة ملغاة يُعرض متاحًا (يتبع الدفتر)، ويُحرَّر فعليًا عند صرفه التالي.
+          const voided = slot.status === "DISPENSED" && Boolean(dispense_item && (dispense_item.dispense.status === "CANCELLED" || dispense_item.dispense.transaction.is_cancelled));
+          return {
           ...slot,
+          status: voided ? "AVAILABLE" as const : slot.status,
+          dispensed_by_facility: voided ? null : slot.dispensed_by_facility,
           reservation_expires_at: slot.reservation_expires_at?.toISOString() ?? null,
-          price: dispense_item ? Number(dispense_item.price) : null,
+          price: dispense_item && !voided ? Number(dispense_item.price) : null,
           reserved_by_current_facility: slot.reserved_by_facility?.id === session.id,
-          dispensed_by_current_facility: slot.dispensed_by_facility?.id === session.id,
-        })),
+          dispensed_by_current_facility: !voided && slot.dispensed_by_facility?.id === session.id,
+          };
+        }),
       })),
     },
   };
@@ -365,6 +366,28 @@ export async function reservePharmacyPrescriptionItems(prescriptionId: string, s
 
 class PharmacyRuleError extends Error {}
 
+/**
+ * يحرر بنود الوصفة التي صُرفت بحركة أُلغيت: يعيدها متاحة ويفك ربط بنود الصرف القديمة بها
+ * (القيود الفريدة على prescription_item_id و(prescription_id, sequence) تمنع إعادة الصرف بدون ذلك).
+ */
+async function releaseCancelledSlots(tx: Tx, prescriptionId: string, sequences?: number[]) {
+  const stale = await tx.pharmacyPrescriptionItem.findMany({
+    where: {
+      prescription_id: prescriptionId,
+      ...(sequences ? { sequence: { in: sequences } } : {}),
+      status: "DISPENSED",
+      dispense_item: { dispense: { OR: [{ status: "CANCELLED" }, { transaction: { is_cancelled: true } }] } },
+    },
+    select: { id: true },
+  });
+  if (stale.length === 0) return 0;
+  const ids = stale.map((slot) => slot.id);
+  await tx.pharmacyDispenseItem.updateMany({ where: { prescription_item_id: { in: ids } }, data: { prescription_item_id: null, prescription_id: null } });
+  await tx.pharmacyPrescriptionItem.updateMany({ where: { id: { in: ids } }, data: { status: "AVAILABLE", dispensed_by_facility_id: null, dispensed_at: null } });
+  await tx.pharmacyPrescription.updateMany({ where: { id: prescriptionId, status: "COMPLETED" }, data: { status: "OPEN", completed_at: null } });
+  return ids.length;
+}
+
 type DispenseLine = { sequence: number; price: number; drugId?: string | null; prescriptionItemId?: string | null };
 
 /**
@@ -542,6 +565,8 @@ export async function dispensePharmacyPrescriptionItems(input: {
       const now = new Date();
       // البنود تُنشأ عند أول صرف لها؛ القيد الفريد (prescription_id, sequence) يمنع التكرار.
       await tx.pharmacyPrescriptionItem.createMany({ data: sequences.map((sequence) => ({ prescription_id: prescription.id, sequence })), skipDuplicates: true });
+      // إصلاح ذاتي: بند معلَّم مصروفًا لكن حركته أُلغيت (من أي شاشة) يُحرَّر قبل الفحص.
+      await releaseCancelledSlots(tx, prescription.id, sequences);
       const slots = await tx.pharmacyPrescriptionItem.findMany({
         where: { prescription_id: prescription.id, sequence: { in: sequences } },
         include: { reserved_by_facility: { select: { name: true } }, dispensed_by_facility: { select: { name: true } } },
@@ -653,7 +678,7 @@ export async function dispenseChronicDrugs(formData: FormData) {
       const now = new Date();
       const drugIds = items.map((item) => linkById.get(item.chronicDrugId)!.drug_id);
       const lastItems = await tx.pharmacyDispenseItem.findMany({
-        where: { drug_id: { in: drugIds }, dispense: { beneficiary_id: beneficiary.id, medicine_category: "CHRONIC", status: "COMPLETED" } },
+        where: { drug_id: { in: drugIds }, dispense: { beneficiary_id: beneficiary.id, medicine_category: "CHRONIC", ...ACTIVE_DISPENSE } },
         orderBy: { dispense: { created_at: "desc" } },
         distinct: ["drug_id"],
         select: { drug_id: true, dispense: { select: { created_at: true, facility: { select: { name: true } } } } },
@@ -692,4 +717,48 @@ export async function dispenseChronicDrugs(formData: FormData) {
     await cleanup();
     return toErrorResult(error);
   }
+}
+
+/**
+ * إلغاء صرف صيدلية: يُلغي الحركة المالية بنفس نواة الإلغاء العامة (رصيد من الدفتر + حركة عاكسة)،
+ * ويعلّم الصرف ملغى ويحرر بنود الوصفة لإعادة صرفها. "التعديل" = إلغاء ثم صرف جديد بالقيم الصحيحة،
+ * حتى يبقى كل رقم مالي مشتقًا من حركات سليمة بلا تعديل في المكان.
+ * يُسمح لصاحب صلاحية إلغاء الحركات، أو للمرفق نفسه في يوم الصرف ذاته (بتوقيت طرابلس).
+ */
+export async function cancelPharmacyDispense(dispenseId: string, reason: string) {
+  const dispense = await prisma.pharmacyDispense.findUnique({
+    where: { id: dispenseId },
+    select: { id: true, company_id: true, facility_id: true, created_at: true, transaction_id: true, prescription_id: true, status: true },
+  });
+  if (!dispense) return { error: "الصرف غير موجود" };
+  const access = await requirePharmacySession(dispense.company_id, "write");
+  if ("error" in access) return { error: access.error };
+  const { session } = access;
+  const today = getTripoliDayWindow(new Date());
+  const ownSameDay = dispense.facility_id === session.id && dispense.created_at >= today.start && dispense.created_at < today.end;
+  if (!hasPermission(session, "cancel_transactions") && !ownSameDay) {
+    return { error: "يمكن للمرفق إلغاء صرفه في نفس اليوم فقط؛ بعد ذلك يتطلب صلاحية إلغاء الحركات" };
+  }
+  const cleanReason = reason.trim().slice(0, 300);
+  if (cleanReason.length < 3) return { error: "اكتب سبب الإلغاء" };
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      try {
+        await cancelTransactionInTx(tx, dispense.transaction_id, { id: session.id, username: session.username });
+      } catch (error) {
+        // حركة ملغاة مسبقًا من شاشة أخرى: نكمل مزامنة حالة الصرف والبنود فقط.
+        if (!(error instanceof Error && error.message === "TX_ALREADY_CANCELLED")) throw error;
+      }
+      await tx.pharmacyDispense.update({ where: { id: dispense.id }, data: { status: "CANCELLED", cancelled_at: new Date(), cancellation_reason: cleanReason } });
+      if (dispense.prescription_id) await releaseCancelledSlots(tx, dispense.prescription_id);
+      await tx.auditLog.create({
+        data: { facility_id: session.id, user: session.username, action: "PHARMACY_DISPENSE_CANCEL", metadata: { dispense_id: dispense.id, transaction_id: dispense.transaction_id, reason: cleanReason } },
+      });
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === "TX_NOT_FOUND") return { error: "الحركة المالية غير موجودة" };
+    throw error;
+  }
+  return { success: true };
 }

@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { getBeneficiarySession } from "@/lib/beneficiary-auth";
 import { getLedgerRemainingByBeneficiaryId } from "@/lib/ledger-balance";
-import { getChronicDrugStatuses, getPharmacyUsage } from "@/lib/pharmacy/summary";
+import { ACTIVE_DISPENSE, getChronicDrugStatuses, getPharmacyUsage } from "@/lib/pharmacy/summary";
 import { BeneficiaryDashboardClient } from "./client";
 
 export default async function BeneficiaryDashboardPage() {
@@ -21,7 +21,7 @@ export default async function BeneficiaryDashboardPage() {
       status: true,
       company_id: true,
       pharmacy_dispenses: {
-        where: { status: "COMPLETED" },
+        where: ACTIVE_DISPENSE,
         orderBy: { created_at: "desc" },
         take: 30,
         select: {
