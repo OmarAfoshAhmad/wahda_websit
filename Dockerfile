@@ -49,6 +49,9 @@ COPY --from=builder /app/node_modules/bcryptjs ./node_modules/bcryptjs
 # COPY --from=builder /app/node_modules/bullmq ./node_modules/bullmq
 # COPY --from=builder /app/node_modules/ioredis ./node_modules/ioredis
 
+# مجلد مرفقات الصيدلية (يُربط بـ volume في docker-compose) مملوك لمستخدم التشغيل
+RUN mkdir -p /app/storage/pharmacy-prescriptions
+
 # Fix permissions for node user
 RUN chown -R node:node /app
 

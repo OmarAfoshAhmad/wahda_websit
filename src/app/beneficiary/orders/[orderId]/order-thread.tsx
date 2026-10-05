@@ -14,6 +14,7 @@ export function BeneficiaryOrderThread({ initial }: { initial: Thread }) {
   const [thread, setThread] = useState(initial);
   const [error, setError] = useState("");
   const [acting, startAction] = useTransition();
+  const [confirmCancel, setConfirmCancel] = useState(false);
 
   const refresh = async () => {
     const result = await getMyPharmacyOrder(thread.id);
@@ -34,7 +35,7 @@ export function BeneficiaryOrderThread({ initial }: { initial: Thread }) {
   });
 
   const act = (action: "CONFIRM" | "CANCEL") => {
-    if (action === "CANCEL" && !window.confirm("إلغاء الطلب؟")) return;
+    setConfirmCancel(false);
     setError("");
     startAction(async () => {
       const result = await updateMyPharmacyOrder(thread.id, action);
@@ -68,7 +69,14 @@ export function BeneficiaryOrderThread({ initial }: { initial: Thread }) {
                 {acting && <Loader2 className="h-4 w-4 animate-spin" />} تأكيد الطلب{thread.fulfillment === "DELIVERY" ? ` مع التوصيل (${thread.deliveryFee} د.ل)` : ""}
               </button>
             )}
-            <button type="button" onClick={() => act("CANCEL")} disabled={acting} className="h-10 rounded-xl border border-slate-300 px-4 text-sm font-bold text-rose-700 dark:border-slate-700">إلغاء</button>
+            {confirmCancel ? (
+              <>
+                <button type="button" onClick={() => act("CANCEL")} disabled={acting} className="h-10 rounded-xl bg-rose-600 px-4 text-sm font-bold text-white">تأكيد الإلغاء</button>
+                <button type="button" onClick={() => setConfirmCancel(false)} className="h-10 rounded-xl border border-slate-300 px-3 text-sm font-bold dark:border-slate-700">رجوع</button>
+              </>
+            ) : (
+              <button type="button" onClick={() => setConfirmCancel(true)} disabled={acting} className="h-10 rounded-xl border border-slate-300 px-4 text-sm font-bold text-rose-700 dark:border-slate-700">إلغاء</button>
+            )}
           </div>
         )}
         {error && <p role="alert" className="text-xs font-bold text-rose-600">{error}</p>}

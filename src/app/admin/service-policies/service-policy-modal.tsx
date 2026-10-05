@@ -73,6 +73,8 @@ export function ServicePolicyModal({
   useEffect(() => {
     if (isOpen) {
       if (initialData) {
+        // تعبئة النموذج عند فتح النافذة مقصودة: النافذة نفسها تُعاد استخدامها للإضافة والتعديل.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setCompanyId(initialData.company_id);
         setServiceTypeId(initialData.service_type_id);
         setIsUnlimitedCeiling(initialData.ceiling_amount === null);

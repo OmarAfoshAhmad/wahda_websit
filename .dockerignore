@@ -11,3 +11,19 @@ coverage
 .env
 dev-start.ps1
 README.md
+
+# بيانات المستفيدين ومرفقات الصيدلية لا تدخل صورة Docker أبدًا (تُربط بـ volume عند التشغيل)
+storage
+backups
+scratch
+exports
+reports
+outputs
+playwright-report
+test-results
+tests
+*.xlsx
+*.xls
+*.csv
+.env.*
+!.env.build

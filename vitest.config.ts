@@ -7,6 +7,8 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
+    // تحويل PDF واختبارات قاعدة البيانات أبطأ من 5 ثوانٍ عند تشغيل كل الملفات بالتوازي.
+    testTimeout: 20000,
     setupFiles: ['./vitest.setup.ts'],
     include: ['tests/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}', 'src/__tests__/**/*.{test,spec}.ts'],
     exclude: ['node_modules', 'dist', '.idea', '.git', '.cache', 'tests/e2e/**'],

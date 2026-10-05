@@ -28,7 +28,8 @@
     "report:duplicates": "node scripts/export-duplicate-beneficiaries-report.js",
     "db:reset": "node scripts/reset-dev-db.js --apply",
     "db:reset:dry": "node scripts/reset-dev-db.js",
-    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json"
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
+    "predeploy:check": "node scripts/predeploy-check.mjs"
   },
   "dependencies": {
     "@napi-rs/canvas": "^1.0.10",
@@ -46,9 +47,9 @@
     "prisma": "^6.0.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
-    "sharp": "^0.34.5",
+    "sharp": "^0.35.5",
     "tailwind-merge": "^3.5.0",
-    "xlsx": "^0.18.5",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^4.3.6"
   },
   "devDependencies": {

@@ -32,6 +32,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    volumes:
+      - pharmacy_storage:/app/storage
     ports:
       - "${APP_PORT:-3101}:3000"
     healthcheck:
@@ -49,3 +51,4 @@ services:
 
 volumes:
   postgres_data:
+  pharmacy_storage:

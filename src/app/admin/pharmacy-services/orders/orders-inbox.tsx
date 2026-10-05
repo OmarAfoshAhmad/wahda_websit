@@ -30,6 +30,8 @@ export function OrdersInbox() {
   const [error, setError] = useState("");
   const [loadingList, setLoadingList] = useState(true);
   const [acting, startAction] = useTransition();
+  const [rejecting, setRejecting] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
 
   const loadList = useCallback(async () => {
     const result = await listFacilityPharmacyOrders(filter);
@@ -72,14 +74,9 @@ export function OrdersInbox() {
     }
   });
 
-  const act = (action: "AVAILABLE" | "REJECTED" | "OUT_FOR_DELIVERY" | "COMPLETED") => {
+  const act = (action: "AVAILABLE" | "REJECTED" | "OUT_FOR_DELIVERY" | "COMPLETED", reason?: string) => {
     if (!thread) return;
-    let reason: string | undefined;
-    if (action === "REJECTED") {
-      const input = window.prompt("سبب الاعتذار (اختياري)، مثل: الدواء غير متوفر");
-      if (input === null) return;
-      reason = input;
-    }
+    setRejecting(false);
     setError("");
     startAction(async () => {
       const result = await updateFacilityPharmacyOrder(thread.id, action, reason);
@@ -172,8 +169,15 @@ export function OrdersInbox() {
                   {["AVAILABLE", "CONFIRMED", "OUT_FOR_DELIVERY"].includes(thread.status) && <Button type="button" onClick={dispense} disabled={acting} className="h-9 text-sm">{thread.prescriptionId ? "متابعة الصرف" : "بدء الصرف"}</Button>}
                   {thread.status === "CONFIRMED" && thread.fulfillment === "DELIVERY" && <Button type="button" variant="outline" onClick={() => act("OUT_FOR_DELIVERY")} disabled={acting} className="h-9 text-sm">خرج للتوصيل</Button>}
                   {["CONFIRMED", "OUT_FOR_DELIVERY"].includes(thread.status) && <Button type="button" variant="outline" onClick={() => act("COMPLETED")} disabled={acting} className="h-9 text-sm">تم التسليم</Button>}
-                  {["PENDING", "AVAILABLE", "CONFIRMED"].includes(thread.status) && <Button type="button" variant="ghost" onClick={() => act("REJECTED")} disabled={acting} className="h-9 text-sm text-rose-700">اعتذار</Button>}
+                  {["PENDING", "AVAILABLE", "CONFIRMED"].includes(thread.status) && <Button type="button" variant="ghost" onClick={() => { setRejectReason(""); setRejecting(true); }} disabled={acting} className="h-9 text-sm text-rose-700">اعتذار</Button>}
                   {acting && <Loader2 className="h-5 w-5 animate-spin self-center text-teal-600" />}
+                </div>
+              )}
+              {rejecting && (
+                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-rose-200 p-2 dark:border-rose-900">
+                  <input value={rejectReason} onChange={(event) => setRejectReason(event.target.value)} maxLength={300} autoFocus placeholder="سبب الاعتذار (اختياري)، مثل: الدواء غير متوفر" aria-label="سبب الاعتذار" className="h-9 min-w-48 flex-1 rounded-md border border-slate-300 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-900" />
+                  <Button type="button" onClick={() => act("REJECTED", rejectReason)} disabled={acting} className="h-9 bg-rose-600 text-sm hover:bg-rose-700">تأكيد الاعتذار</Button>
+                  <Button type="button" variant="ghost" onClick={() => setRejecting(false)} className="h-9 text-sm">رجوع</Button>
                 </div>
               )}
               {error && <p role="alert" className="text-sm font-bold text-rose-600">{error}</p>}

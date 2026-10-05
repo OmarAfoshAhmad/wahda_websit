@@ -35,6 +35,9 @@ services:
       timeout: 5s
       retries: 6
       start_period: 30s
+    volumes:
+      # مرفقات الصيدلية (بطاقات ووصفات المستفيدين) يجب أن تبقى بعد إعادة إنشاء الحاوية.
+      - pharmacy_storage:/app/storage
     ports:
       - "${APP_HOST_PORT:-3101}:3000"
     networks:
@@ -42,6 +45,7 @@ services:
 
 volumes:
   redis_data:
+  pharmacy_storage:
 
 networks:
   waadapp_tba_network:
