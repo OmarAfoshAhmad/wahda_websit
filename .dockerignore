@@ -25,5 +25,3 @@ tests
 *.xlsx
 *.xls
 *.csv
-.env.*
-!.env.build
