@@ -248,7 +248,7 @@ export function PharmacyDeductionWorkspace({
             <HistoryPanel beneficiary={beneficiary} />
 
             {/* على الجوال تأتي نافذة الصرف أولاً، وعلى الشاشات الواسعة يبقى السجل يمينًا */}
-            <Card className="order-first p-3 sm:p-4 lg:order-none">
+            <Card className="order-first p-3 sm:p-4 lg:order-0">
               <div role="tablist" aria-label="نوع الأدوية" className="mb-3 grid grid-cols-3 gap-2">
                 {(["ROUTINE", "CHRONIC", "CHEMICAL"] as const).map((value) => {
                   const reason = tabDisabledReason(value);
@@ -725,7 +725,7 @@ function ReviewDialog({ pending, usage, categoryLabel, onClose, onDone }: { pend
   });
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-end justify-center bg-slate-900/50 p-0 sm:items-center sm:p-4" dir="rtl">
+    <div className="fixed inset-0 z-100 flex items-end justify-center bg-slate-900/50 p-0 sm:items-center sm:p-4" dir="rtl">
       <div role="dialog" aria-modal="true" aria-labelledby="dispense-review-title" className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-white p-4 shadow-xl dark:bg-slate-900 sm:rounded-2xl">
         <h2 id="dispense-review-title" className="text-lg font-black">تأكيد صرف {categoryLabel}</h2>
         <ul className="mt-3 divide-y divide-slate-100 text-sm dark:divide-slate-800">
