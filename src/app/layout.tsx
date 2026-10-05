@@ -1,18 +1,11 @@
 import type { Metadata, Viewport } from "next";
 import Script from "next/script";
-import { Tajawal } from "next/font/google";
 import { ToastProvider } from "@/components/toast";
 import { ThemeProvider } from "@/components/theme-provider";
 import { validateEnv } from "@/lib/env";
 import "./globals.css";
 
 validateEnv();
-
-const tajawal = Tajawal({
-  subsets: ["arabic", "latin"],
-  weight: ["300", "400", "500", "700", "800"],
-  variable: "--font-tajawal",
-});
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -44,7 +37,7 @@ export default function RootLayout({
           {`(function(){const a='bis_skin_checked',r=n=>{n&&(n.hasAttribute&&n.hasAttribute(a)&&n.removeAttribute(a),n.querySelectorAll&&n.querySelectorAll('['+a+']').forEach(e=>e.removeAttribute(a)))};r(document.documentElement);const o=new MutationObserver(m=>{m.forEach(m=>{m.type==='attributes'&&r(m.target),m.addedNodes&&m.addedNodes.forEach(r)})});o.observe(document.documentElement,{attributes:!0,subtree:!0,childList:!0,attributeFilter:[a]}),window.addEventListener('DOMContentLoaded',()=>r(document))})();`}
         </Script>
       </head>
-      <body className={`${tajawal.variable} ${tajawal.className}`} suppressHydrationWarning>
+      <body suppressHydrationWarning>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <ToastProvider>
             {children}

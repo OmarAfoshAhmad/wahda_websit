@@ -38,7 +38,7 @@ export async function storeAttachmentFile(file: File, kind: PharmacyAttachmentKi
     return { error: `${ATTACHMENT_LABELS[kind]}: تعذرت قراءة الملف، تأكد أنه غير تالف` };
   }
 
-  const directory = path.join(process.cwd(), "storage", "pharmacy-prescriptions");
+  const directory = path.join(/* turbopackIgnore: true */ process.cwd(), "storage", "pharmacy-prescriptions");
   await mkdir(directory, { recursive: true });
   const storedName = `${randomUUID()}${converted.extension}`;
   const absolutePath = path.join(directory, storedName);

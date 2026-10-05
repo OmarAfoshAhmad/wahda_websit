@@ -497,7 +497,7 @@ export async function startDispenseFromOrder(orderId: string) {
     if (!source?.storage_path) continue;
     const extension = path.extname(source.storage_path);
     const storagePath = path.join("storage", "pharmacy-prescriptions", `${randomUUID()}${extension}`);
-    await copyFile(path.join(process.cwd(), source.storage_path), path.join(process.cwd(), storagePath));
+    await copyFile(path.join(/* turbopackIgnore: true */ process.cwd(), source.storage_path), path.join(/* turbopackIgnore: true */ process.cwd(), storagePath));
     await prisma.pharmacyDispenseAttachment.create({
       data: { prescription_id: created.prescriptionId, kind, uploaded_by_id: session.id, file_name: source.file_name ?? "file", mime_type: source.mime_type ?? "image/webp", file_size: 0, storage_path: storagePath },
     });

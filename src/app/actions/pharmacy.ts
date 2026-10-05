@@ -230,7 +230,7 @@ export async function uploadPharmacyPrescriptionAttachment(formData: FormData) {
       });
       return previous;
     });
-    await Promise.all(replaced.map((item) => unlink(path.join(process.cwd(), item.storage_path)).catch(() => undefined)));
+    await Promise.all(replaced.map((item) => unlink(path.join(/* turbopackIgnore: true */ process.cwd(), item.storage_path)).catch(() => undefined)));
   } catch (error) {
     await unlink(stored.absolutePath).catch(() => undefined);
     throw error;
@@ -641,8 +641,8 @@ export async function dispenseChronicDrugs(formData: FormData) {
     });
     if (!card?.storage_path) return { error: "لم يُرسل المستفيد صورة البطاقة في الطلب" };
     const storagePath = path.join("storage", "pharmacy-prescriptions", `${randomUUID()}${path.extname(card.storage_path)}`);
-    const absolutePath = path.join(process.cwd(), storagePath);
-    await copyFile(path.join(process.cwd(), card.storage_path), absolutePath);
+    const absolutePath = path.join(/* turbopackIgnore: true */ process.cwd(), storagePath);
+    await copyFile(path.join(/* turbopackIgnore: true */ process.cwd(), card.storage_path), absolutePath);
     stored.push({ kind: "INSURANCE_CARD", fileName: card.file_name ?? "card", mime: card.mime_type ?? "image/webp", size: 0, storagePath, absolutePath });
     files.length = 0;
   }

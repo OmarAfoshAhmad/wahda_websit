@@ -6,7 +6,7 @@ import { hasPermission, requireActiveFacilitySession } from "@/lib/session-guard
 import { assertCompanyAccessForSession } from "@/lib/company-scope";
 import { checkRateLimit } from "@/lib/rate-limit";
 
-const STORAGE_ROOT = path.join(process.cwd(), "storage", "pharmacy-prescriptions");
+const STORAGE_ROOT = path.join(/* turbopackIgnore: true */ process.cwd(), "storage", "pharmacy-prescriptions");
 
 /** يعرض مرفق صرف (بطاقة أو وصفة) لمن يملك صلاحية الصيدلية وضمن نطاق شركة المستفيد فقط. */
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -38,7 +38,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   }
 
   // المسار المخزن يجب أن يبقى داخل مجلد المرفقات؛ أي مسار خارجه يُرفض.
-  const absolutePath = path.resolve(process.cwd(), attachment.storage_path);
+  const absolutePath = path.resolve(/* turbopackIgnore: true */ process.cwd(), attachment.storage_path);
   if (!absolutePath.startsWith(STORAGE_ROOT + path.sep)) return new NextResponse("Not found", { status: 404 });
 
   let bytes: Buffer;

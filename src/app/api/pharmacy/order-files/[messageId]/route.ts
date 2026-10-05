@@ -5,7 +5,7 @@ import prisma from "@/lib/prisma";
 import { getBeneficiarySessionFromRequest } from "@/lib/beneficiary-auth";
 import { hasPermission, requireActiveFacilitySession } from "@/lib/session-guard";
 
-const STORAGE_ROOT = path.join(process.cwd(), "storage", "pharmacy-prescriptions");
+const STORAGE_ROOT = path.join(/* turbopackIgnore: true */ process.cwd(), "storage", "pharmacy-prescriptions");
 
 /** صورة مرسلة في محادثة طلب صيدلية: يراها المستفيد صاحب الطلب أو حساب المرفق المستقبل له فقط. */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ messageId: string }> }) {
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ mess
   }
   if (!allowed) return new NextResponse("Forbidden", { status: 403 });
 
-  const absolutePath = path.resolve(process.cwd(), message.storage_path);
+  const absolutePath = path.resolve(/* turbopackIgnore: true */ process.cwd(), message.storage_path);
   if (!absolutePath.startsWith(STORAGE_ROOT + path.sep)) return new NextResponse("Not found", { status: 404 });
   let bytes: Buffer;
   try {
