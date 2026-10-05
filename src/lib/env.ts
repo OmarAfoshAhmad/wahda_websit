@@ -24,6 +24,9 @@ let _validated = false;
 
 export function validateEnv() {
   if (_validated) return;
+  // الأسرار تُفحص عند تشغيل الخادم لا أثناء `next build`: البناء لا يحتاجها، ولا يجب أن تُنسخ إلى صورة Docker.
+  // الفحص الكامل يجري عند أول تحميل للتطبيق في التشغيل.
+  if (process.env.NEXT_PHASE === "phase-production-build") return;
   _validated = true;
 
   const isProduction = process.env.NODE_ENV === "production";
