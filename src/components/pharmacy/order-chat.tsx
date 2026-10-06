@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { Check, CheckCheck, FileText, ImagePlus, Loader2, Send, X } from "lucide-react";
+import { Check, CheckCheck, FileText, MapPin, ImagePlus, Loader2, Send, X } from "lucide-react";
 import { ACCEPTED_FILES, prepareFile } from "@/lib/pharmacy/client-files";
 
 export type ChatMessage = {
@@ -10,6 +10,7 @@ export type ChatMessage = {
   body: string | null;
   attachment_kind: "INSURANCE_CARD" | "PRESCRIPTION" | null;
   file_name: string | null;
+  location: { latitude: number; longitude: number } | null;
   read_at: string | null;
   created_at: string;
 };
@@ -38,6 +39,29 @@ export function OrderChat({
   const [error, setError] = useState("");
   const [sending, startSend] = useTransition();
   const endRef = useRef<HTMLDivElement>(null);
+  const [locating, setLocating] = useState(false);
+
+  // المستفيد يرسل موقعه الحالي برسالة مستقلة تفتحها الصيدلية على الخرائط.
+  const sendLocation = () => {
+    if (!navigator.geolocation) { setError("المتصفح لا يدعم تحديد الموقع"); return; }
+    setError("");
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLocating(false);
+        startSend(async () => {
+          const formData = new FormData();
+          formData.set("body", "موقعي");
+          formData.set("latitude", String(position.coords.latitude));
+          formData.set("longitude", String(position.coords.longitude));
+          const result = await send(formData);
+          if (result?.error) setError(result.error);
+        });
+      },
+      () => { setLocating(false); setError("تعذر تحديد موقعك. اسمح للمتصفح بالوصول إلى الموقع ثم أعد المحاولة"); },
+      { enableHighAccuracy: true, timeout: 15000 },
+    );
+  };
 
   useEffect(() => { endRef.current?.scrollIntoView({ block: "end" }); }, [messages.length]);
 
@@ -70,7 +94,7 @@ export function OrderChat({
             <li key={message.id}>
               {showDay && <p className="my-2 text-center text-xs font-bold text-slate-400">{dayOf(message.created_at)}</p>}
               <div className={`flex ${mine ? "justify-start" : "justify-end"}`}>
-                <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm shadow-sm ${mine ? "rounded-ss-sm bg-primary text-white" : "rounded-se-sm border border-slate-200 bg-white text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"}`}>
+                <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm shadow-sm ${mine ? "rounded-ss-sm bg-teal-600 text-white" : "rounded-se-sm border border-slate-200 bg-white text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"}`}>
                   {message.attachment_kind && (
                     <a href={`/api/pharmacy/order-files/${message.id}`} target="_blank" rel="noopener noreferrer" className="mb-1 block">
                       {message.file_name?.endsWith(".pdf") ? (
@@ -79,11 +103,19 @@ export function OrderChat({
                         // eslint-disable-next-line @next/next/no-img-element -- صورة محمية تُخدم من مسار مصادق، لا يناسبها next/image
                         <img src={`/api/pharmacy/order-files/${message.id}`} alt={message.attachment_kind === "INSURANCE_CARD" ? "صورة البطاقة التأمينية" : "صورة الوصفة"} className="max-h-56 rounded-lg" loading="lazy" />
                       )}
-                      <span className={`mt-0.5 block text-xs ${mine ? "text-blue-100" : "text-slate-500"}`}>{message.attachment_kind === "INSURANCE_CARD" ? "البطاقة التأمينية" : "الوصفة"}</span>
+                      <span className={`mt-0.5 block text-xs ${mine ? "text-teal-50" : "text-slate-500"}`}>{message.attachment_kind === "INSURANCE_CARD" ? "البطاقة التأمينية" : "الوصفة"}</span>
                     </a>
                   )}
-                  {message.body && <p className="whitespace-pre-wrap break-words" dir="auto">{message.body}</p>}
-                  <span className={`mt-0.5 flex items-center justify-end gap-1 text-[11px] ${mine ? "text-blue-100" : "text-slate-400"}`}>
+                  {message.location ? (
+                    <a href={`https://www.google.com/maps?q=${message.location.latitude},${message.location.longitude}`} target="_blank" rel="noopener noreferrer" className={`flex items-center gap-2 rounded-xl px-2 py-1.5 font-bold underline-offset-2 hover:underline ${mine ? "bg-teal-700/40" : "bg-teal-50 text-teal-800 dark:bg-teal-950/40 dark:text-teal-200"}`}>
+                      <MapPin className="h-5 w-5 shrink-0" aria-hidden />
+                      <span>
+                        <span className="block">الموقع</span>
+                        <span className="block text-xs font-normal opacity-80">فتح في الخرائط</span>
+                      </span>
+                    </a>
+                  ) : message.body && <p className="whitespace-pre-wrap break-words" dir="auto">{message.body}</p>}
+                  <span className={`mt-0.5 flex items-center justify-end gap-1 text-[11px] ${mine ? "text-teal-50" : "text-slate-400"}`}>
                     {timeOf(message.created_at)}
                     {mine && (message.read_at ? <CheckCheck className="h-3.5 w-3.5" aria-label="مقروءة" /> : <Check className="h-3.5 w-3.5" aria-label="مرسلة" />)}
                   </span>
@@ -113,7 +145,12 @@ export function OrderChat({
           )}
           {error && <p role="alert" className="mb-1 text-xs font-bold text-rose-600">{error}</p>}
           <form className="flex items-end gap-2" onSubmit={(event) => { event.preventDefault(); submit(); }}>
-            <label className="inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 focus-within:ring-2 focus-within:ring-primary dark:hover:bg-slate-800" title="إرفاق صورة">
+            {viewer === "BENEFICIARY" && (
+              <button type="button" onClick={sendLocation} disabled={locating || sending} aria-label="إرسال موقعي" title="إرسال موقعي" className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-teal-700 hover:bg-teal-50 disabled:opacity-40 dark:text-teal-300 dark:hover:bg-slate-800">
+                {locating ? <Loader2 className="h-5 w-5 animate-spin" /> : <MapPin className="h-5 w-5" aria-hidden />}
+              </button>
+            )}
+            <label className="inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 focus-within:ring-2 focus-within:ring-teal-500 dark:hover:bg-slate-800" title="إرفاق صورة">
               <ImagePlus className="h-5 w-5" aria-hidden />
               <input type="file" accept={ACCEPTED_FILES} className="sr-only" aria-label="إرفاق صورة" onChange={(event) => { const picked = event.target.files?.[0]; event.target.value = ""; if (picked) setFile(picked); }} />
             </label>
@@ -127,7 +164,7 @@ export function OrderChat({
               aria-label="نص الرسالة"
               className="max-h-28 min-h-10 flex-1 resize-none rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
             />
-            <button type="submit" disabled={sending || (!text.trim() && !file)} aria-label="إرسال" className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-white disabled:opacity-40">
+            <button type="submit" disabled={sending || (!text.trim() && !file)} aria-label="إرسال" className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-40">
               {sending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5 -scale-x-100" />}
             </button>
           </form>

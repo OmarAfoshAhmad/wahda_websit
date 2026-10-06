@@ -571,6 +571,9 @@ model PharmacyOrderMessage {
   file_name      String?
   mime_type      String?
   storage_path   String?
+  /// موقع يرسله المستفيد في المحادثة (لتحديد عنوان التوصيل أو السؤال عن الأقرب)
+  latitude       Float?
+  longitude      Float?
   read_at        DateTime?
   created_at     DateTime           @default(now())
   order          PharmacyOrder      @relation(fields: [order_id], references: [id], onDelete: Cascade)

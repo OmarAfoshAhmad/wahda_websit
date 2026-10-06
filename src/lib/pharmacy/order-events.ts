@@ -14,7 +14,7 @@ const channels: Map<string, Set<Controller>> = globalThis._pharmacyOrderChannels
 const encoder = new TextEncoder();
 
 export type OrderEvent =
-  | { type: "message"; orderId: string; message: { id: string; sender: "BENEFICIARY" | "FACILITY"; body: string | null; attachment_kind: string | null; file_name: string | null; created_at: string } }
+  | { type: "message"; orderId: string; message: { id: string; sender: "BENEFICIARY" | "FACILITY"; body: string | null; attachment_kind: string | null; file_name: string | null; location: { latitude: number; longitude: number } | null; created_at: string } }
   | { type: "order"; orderId: string; status: string }
   | { type: "read"; orderId: string; reader: "BENEFICIARY" | "FACILITY" };
 

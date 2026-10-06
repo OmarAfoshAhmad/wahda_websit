@@ -32,12 +32,13 @@ const deliverySettingsOf = (profile: { delivery_enabled: boolean; delivery_base_
   maxKm: profile.delivery_max_km === null ? null : Number(profile.delivery_max_km),
 });
 
-const serializeMessage = (message: { id: string; sender: "BENEFICIARY" | "FACILITY"; body: string | null; attachment_kind: PharmacyAttachmentKind | null; file_name: string | null; read_at: Date | null; created_at: Date }) => ({
+const serializeMessage = (message: { id: string; sender: "BENEFICIARY" | "FACILITY"; body: string | null; attachment_kind: PharmacyAttachmentKind | null; file_name: string | null; latitude: number | null; longitude: number | null; read_at: Date | null; created_at: Date }) => ({
   id: message.id,
   sender: message.sender,
   body: message.body,
   attachment_kind: message.attachment_kind,
   file_name: message.file_name,
+  location: message.latitude !== null && message.longitude !== null ? { latitude: message.latitude, longitude: message.longitude } : null,
   read_at: message.read_at?.toISOString() ?? null,
   created_at: message.created_at.toISOString(),
 });
@@ -250,7 +251,7 @@ async function loadOrderThread(where: Prisma.PharmacyOrderWhereInput, reader: "B
       chronic_drug_ids: true, prescription_id: true, created_at: true,
       facility: { select: { name: true, pharmacy_profile: { select: { phone: true, address: true } } } },
       beneficiary: { select: { name: true, card_number: true, phone_number: true } },
-      messages: { orderBy: { created_at: "asc" }, select: { id: true, sender: true, body: true, attachment_kind: true, file_name: true, read_at: true, created_at: true } },
+      messages: { orderBy: { created_at: "asc" }, select: { id: true, sender: true, body: true, attachment_kind: true, file_name: true, latitude: true, longitude: true, read_at: true, created_at: true } },
     },
   });
   if (!order) return null;
@@ -292,7 +293,9 @@ async function appendMessage(order: { id: string; beneficiary_id: string; facili
   const file = formData.get("file");
   const kindValue = String(formData.get("kind") ?? "PRESCRIPTION");
   const kind: PharmacyAttachmentKind = kindValue === "INSURANCE_CARD" ? "INSURANCE_CARD" : "PRESCRIPTION";
-  if (!body && !(file instanceof File && file.size > 0)) return { error: "اكتب رسالة أو أرفق صورة" };
+  // الموقع يرسله المستفيد فقط (عنوان التوصيل أو للسؤال عن الأقرب).
+  const location = sender === "BENEFICIARY" ? parseLocation(formData.get("latitude"), formData.get("longitude")) : null;
+  if (!body && !location && !(file instanceof File && file.size > 0)) return { error: "اكتب رسالة أو أرفق صورة أو أرسل موقعك" };
 
   let stored: StoredFile | null = null;
   if (file instanceof File && file.size > 0) {
@@ -301,8 +304,8 @@ async function appendMessage(order: { id: string; beneficiary_id: string; facili
     stored = result;
   }
   const message = await prisma.pharmacyOrderMessage.create({
-    data: { order_id: order.id, sender, body, attachment_kind: stored?.kind ?? null, file_name: stored?.fileName ?? null, mime_type: stored?.mime ?? null, storage_path: stored?.storagePath ?? null },
-    select: { id: true, sender: true, body: true, attachment_kind: true, file_name: true, read_at: true, created_at: true },
+    data: { order_id: order.id, sender, body, attachment_kind: stored?.kind ?? null, file_name: stored?.fileName ?? null, mime_type: stored?.mime ?? null, storage_path: stored?.storagePath ?? null, latitude: location?.latitude ?? null, longitude: location?.longitude ?? null },
+    select: { id: true, sender: true, body: true, attachment_kind: true, file_name: true, latitude: true, longitude: true, read_at: true, created_at: true },
   });
   await prisma.pharmacyOrder.update({ where: { id: order.id }, data: { updated_at: new Date() } });
   publishOrderEvent({ beneficiaryId: order.beneficiary_id, facilityId: order.facility_id }, { type: "message", orderId: order.id, message: serializeMessage(message) });
@@ -323,7 +326,7 @@ export async function sendBeneficiaryOrderMessage(formData: FormData) {
 
 async function changeStatus(order: { id: string; beneficiary_id: string; facility_id: string }, status: PharmacyOrderStatus, note: string, sender: "BENEFICIARY" | "FACILITY") {
   await prisma.pharmacyOrder.update({ where: { id: order.id }, data: { status, status_changed_at: new Date() } });
-  const message = await prisma.pharmacyOrderMessage.create({ data: { order_id: order.id, sender, body: note }, select: { id: true, sender: true, body: true, attachment_kind: true, file_name: true, read_at: true, created_at: true } });
+  const message = await prisma.pharmacyOrderMessage.create({ data: { order_id: order.id, sender, body: note }, select: { id: true, sender: true, body: true, attachment_kind: true, file_name: true, latitude: true, longitude: true, read_at: true, created_at: true } });
   const target = { beneficiaryId: order.beneficiary_id, facilityId: order.facility_id };
   publishOrderEvent(target, { type: "order", orderId: order.id, status });
   publishOrderEvent(target, { type: "message", orderId: order.id, message: serializeMessage(message) });

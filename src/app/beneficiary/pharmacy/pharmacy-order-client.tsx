@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Bike, Clock, Loader2, LocateFixed, MapPin, MessageCircle, Phone, Store, Upload } from "lucide-react";
+import { ArrowRight, Bike, Clock, Loader2, LocateFixed, MapPin, MessageCircle, Phone, Search, Store, Upload } from "lucide-react";
 import { createPharmacyOrder, listPharmaciesForBeneficiary } from "@/app/actions/pharmacy-orders";
 import { ACCEPTED_FILES, prepareFile } from "@/lib/pharmacy/client-files";
 import { OrderStatusBadge } from "@/components/pharmacy/order-chat";
@@ -47,20 +47,54 @@ export function PharmacyOrderClient({ categories, chronicDrugs, contextError, or
   const [submitting, startSubmit] = useTransition();
 
   // يُطلب الموقع عند الدخول لترتيب الصيدليات وحساب التوصيل؛ إن رفض المستفيد تظهر القائمة بلا مسافات.
-  useEffect(() => {
+  const [query, setQuery] = useState("");
+
+  // يُطلب الموقع عند الدخول (ويمكن إعادة طلبه)؛ النجاح يمسح أي رسالة فشل سابقة، والطلب الملغى لا يغيّر الحالة.
+  const requestLocation = useCallback((isCancelled: () => boolean = () => false) => {
     const load = (point: { latitude: number; longitude: number } | null) => {
-      listPharmaciesForBeneficiary(point ?? {}).then((result) => { setPharmacies(result.items); setLocating(false); });
+      listPharmaciesForBeneficiary(point ?? {}).then((result) => {
+        if (isCancelled()) return;
+        setPharmacies(result.items);
+        setLocating(false);
+      });
     };
     if (!navigator.geolocation) {
-      Promise.resolve().then(() => { setLocationNote("المتصفح لا يدعم تحديد الموقع"); load(null); });
+      Promise.resolve().then(() => { if (!isCancelled()) { setLocationNote("المتصفح لا يدعم تحديد الموقع"); load(null); } });
       return;
     }
     navigator.geolocation.getCurrentPosition(
-      (position) => { const point = { latitude: position.coords.latitude, longitude: position.coords.longitude }; setLocation(point); load(point); },
-      () => { setLocationNote("لم تشارك موقعك: الصيدليات غير مرتبة بالمسافة، والتوصيل بحسب المسافة غير متاح"); load(null); },
+      (position) => {
+        if (isCancelled()) return;
+        const point = { latitude: position.coords.latitude, longitude: position.coords.longitude };
+        setLocation(point);
+        setLocationNote("");
+        load(point);
+      },
+      () => {
+        if (isCancelled()) return;
+        setLocation((current) => {
+          if (!current) setLocationNote("لم تشارك موقعك: الصيدليات غير مرتبة بالمسافة، والتوصيل بحسب المسافة غير متاح");
+          return current;
+        });
+        load(null);
+      },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 300000 },
     );
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    requestLocation(() => cancelled);
+    return () => { cancelled = true; };
+  }, [requestLocation]);
+
+  // بحث الصيدليات بالاسم أو المدينة أو العنوان، مع توحيد الهمزات والتاء المربوطة.
+  const normalize = (value: string) => value.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").replace(/\s+/g, " ").trim();
+  const visiblePharmacies = useMemo(() => {
+    const needle = normalize(query);
+    if (!needle || !pharmacies) return pharmacies;
+    return pharmacies.filter((pharmacy) => normalize([pharmacy.name, pharmacy.city, pharmacy.address].filter(Boolean).join(" ")).includes(needle));
+  }, [pharmacies, query]);
 
   const pickFile = async (file: File, setter: (file: File) => void) => {
     const prepared = await prepareFile(file);
@@ -127,16 +161,28 @@ export function PharmacyOrderClient({ categories, chronicDrugs, contextError, or
           <section className={card} aria-labelledby="choose-pharmacy">
             <div className="mb-2 flex items-center justify-between gap-2">
               <h2 id="choose-pharmacy" className="text-sm font-black">1. اختر الصيدلية</h2>
-              {location && <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700"><LocateFixed className="h-3.5 w-3.5" /> حسب موقعك</span>}
+              {location ? (
+                <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700"><LocateFixed className="h-3.5 w-3.5" /> حسب موقعك</span>
+              ) : (
+                <button type="button" onClick={() => { setLocating(true); requestLocation(); }} disabled={locating} className="inline-flex items-center gap-1 text-xs font-bold text-teal-700 hover:underline disabled:opacity-50 dark:text-teal-300"><LocateFixed className="h-3.5 w-3.5" /> حدد موقعي</button>
+              )}
             </div>
-            {locationNote && <p className="mb-2 text-xs text-amber-700">{locationNote}</p>}
+            {locationNote && !location && <p className="mb-2 text-xs text-amber-700">{locationNote}</p>}
+            {pharmacies && pharmacies.length > 1 && (
+              <div className="relative mb-2">
+                <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
+                <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ابحث عن صيدلية بالاسم أو المدينة أو العنوان" aria-label="بحث عن صيدلية" className="h-11 w-full rounded-xl border border-slate-300 bg-white pr-9 pl-3 text-sm dark:border-slate-700 dark:bg-slate-900" />
+              </div>
+            )}
             {locating || pharmacies === null ? (
               <p className="flex items-center justify-center gap-2 py-6 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> جارٍ تحديد موقعك وتحميل الصيدليات</p>
             ) : pharmacies.length === 0 ? (
               <p className="py-6 text-center text-sm text-slate-500">لا توجد صيدليات تستقبل الطلبات حاليًا</p>
+            ) : visiblePharmacies && visiblePharmacies.length === 0 ? (
+              <p className="py-6 text-center text-sm text-slate-500">لا توجد صيدلية مطابقة لـ «{query}»</p>
             ) : (
               <ul className="space-y-2" role="radiogroup" aria-label="الصيدليات">
-                {pharmacies.map((pharmacy) => {
+                {(visiblePharmacies ?? []).map((pharmacy) => {
                   const active = selected?.facilityId === pharmacy.facilityId;
                   return (
                     <li key={pharmacy.facilityId}>
