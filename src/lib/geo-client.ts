@@ -14,11 +14,17 @@ function attempt(options: PositionOptions) {
 
 export async function getCurrentLocation(): Promise<GeoPoint> {
   if (typeof navigator === "undefined" || !navigator.geolocation) throw new Error("المتصفح لا يدعم تحديد الموقع");
+  // المتصفحات تمنع الموقع على العناوين غير الآمنة (مثل http://192.168.x.x) وتردّه كرفض إذن.
+  if (typeof window !== "undefined" && !window.isSecureContext) {
+    throw new Error("تحديد الموقع يحتاج اتصالًا آمنًا: افتح المنظومة عبر https أو localhost");
+  }
   try {
     return await attempt({ enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 });
   } catch (error) {
-    // رفض الإذن لا تُفيد معه إعادة المحاولة.
-    if ((error as GeolocationPositionError)?.code === 1) throw new Error("لم تسمح بالوصول إلى موقعك. فعّل إذن الموقع للموقع من إعدادات المتصفح");
+    // رفض الإذن لا تُفيد معه إعادة المحاولة. على Windows يأتي الرفض أيضًا إن كانت خدمة الموقع في الجهاز مغلقة.
+    if ((error as GeolocationPositionError)?.code === 1) {
+      throw new Error("الموقع مرفوض: اسمح به للموقع من المتصفح، وتأكد أن خدمة الموقع مفعّلة في الجهاز (Windows: الإعدادات ← الخصوصية والأمان ← الموقع)");
+    }
     try {
       return await attempt({ enableHighAccuracy: false, timeout: 15000, maximumAge: 600000 });
     } catch {
