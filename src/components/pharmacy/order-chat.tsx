@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { Check, CheckCheck, FileText, MapPin, ImagePlus, Loader2, Send, X } from "lucide-react";
 import { ACCEPTED_FILES, prepareFile } from "@/lib/pharmacy/client-files";
+import { getCurrentLocation } from "@/lib/geo-client";
 
 export type ChatMessage = {
   id: string;
@@ -43,25 +44,23 @@ export function OrderChat({
 
   // المستفيد يرسل موقعه الحالي برسالة مستقلة تفتحها الصيدلية على الخرائط.
   const sendLocation = () => {
-    if (!navigator.geolocation) { setError("المتصفح لا يدعم تحديد الموقع"); return; }
     setError("");
     setLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
+    getCurrentLocation()
+      .then((point) => {
         setLocating(false);
         startSend(async () => {
           const formData = new FormData();
           formData.set("body", "موقعي");
-          formData.set("latitude", String(position.coords.latitude));
-          formData.set("longitude", String(position.coords.longitude));
+          formData.set("latitude", String(point.latitude));
+          formData.set("longitude", String(point.longitude));
           const result = await send(formData);
           if (result?.error) setError(result.error);
         });
-      },
-      () => { setLocating(false); setError("تعذر تحديد موقعك. اسمح للمتصفح بالوصول إلى الموقع ثم أعد المحاولة"); },
-      { enableHighAccuracy: true, timeout: 15000 },
-    );
+      })
+      .catch((reason: Error) => { setLocating(false); setError(reason.message); });
   };
+
 
   useEffect(() => { endRef.current?.scrollIntoView({ block: "end" }); }, [messages.length]);
 
@@ -98,7 +97,7 @@ export function OrderChat({
                   {message.attachment_kind && (
                     <a href={`/api/pharmacy/order-files/${message.id}`} target="_blank" rel="noopener noreferrer" className="mb-1 block">
                       {message.file_name?.endsWith(".pdf") ? (
-                        <span className={`inline-flex items-center gap-1.5 font-bold underline ${mine ? "text-white" : "text-primary dark:text-blue-300"}`}><FileText className="h-4 w-4" /> {message.file_name}</span>
+                        <span className={`inline-flex items-center gap-1.5 font-bold underline ${mine ? "text-white" : "text-primary dark:text-teal-300"}`}><FileText className="h-4 w-4" /> {message.file_name}</span>
                       ) : (
                         // eslint-disable-next-line @next/next/no-img-element -- صورة محمية تُخدم من مسار مصادق، لا يناسبها next/image
                         <img src={`/api/pharmacy/order-files/${message.id}`} alt={message.attachment_kind === "INSURANCE_CARD" ? "صورة البطاقة التأمينية" : "صورة الوصفة"} className="max-h-56 rounded-lg" loading="lazy" />
@@ -199,7 +198,7 @@ export type OrderEvent =
 export const ORDER_STATUS_LABELS: Record<string, { label: string; tone: string }> = {
   PENDING: { label: "بانتظار رد الصيدلية", tone: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300" },
   AVAILABLE: { label: "متوفر — بانتظار تأكيدك", tone: "bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-300" },
-  CONFIRMED: { label: "مؤكد — قيد التجهيز", tone: "bg-primary-light text-primary-dark dark:bg-primary/20 dark:text-blue-300" },
+  CONFIRMED: { label: "مؤكد — قيد التجهيز", tone: "bg-primary-light text-primary-dark dark:bg-primary/20 dark:text-teal-300" },
   OUT_FOR_DELIVERY: { label: "خرج للتوصيل", tone: "bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300" },
   COMPLETED: { label: "تم التسليم", tone: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300" },
   REJECTED: { label: "اعتذرت الصيدلية", tone: "bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300" },

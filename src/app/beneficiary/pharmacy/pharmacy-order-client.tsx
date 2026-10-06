@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, Bike, Clock, Loader2, LocateFixed, MapPin, MessageCircle, Phone, Search, Store, Upload } from "lucide-react";
 import { createPharmacyOrder, listPharmaciesForBeneficiary } from "@/app/actions/pharmacy-orders";
 import { ACCEPTED_FILES, prepareFile } from "@/lib/pharmacy/client-files";
+import { getCurrentLocation } from "@/lib/geo-client";
 import { OrderStatusBadge } from "@/components/pharmacy/order-chat";
 import type { ChronicDrugStatus } from "@/lib/pharmacy/summary";
 
@@ -58,28 +59,21 @@ export function PharmacyOrderClient({ categories, chronicDrugs, contextError, or
         setLocating(false);
       });
     };
-    if (!navigator.geolocation) {
-      Promise.resolve().then(() => { if (!isCancelled()) { setLocationNote("المتصفح لا يدعم تحديد الموقع"); load(null); } });
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
+    getCurrentLocation()
+      .then((point) => {
         if (isCancelled()) return;
-        const point = { latitude: position.coords.latitude, longitude: position.coords.longitude };
         setLocation(point);
         setLocationNote("");
         load(point);
-      },
-      () => {
+      })
+      .catch((reason: Error) => {
         if (isCancelled()) return;
         setLocation((current) => {
-          if (!current) setLocationNote("لم تشارك موقعك: الصيدليات غير مرتبة بالمسافة، والتوصيل بحسب المسافة غير متاح");
+          if (!current) setLocationNote(`${reason.message}. الصيدليات غير مرتبة بالمسافة، والتوصيل بحسب المسافة غير متاح`);
           return current;
         });
         load(null);
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 300000 },
-    );
+      });
   }, []);
 
   useEffect(() => {
@@ -196,11 +190,11 @@ export function PharmacyOrderClient({ categories, chronicDrugs, contextError, or
                           {(pharmacy.address || pharmacy.city) && <span>{[pharmacy.city, pharmacy.address].filter(Boolean).join(" · ")}</span>}
                           {pharmacy.hours && <span className="inline-flex items-center gap-0.5"><Clock className="h-3 w-3" /> {pharmacy.hours}</span>}
                         </span>
-                        <span className={`mt-1 flex items-center gap-1 text-xs font-bold ${pharmacy.delivery.available ? "text-primary dark:text-blue-300" : "text-slate-500"}`}>
+                        <span className={`mt-1 flex items-center gap-1 text-xs font-bold ${pharmacy.delivery.available ? "text-primary dark:text-teal-300" : "text-slate-500"}`}>
                           <Bike className="h-3.5 w-3.5" /> {pharmacy.delivery.available ? `توصيل ${pharmacy.delivery.fee} د.ل (خارج التأمين)` : pharmacy.delivery.reason}
                         </span>
                       </button>
-                      {active && pharmacy.phone && <a href={`tel:${pharmacy.phone}`} className="mt-1 inline-flex items-center gap-1 text-xs font-bold text-primary dark:text-blue-300" dir="ltr"><Phone className="h-3 w-3" /> {pharmacy.phone}</a>}
+                      {active && pharmacy.phone && <a href={`tel:${pharmacy.phone}`} className="mt-1 inline-flex items-center gap-1 text-xs font-bold text-primary dark:text-teal-300" dir="ltr"><Phone className="h-3 w-3" /> {pharmacy.phone}</a>}
                     </li>
                   );
                 })}

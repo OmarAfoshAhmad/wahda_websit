@@ -170,7 +170,7 @@ export function BeneficiaryDashboardClient({ initialData }: { initialData: Dashb
               localStorage.setItem("notif-sound", String(next));
               return next;
             })}
-            className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border ${soundEnabled ? "border-primary/30 bg-primary-light dark:border-primary/30 dark:bg-primary/20 text-primary dark:text-blue-400" : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300"}`}
+            className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border ${soundEnabled ? "border-primary/30 bg-primary-light dark:border-primary/30 dark:bg-primary/20 text-primary dark:text-teal-300" : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300"}`}
             aria-label={soundEnabled ? "إيقاف صوت الإشعارات" : "تشغيل صوت الإشعارات"}
             title={soundEnabled ? "الصوت مفعل" : "الصوت متوقف"}
           >
@@ -204,7 +204,7 @@ export function BeneficiaryDashboardClient({ initialData }: { initialData: Dashb
                     type="button"
                     onClick={markAllRead}
                     disabled={markingRead || unreadCount === 0}
-                    className="inline-flex items-center gap-1 text-xs font-bold text-primary dark:text-blue-400 disabled:opacity-50"
+                    className="inline-flex items-center gap-1 text-xs font-bold text-primary dark:text-teal-300 disabled:opacity-50"
                   >
                     <CheckCheck className="h-4 w-4" />
                     تحديد الكل كمقروء
@@ -240,21 +240,21 @@ export function BeneficiaryDashboardClient({ initialData }: { initialData: Dashb
       </div>
 
       {/* Balance Card */}
-      <div className="rounded-2xl bg-linear-to-br from-[#1f4e8c] to-[#173b6a] p-5 text-white shadow-md">
+      <div className="rounded-2xl bg-linear-to-br from-teal-600 to-teal-800 p-5 text-white shadow-md">
         <div className="mb-3 flex items-center gap-2">
           <Wallet className="h-4 w-4" />
-          <p className="text-xs font-bold uppercase tracking-wider text-blue-100">إجمالي الاستهلاك التراكمي</p>
+          <p className="text-xs font-bold uppercase tracking-wider text-teal-50">إجمالي الاستهلاك التراكمي</p>
         </div>
         <p className="text-4xl font-black leading-none">{formatCurrency(usedBalance)}</p>
-        <p className="mt-1 text-sm text-blue-100">دينار ليبي</p>
+        <p className="mt-1 text-sm text-teal-50">دينار ليبي</p>
 
         <div className="mt-5 grid grid-cols-2 gap-2 rounded-xl bg-white/10 p-2 text-center">
           <div className="rounded-lg bg-white/10 py-2">
-            <p className="text-[11px] font-bold text-blue-100">المتبقي</p>
+            <p className="text-[11px] font-bold text-teal-50">المتبقي</p>
             <p className="text-base font-black">{formatCurrency(data.remaining_balance)}</p>
           </div>
           <div className="rounded-lg bg-white/10 py-2">
-            <p className="text-[11px] font-bold text-blue-100">السقف الكلي</p>
+            <p className="text-[11px] font-bold text-teal-50">السقف الكلي</p>
             <p className="text-base font-black">{formatCurrency(data.total_balance)}</p>
           </div>
         </div>
@@ -274,7 +274,7 @@ export function BeneficiaryDashboardClient({ initialData }: { initialData: Dashb
       <Link href="/beneficiary/pharmacy" className="mt-4 flex items-center justify-between gap-3 rounded-2xl bg-primary p-4 text-white shadow-md">
         <span>
           <span className="block text-base font-black">اطلب دواءك من صيدلية</span>
-          <span className="block text-xs text-blue-100">أرسل وصفتك، تحقق من التوفر، واختر الاستلام أو التوصيل</span>
+          <span className="block text-xs text-teal-50">أرسل وصفتك، تحقق من التوفر، واختر الاستلام أو التوصيل</span>
         </span>
         <MessageCircle className="h-6 w-6 shrink-0" aria-hidden />
       </Link>

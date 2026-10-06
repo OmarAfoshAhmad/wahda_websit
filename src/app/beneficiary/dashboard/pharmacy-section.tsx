@@ -34,7 +34,7 @@ export function PharmacySection({ data }: { data: PharmacyData }) {
   return (
     <section aria-labelledby="pharmacy-title" className="mt-4 space-y-3">
       <h2 id="pharmacy-title" className="flex items-center gap-2 text-base font-black text-slate-800 dark:text-white">
-        <Pill className="h-4 w-4 text-primary dark:text-blue-400" aria-hidden /> الصيدلية
+        <Pill className="h-4 w-4 text-primary dark:text-teal-300" aria-hidden /> الصيدلية
       </h2>
 
       {data.usage.length > 0 && (
@@ -54,7 +54,7 @@ export function PharmacySection({ data }: { data: PharmacyData }) {
                   <>
                     <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">المتبقي <strong className="tabular-nums text-slate-900 dark:text-white">{formatCurrency(usage.remaining)} د.ل</strong>{ceiling !== null && <> من {formatCurrency(ceiling)}</>}</p>
                     <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800" role="progressbar" aria-valuenow={used} aria-valuemin={0} aria-valuemax={100} aria-label={`المستهلك من سقف ${CATEGORY_LABELS[usage.category]}`}>
-                      <div className="h-full rounded-full bg-primary dark:bg-blue-400" style={{ width: `${used}%` }} />
+                      <div className="h-full rounded-full bg-primary dark:bg-teal-400" style={{ width: `${used}%` }} />
                     </div>
                   </>
                 )}
