@@ -29,40 +29,13 @@ const CATEGORY_LABELS: Record<Category, string> = { ROUTINE: "أدوية روت�
 /** قسم الصيدلية في بوابة المستفيد: المتبقي من السقوف، الأدوية المزمنة ومواعيدها، وسجل كل ما صُرف. */
 export function PharmacySection({ data }: { data: PharmacyData }) {
   const [openId, setOpenId] = useState<string | null>(null);
-  if (data.usage.length === 0 && data.dispenses.length === 0 && data.chronicDrugs.length === 0) return null;
+  if (data.dispenses.length === 0 && data.chronicDrugs.length === 0) return null;
 
   return (
     <section aria-labelledby="pharmacy-title" className="mt-4 space-y-3">
       <h2 id="pharmacy-title" className="flex items-center gap-2 text-base font-black text-slate-800 dark:text-white">
         <Pill className="h-4 w-4 text-primary dark:text-teal-300" aria-hidden /> الصيدلية
       </h2>
-
-      {data.usage.length > 0 && (
-        <div className="grid gap-2">
-          {data.usage.map((usage) => {
-            const ceiling = usage.categoryCeiling ?? usage.overallCeiling;
-            const used = ceiling === null ? 0 : Math.min(100, Math.round(((ceiling - (usage.remaining ?? ceiling)) / ceiling) * 100));
-            return (
-              <div key={usage.category} className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
-                <div className="flex items-baseline justify-between gap-2">
-                  <p className="text-sm font-black text-slate-800 dark:text-slate-200">{CATEGORY_LABELS[usage.category]}</p>
-                  <p className="text-xs font-bold text-slate-500 dark:text-slate-400">التغطية {usage.coveragePercent}%</p>
-                </div>
-                {usage.remaining === null ? (
-                  <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">بلا سقف محدد</p>
-                ) : (
-                  <>
-                    <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">المتبقي <strong className="tabular-nums text-slate-900 dark:text-white">{formatCurrency(usage.remaining)} د.ل</strong>{ceiling !== null && <> من {formatCurrency(ceiling)}</>}</p>
-                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800" role="progressbar" aria-valuenow={used} aria-valuemin={0} aria-valuemax={100} aria-label={`المستهلك من سقف ${CATEGORY_LABELS[usage.category]}`}>
-                      <div className="h-full rounded-full bg-primary dark:bg-teal-400" style={{ width: `${used}%` }} />
-                    </div>
-                  </>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
 
       {data.chronicDrugs.length > 0 && (
         <div className="rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">

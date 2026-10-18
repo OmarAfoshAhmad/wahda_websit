@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Bell, CalendarDays, Wallet, LogOut, CheckCheck, MessageCircle, Volume2, VolumeX } from "lucide-react";
+import { Bell, CalendarDays, Pill, LogOut, CheckCheck, MessageCircle, Volume2, VolumeX } from "lucide-react";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { formatCurrency } from "@/lib/money";
 import { formatDateTripoli, formatDateTimeTripoli } from "@/lib/datetime";
@@ -38,6 +38,8 @@ type DashboardData = {
   pharmacy: PharmacyData;
 };
 
+const CATEGORY_LABELS: Record<PharmacyData["usage"][number]["category"], string> = { ROUTINE: "أدوية روتينية", CHRONIC: "أدوية مزمنة", CHEMICAL: "أدوية الأورام" };
+
 const TYPE_LABELS: Record<string, string> = {
   MEDICINE: "دواء",
   SUPPLIES: "مستلزمات",
@@ -58,7 +60,9 @@ export function BeneficiaryDashboardClient({ initialData }: { initialData: Dashb
   });
 
   const unreadCount = useMemo(() => data.notifications.filter((n) => !n.is_read).length, [data.notifications]);
-  const usedBalance = data.total_balance - data.remaining_balance;
+  // مجاميع الصيدلية فقط؛ قيم السقف العام (الأسنان وغيرها) لا تُعرض هنا.
+  const pharmacyUsed = data.pharmacy.usage[0]?.consumedOverall ?? 0;
+  const pharmacyCeiling = data.pharmacy.usage[0]?.overallCeiling ?? null;
 
   function playNotificationTone() {
     try {
@@ -239,37 +243,49 @@ export function BeneficiaryDashboardClient({ initialData }: { initialData: Dashb
         </div>
       </div>
 
-      {/* Balance Card */}
+      {/* Pharmacy Card: مجاميع الصيدلية فقط */}
       <div className="rounded-2xl bg-linear-to-br from-teal-600 to-teal-800 p-5 text-white shadow-md">
-        <div className="mb-3 flex items-center gap-2">
-          <Wallet className="h-4 w-4" />
-          <p className="text-xs font-bold uppercase tracking-wider text-teal-50">إجمالي الاستهلاك التراكمي</p>
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <p className="flex items-center gap-2 text-xs font-bold tracking-wider text-teal-50"><Pill className="h-4 w-4" /> استهلاك الصيدلية</p>
+          <p className="font-mono text-xs font-bold text-teal-50" dir="ltr">{data.card_number}</p>
         </div>
-        <p className="text-4xl font-black leading-none">{formatCurrency(usedBalance)}</p>
+        <p className="text-4xl font-black leading-none">{formatCurrency(pharmacyUsed)}</p>
         <p className="mt-1 text-sm text-teal-50">دينار ليبي</p>
 
-        <div className="mt-5 grid grid-cols-2 gap-2 rounded-xl bg-white/10 p-2 text-center">
-          <div className="rounded-lg bg-white/10 py-2">
-            <p className="text-[11px] font-bold text-teal-50">المتبقي</p>
-            <p className="text-base font-black">{formatCurrency(data.remaining_balance)}</p>
+        {pharmacyCeiling !== null && (
+          <div className="mt-5 grid grid-cols-2 gap-2 rounded-xl bg-white/10 p-2 text-center">
+            <div className="rounded-lg bg-white/10 py-2">
+              <p className="text-[11px] font-bold text-teal-50">المتبقي</p>
+              <p className="text-base font-black">{formatCurrency(Math.max(0, pharmacyCeiling - pharmacyUsed))}</p>
+            </div>
+            <div className="rounded-lg bg-white/10 py-2">
+              <p className="text-[11px] font-bold text-teal-50">سقف الصيدلية</p>
+              <p className="text-base font-black">{formatCurrency(pharmacyCeiling)}</p>
+            </div>
           </div>
-          <div className="rounded-lg bg-white/10 py-2">
-            <p className="text-[11px] font-bold text-teal-50">السقف الكلي</p>
-            <p className="text-base font-black">{formatCurrency(data.total_balance)}</p>
-          </div>
-        </div>
+        )}
+
+        {data.pharmacy.usage.length > 0 && (
+          <ul className="mt-2 divide-y divide-white/10 rounded-xl bg-white/10 px-3">
+            {data.pharmacy.usage.map((usage) => (
+              <li key={usage.category} className="flex items-center justify-between gap-2 py-2.5">
+                <span className="text-sm font-bold">{CATEGORY_LABELS[usage.category]} <span className="text-xs font-normal text-teal-50">· تغطية {usage.coveragePercent}%</span></span>
+                <span className="text-sm font-black tabular-nums">{usage.remaining === null ? "بلا سقف" : `متبقي ${formatCurrency(usage.remaining)}`}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       {/* User meta */}
-      <div className="mt-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3">
-        <p className="text-sm font-bold text-slate-800 dark:text-slate-200">رقم البطاقة: <span className="font-mono">{data.card_number}</span></p>
+      {data.birth_date && <div className="mt-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3">
         {data.birth_date && (
-          <p className="mt-1.5 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+          <p className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
             <CalendarDays className="h-4 w-4" />
             تاريخ الميلاد: {formatDateTripoli(data.birth_date, "en-GB")}
           </p>
         )}
-      </div>
+      </div>}
 
       <Link href="/beneficiary/pharmacy" className="mt-4 flex min-h-20 items-center justify-between gap-3 rounded-2xl bg-primary px-5 py-4 text-white shadow-md">
         <span className="text-2xl font-black">اطلب دواء</span>
