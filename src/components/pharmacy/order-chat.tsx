@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { Check, CheckCheck, FileText, MapPin, ImagePlus, Loader2, Send, X } from "lucide-react";
+import { Camera, Check, CheckCheck, CreditCard, FileText, MapPin, ImagePlus, Loader2, Send, X } from "lucide-react";
 import { ACCEPTED_FILES, prepareFile } from "@/lib/pharmacy/client-files";
 import { getCurrentLocation } from "@/lib/geo-client";
 
@@ -64,6 +64,21 @@ export function OrderChat({
 
   useEffect(() => { endRef.current?.scrollIntoView({ block: "end" }); }, [messages.length]);
 
+  // المستفيد: اختيار الصورة يرسلها مباشرة بنوعها، بلا خطوة اختيار نوع ولا ضغط إرسال إضافي.
+  const sendPhoto = (photoKind: "PRESCRIPTION" | "INSURANCE_CARD", picked: File) => {
+    setError("");
+    startSend(async () => {
+      const prepared = await prepareFile(picked);
+      if ("error" in prepared) { setError("لم نستطع قراءة هذه الصورة. حاول مرة أخرى"); return; }
+      const formData = new FormData();
+      formData.set("body", "");
+      formData.set("file", prepared.file);
+      formData.set("kind", photoKind);
+      const result = await send(formData);
+      if (result?.error) setError(result.error);
+    });
+  };
+
   const submit = () => {
     if (!text.trim() && !file) return;
     setError("");
@@ -93,7 +108,7 @@ export function OrderChat({
             <li key={message.id}>
               {showDay && <p className="my-2 text-center text-xs font-bold text-slate-400">{dayOf(message.created_at)}</p>}
               <div className={`flex ${mine ? "justify-start" : "justify-end"}`}>
-                <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm shadow-sm ${mine ? "rounded-ss-sm bg-teal-600 text-white" : "rounded-se-sm border border-slate-200 bg-white text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"}`}>
+                <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-base shadow-sm ${mine ? "rounded-ss-sm bg-teal-600 text-white" : "rounded-se-sm border border-slate-200 bg-white text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"}`}>
                   {message.attachment_kind && (
                     <a href={`/api/pharmacy/order-files/${message.id}`} target="_blank" rel="noopener noreferrer" className="mb-1 block">
                       {message.file_name?.endsWith(".pdf") ? (
@@ -142,17 +157,29 @@ export function OrderChat({
               <button type="button" onClick={() => setFile(null)} aria-label="إزالة الملف" className="text-slate-500 hover:text-rose-600"><X className="h-4 w-4" /></button>
             </div>
           )}
-          {error && <p role="alert" className="mb-1 text-xs font-bold text-rose-600">{error}</p>}
-          <form className="flex items-end gap-2" onSubmit={(event) => { event.preventDefault(); submit(); }}>
-            {viewer === "BENEFICIARY" && (
-              <button type="button" onClick={sendLocation} disabled={locating || sending} aria-label="إرسال موقعي" title="إرسال موقعي" className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-teal-700 hover:bg-teal-50 disabled:opacity-40 dark:text-teal-300 dark:hover:bg-slate-800">
-                {locating ? <Loader2 className="h-5 w-5 animate-spin" /> : <MapPin className="h-5 w-5" aria-hidden />}
+          {error && <p role="alert" className={`mb-2 font-bold text-rose-600 ${viewer === "BENEFICIARY" ? "text-base" : "text-xs"}`}>{error}</p>}
+          {viewer === "BENEFICIARY" && (
+            <div className="mb-2 grid grid-cols-3 gap-2">
+              {([["PRESCRIPTION", "صورة وصفة", Camera], ["INSURANCE_CARD", "صورة بطاقة", CreditCard]] as const).map(([photoKind, label, Icon]) => (
+                <label key={photoKind} className={`flex h-14 cursor-pointer flex-col items-center justify-center rounded-2xl bg-teal-50 text-sm font-bold text-teal-800 focus-within:ring-2 focus-within:ring-teal-500 dark:bg-slate-800 dark:text-teal-200 ${sending ? "pointer-events-none opacity-50" : ""}`}>
+                  <Icon className="h-5 w-5" aria-hidden />
+                  {label}
+                  <input type="file" accept={ACCEPTED_FILES} className="sr-only" aria-label={label} disabled={sending} onChange={(event) => { const picked = event.target.files?.[0]; event.target.value = ""; if (picked) sendPhoto(photoKind, picked); }} />
+                </label>
+              ))}
+              <button type="button" onClick={sendLocation} disabled={locating || sending} className="flex h-14 flex-col items-center justify-center rounded-2xl bg-teal-50 text-sm font-bold text-teal-800 disabled:opacity-50 dark:bg-slate-800 dark:text-teal-200">
+                {locating ? <Loader2 className="h-5 w-5 animate-spin" aria-hidden /> : <MapPin className="h-5 w-5" aria-hidden />}
+                موقعي
               </button>
+            </div>
+          )}
+          <form className="flex items-end gap-2" onSubmit={(event) => { event.preventDefault(); submit(); }}>
+            {viewer === "FACILITY" && (
+              <label className="inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 focus-within:ring-2 focus-within:ring-teal-500 dark:hover:bg-slate-800" title="إرفاق صورة">
+                <ImagePlus className="h-5 w-5" aria-hidden />
+                <input type="file" accept={ACCEPTED_FILES} className="sr-only" aria-label="إرفاق صورة" onChange={(event) => { const picked = event.target.files?.[0]; event.target.value = ""; if (picked) setFile(picked); }} />
+              </label>
             )}
-            <label className="inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 focus-within:ring-2 focus-within:ring-teal-500 dark:hover:bg-slate-800" title="إرفاق صورة">
-              <ImagePlus className="h-5 w-5" aria-hidden />
-              <input type="file" accept={ACCEPTED_FILES} className="sr-only" aria-label="إرفاق صورة" onChange={(event) => { const picked = event.target.files?.[0]; event.target.value = ""; if (picked) setFile(picked); }} />
-            </label>
             <textarea
               value={text}
               onChange={(event) => setText(event.target.value)}
@@ -161,10 +188,11 @@ export function OrderChat({
               maxLength={1000}
               placeholder="اكتب رسالة…"
               aria-label="نص الرسالة"
-              className="max-h-28 min-h-10 flex-1 resize-none rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+              className={`max-h-28 flex-1 resize-none rounded-2xl border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900 ${viewer === "BENEFICIARY" ? "min-h-12 text-base" : "min-h-10 text-sm"}`}
             />
-            <button type="submit" disabled={sending || (!text.trim() && !file)} aria-label="إرسال" className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-40">
+            <button type="submit" disabled={sending || (!text.trim() && !file)} aria-label="إرسال" className={`inline-flex shrink-0 items-center justify-center gap-1 rounded-full bg-teal-600 font-bold text-white hover:bg-teal-700 disabled:opacity-40 ${viewer === "BENEFICIARY" ? "h-12 px-4 text-base" : "h-10 w-10"}`}>
               {sending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5 -scale-x-100" />}
+              {viewer === "BENEFICIARY" && !sending && "إرسال"}
             </button>
           </form>
         </div>

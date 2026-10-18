@@ -1,261 +1,416 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { ArrowRight, Bike, Clock, Loader2, LocateFixed, MapPin, MessageCircle, Phone, Search, Store, Upload } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { ArrowRight, Bike, Camera, Check, ChevronLeft, Home, Loader2, LocateFixed, MapPin, MessageCircle, Pill, Search, Store } from "lucide-react";
 import { createPharmacyOrder, listPharmaciesForBeneficiary } from "@/app/actions/pharmacy-orders";
-import { ACCEPTED_FILES, prepareFile } from "@/lib/pharmacy/client-files";
-import { getCurrentLocation } from "@/lib/geo-client";
-import { OrderStatusBadge } from "@/components/pharmacy/order-chat";
+import { prepareFile } from "@/lib/pharmacy/client-files";
+import { getCurrentLocation, type GeoPoint } from "@/lib/geo-client";
 import type { ChronicDrugStatus } from "@/lib/pharmacy/summary";
+
+/**
+ * طلب دواء من صيدلية كخطوات بسيطة: قرار واحد في كل شاشة، أزرار كبيرة، ولغة بسيطة.
+ * صُمم لمستفيدين خبرتهم بالتقنية قليلة. التحقق النهائي يبقى في الخادم (createPharmacyOrder).
+ */
 
 type Category = "ROUTINE" | "CHRONIC" | "CHEMICAL";
 type Pharmacy = Awaited<ReturnType<typeof listPharmaciesForBeneficiary>>["items"][number];
 type OrderItem = { id: string; category: string; status: string; facilityName: string; unread: number; updatedAt: string };
+type Step = "pharmacy" | "type" | "photos" | "receive" | "review";
 
-const CATEGORY_LABELS: Record<Category, string> = { ROUTINE: "أدوية روتينية", CHRONIC: "أدويتي المزمنة", CHEMICAL: "أدوية الأورام" };
-const card = "rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900";
+const CATEGORY_TEXT: Record<Category, { title: string; hint: string }> = {
+  ROUTINE: { title: "دواء عادي", hint: "بوصفة من الطبيب" },
+  CHRONIC: { title: "دوائي الشهري", hint: "أدوية الأمراض المزمنة" },
+  CHEMICAL: { title: "دواء الأورام", hint: "بوصفة من الطبيب" },
+};
+const OPEN_STATUSES = ["PENDING", "AVAILABLE", "CONFIRMED", "OUT_FOR_DELIVERY"];
+const SEARCH_THRESHOLD = 8;
 
-function FilePick({ label, file, onPick }: { label: string; file: File | null; onPick: (file: File) => void }) {
+const normalizeArabic = (value: string) => value.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").replace(/\s+/g, " ").trim();
+const dateText = (iso: string) => new Date(iso).toLocaleDateString("ar-LY", { timeZone: "Africa/Tripoli", day: "numeric", month: "long" });
+
+/** زر اختيار كبير: عنوان واضح وسطر واحد مساعد. */
+function BigChoice({ selected, disabled, onClick, icon, title, subtitle, note }: { selected?: boolean; disabled?: boolean; onClick: () => void; icon?: React.ReactNode; title: string; subtitle?: React.ReactNode; note?: string }) {
   return (
-    <label className={`flex cursor-pointer items-center gap-3 rounded-xl border-2 border-dashed p-3 focus-within:ring-2 focus-within:ring-primary ${file ? "border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/20" : "border-slate-300 dark:border-slate-700"}`}>
-      <Upload className={`h-5 w-5 shrink-0 ${file ? "text-emerald-600" : "text-slate-400"}`} aria-hidden />
+    <button
+      type="button"
+      role="radio"
+      aria-checked={Boolean(selected)}
+      disabled={disabled}
+      onClick={onClick}
+      className={`flex min-h-19 w-full items-center gap-4 rounded-2xl border-2 px-4 py-3 text-start transition disabled:cursor-not-allowed disabled:opacity-60 ${selected ? "border-primary bg-primary-light" : "border-slate-200 bg-white active:bg-primary-light dark:border-slate-700 dark:bg-slate-900"}`}
+    >
+      {icon && <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary-light text-primary">{icon}</span>}
       <span className="min-w-0 flex-1">
-        <span className="block text-sm font-black">{label} <span className="text-red-500" aria-hidden>*</span></span>
-        <span className="block truncate text-xs text-slate-500">{file ? file.name : "صورة أو PDF · اضغط للتصوير أو الاختيار"}</span>
+        <span className="block text-lg font-black leading-snug text-slate-900 dark:text-white">{title}</span>
+        {subtitle && <span className="mt-0.5 block text-base text-slate-600 dark:text-slate-300">{subtitle}</span>}
+        {note && <span className="mt-0.5 block text-base font-bold text-amber-700 dark:text-amber-400">{note}</span>}
       </span>
-      <input type="file" accept={ACCEPTED_FILES} className="sr-only" aria-label={label} onChange={(event) => { const picked = event.target.files?.[0]; event.target.value = ""; if (picked) onPick(picked); }} />
+      {selected ? <Check className="h-7 w-7 shrink-0 text-primary" aria-hidden /> : <ChevronLeft className="h-6 w-6 shrink-0 text-slate-400" aria-hidden />}
+    </button>
+  );
+}
+
+/** مربع تصوير كبير مع معاينة الصورة الملتقطة. */
+function PhotoTile({ label, file, preparing, onPick }: { label: string; file: File | null; preparing: boolean; onPick: (file: File) => void }) {
+  const preview = useMemo(() => (file && file.type.startsWith("image/") ? URL.createObjectURL(file) : null), [file]);
+  useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
+  return (
+    <label className={`relative flex min-h-42.5 cursor-pointer flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl border-2 border-dashed p-4 text-center focus-within:ring-4 focus-within:ring-primary/30 ${file ? "border-primary bg-primary-light" : "border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-900"}`}>
+      {preparing ? (
+        <><Loader2 className="h-10 w-10 animate-spin text-primary" aria-hidden /><span className="text-lg font-bold">جارٍ تجهيز الصورة…</span></>
+      ) : file ? (
+        <>
+          {preview
+            // eslint-disable-next-line @next/next/no-img-element -- معاينة محلية من الجهاز
+            ? <img src={preview} alt={label} className="max-h-32 rounded-lg object-contain" />
+            : <Check className="h-10 w-10 text-primary" aria-hidden />}
+          <span className="text-lg font-black text-primary">تم ✓ — اضغط لتغيير الصورة</span>
+        </>
+      ) : (
+        <>
+          <Camera className="h-12 w-12 text-primary" aria-hidden />
+          <span className="text-xl font-black text-slate-900 dark:text-white">{label}</span>
+          <span className="text-base text-slate-600 dark:text-slate-300">اضغط هنا للتصوير</span>
+        </>
+      )}
+      <input type="file" accept="image/*,application/pdf" className="sr-only" aria-label={label} onChange={(event) => { const picked = event.target.files?.[0]; event.target.value = ""; if (picked) onPick(picked); }} />
     </label>
   );
 }
 
 export function PharmacyOrderClient({ categories, chronicDrugs, contextError, orders }: { categories: Category[]; chronicDrugs: ChronicDrugStatus[]; contextError: string | null; orders: OrderItem[] }) {
   const router = useRouter();
-  const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
-  const [locating, setLocating] = useState(true);
-  const [locationNote, setLocationNote] = useState("");
-  const [pharmacies, setPharmacies] = useState<Pharmacy[] | null>(null);
-  const [selected, setSelected] = useState<Pharmacy | null>(null);
-  const [category, setCategory] = useState<Category | null>(categories[0] ?? null);
+  const searchParams = useSearchParams();
+  const headingRef = useRef<HTMLHeadingElement>(null);
+
+  // الاختيارات محفوظة هنا، فالرجوع بين الخطوات لا يُضيع شيئًا.
+  const [facilityId, setFacilityId] = useState<string | null>(null);
+  const [category, setCategory] = useState<Category | null>(null);
   const [chronicIds, setChronicIds] = useState<string[]>([]);
-  const [fulfillment, setFulfillment] = useState<"PICKUP" | "DELIVERY">("PICKUP");
-  const [address, setAddress] = useState("");
-  const [note, setNote] = useState("");
   const [cardFile, setCardFile] = useState<File | null>(null);
   const [rxFile, setRxFile] = useState<File | null>(null);
-  const [error, setError] = useState("");
+  const [preparing, setPreparing] = useState<"card" | "rx" | null>(null);
+  const [fulfillment, setFulfillment] = useState<"PICKUP" | "DELIVERY" | null>(null);
+  const [address, setAddress] = useState("");
+  const [note, setNote] = useState("");
+  const [showNote, setShowNote] = useState(false);
+  const [stepError, setStepError] = useState("");
   const [submitting, startSubmit] = useTransition();
 
-  // يُطلب الموقع عند الدخول لترتيب الصيدليات وحساب التوصيل؛ إن رفض المستفيد تظهر القائمة بلا مسافات.
+  const [pharmacies, setPharmacies] = useState<Pharmacy[] | null>(null);
+  const [listError, setListError] = useState("");
+  const [location, setLocation] = useState<GeoPoint | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [locationHint, setLocationHint] = useState("");
   const [query, setQuery] = useState("");
 
-  // يُطلب الموقع عند الدخول (ويمكن إعادة طلبه)؛ النجاح يمسح أي رسالة فشل سابقة، والطلب الملغى لا يغيّر الحالة.
-  const requestLocation = useCallback((isCancelled: () => boolean = () => false) => {
-    const load = (point: { latitude: number; longitude: number } | null) => {
-      listPharmaciesForBeneficiary(point ?? {}).then((result) => {
-        if (isCancelled()) return;
+  // الصيدلية تُقرأ من آخر قائمة محمّلة (لا نسخة قديمة) حتى تتحدث قيمة التوصيل بعد تحديد الموقع.
+  const pharmacy = pharmacies?.find((item) => item.facilityId === facilityId) ?? null;
+  const eligibleChronic = chronicDrugs.filter((drug) => drug.eligible);
+  const notDueChronic = chronicDrugs.filter((drug) => !drug.eligible);
+  const openOrder = orders.find((order) => OPEN_STATUSES.includes(order.status));
+
+  const loadPharmacies = useCallback((point: GeoPoint | null) => {
+    return listPharmaciesForBeneficiary(point ?? {})
+      .then((result) => {
+        if ("error" in result && result.error) { setListError(result.error); return; }
+        setListError("");
         setPharmacies(result.items);
-        setLocating(false);
-      });
-    };
-    getCurrentLocation()
-      .then((point) => {
-        if (isCancelled()) return;
-        setLocation(point);
-        setLocationNote("");
-        load(point);
       })
-      .catch((reason: Error) => {
-        if (isCancelled()) return;
-        setLocation((current) => {
-          if (!current) setLocationNote(`${reason.message}. الصيدليات غير مرتبة بالمسافة، والتوصيل بحسب المسافة غير متاح`);
-          return current;
-        });
-        load(null);
-      });
+      .catch(() => setListError("تعذر تحميل الصيدليات. تأكد من الاتصال بالإنترنت ثم أعد المحاولة"));
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    requestLocation(() => cancelled);
-    return () => { cancelled = true; };
-  }, [requestLocation]);
+  useEffect(() => { void loadPharmacies(null); }, [loadPharmacies]);
 
-  // بحث الصيدليات بالاسم أو المدينة أو العنوان، مع توحيد الهمزات والتاء المربوطة.
-  const normalize = (value: string) => value.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").replace(/\s+/g, " ").trim();
-  const visiblePharmacies = useMemo(() => {
-    const needle = normalize(query);
-    if (!needle || !pharmacies) return pharmacies;
-    return pharmacies.filter((pharmacy) => normalize([pharmacy.name, pharmacy.city, pharmacy.address].filter(Boolean).join(" ")).includes(needle));
-  }, [pharmacies, query]);
-
-  const pickFile = async (file: File, setter: (file: File) => void) => {
-    const prepared = await prepareFile(file);
-    if ("error" in prepared) { setError(prepared.error); return; }
-    setError("");
-    setter(prepared.file);
+  // الموقع يُطلب فقط عند الحاجة وبضغطة من المستفيد.
+  const requestMyLocation = () => {
+    setLocating(true);
+    setLocationHint("");
+    getCurrentLocation()
+      .then(async (point) => { setLocation(point); await loadPharmacies(point); })
+      .catch(() => setLocationHint("لم نتمكن من معرفة موقعك. يمكنك اختيار الصيدلية بنفسك"))
+      .finally(() => setLocating(false));
   };
 
-  const eligibleChronic = chronicDrugs.filter((drug) => drug.eligible);
+  const steps: Step[] = ["pharmacy", "type", "photos", "receive", "review"];
+  // الخطوة من الرابط (حتى يعمل زر الرجوع في الهاتف)، ولا يُسمح بتجاوز خطوة لم تكتمل.
+  const requestedIndex = Math.max(0, steps.indexOf((searchParams?.get("step") ?? "pharmacy") as Step));
+  const maxIndex = !pharmacy ? 0 : !category ? 1 : steps.length - 1;
+  const step: Step = steps[Math.min(requestedIndex, maxIndex)];
+  const stepNumber = steps.indexOf(step) + 1;
+
+  const goTo = (next: Step) => {
+    setStepError("");
+    router.push(`/beneficiary/pharmacy?step=${next}`, { scroll: false });
+  };
+  // زر الرجوع في الهاتف يعيد خطوة واحدة لأن كل خطوة في سجل التصفح.
+  const goBack = () => (stepNumber > 1 ? router.back() : router.push("/beneficiary/dashboard"));
+
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+    headingRef.current?.focus();
+  }, [step]);
+
+  const pickFile = async (kind: "card" | "rx", original: File) => {
+    setStepError("");
+    setPreparing(kind);
+    const prepared = await prepareFile(original);
+    setPreparing(null);
+    if ("error" in prepared) { setStepError("لم نستطع قراءة هذه الصورة. حاول التصوير مرة أخرى"); return; }
+    if (kind === "card") setCardFile(prepared.file); else setRxFile(prepared.file);
+  };
+
   const needsRx = category !== "CHRONIC";
-  const ready = selected && category && cardFile && (!needsRx || rxFile) && (category !== "CHRONIC" || chronicIds.length > 0) && (fulfillment === "PICKUP" || (selected.delivery.available && location));
+  const photosNext = () => {
+    if (!cardFile) return setStepError("صوّر بطاقة التأمين أولًا");
+    if (needsRx && !rxFile) return setStepError("صوّر الوصفة أولًا");
+    if (category === "CHRONIC" && chronicIds.length === 0) return setStepError("اختر دواءً واحدًا على الأقل");
+    goTo("receive");
+  };
+  const receiveNext = () => {
+    if (!fulfillment) return setStepError("اختر طريقة الاستلام");
+    if (fulfillment === "DELIVERY" && !location) return setStepError("اضغط «استخدم موقعي» حتى نعرف أين نوصل الدواء");
+    if (fulfillment === "DELIVERY" && !address.trim()) return setStepError("اكتب وصفًا لعنوان البيت");
+    goTo("review");
+  };
 
   const submit = () => {
-    if (!ready || !selected || !category) return;
-    setError("");
+    if (!pharmacy || !category || !cardFile || !fulfillment) return;
+    setStepError("");
     startSubmit(async () => {
       const formData = new FormData();
-      formData.set("facilityId", selected.facilityId);
+      formData.set("facilityId", pharmacy.facilityId);
       formData.set("category", category);
       formData.set("fulfillment", fulfillment);
       formData.set("note", note);
-      formData.set("address", address);
+      formData.set("address", fulfillment === "DELIVERY" ? address : "");
       if (location) { formData.set("latitude", String(location.latitude)); formData.set("longitude", String(location.longitude)); }
-      formData.set("chronicDrugIds", JSON.stringify(chronicIds));
-      formData.set("insuranceCard", cardFile!);
+      formData.set("chronicDrugIds", JSON.stringify(category === "CHRONIC" ? chronicIds : []));
+      formData.set("insuranceCard", cardFile);
       if (needsRx && rxFile) formData.set("prescription", rxFile);
       const result = await createPharmacyOrder(formData);
-      if ("error" in result && result.error) { setError(result.error); return; }
-      if ("orderId" in result && result.orderId) router.push(`/beneficiary/orders/${result.orderId}`);
+      if ("error" in result && result.error) { setStepError(result.error); return; }
+      if ("orderId" in result && result.orderId) router.replace(`/beneficiary/orders/${result.orderId}`);
     });
   };
 
+  const visiblePharmacies = useMemo(() => {
+    const list = pharmacies ?? [];
+    const needle = normalizeArabic(query);
+    const filtered = needle ? list.filter((item) => normalizeArabic([item.name, item.city, item.address].filter(Boolean).join(" ")).includes(needle)) : list;
+    return { open: filtered.filter((item) => item.openNow), closed: filtered.filter((item) => !item.openNow) };
+  }, [pharmacies, query]);
+
+  const titles: Record<Step, string> = {
+    pharmacy: "اختر الصيدلية",
+    type: "ما نوع الدواء؟",
+    photos: category === "CHRONIC" ? "صوّر البطاقة واختر أدويتك" : "صوّر البطاقة والوصفة",
+    receive: "كيف تستلم الدواء؟",
+    review: "راجع طلبك",
+  };
+
+  const pharmacyButton = (item: Pharmacy) => (
+    <BigChoice
+      key={item.facilityId}
+      selected={facilityId === item.facilityId}
+      onClick={() => { setFacilityId(item.facilityId); goTo("type"); }}
+      icon={<Store className="h-6 w-6" aria-hidden />}
+      title={item.name}
+      subtitle={[
+        item.distanceKm !== null ? `${item.distanceKm} كم` : item.city,
+        item.openNow ? "مفتوحة الآن" : "مغلقة الآن",
+        item.delivery.available ? "يوجد توصيل" : null,
+      ].filter(Boolean).join(" · ")}
+    />
+  );
+
   return (
-    <div className="mx-auto min-h-screen w-full max-w-md space-y-4 px-4 pb-10 pt-5">
-      <div className="flex items-center gap-2">
-        <Link href="/beneficiary/dashboard" aria-label="رجوع" className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800"><ArrowRight className="h-5 w-5" /></Link>
-        <h1 className="text-lg font-black text-slate-900 dark:text-white">اطلب دواءك من صيدلية</h1>
+    <div className="mx-auto flex min-h-screen w-full max-w-md flex-col px-4 pb-32 pt-4">
+      <header className="mb-5 flex items-center gap-3">
+        <button type="button" onClick={goBack} className="inline-flex h-14 items-center gap-1 rounded-2xl border-2 border-slate-200 bg-white px-4 text-lg font-bold dark:border-slate-700 dark:bg-slate-900">
+          <ArrowRight className="h-6 w-6" aria-hidden /> رجوع
+        </button>
+        <span className="text-base font-bold text-slate-500 dark:text-slate-400">خطوة {stepNumber} من {steps.length}</span>
+      </header>
+      <div className="mb-5 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800" aria-hidden>
+        <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${(stepNumber / steps.length) * 100}%` }} />
       </div>
 
-      {orders.length > 0 && (
-        <section className={card} aria-labelledby="my-orders">
-          <h2 id="my-orders" className="mb-2 text-sm font-black">طلباتي</h2>
-          <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-            {orders.map((order) => (
-              <li key={order.id}>
-                <Link href={`/beneficiary/orders/${order.id}`} className="flex items-center justify-between gap-2 py-2.5">
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-bold">{order.facilityName}</span>
-                    <OrderStatusBadge status={order.status} />
-                  </span>
-                  <span className="flex items-center gap-1 text-xs text-slate-500">
-                    {order.unread > 0 && <span className="rounded-full bg-rose-600 px-1.5 font-black text-white">{order.unread}</span>}
-                    <MessageCircle className="h-4 w-4" />
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+      <h1 ref={headingRef} tabIndex={-1} className="mb-4 text-2xl font-black text-slate-900 outline-none dark:text-white">{titles[step]}</h1>
 
-      {contextError ? <p className={`${card} text-sm font-bold text-rose-700`}>{contextError}</p> : (
+      {contextError ? (
+        <p className="rounded-2xl bg-rose-50 p-4 text-lg font-bold text-rose-800 dark:bg-rose-950/40 dark:text-rose-200">{contextError}</p>
+      ) : (
         <>
-          <section className={card} aria-labelledby="choose-pharmacy">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <h2 id="choose-pharmacy" className="text-sm font-black">1. اختر الصيدلية</h2>
-              {location ? (
-                <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700"><LocateFixed className="h-3.5 w-3.5" /> حسب موقعك</span>
+          {step === "pharmacy" && (
+            <div className="space-y-3">
+              {openOrder && (
+                <Link href={`/beneficiary/orders/${openOrder.id}`} className="flex min-h-14 items-center gap-3 rounded-2xl bg-amber-50 px-4 py-3 text-lg font-bold text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                  <MessageCircle className="h-6 w-6 shrink-0" aria-hidden />
+                  <span className="flex-1">لديك طلب مفتوح عند {openOrder.facilityName} — اضغط لمتابعته</span>
+                </Link>
+              )}
+              {!location && (
+                <button type="button" onClick={requestMyLocation} disabled={locating} className="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-primary-light px-4 text-lg font-bold text-primary disabled:opacity-60">
+                  {locating ? <Loader2 className="h-6 w-6 animate-spin" aria-hidden /> : <LocateFixed className="h-6 w-6" aria-hidden />}
+                  {locating ? "جارٍ تحديد موقعك…" : "أظهر الأقرب إليّ"}
+                </button>
+              )}
+              {locationHint && <p className="text-base text-slate-600 dark:text-slate-300">{locationHint}</p>}
+              {pharmacies && pharmacies.length > SEARCH_THRESHOLD && (
+                <div className="relative">
+                  <Search className="absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" aria-hidden />
+                  <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="اكتب اسم الصيدلية" aria-label="اكتب اسم الصيدلية" className="h-14 w-full rounded-2xl border-2 border-slate-200 bg-white pr-12 pl-4 text-lg dark:border-slate-700 dark:bg-slate-900" />
+                </div>
+              )}
+              {listError ? (
+                <div className="space-y-3 rounded-2xl bg-rose-50 p-4 dark:bg-rose-950/40">
+                  <p className="text-lg font-bold text-rose-800 dark:text-rose-200">{listError}</p>
+                  <button type="button" onClick={() => void loadPharmacies(location)} className="h-12 rounded-xl bg-white px-4 text-lg font-bold text-rose-800 dark:bg-slate-900 dark:text-rose-200">أعد المحاولة</button>
+                </div>
+              ) : pharmacies === null ? (
+                <div className="space-y-3" aria-label="جارٍ التحميل">{[0, 1, 2].map((key) => <div key={key} className="h-19 animate-pulse rounded-2xl bg-slate-200 dark:bg-slate-800" />)}</div>
+              ) : pharmacies.length === 0 ? (
+                <p className="rounded-2xl bg-white p-6 text-center text-lg text-slate-600 dark:bg-slate-900 dark:text-slate-300">لا توجد صيدليات تستقبل الطلبات الآن</p>
               ) : (
-                <button type="button" onClick={() => { setLocating(true); requestLocation(); }} disabled={locating} className="inline-flex items-center gap-1 text-xs font-bold text-teal-700 hover:underline disabled:opacity-50 dark:text-teal-300"><LocateFixed className="h-3.5 w-3.5" /> حدد موقعي</button>
+                <div className="space-y-3" role="radiogroup" aria-label="الصيدليات">
+                  {visiblePharmacies.open.map(pharmacyButton)}
+                  {visiblePharmacies.closed.length > 0 && (
+                    <>
+                      <p className="pt-2 text-base font-bold text-slate-500 dark:text-slate-400">مغلقة الآن (يمكنك الطلب وسترد عليك عند الفتح)</p>
+                      {visiblePharmacies.closed.map(pharmacyButton)}
+                    </>
+                  )}
+                  {visiblePharmacies.open.length + visiblePharmacies.closed.length === 0 && <p className="p-4 text-center text-lg text-slate-600">لا توجد صيدلية بهذا الاسم</p>}
+                </div>
               )}
             </div>
-            {locationNote && !location && <p className="mb-2 text-xs text-amber-700">{locationNote}</p>}
-            {pharmacies && pharmacies.length > 1 && (
-              <div className="relative mb-2">
-                <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
-                <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ابحث عن صيدلية بالاسم أو المدينة أو العنوان" aria-label="بحث عن صيدلية" className="h-11 w-full rounded-xl border border-slate-300 bg-white pr-9 pl-3 text-sm dark:border-slate-700 dark:bg-slate-900" />
-              </div>
-            )}
-            {locating || pharmacies === null ? (
-              <p className="flex items-center justify-center gap-2 py-6 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> جارٍ تحديد موقعك وتحميل الصيدليات</p>
-            ) : pharmacies.length === 0 ? (
-              <p className="py-6 text-center text-sm text-slate-500">لا توجد صيدليات تستقبل الطلبات حاليًا</p>
-            ) : visiblePharmacies && visiblePharmacies.length === 0 ? (
-              <p className="py-6 text-center text-sm text-slate-500">لا توجد صيدلية مطابقة لـ «{query}»</p>
-            ) : (
-              <ul className="space-y-2" role="radiogroup" aria-label="الصيدليات">
-                {(visiblePharmacies ?? []).map((pharmacy) => {
-                  const active = selected?.facilityId === pharmacy.facilityId;
-                  return (
-                    <li key={pharmacy.facilityId}>
-                      <button type="button" role="radio" aria-checked={active} onClick={() => { setSelected(pharmacy); if (!pharmacy.delivery.available) setFulfillment("PICKUP"); }} className={`w-full rounded-xl border p-3 text-start ${active ? "border-primary bg-primary-light ring-1 ring-primary dark:bg-primary/20" : "border-slate-200 dark:border-slate-700"}`}>
-                        <span className="flex items-start justify-between gap-2">
-                          <span className="text-sm font-black">{pharmacy.name}</span>
-                          <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-bold ${pharmacy.openNow ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"}`}>{pharmacy.openNow ? "مفتوحة" : "مغلقة الآن"}</span>
-                        </span>
-                        <span className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-600 dark:text-slate-300">
-                          {pharmacy.distanceKm !== null && <span className="inline-flex items-center gap-0.5"><MapPin className="h-3 w-3" /> {pharmacy.distanceKm} كم</span>}
-                          {(pharmacy.address || pharmacy.city) && <span>{[pharmacy.city, pharmacy.address].filter(Boolean).join(" · ")}</span>}
-                          {pharmacy.hours && <span className="inline-flex items-center gap-0.5"><Clock className="h-3 w-3" /> {pharmacy.hours}</span>}
-                        </span>
-                        <span className={`mt-1 flex items-center gap-1 text-xs font-bold ${pharmacy.delivery.available ? "text-primary dark:text-teal-300" : "text-slate-500"}`}>
-                          <Bike className="h-3.5 w-3.5" /> {pharmacy.delivery.available ? `توصيل ${pharmacy.delivery.fee} د.ل (خارج التأمين)` : pharmacy.delivery.reason}
-                        </span>
-                      </button>
-                      {active && pharmacy.phone && <a href={`tel:${pharmacy.phone}`} className="mt-1 inline-flex items-center gap-1 text-xs font-bold text-primary dark:text-teal-300" dir="ltr"><Phone className="h-3 w-3" /> {pharmacy.phone}</a>}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
+          )}
 
-          {selected && (
-            <section className={`${card} space-y-3`} aria-labelledby="order-details">
-              <h2 id="order-details" className="text-sm font-black">2. تفاصيل الطلب</h2>
-              <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="نوع الأدوية">
-                {(["ROUTINE", "CHRONIC", "CHEMICAL"] as const).map((value) => {
-                  const allowed = categories.includes(value);
-                  return (
-                    <button key={value} type="button" role="radio" aria-checked={category === value} disabled={!allowed} onClick={() => setCategory(value)} className={`rounded-xl border p-2 text-xs font-black ${category === value ? "border-primary bg-primary-light dark:bg-primary/20" : "border-slate-200 dark:border-slate-700"} disabled:opacity-40`}>
-                      {CATEGORY_LABELS[value]}
-                    </button>
-                  );
-                })}
-              </div>
+          {step === "type" && (
+            <div className="space-y-3" role="radiogroup" aria-label="نوع الدواء">
+              {categories.length === 0 && <p className="rounded-2xl bg-amber-50 p-4 text-lg font-bold text-amber-900">تأمينك لا يشمل طلب الأدوية حاليًا. تواصل مع شركتك</p>}
+              {categories.map((value) => {
+                const noneDue = value === "CHRONIC" && eligibleChronic.length === 0;
+                const nextDate = notDueChronic.map((drug) => drug.next_eligible_at).filter(Boolean).sort()[0];
+                return (
+                  <BigChoice
+                    key={value}
+                    selected={category === value}
+                    disabled={noneDue}
+                    onClick={() => { setCategory(value); goTo("photos"); }}
+                    icon={<Pill className="h-6 w-6" aria-hidden />}
+                    title={CATEGORY_TEXT[value].title}
+                    subtitle={CATEGORY_TEXT[value].hint}
+                    note={noneDue ? (nextDate ? `أدويتك جاهزة من ${dateText(nextDate)}` : "لا توجد أدوية جاهزة الآن") : undefined}
+                  />
+                );
+              })}
+            </div>
+          )}
 
-              {category === "CHRONIC" && (
-                <fieldset className="space-y-1">
-                  <legend className="mb-1 text-xs font-bold text-slate-500">اختر الأدوية المستحقة الآن</legend>
-                  {chronicDrugs.map((drug) => (
-                    <label key={drug.id} className={`flex items-start gap-2 rounded-lg p-1.5 text-sm ${drug.eligible ? "" : "opacity-50"}`}>
-                      <input type="checkbox" className="mt-1" disabled={!drug.eligible} checked={chronicIds.includes(drug.id)} onChange={(event) => setChronicIds((current) => event.target.checked ? [...current, drug.id] : current.filter((id) => id !== drug.id))} />
-                      <span><span className="font-bold" dir="auto">{drug.drug_name}</span>{!drug.eligible && drug.next_eligible_at && <span className="block text-xs">متاح من {new Date(drug.next_eligible_at).toLocaleDateString("ar-LY", { timeZone: "Africa/Tripoli" })}</span>}</span>
-                    </label>
-                  ))}
-                  {eligibleChronic.length === 0 && <p className="text-xs font-bold text-amber-700">لا يوجد دواء مزمن مستحق الآن</p>}
+          {step === "photos" && (
+            <div className="space-y-4">
+              <PhotoTile label="صورة بطاقة التأمين" file={cardFile} preparing={preparing === "card"} onPick={(file) => void pickFile("card", file)} />
+              {needsRx ? (
+                <PhotoTile label="صورة الوصفة" file={rxFile} preparing={preparing === "rx"} onPick={(file) => void pickFile("rx", file)} />
+              ) : (
+                <fieldset className="space-y-2">
+                  <legend className="mb-2 text-xl font-black">اختر الأدوية التي تريدها</legend>
+                  {eligibleChronic.map((drug) => {
+                    const checked = chronicIds.includes(drug.id);
+                    return (
+                      <label key={drug.id} className={`flex min-h-16 cursor-pointer items-center gap-4 rounded-2xl border-2 px-4 py-3 ${checked ? "border-primary bg-primary-light" : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"}`}>
+                        <input type="checkbox" className="h-7 w-7 accent-(--primary)" checked={checked} onChange={(event) => setChronicIds((current) => event.target.checked ? [...current, drug.id] : current.filter((id) => id !== drug.id))} />
+                        <span className="text-lg font-bold" dir="auto">{drug.drug_name}</span>
+                      </label>
+                    );
+                  })}
+                  {notDueChronic.length > 0 && (
+                    <details className="rounded-2xl bg-slate-50 p-4 text-base dark:bg-slate-900">
+                      <summary className="cursor-pointer text-lg font-bold text-slate-600 dark:text-slate-300">أدوية لم يحن موعدها ({notDueChronic.length})</summary>
+                      <ul className="mt-2 space-y-1">{notDueChronic.map((drug) => <li key={drug.id} dir="auto">{drug.drug_name} — من {drug.next_eligible_at ? dateText(drug.next_eligible_at) : "قريبًا"}</li>)}</ul>
+                    </details>
+                  )}
                 </fieldset>
               )}
+            </div>
+          )}
 
-              <FilePick label="صورة البطاقة التأمينية" file={cardFile} onPick={(file) => pickFile(file, setCardFile)} />
-              {needsRx && <FilePick label="صورة الوصفة" file={rxFile} onPick={(file) => pickFile(file, setRxFile)} />}
-
-              <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="طريقة الاستلام">
-                <button type="button" role="radio" aria-checked={fulfillment === "PICKUP"} onClick={() => setFulfillment("PICKUP")} className={`flex flex-col items-center gap-1 rounded-xl border p-2.5 text-xs font-black ${fulfillment === "PICKUP" ? "border-primary bg-primary-light dark:bg-primary/20" : "border-slate-200 dark:border-slate-700"}`}>
-                  <Store className="h-5 w-5" /> أستلمه بنفسي
-                </button>
-                <button type="button" role="radio" aria-checked={fulfillment === "DELIVERY"} disabled={!selected.delivery.available} onClick={() => setFulfillment("DELIVERY")} className={`flex flex-col items-center gap-1 rounded-xl border p-2.5 text-xs font-black disabled:opacity-40 ${fulfillment === "DELIVERY" ? "border-primary bg-primary-light dark:bg-primary/20" : "border-slate-200 dark:border-slate-700"}`}>
-                  <Bike className="h-5 w-5" /> توصيل {selected.delivery.available ? `${selected.delivery.fee} د.ل` : ""}
-                </button>
-              </div>
-              {fulfillment === "DELIVERY" && (
-                <>
-                  <p className="rounded-lg bg-amber-50 p-2 text-xs font-bold text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">قيمة التوصيل {selected.delivery.available ? selected.delivery.fee : ""} د.ل خارج التأمين، تدفعها نقدًا عند الاستلام.</p>
-                  <input value={address} onChange={(event) => setAddress(event.target.value)} maxLength={300} placeholder="وصف العنوان: الحي، الشارع، علامة مميزة" aria-label="وصف العنوان" className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-900" />
-                </>
+          {step === "receive" && pharmacy && (
+            <div className="space-y-3" role="radiogroup" aria-label="طريقة الاستلام">
+              <BigChoice selected={fulfillment === "PICKUP"} onClick={() => { setFulfillment("PICKUP"); setStepError(""); }} icon={<Store className="h-6 w-6" aria-hidden />} title="أستلمه من الصيدلية" subtitle="بدون أي مبلغ إضافي" />
+              {pharmacy.delivery.available || !location ? (
+                <BigChoice
+                  selected={fulfillment === "DELIVERY"}
+                  onClick={() => { setFulfillment("DELIVERY"); setStepError(""); }}
+                  icon={<Bike className="h-6 w-6" aria-hidden />}
+                  title="توصيل للبيت"
+                  subtitle={pharmacy.delivery.available ? `+ ${pharmacy.delivery.fee} دينار تدفعها عند الاستلام` : "نحتاج موقعك لمعرفة قيمة التوصيل"}
+                />
+              ) : (
+                <p className="rounded-2xl bg-slate-100 p-4 text-lg text-slate-700 dark:bg-slate-800 dark:text-slate-200">هذه الصيدلية لا توصّل إلى موقعك</p>
               )}
-              <textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={1000} rows={2} placeholder="ملاحظة للصيدلية (اختياري)" aria-label="ملاحظة للصيدلية" className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900" />
+              {fulfillment === "DELIVERY" && (
+                <div className="space-y-3 pt-2">
+                  {!location && (
+                    <button type="button" onClick={requestMyLocation} disabled={locating} className="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 text-lg font-bold text-white disabled:opacity-60">
+                      {locating ? <Loader2 className="h-6 w-6 animate-spin" aria-hidden /> : <MapPin className="h-6 w-6" aria-hidden />} استخدم موقعي
+                    </button>
+                  )}
+                  {locationHint && <p className="text-base text-amber-800 dark:text-amber-300">{locationHint}</p>}
+                  <label className="block">
+                    <span className="mb-1 block text-lg font-bold">أين البيت؟</span>
+                    <input value={address} onChange={(event) => setAddress(event.target.value)} maxLength={300} placeholder="مثال: الفويهات، قرب المسجد" className="h-14 w-full rounded-2xl border-2 border-slate-200 bg-white px-4 text-lg dark:border-slate-700 dark:bg-slate-900" />
+                  </label>
+                </div>
+              )}
+            </div>
+          )}
 
-              {error && <p role="alert" className="text-sm font-bold text-rose-600">{error}</p>}
-              <button type="button" onClick={submit} disabled={!ready || submitting} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary text-sm font-black text-white disabled:opacity-40">
-                {submitting && <Loader2 className="h-4 w-4 animate-spin" />} إرسال الطلب ومحادثة الصيدلية
-              </button>
-              <p className="text-center text-xs text-slate-500">ستتحقق الصيدلية من توفر الأدوية وترد عليك في المحادثة.</p>
-            </section>
+          {step === "review" && pharmacy && category && (
+            <div className="space-y-3">
+              <dl className="divide-y divide-slate-100 rounded-2xl bg-white text-lg dark:divide-slate-800 dark:bg-slate-900">
+                {[
+                  ["الصيدلية", pharmacy.name],
+                  ["الدواء", category === "CHRONIC" ? `${CATEGORY_TEXT.CHRONIC.title} (${chronicIds.length})` : CATEGORY_TEXT[category].title],
+                  ["الاستلام", fulfillment === "DELIVERY" ? `توصيل للبيت + ${pharmacy.delivery.available ? pharmacy.delivery.fee : "—"} دينار` : "من الصيدلية"],
+                  ["الصور", needsRx ? "البطاقة والوصفة ✓" : "البطاقة ✓"],
+                ].map(([label, value]) => (
+                  <div key={label} className="flex justify-between gap-3 px-4 py-3"><dt className="text-slate-500 dark:text-slate-400">{label}</dt><dd className="text-end font-bold">{value}</dd></div>
+                ))}
+              </dl>
+              {showNote ? (
+                <textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={1000} rows={3} autoFocus placeholder="اكتب ملاحظتك للصيدلية" aria-label="ملاحظة للصيدلية" className="w-full rounded-2xl border-2 border-slate-200 bg-white p-4 text-lg dark:border-slate-700 dark:bg-slate-900" />
+              ) : (
+                <button type="button" onClick={() => setShowNote(true)} className="h-12 text-lg font-bold text-primary underline-offset-4 hover:underline">+ أضف ملاحظة للصيدلية</button>
+              )}
+              <p className="text-base text-slate-600 dark:text-slate-300">بعد الإرسال ستتحقق الصيدلية من توفر الدواء وترد عليك.</p>
+            </div>
           )}
         </>
+      )}
+
+      {stepError && <p role="alert" className="mt-4 rounded-2xl bg-rose-50 p-4 text-lg font-bold text-rose-800 dark:bg-rose-950/40 dark:text-rose-200">{stepError}</p>}
+
+      {!contextError && (step === "photos" || step === "receive" || step === "review") && (
+        <div className="fixed inset-x-0 bottom-0 border-t border-slate-200 bg-white/95 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
+          <div className="mx-auto max-w-md">
+            {step === "review" ? (
+              <button type="button" onClick={submit} disabled={submitting} className="flex h-16 w-full items-center justify-center gap-2 rounded-2xl bg-primary text-xl font-black text-white disabled:opacity-60">
+                {submitting && <Loader2 className="h-6 w-6 animate-spin" aria-hidden />} {submitting ? "جارٍ الإرسال…" : "أرسل الطلب"}
+              </button>
+            ) : (
+              <button type="button" onClick={step === "photos" ? photosNext : receiveNext} disabled={preparing !== null} className="h-16 w-full rounded-2xl bg-primary text-xl font-black text-white disabled:opacity-60">التالي</button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {step === "pharmacy" && (
+        <Link href="/beneficiary/dashboard" className="mt-6 inline-flex h-12 items-center justify-center gap-2 self-center text-lg font-bold text-slate-500"><Home className="h-5 w-5" aria-hidden /> الصفحة الرئيسية</Link>
       )}
     </div>
   );

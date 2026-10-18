@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { getBeneficiarySession } from "@/lib/beneficiary-auth";
 import { getBeneficiaryOrderContext, listMyPharmacyOrders } from "@/app/actions/pharmacy-orders";
@@ -8,11 +9,13 @@ export default async function BeneficiaryPharmacyPage() {
   if (!session) redirect("/beneficiary/login");
   const [context, orders] = await Promise.all([getBeneficiaryOrderContext(), listMyPharmacyOrders()]);
   return (
+    <Suspense>
     <PharmacyOrderClient
       categories={"categories" in context ? context.categories ?? [] : []}
       chronicDrugs={"chronicDrugs" in context ? context.chronicDrugs ?? [] : []}
       contextError={"error" in context ? context.error ?? null : null}
       orders={orders.items}
     />
+    </Suspense>
   );
 }

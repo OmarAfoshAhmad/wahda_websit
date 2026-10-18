@@ -271,12 +271,9 @@ export function BeneficiaryDashboardClient({ initialData }: { initialData: Dashb
         )}
       </div>
 
-      <Link href="/beneficiary/pharmacy" className="mt-4 flex items-center justify-between gap-3 rounded-2xl bg-primary p-4 text-white shadow-md">
-        <span>
-          <span className="block text-base font-black">اطلب دواءك من صيدلية</span>
-          <span className="block text-xs text-teal-50">أرسل وصفتك، تحقق من التوفر، واختر الاستلام أو التوصيل</span>
-        </span>
-        <MessageCircle className="h-6 w-6 shrink-0" aria-hidden />
+      <Link href="/beneficiary/pharmacy" className="mt-4 flex min-h-20 items-center justify-between gap-3 rounded-2xl bg-primary px-5 py-4 text-white shadow-md">
+        <span className="text-2xl font-black">اطلب دواء</span>
+        <MessageCircle className="h-8 w-8 shrink-0" aria-hidden />
       </Link>
 
       <PharmacySection data={data.pharmacy} />
