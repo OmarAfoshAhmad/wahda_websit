@@ -39,13 +39,13 @@ export async function rankBeneficiaryIds(input: {
       SELECT id, name,
         CASE
           WHEN card = ${card} THEN 0
-          WHEN regexp_replace(emp, '^0+(?=.)', '') = ${employee} THEN 1
+          WHEN regexp_replace(emp, '^0+(?=.)', '') ~ ${familyPattern(employee)} THEN 1
           WHEN card LIKE ${"%" + card.replace(/[%_\\]/g, "\\$&")} THEN 2
           ELSE 3
         END AS rank
       FROM c
       WHERE card LIKE ${cardLike} OR name ILIKE ANY (${nameTerms})
-        OR regexp_replace(emp, '^0+(?=.)', '') = ${employee} ${phoneFilter}
+        OR regexp_replace(emp, '^0+(?=.)', '') ~ ${familyPattern(employee)} ${phoneFilter}
     ) ranked
     ORDER BY rank, name
     LIMIT ${limit}
@@ -57,6 +57,14 @@ export async function rankBeneficiaryIds(input: {
 export function orderByIds<T extends { id: string }>(rows: T[], ids: string[]) {
   const position = new Map(ids.map((id, index) => [id, index]));
   return [...rows].sort((a, b) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0));
+}
+
+/**
+ * الرقم الوظيفي يطابق صاحب البطاقة وأفراد عائلته: 32762 = 32762 و32762S و32762W1 و32762D.
+ * لاحقة العائلة حرف واحد ثم أرقام اختيارية. المدخل حروف وأرقام فقط فلا يحتاج تهريبًا.
+ */
+function familyPattern(employee: string) {
+  return `^${employee.replace(/[^A-Z0-9]/g, "")}([A-Z][0-9]*)?$`;
 }
 
 /** هل المدخل رقم بطاقة أو رقم وظيفي (حروف لاتينية وأرقام فقط، وفيه رقم)؟ */
@@ -79,7 +87,7 @@ export function preciseCardMatchSql(column: Prisma.Sql, query: string) {
   const contains = safe.length >= 7 ? Prisma.sql`OR ${normalized} LIKE ${"%" + safe + "%"}` : Prisma.empty;
   return Prisma.sql`(
     ${normalized} = ${card}
-    OR regexp_replace(regexp_replace(${normalized}, ${EMPLOYEE_NUMBER_SQL_PATTERN}, ''), '^0+(?=.)', '') = ${employee}
+    OR regexp_replace(regexp_replace(${normalized}, ${EMPLOYEE_NUMBER_SQL_PATTERN}, ''), '^0+(?=.)', '') ~ ${familyPattern(employee)}
     ${suffix} ${contains}
   )`;
 }

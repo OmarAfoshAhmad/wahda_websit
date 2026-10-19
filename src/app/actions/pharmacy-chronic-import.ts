@@ -86,6 +86,8 @@ async function analyzeRows(companyId: string, rows: ChronicImportRow[]) {
     const normalizedDrug = normalizeDrugName(row.drugName);
     const base = { ...row, beneficiaryId: null as string | null, normalizedDrug, warning: null as string | null };
     if (!row.drugName) return { ...base, status: "ERROR" as const, message: "اسم الدواء فارغ" };
+    // رقم فقط في عمود الدواء يعني غالبًا أن الملف ملخص (مثل عمود "عدد الأدوية") وليس قائمة أدوية.
+    if (/^[\d\s.,٠-٩]+$/.test(row.drugName)) return { ...base, status: "ERROR" as const, message: "اسم الدواء رقم فقط؛ تأكد أن العمود يحتوي أسماء الأدوية وليس عددها" };
     if (row.drugName.length > 200) return { ...base, status: "ERROR" as const, message: "اسم الدواء أطول من 200 حرف" };
     const { beneficiary, via, error } = resolve(row);
     if (!beneficiary) return { ...base, status: "ERROR" as const, message: error ?? "تعذرت المطابقة" };
