@@ -45,6 +45,12 @@ const TYPE_LABELS: Record<string, string> = {
   SUPPLIES: "مستلزمات",
   CANCELLATION: "إلغاء",
   IMPORT: "رصيد مستخدم",
+  SETTLEMENT: "تسوية",
+  DENTAL: "أسنان",
+  OPTICS: "بصريات",
+  GENERAL: "خدمات عامة",
+  PHYSIOTHERAPY: "علاج طبيعي",
+  EQUESTRIAN: "فروسية",
 };
 
 export function BeneficiaryDashboardClient({ initialData }: { initialData: DashboardData }) {
