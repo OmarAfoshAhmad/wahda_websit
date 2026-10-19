@@ -128,6 +128,19 @@ export function ChronicImportClient({ companies }: { companies: Array<{ id: stri
       {summary && (
         <Card className="space-y-4 p-4 sm:p-5">
           <h2 className="text-base font-black text-slate-900 dark:text-white">4. راجع النتيجة</h2>
+          <div className="flex flex-wrap items-center gap-3 rounded-md border border-teal-200 bg-teal-50/50 p-3 dark:border-teal-900 dark:bg-teal-950/20">
+            <fieldset className="flex flex-wrap gap-3 text-sm">
+              <legend className="sr-only">وضع الاستيراد</legend>
+              <label className="flex items-center gap-1.5 font-bold"><input type="radio" name="mode" checked={mode === "ADD"} onChange={() => { setMode("ADD"); setConfirmReplace(false); }} /> إضافة وتحديث</label>
+              <label className="flex items-center gap-1.5 font-bold"><input type="radio" name="mode" checked={mode === "REPLACE"} onChange={() => setMode("REPLACE")} /> استبدال قائمة كل مستفيد في الملف</label>
+            </fieldset>
+            {summary.errorCount > 0 && <Button type="button" variant="outline" onClick={() => saveErrorRows(rows.filter((row) => row.status === "ERROR"))} className="h-9 text-sm"><FileSpreadsheet className="h-4 w-4" /> تنزيل الصفوف المرفوضة</Button>}
+            <Button type="button" onClick={apply} disabled={pending || validCount === 0} className="h-9 text-sm ms-auto bg-teal-600 font-bold text-white hover:bg-teal-700 disabled:text-white/80">
+              {pending && <Loader2 className="h-4 w-4 animate-spin" />}
+              {confirmReplace ? `تأكيد الاستبدال لـ ${summary.beneficiaryCount} مستفيد` : `استيراد ${validCount} صف سليم`}
+            </Button>
+          </div>
+          {confirmReplace && <p className="text-sm font-bold text-amber-700">سيتم إيقاف أي دواء مرتبط بهؤلاء المستفيدين غير موجود في الملف. اضغط مرة أخرى للتأكيد.</p>}
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-6">
             {[
               ["الصفوف", summary.total, "ALL"],
@@ -165,19 +178,6 @@ export function ChronicImportClient({ companies }: { companies: Array<{ id: stri
           </div>
           {rows.length > 500 && <p className="text-xs text-slate-500">يُعرض أول 500 صف من التصنيف المختار.</p>}
 
-          <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4 dark:border-slate-800">
-            <fieldset className="flex flex-wrap gap-3 text-sm">
-              <legend className="sr-only">وضع الاستيراد</legend>
-              <label className="flex items-center gap-1.5 font-bold"><input type="radio" name="mode" checked={mode === "ADD"} onChange={() => { setMode("ADD"); setConfirmReplace(false); }} /> إضافة وتحديث</label>
-              <label className="flex items-center gap-1.5 font-bold"><input type="radio" name="mode" checked={mode === "REPLACE"} onChange={() => setMode("REPLACE")} /> استبدال قائمة كل مستفيد في الملف</label>
-            </fieldset>
-            {summary.errorCount > 0 && <Button type="button" variant="outline" onClick={() => saveErrorRows(rows.filter((row) => row.status === "ERROR"))} className="h-9 text-sm"><FileSpreadsheet className="h-4 w-4" /> تنزيل الصفوف المرفوضة</Button>}
-            <Button type="button" onClick={apply} disabled={pending || validCount === 0} className="h-9 text-sm ms-auto">
-              {pending && <Loader2 className="h-4 w-4 animate-spin" />}
-              {confirmReplace ? `تأكيد الاستبدال لـ ${summary.beneficiaryCount} مستفيد` : `استيراد ${validCount} صف سليم`}
-            </Button>
-          </div>
-          {confirmReplace && <p className="text-sm font-bold text-amber-700">سيتم إيقاف أي دواء مرتبط بهؤلاء المستفيدين غير موجود في الملف. اضغط مرة أخرى للتأكيد.</p>}
         </Card>
       )}
     </div>
