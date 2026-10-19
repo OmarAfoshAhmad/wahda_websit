@@ -82,6 +82,7 @@ export default async function Dashboard() {
     if (hasPermission(session, "optics_services") || hasPermission(session, "view_optics_beneficiaries")) redirect("/admin/optics-services");
     if (hasPermission(session, "physiotherapy_services") || hasPermission(session, "view_physiotherapy_beneficiaries")) redirect("/admin/physiotherapy-services");
     if (hasPermission(session, "equestrian_services") || hasPermission(session, "view_equestrian_beneficiaries")) redirect("/admin/equestrian-services");
+    if (hasPermission(session, "pharmacy_services") || hasPermission(session, "view_pharmacy_beneficiaries")) redirect("/admin/pharmacy-services");
     if (hasPermission(session, "view_facilities")) redirect("/admin/facilities");
     redirect("/settings");
   }
@@ -93,6 +94,8 @@ export default async function Dashboard() {
     if (hasPermission(session, "cash_claim")) {
       redirect("/cash-claim");
     }
+    // حساب الصيدلية (أو أي حساب خدمات بلا لوحة تحكم) يذهب إلى خدمته بدل صفحة كلمة المرور.
+    if (hasPermission(session, "pharmacy_services") || hasPermission(session, "view_pharmacy_beneficiaries")) redirect("/admin/pharmacy-services");
     redirect("/settings");
   }
 
