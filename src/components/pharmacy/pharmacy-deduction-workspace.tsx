@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { AlertTriangle, CheckCircle2, CreditCard, FileText, History, Loader2, LockKeyhole, Phone, Plus, Search, Trash2, Upload, UserRound, X } from "lucide-react";
 import {
+  cancelPharmacyPrescription,
   createPharmacyPrescription,
   dispenseChronicDrugs,
   dispensePharmacyPrescriptionItems,
@@ -575,7 +576,26 @@ function PrescriptionCard({
     <section aria-label={title} className={`space-y-3 rounded-xl border p-3 ${prescription ? "border-teal-200 dark:border-teal-900" : "border-dashed border-slate-300 dark:border-slate-700"}`}>
       <div className="flex flex-wrap items-baseline justify-between gap-1">
         <h3 className="text-base font-black">{title}</h3>
-        <span className="text-xs font-bold text-slate-500">{prescription ? `أنشأها ${prescription.created_by_facility.name}` : "لم تُستخدم بعد: ارفع المرفقين للبدء"}</span>
+        <span className="flex items-center gap-2 text-xs font-bold text-slate-500">
+          {prescription ? `أنشأها ${prescription.created_by_facility.name}` : "لم تُستخدم بعد: ارفع المرفقين للبدء"}
+          {prescription && dispensedSlots.length === 0 && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                if (!window.confirm(`إلغاء ${title}؟ يعود مكانها في وصفات اليوم.`)) return;
+                startBusy(async () => {
+                  const response = await cancelPharmacyPrescription(prescription.id);
+                  if (response.error) onError(response.error);
+                  await reload();
+                });
+              }}
+              className="rounded-md border border-rose-200 px-2 py-1 text-xs font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-50 dark:border-rose-900 dark:text-rose-300"
+            >
+              إلغاء الوصفة
+            </button>
+          )}
+        </span>
       </div>
 
       <div className="grid gap-2 sm:grid-cols-2">

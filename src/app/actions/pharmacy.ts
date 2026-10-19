@@ -15,6 +15,8 @@ import {
   getNextChronicEligibleDate,
   getPolicyYearWindow,
   getTripoliDayWindow,
+  isPrescriptionValidToday,
+  PRESCRIPTION_EXPIRED_MESSAGE,
   isChronicDrugEligible,
   resolvePharmacyCategoryPolicy,
   type MedicineCategoryValue,
@@ -203,9 +205,10 @@ export async function uploadPharmacyPrescriptionAttachment(formData: FormData) {
 
   const prescription = await prisma.pharmacyPrescription.findUnique({
     where: { id: prescriptionId },
-    select: { id: true, status: true, company_id: true },
+    select: { id: true, status: true, company_id: true, created_at: true },
   });
   if (!prescription || prescription.status !== "OPEN") return { error: "الوصفة غير متاحة لإضافة مرفق" };
+  if (!isPrescriptionValidToday(prescription.created_at)) return { error: PRESCRIPTION_EXPIRED_MESSAGE };
   const access = await requirePharmacySession(prescription.company_id, "write");
   if ("error" in access) return { error: access.error };
 
@@ -289,6 +292,34 @@ export async function createPharmacyPrescription(input: {
   });
 }
 
+/**
+ * يلغي وصفة اليوم التي لم يُصرف منها شيء فعليًا (فُتحت بالخطأ أو بنوع خاطئ)، فيعود مكانها في الحد اليومي.
+ * البنود المصروفة بحركات ملغاة لا تمنع الإلغاء لأن الدفتر هو المرجع.
+ */
+export async function cancelPharmacyPrescription(prescriptionId: string) {
+  const owner = await prisma.pharmacyPrescription.findUnique({ where: { id: prescriptionId }, select: { company_id: true, beneficiary_id: true } });
+  if (!owner) return { error: "الوصفة غير موجودة" };
+  const access = await requirePharmacySession(owner.company_id, "write");
+  if ("error" in access) return { error: access.error };
+  const { session } = access;
+
+  return prisma.$transaction(async (tx) => {
+    await lockBeneficiary(tx, owner.beneficiary_id);
+    const prescription = await tx.pharmacyPrescription.findUnique({ where: { id: prescriptionId }, select: { status: true, created_at: true } });
+    if (!prescription || prescription.status !== "OPEN") return { error: "الوصفة غير متاحة للإلغاء" };
+    if (!isPrescriptionValidToday(prescription.created_at)) return { error: "لا تُلغى إلا وصفات اليوم" };
+    const active = await tx.pharmacyDispense.count({ where: { prescription_id: prescriptionId, ...ACTIVE_DISPENSE } });
+    if (active > 0) return { error: "صُرف من هذه الوصفة؛ ألغِ الصرف أولًا" };
+    await tx.pharmacyPrescriptionItem.updateMany({
+      where: { prescription_id: prescriptionId, status: "RESERVED" },
+      data: { status: "AVAILABLE", reserved_by_facility_id: null, reserved_at: null, reservation_expires_at: null },
+    });
+    await tx.pharmacyPrescription.update({ where: { id: prescriptionId }, data: { status: "CANCELLED" } });
+    await tx.auditLog.create({ data: { facility_id: session.id, user: session.username, action: "PHARMACY_PRESCRIPTION_CANCEL", metadata: { prescription_id: prescriptionId } } });
+    return { success: true };
+  });
+}
+
 export async function reservePharmacyPrescriptionItems(prescriptionId: string, sequences: number[]) {
   const owner = await prisma.pharmacyPrescription.findUnique({ where: { id: prescriptionId }, select: { company_id: true } });
   if (!owner) return { error: "الوصفة غير موجودة" };
@@ -308,9 +339,11 @@ export async function reservePharmacyPrescriptionItems(prescriptionId: string, s
         total_item_count: true,
         beneficiary_id: true,
         medicine_category: true,
+        created_at: true,
       },
     });
     if (!prescription || prescription.status !== "OPEN") return { error: "الوصفة غير متاحة للحجز" };
+    if (!isPrescriptionValidToday(prescription.created_at)) return { error: PRESCRIPTION_EXPIRED_MESSAGE };
     if (uniqueSequences.some((sequence) => sequence > prescription.total_item_count)) return { error: "رقم بند غير صالح" };
 
     const missingAttachment = await findMissingAttachment(tx, prescriptionId);
@@ -552,9 +585,10 @@ export async function dispensePharmacyPrescriptionItems(input: {
       await tx.$queryRaw`SELECT "id" FROM "PharmacyPrescription" WHERE "id" = ${input.prescriptionId} FOR UPDATE`;
       const prescription = await tx.pharmacyPrescription.findUnique({
         where: { id: input.prescriptionId },
-        select: { id: true, status: true, total_item_count: true, medicine_category: true, beneficiary: { select: { status: true, deleted_at: true } } },
+        select: { id: true, status: true, created_at: true, total_item_count: true, medicine_category: true, beneficiary: { select: { status: true, deleted_at: true } } },
       });
       if (!prescription || prescription.status !== "OPEN") throw new PharmacyRuleError("الوصفة غير متاحة للصرف");
+      if (!isPrescriptionValidToday(prescription.created_at)) throw new PharmacyRuleError(PRESCRIPTION_EXPIRED_MESSAGE);
       if (prescription.beneficiary.deleted_at || prescription.beneficiary.status !== "ACTIVE") throw new PharmacyRuleError("المستفيد غير نشط");
       if (prescription.medicine_category === "CHRONIC") throw new PharmacyRuleError("صرف الأدوية المزمنة يتم من قائمة الأدوية المرتبطة بالمستفيد");
       if (sequences.some((sequence) => sequence > prescription.total_item_count)) throw new PharmacyRuleError(`رقم البند يجب أن يكون بين 1 و${prescription.total_item_count}`);

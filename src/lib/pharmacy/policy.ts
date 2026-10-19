@@ -20,6 +20,17 @@ export function getTripoliDayWindow(referenceDate: Date) {
   return { start, end: new Date(start.getTime() + DAY_MS) };
 }
 
+/**
+ * الوصفة الروتينية أو الكيميائية صالحة ليوم إصدارها فقط (بتوقيت طرابلس): كل يوم يتجدد للمستفيد
+ * عدد الوصفات المسموح، وما لم يُستهلك منها ينتهي عند منتصف الليل.
+ */
+export function isPrescriptionValidToday(createdAt: Date, now = new Date()) {
+  const today = getTripoliDayWindow(now);
+  return createdAt >= today.start && createdAt < today.end;
+}
+
+export const PRESCRIPTION_EXPIRED_MESSAGE = "انتهت صلاحية الوصفة: الوصفة صالحة ليوم إصدارها فقط. افتح وصفة جديدة من وصفات اليوم";
+
 /** السنة التأمينية التي يقع فيها التاريخ، بدءًا من شهر البداية المحدد في السياسة. */
 export function getPolicyYearWindow(referenceDate: Date, startMonth: number) {
   if (!Number.isInteger(startMonth) || startMonth < 1 || startMonth > 12) {
