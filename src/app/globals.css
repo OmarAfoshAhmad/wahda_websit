@@ -167,9 +167,12 @@ body {
   overflow-x: hidden;
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
+/* داخل طبقة base حتى تتغلب عليها أصناف Tailwind مثل text-white على الروابط. */
+@layer base {
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
 }
 
 button,
