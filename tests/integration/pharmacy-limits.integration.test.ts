@@ -42,7 +42,7 @@ const key = () => `pl-${SUFFIX}-${++keyCounter}`;
 
 async function newBeneficiary(label: string) {
   const beneficiary = await prisma.beneficiary.create({
-    data: { name: `مستفيد ${label} ${SUFFIX}`, card_number: `PL${SUFFIX}${beneficiaryIds.length}`, total_balance: 10000, remaining_balance: 10000, status: "ACTIVE", company_id: companyId },
+    data: { name: `مستفيد ${label} ${SUFFIX}`, card_number: `PL${SUFFIX}${beneficiaryIds.length}`, total_balance: 0, remaining_balance: 0, status: "ACTIVE", company_id: companyId },
   });
   beneficiaryIds.push(beneficiary.id);
   return beneficiary.id;
@@ -202,8 +202,12 @@ describe("pharmacy limits against a real database", () => {
     const active = await prisma.pharmacyDispense.aggregate({ where: { beneficiary_id: id, ...ACTIVE_DISPENSE }, _sum: { gross_total: true } });
     expect(Number(active._sum.gross_total)).toBe(95);
 
+    // الصيدلية لا تمس الرصيد العام: المستفيد بلا رصيد عام (0) يُصرف له، ويبقى رصيده العام 0.
+    // (حالته العامة قد تصبح FINISHED لأن رصيده العام صفر، وهذا لا يمنع الصيدلية.)
     const stored = await prisma.beneficiary.findUniqueOrThrow({ where: { id }, select: { remaining_balance: true } });
+    expect(Number(stored.remaining_balance)).toBe(0);
     expect(Number(stored.remaining_balance)).toBe((await calculateBeneficiaryBalance(prisma, id)).remaining_balance);
+    expect(await prisma.transaction.count({ where: { beneficiary_id: id, type: "PHARMACY" } })).toBeGreaterThan(0);
   });
 
   it("never exceeds the ceiling under concurrent dispenses from two prescriptions", async () => {

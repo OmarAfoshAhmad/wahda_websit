@@ -8,12 +8,13 @@ export const BASE_BALANCE_EXCLUDED_TRANSACTION_TYPES = [
   "OPTICS",
   "PHYSIOTHERAPY",
   "EQUESTRIAN",
+  "PHARMACY",
 ] as const satisfies readonly TransactionType[];
 
 /** أجزاء SQL موحدة للاستعلامات التي تستخدم الاسم المختصر t لجدول الحركات. */
 export const BASE_BALANCE_ELIGIBLE_SQL = Prisma.sql`
   t.is_cancelled = false
-  AND t.type NOT IN ('CANCELLATION', 'DENTAL', 'OPTICS', 'PHYSIOTHERAPY', 'EQUESTRIAN')
+  AND t.type NOT IN ('CANCELLATION', 'DENTAL', 'OPTICS', 'PHYSIOTHERAPY', 'EQUESTRIAN', 'PHARMACY')
 `;
 
 export const BASE_BALANCE_AMOUNT_SQL = Prisma.sql`COALESCE(t.actual_company_share, t.amount)`;

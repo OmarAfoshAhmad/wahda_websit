@@ -766,6 +766,8 @@ enum TransactionType {
   GENERAL
   PHYSIOTHERAPY
   EQUESTRIAN
+  /// صرف الصيدلية: محفظة مستقلة بسقوف سياسة الأدوية السنوية، لا يستهلك الرصيد العام
+  PHARMACY
 }
 
 enum MedicineCategory {

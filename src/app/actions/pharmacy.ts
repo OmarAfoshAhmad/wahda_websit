@@ -21,7 +21,6 @@ import {
   resolvePharmacyCategoryPolicy,
   type MedicineCategoryValue,
 } from "@/lib/pharmacy/policy";
-import { assertBeneficiaryBalanceInvariant, calculateBeneficiaryBalance, settleBeneficiaryBalance } from "@/lib/tx-balance-guard";
 import { cancelTransactionInTx } from "@/lib/transaction-cancel";
 
 type PharmacySession = NonNullable<Awaited<ReturnType<typeof getSessionWithFreshPermissions>>>;
@@ -265,8 +264,8 @@ export async function createPharmacyPrescription(input: {
   if (!facility) return { error: "الحساب الحالي غير مرتبط بمرفق صالح" };
 
   return prisma.$transaction(async (tx) => {
-    const beneficiary = await tx.beneficiary.findFirst({ where: { id: input.beneficiaryId, company_id: input.companyId, deleted_at: null, status: "ACTIVE" }, select: { id: true } });
-    if (!beneficiary) return { error: "المستفيد غير نشط أو لا يتبع الشركة المختارة" };
+    const beneficiary = await tx.beneficiary.findFirst({ where: { id: input.beneficiaryId, company_id: input.companyId, deleted_at: null, status: { not: "SUSPENDED" } }, select: { id: true } });
+    if (!beneficiary) return { error: "المستفيد موقوف أو لا يتبع الشركة المختارة" };
     await lockBeneficiary(tx, beneficiary.id);
 
     const today = getTripoliDayWindow(new Date());
@@ -461,10 +460,7 @@ async function recordPharmacyDispense(tx: Tx, input: {
     throw new PharmacyRuleError(`إجمالي الصرف (${calculation.grossTotal.toFixed(2)}) يتجاوز المتبقي من السقف المخصص (${calculation.remainingBefore.toFixed(2)} د.ل)`);
   }
 
-  const ledger = await calculateBeneficiaryBalance(tx, input.beneficiaryId);
-  if (calculation.companyTotal.toNumber() > ledger.remaining_balance) {
-    throw new PharmacyRuleError(`حصة الشركة (${calculation.companyTotal.toFixed(2)}) أكبر من الرصيد المتاح للمستفيد (${ledger.remaining_balance.toFixed(2)} د.ل)`);
-  }
+  // لا رصيد عام للصيدلية: الحد هو سقوف سياسة الأدوية خلال السنة التأمينية فقط (حركاتها من نوع PHARMACY معزولة).
 
   const facility = await tx.facility.findUnique({ where: { id: input.session.id }, select: { name: true } });
   const transaction = await tx.transaction.create({
@@ -473,7 +469,7 @@ async function recordPharmacyDispense(tx: Tx, input: {
       facility_id: input.session.id,
       company_id: input.companyId,
       service_type_id: policy.service_type_id,
-      type: "MEDICINE",
+      type: "PHARMACY",
       amount: calculation.grossTotal,
       idempotency_key: `pharmacy:${input.idempotencyKey}`,
       service_category: input.category,
@@ -521,7 +517,6 @@ async function recordPharmacyDispense(tx: Tx, input: {
     select: { id: true },
   });
 
-  const settled = await settleBeneficiaryBalance(tx, input.beneficiaryId, { completedVia: "MANUAL" });
   await tx.auditLog.create({
     data: {
       facility_id: input.session.id,
@@ -536,12 +531,9 @@ async function recordPharmacyDispense(tx: Tx, input: {
         gross_total: calculation.grossTotal.toFixed(2),
         company_total: calculation.companyTotal.toFixed(2),
         patient_total: calculation.patientTotal.toFixed(2),
-        balance_before: settled.balanceBefore,
-        balance_after: settled.balanceAfter,
       },
     },
   });
-  await assertBeneficiaryBalanceInvariant(tx, input.beneficiaryId, "pharmacyDispense");
 
   return {
     dispenseId: dispense.id,
@@ -589,7 +581,7 @@ export async function dispensePharmacyPrescriptionItems(input: {
       });
       if (!prescription || prescription.status !== "OPEN") throw new PharmacyRuleError("الوصفة غير متاحة للصرف");
       if (!isPrescriptionValidToday(prescription.created_at)) throw new PharmacyRuleError(PRESCRIPTION_EXPIRED_MESSAGE);
-      if (prescription.beneficiary.deleted_at || prescription.beneficiary.status !== "ACTIVE") throw new PharmacyRuleError("المستفيد غير نشط");
+      if (prescription.beneficiary.deleted_at || prescription.beneficiary.status === "SUSPENDED") throw new PharmacyRuleError("المستفيد موقوف");
       if (prescription.medicine_category === "CHRONIC") throw new PharmacyRuleError("صرف الأدوية المزمنة يتم من قائمة الأدوية المرتبطة بالمستفيد");
       if (sequences.some((sequence) => sequence > prescription.total_item_count)) throw new PharmacyRuleError(`رقم البند يجب أن يكون بين 1 و${prescription.total_item_count}`);
 
@@ -695,8 +687,8 @@ export async function dispenseChronicDrugs(formData: FormData) {
 
   try {
     return await prisma.$transaction(async (tx) => {
-      const beneficiary = await tx.beneficiary.findFirst({ where: { id: beneficiaryId, company_id: companyId, deleted_at: null, status: "ACTIVE" }, select: { id: true } });
-      if (!beneficiary) throw new PharmacyRuleError("المستفيد غير نشط أو لا يتبع الشركة المختارة");
+      const beneficiary = await tx.beneficiary.findFirst({ where: { id: beneficiaryId, company_id: companyId, deleted_at: null, status: { not: "SUSPENDED" } }, select: { id: true } });
+      if (!beneficiary) throw new PharmacyRuleError("المستفيد موقوف أو لا يتبع الشركة المختارة");
       await lockBeneficiary(tx, beneficiary.id);
 
       const links = await tx.beneficiaryChronicDrug.findMany({

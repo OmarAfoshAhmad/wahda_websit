@@ -106,7 +106,7 @@ export async function getBeneficiaryOrderContext() {
 export async function createPharmacyOrder(formData: FormData) {
   const beneficiary = await requireBeneficiary();
   if (!beneficiary) return { error: "انتهت الجلسة، سجّل الدخول مجددًا" };
-  if (beneficiary.status !== "ACTIVE" || !beneficiary.company_id) return { error: "حسابك غير نشط لخدمات الصيدلية" };
+  if (beneficiary.status === "SUSPENDED" || !beneficiary.company_id) return { error: "حسابك غير نشط لخدمات الصيدلية" };
   const limited = await checkRateLimit(`pharmacy-order:${beneficiary.id}`, "api");
   if (limited) return { error: limited };
 

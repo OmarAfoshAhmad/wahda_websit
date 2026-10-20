@@ -28,7 +28,7 @@ export default async function PharmacyServicesPage() {
     || (!session.is_admin && !session.is_manager && !session.is_employee);
   const transactionFilter = {
     is_cancelled: false,
-    type: "MEDICINE" as const,
+    type: "PHARMACY" as const,
     ...(isFacility ? { facility_id: session.id } : {}),
   };
 
