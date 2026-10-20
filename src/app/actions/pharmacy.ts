@@ -8,6 +8,7 @@ import prisma from "@/lib/prisma";
 import { orderByIds, rankBeneficiaryIds } from "@/lib/beneficiary-search";
 import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-guard";
 import { assertCompanyAccessForSession } from "@/lib/company-scope";
+import { canAccessAdmin } from "@/lib/permissions";
 import { calculatePharmacyDispense } from "@/lib/pharmacy/calculation";
 import { ACTIVE_DISPENSE, getChronicDrugStatuses, getPharmacyConsumption, getPharmacyUsage, loadPharmacyPolicy } from "@/lib/pharmacy/summary";
 import { ATTACHMENT_KINDS, ATTACHMENT_LABELS, storeAttachmentFile, type StoredFile } from "@/lib/pharmacy/attachments";
@@ -149,7 +150,11 @@ export async function getPharmacyBeneficiaryWorkspace(companyId: string, benefic
   if (!beneficiary) return { error: "المستفيد غير موجود ضمن الشركة المختارة" };
 
   const { usage, chronicIntervalDays } = await getPharmacyUsage(beneficiary.id, companyId);
-  const chronicDrugs = await getChronicDrugStatuses(beneficiary.id, chronicIntervalDays);
+  // الصيدلية لا ترى أسعار وإجماليات الصيدليات الأخرى: فقط البنود وأنها صُرفت. موظفو الإدارة يرون كل شيء.
+  const staff = canAccessAdmin(session);
+  const chronicDrugs = (await getChronicDrugStatuses(beneficiary.id, chronicIntervalDays)).map((drug) => (
+    staff || drug.last_facility_id === session.id ? drug : { ...drug, last_price: null }
+  ));
 
   return {
     usage,
@@ -157,17 +162,20 @@ export async function getPharmacyBeneficiaryWorkspace(companyId: string, benefic
     beneficiary: {
       ...beneficiary,
       birth_date: beneficiary.birth_date?.toISOString() ?? null,
-      pharmacy_dispenses: beneficiary.pharmacy_dispenses.map((dispense) => ({
+      pharmacy_dispenses: beneficiary.pharmacy_dispenses.map((dispense) => {
+        const showPrices = staff || dispense.facility_id === session.id;
+        return {
         ...dispense,
-        gross_total: Number(dispense.gross_total),
+        gross_total: showPrices ? Number(dispense.gross_total) : null,
         created_at: dispense.created_at.toISOString(),
         owned_by_current_facility: dispense.facility_id === session.id,
         status: dispense.status === "CANCELLED" || dispense.transaction.is_cancelled ? "CANCELLED" : "COMPLETED",
         // الروتيني والكيميائي يرفقان على الوصفة، والمزمن على الصرف نفسه.
         attachments: [...dispense.attachments, ...(dispense.prescription?.attachments ?? [])],
         prescription: dispense.prescription ? { prescription_number: dispense.prescription.prescription_number, total_item_count: dispense.prescription.total_item_count } : null,
-        items: dispense.items.map((item) => ({ sequence: item.sequence, price: Number(item.price), drug_name: item.drug?.name ?? null })),
-      })),
+        items: dispense.items.map((item) => ({ sequence: item.sequence, price: showPrices ? Number(item.price) : null, drug_name: item.drug?.name ?? null })),
+        };
+      }),
       chronic_drugs: chronicDrugs,
       pharmacy_prescriptions: beneficiary.pharmacy_prescriptions.map((prescription) => ({
         ...prescription,
@@ -184,7 +192,7 @@ export async function getPharmacyBeneficiaryWorkspace(companyId: string, benefic
           status: voided ? "AVAILABLE" as const : slot.status,
           dispensed_by_facility: voided ? null : slot.dispensed_by_facility,
           reservation_expires_at: slot.reservation_expires_at?.toISOString() ?? null,
-          price: dispense_item && !voided ? Number(dispense_item.price) : null,
+          price: dispense_item && !voided && (staff || slot.dispensed_by_facility?.id === session.id) ? Number(dispense_item.price) : null,
           reserved_by_current_facility: slot.reserved_by_facility?.id === session.id,
           dispensed_by_current_facility: !voided && slot.dispensed_by_facility?.id === session.id,
           };

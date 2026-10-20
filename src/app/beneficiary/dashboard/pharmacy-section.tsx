@@ -20,7 +20,7 @@ export type PharmacyData = {
     patient_total: number;
     created_at: string;
     facility_name: string;
-    items: Array<{ sequence: number; price: number; drug_name: string | null }>;
+    items: Array<{ sequence: number; drug_name: string | null }>;
   }>;
 };
 
@@ -91,10 +91,7 @@ export function PharmacySection({ data }: { data: PharmacyData }) {
                   {open && (
                     <div className="space-y-1 px-4 pb-3 text-sm">
                       {dispense.items.map((item) => (
-                        <p key={item.sequence} className="flex justify-between gap-2 text-slate-600 dark:text-slate-300">
-                          <span className="truncate" dir="auto">{item.drug_name ?? `البند ${item.sequence}`}</span>
-                          <span className="tabular-nums">{formatCurrency(item.price)} د.ل</span>
-                        </p>
+                        <p key={item.sequence} className="truncate text-slate-600 dark:text-slate-300" dir="auto">{item.drug_name ?? `البند ${item.sequence}`}</p>
                       ))}
                       <div className="mt-2 grid grid-cols-2 gap-2 rounded-lg bg-slate-50 p-2 text-center dark:bg-slate-800">
                         <p className="text-xs text-slate-500 dark:text-slate-400">على الشركة<br /><strong className="text-sm tabular-nums text-slate-800 dark:text-slate-200">{formatCurrency(dispense.company_total)} د.ل</strong></p>

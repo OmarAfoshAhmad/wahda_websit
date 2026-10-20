@@ -92,6 +92,7 @@ export type ChronicDrugStatus = {
   drug_name: string;
   notes: string | null;
   last_dispensed_at: string | null;
+  last_facility_id: string | null;
   last_facility_name: string | null;
   last_price: number | null;
   eligible: boolean;
@@ -110,7 +111,7 @@ export async function getChronicDrugStatuses(beneficiaryId: string, intervalDays
     where: { drug_id: { in: links.map((link) => link.drug.id) }, dispense: { beneficiary_id: beneficiaryId, medicine_category: "CHRONIC", ...ACTIVE_DISPENSE } },
     orderBy: { dispense: { created_at: "desc" } },
     distinct: ["drug_id"],
-    select: { drug_id: true, price: true, dispense: { select: { created_at: true, facility: { select: { name: true } } } } },
+    select: { drug_id: true, price: true, dispense: { select: { created_at: true, facility: { select: { id: true, name: true } } } } },
   });
   const lastByDrug = new Map(lastItems.map((item) => [item.drug_id, item]));
   return links.map((link) => {
@@ -122,6 +123,7 @@ export async function getChronicDrugStatuses(beneficiaryId: string, intervalDays
       drug_name: link.drug.name,
       notes: link.notes,
       last_dispensed_at: lastAt?.toISOString() ?? null,
+      last_facility_id: last?.dispense.facility.id ?? null,
       last_facility_name: last?.dispense.facility.name ?? null,
       last_price: last ? Number(last.price) : null,
       eligible: isChronicDrugEligible(lastAt, intervalDays, now),

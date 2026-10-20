@@ -72,14 +72,14 @@ type WorkspaceBeneficiary = SearchItem & {
   pharmacy_dispenses: Array<{
     id: string;
     medicine_category: CategoryValue;
-    gross_total: number;
+    gross_total: number | null;
     status: string;
     created_at: string;
     facility: { name: string };
     prescription: { prescription_number: number; total_item_count: number } | null;
     owned_by_current_facility: boolean;
     attachments: Array<{ id: string; kind: AttachmentKind | null }>;
-    items: Array<{ sequence: number; price: number; drug_name: string | null }>;
+    items: Array<{ sequence: number; price: number | null; drug_name: string | null }>;
   }>;
   pharmacy_prescriptions: Prescription[];
   chronic_drugs: ChronicDrug[];
@@ -383,12 +383,12 @@ function HistoryPanel({ beneficiary }: { beneficiary: WorkspaceBeneficiary }) {
                 {dispense.items.map((item) => (
                   <li key={item.sequence} className="flex justify-between gap-2 text-slate-700 dark:text-slate-300">
                     <span className="truncate">{item.drug_name ?? `البند ${item.sequence}`}</span>
-                    <span className="tabular-nums text-slate-500">{money(item.price)}</span>
+                    {item.price !== null && <span className="tabular-nums text-slate-500">{money(item.price)}</span>}
                   </li>
                 ))}
               </ul>
               <div className="mt-1 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-1 dark:border-slate-800">
-                <span className="text-sm font-black tabular-nums">الإجمالي {money(dispense.gross_total)}</span>
+                <span className="text-sm font-black tabular-nums">{dispense.gross_total !== null ? `الإجمالي ${money(dispense.gross_total)}` : dispense.status === "CANCELLED" ? "ملغى" : "تم الصرف"}</span>
                 <span className="flex gap-2">
                   {dispense.attachments.map((attachment) => (
                     <a key={attachment.id} href={`/api/pharmacy/attachments/${attachment.id}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-bold text-teal-700 hover:underline dark:text-teal-300">

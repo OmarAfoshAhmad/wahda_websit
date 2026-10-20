@@ -32,7 +32,7 @@ export default async function BeneficiaryDashboardPage() {
           patient_total: true,
           created_at: true,
           facility: { select: { name: true } },
-          items: { orderBy: { sequence: "asc" }, select: { sequence: true, price: true, drug: { select: { name: true } } } },
+          items: { orderBy: { sequence: "asc" }, select: { sequence: true, drug: { select: { name: true } } } },
         },
       },
     },
@@ -67,7 +67,8 @@ export default async function BeneficiaryDashboardPage() {
         patient_total: Number(dispense.patient_total),
         created_at: dispense.created_at.toISOString(),
         facility_name: dispense.facility.name,
-        items: dispense.items.map((item) => ({ sequence: item.sequence, price: Number(item.price), drug_name: item.drug?.name ?? null })),
+        // سعر البند لا يُرسل للمستفيد؛ يرى الأصناف والإجماليات فقط.
+        items: dispense.items.map((item) => ({ sequence: item.sequence, drug_name: item.drug?.name ?? null })),
       })),
     },
   };

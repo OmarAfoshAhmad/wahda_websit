@@ -7,6 +7,7 @@ import {
   createPharmacyPrescription,
   dispenseChronicDrugs,
   dispensePharmacyPrescriptionItems,
+  getPharmacyBeneficiaryWorkspace,
   reservePharmacyPrescriptionItems,
 } from "@/app/actions/pharmacy";
 import { ACTIVE_DISPENSE } from "@/lib/pharmacy/summary";
@@ -261,5 +262,32 @@ describe("pharmacy limits against a real database", () => {
     ]);
     expect([one, two].some((result) => !result.error)).toBe(true);
     expect(await prisma.pharmacyDispense.count({ where: { beneficiary_id: id } })).toBe(1);
+  });
+  it("hides another pharmacy's prices and totals; shows only the items and that they were dispensed", async () => {
+    const id = await newBeneficiary("إخفاء الأسعار");
+    const rx = await openPrescription(id);
+    expect((await dispensePharmacyPrescriptionItems({ prescriptionId: rx, items: [{ sequence: 1, price: 33 }], idempotencyKey: key() })).error).toBeUndefined();
+
+    const ownerSession = sessionState.session;
+    const other = await prisma.facility.create({ data: { name: `صيدلية أخرى ${SUFFIX}`, username: `pl_other_${SUFFIX}`, password_hash: "x", role_v2: "FACILITY", facility_type: "PHARMACY" } });
+    try {
+      sessionState.session = { id: other.id, name: other.name, username: other.username, is_admin: false, is_manager: false, is_employee: false, role_v2: "FACILITY", facility_type: "PHARMACY" };
+      const seen = await getPharmacyBeneficiaryWorkspace(companyId, id);
+      if (!("beneficiary" in seen) || !seen.beneficiary) throw new Error("workspace");
+      const dispense = seen.beneficiary.pharmacy_dispenses[0];
+      expect(dispense.gross_total).toBeNull();
+      expect(dispense.items).toEqual([{ sequence: 1, price: null, drug_name: null }]);
+      const slot = seen.beneficiary.pharmacy_prescriptions.flatMap((item) => item.slots).find((item) => item.sequence === 1);
+      expect(slot?.status).toBe("DISPENSED");
+      expect(slot?.price).toBeNull();
+    } finally {
+      sessionState.session = ownerSession;
+      await prisma.facility.delete({ where: { id: other.id } });
+    }
+
+    // الصيدلية نفسها ترى أسعارها
+    const own = await getPharmacyBeneficiaryWorkspace(companyId, id);
+    if (!("beneficiary" in own) || !own.beneficiary) throw new Error("workspace");
+    expect(own.beneficiary.pharmacy_dispenses[0].gross_total).toBe(33);
   });
 });
