@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { Camera, Check, CheckCheck, CreditCard, FileText, MapPin, ImagePlus, Loader2, Send, X } from "lucide-react";
+import { Camera, Check, CheckCheck, FileText, MapPin, ImagePlus, Loader2, Send, X } from "lucide-react";
 import { ACCEPTED_FILES, prepareFile } from "@/lib/pharmacy/client-files";
 import { CameraButton } from "@/components/pharmacy/camera-capture";
 import { getCurrentLocation } from "@/lib/geo-client";
@@ -65,7 +65,8 @@ export function OrderChat({
   useEffect(() => { endRef.current?.scrollIntoView({ block: "end" }); }, [messages.length]);
 
   // المستفيد: اختيار الصورة يرسلها مباشرة بنوعها، بلا خطوة اختيار نوع ولا ضغط إرسال إضافي.
-  const sendPhoto = (photoKind: "PRESCRIPTION" | "INSURANCE_CARD", picked: File) => {
+  // صورة أو ملف عام في المحادثة؛ البطاقة والوصفة أُرسلتا مع الطلب نفسه.
+  const sendPhoto = (picked: File) => {
     setError("");
     startSend(async () => {
       const prepared = await prepareFile(picked);
@@ -73,7 +74,6 @@ export function OrderChat({
       const formData = new FormData();
       formData.set("body", "");
       formData.set("file", prepared.file);
-      formData.set("kind", photoKind);
       const result = await send(formData);
       if (result?.error) setError(result.error);
     });
@@ -153,12 +153,15 @@ export function OrderChat({
           {error && <p role="alert" className={`mb-2 font-bold text-rose-600 ${viewer === "BENEFICIARY" ? "text-base" : "text-xs"}`}>{error}</p>}
           {viewer === "BENEFICIARY" && (
             <div className="mb-2 grid grid-cols-3 gap-2">
-              {([["PRESCRIPTION", "صورة وصفة", Camera], ["INSURANCE_CARD", "صورة بطاقة", CreditCard]] as const).map(([photoKind, label, Icon]) => (
-                <CameraButton key={photoKind} label={label} disabled={sending} onCapture={(picked) => sendPhoto(photoKind, picked)} className="flex h-14 flex-col items-center justify-center rounded-2xl bg-teal-50 text-sm font-bold text-teal-800 focus-visible:ring-2 focus-visible:ring-teal-500 disabled:opacity-50 dark:bg-slate-800 dark:text-teal-200">
-                  <Icon className="h-5 w-5" aria-hidden />
-                  {label}
-                </CameraButton>
-              ))}
+              <CameraButton label="تصوير" disabled={sending} onCapture={sendPhoto} className="flex h-14 flex-col items-center justify-center rounded-2xl bg-teal-50 text-sm font-bold text-teal-800 focus-visible:ring-2 focus-visible:ring-teal-500 disabled:opacity-50 dark:bg-slate-800 dark:text-teal-200">
+                <Camera className="h-5 w-5" aria-hidden />
+                تصوير
+              </CameraButton>
+              <label className={`flex h-14 cursor-pointer flex-col items-center justify-center rounded-2xl bg-teal-50 text-sm font-bold text-teal-800 focus-within:ring-2 focus-within:ring-teal-500 dark:bg-slate-800 dark:text-teal-200 ${sending ? "pointer-events-none opacity-50" : ""}`}>
+                <ImagePlus className="h-5 w-5" aria-hidden />
+                إرفاق ملف
+                <input type="file" accept={ACCEPTED_FILES} className="sr-only" aria-label="إرفاق ملف" disabled={sending} onChange={(event) => { const picked = event.target.files?.[0]; event.target.value = ""; if (picked) sendPhoto(picked); }} />
+              </label>
               <button type="button" onClick={sendLocation} disabled={locating || sending} className="flex h-14 flex-col items-center justify-center rounded-2xl bg-teal-50 text-sm font-bold text-teal-800 disabled:opacity-50 dark:bg-slate-800 dark:text-teal-200">
                 {locating ? <Loader2 className="h-5 w-5 animate-spin" aria-hidden /> : <MapPin className="h-5 w-5" aria-hidden />}
                 موقعي

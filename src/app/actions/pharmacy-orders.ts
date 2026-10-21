@@ -295,8 +295,10 @@ export async function getMyPharmacyOrder(orderId: string) {
 async function appendMessage(order: { id: string; beneficiary_id: string; facility_id: string }, sender: "BENEFICIARY" | "FACILITY", formData: FormData) {
   const body = String(formData.get("body") ?? "").trim().slice(0, MAX_MESSAGE_LENGTH) || null;
   const file = formData.get("file");
-  const kindValue = String(formData.get("kind") ?? "PRESCRIPTION");
-  const kind: PharmacyAttachmentKind = kindValue === "INSURANCE_CARD" ? "INSURANCE_CARD" : "PRESCRIPTION";
+  // الملف يُحفظ بنوع (بطاقة/وصفة) فقط إن حدده المستفيد صراحة؛ غير ذلك مرفق عام لا يدخل في الصرف.
+  const kindValue = String(formData.get("kind") ?? "");
+  const declaredKind: PharmacyAttachmentKind | null = sender === "BENEFICIARY" && (kindValue === "INSURANCE_CARD" || kindValue === "PRESCRIPTION") ? kindValue : null;
+  const kind: PharmacyAttachmentKind = declaredKind ?? "PRESCRIPTION";
   // الموقع يرسله المستفيد فقط (عنوان التوصيل أو للسؤال عن الأقرب).
   const location = sender === "BENEFICIARY" ? parseLocation(formData.get("latitude"), formData.get("longitude")) : null;
   if (!body && !location && !(file instanceof File && file.size > 0)) return { error: "اكتب رسالة أو أرفق صورة أو أرسل موقعك" };
@@ -307,15 +309,14 @@ async function appendMessage(order: { id: string; beneficiary_id: string; facili
     if ("error" in result) return { error: result.error };
     stored = result;
   }
-  // مرفقات الصيدلية في المحادثة عامة (صورة أو ملف) وليست بطاقة أو وصفة المستفيد.
   const message = await prisma.pharmacyOrderMessage.create({
-    data: { order_id: order.id, sender, body, attachment_kind: sender === "FACILITY" ? null : stored?.kind ?? null, file_name: stored?.fileName ?? null, mime_type: stored?.mime ?? null, storage_path: stored?.storagePath ?? null, latitude: location?.latitude ?? null, longitude: location?.longitude ?? null },
+    data: { order_id: order.id, sender, body, attachment_kind: stored ? declaredKind : null, file_name: stored?.fileName ?? null, mime_type: stored?.mime ?? null, storage_path: stored?.storagePath ?? null, latitude: location?.latitude ?? null, longitude: location?.longitude ?? null },
     select: { id: true, sender: true, body: true, attachment_kind: true, file_name: true, latitude: true, longitude: true, read_at: true, created_at: true },
   });
   await prisma.pharmacyOrder.update({ where: { id: order.id }, data: { updated_at: new Date() } });
   publishOrderEvent({ beneficiaryId: order.beneficiary_id, facilityId: order.facility_id }, { type: "message", orderId: order.id, message: serializeMessage(message) });
   if (sender === "BENEFICIARY") {
-    const text = stored ? (stored.kind === "INSURANCE_CARD" ? "أرسل صورة البطاقة" : "أرسل صورة الوصفة") : location ? "أرسل موقعه" : (body ?? "").slice(0, 120);
+    const text = stored ? (declaredKind === "INSURANCE_CARD" ? "أرسل صورة البطاقة" : declaredKind === "PRESCRIPTION" ? "أرسل صورة الوصفة" : "أرسل مرفقًا") : location ? "أرسل موقعه" : (body ?? "").slice(0, 120);
     void sendPushToFacility(order.facility_id, { title: "رسالة من مستفيد", body: text, url: `/admin/pharmacy-services/orders?order=${order.id}`, tag: `order-${order.id}` });
   }
   return { success: true, message: serializeMessage(message) };
