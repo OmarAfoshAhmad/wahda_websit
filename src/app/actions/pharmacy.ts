@@ -23,6 +23,7 @@ import {
   type MedicineCategoryValue,
 } from "@/lib/pharmacy/policy";
 import { cancelTransactionInTx } from "@/lib/transaction-cancel";
+import { notifyBeneficiaryOfDispense } from "@/lib/pharmacy/dispense-notify";
 
 type PharmacySession = NonNullable<Awaited<ReturnType<typeof getSessionWithFreshPermissions>>>;
 type Tx = Omit<typeof prisma, "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends">;
@@ -581,7 +582,7 @@ export async function dispensePharmacyPrescriptionItems(input: {
   if (existing) return { success: true, duplicated: true, dispenseId: existing.id };
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    const outcome = await prisma.$transaction(async (tx) => {
       await lockBeneficiary(tx, owner.beneficiary_id);
       await tx.$queryRaw`SELECT "id" FROM "PharmacyPrescription" WHERE "id" = ${input.prescriptionId} FOR UPDATE`;
       const prescription = await tx.pharmacyPrescription.findUnique({
@@ -630,6 +631,9 @@ export async function dispensePharmacyPrescriptionItems(input: {
 
       return { success: true, duplicated: false, ...result };
     });
+    // بعد الحفظ: إشعار المستفيد ورسالة «تم الصرف» في محادثة طلبه.
+    void notifyBeneficiaryOfDispense(outcome.dispenseId);
+    return outcome;
   } catch (error) {
     return toErrorResult(error);
   }
@@ -695,7 +699,7 @@ export async function dispenseChronicDrugs(formData: FormData) {
   }
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    const outcome = await prisma.$transaction(async (tx) => {
       const beneficiary = await tx.beneficiary.findFirst({ where: { id: beneficiaryId, company_id: companyId, deleted_at: null, status: { not: "SUSPENDED" } }, select: { id: true } });
       if (!beneficiary) throw new PharmacyRuleError("المستفيد موقوف أو لا يتبع الشركة المختارة");
       await lockBeneficiary(tx, beneficiary.id);
@@ -748,6 +752,8 @@ export async function dispenseChronicDrugs(formData: FormData) {
       });
       return { success: true, duplicated: false, ...result };
     });
+    void notifyBeneficiaryOfDispense(outcome.dispenseId);
+    return outcome;
   } catch (error) {
     await cleanup();
     return toErrorResult(error);
