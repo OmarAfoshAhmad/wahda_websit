@@ -204,15 +204,31 @@ export function useOrderEvents(url: string, onEvent: (event: OrderEvent) => void
   const handler = useRef(onEvent);
   useEffect(() => { handler.current = onEvent; });
   useEffect(() => {
-    const source = new EventSource(url);
-    source.onmessage = (message) => {
-      try {
-        handler.current(JSON.parse(message.data) as OrderEvent);
-      } catch {
-        // تجاهل أي حدث غير مفهوم
-      }
+    let source: EventSource | null = null;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let delay = 2000;
+    let closed = false;
+    // EventSource يعيد الاتصال وحده بعد الانقطاع، لكنه يتوقف نهائيًا إن رفض الخادم (429/500):
+    // نعيد فتحه يدويًا بمهلة متزايدة حتى لا تتوقف التنبيهات بصمت.
+    const connect = () => {
+      if (closed) return;
+      source = new EventSource(url);
+      source.onopen = () => { delay = 2000; };
+      source.onmessage = (message) => {
+        try {
+          handler.current(JSON.parse(message.data) as OrderEvent);
+        } catch {
+          // تجاهل أي حدث غير مفهوم
+        }
+      };
+      source.onerror = () => {
+        if (source?.readyState !== EventSource.CLOSED) return;
+        retry = setTimeout(connect, delay);
+        delay = Math.min(delay * 2, 60_000);
+      };
     };
-    return () => source.close();
+    connect();
+    return () => { closed = true; clearTimeout(retry); source?.close(); };
   }, [url]);
 }
 

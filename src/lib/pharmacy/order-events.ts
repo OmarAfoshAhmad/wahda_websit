@@ -4,7 +4,8 @@
  */
 type Controller = ReadableStreamDefaultController<Uint8Array>;
 
-const MAX_PER_CHANNEL = 5;
+// صيدلية واحدة قد تفتح المنظومة من عدة أجهزة وتبويبات (وصفحة الطلبات تفتح اتصالين)؛ 5 كان يقطع التنبيهات بصمت.
+const MAX_PER_CHANNEL = 30;
 const MAX_TOTAL = 1000;
 
 declare global {
