@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { Camera, Check, CheckCheck, CreditCard, FileText, MapPin, ImagePlus, Loader2, Send, X } from "lucide-react";
 import { ACCEPTED_FILES, prepareFile } from "@/lib/pharmacy/client-files";
+import { CameraButton } from "@/components/pharmacy/camera-capture";
 import { getCurrentLocation } from "@/lib/geo-client";
 
 export type ChatMessage = {
@@ -161,11 +162,10 @@ export function OrderChat({
           {viewer === "BENEFICIARY" && (
             <div className="mb-2 grid grid-cols-3 gap-2">
               {([["PRESCRIPTION", "صورة وصفة", Camera], ["INSURANCE_CARD", "صورة بطاقة", CreditCard]] as const).map(([photoKind, label, Icon]) => (
-                <label key={photoKind} className={`flex h-14 cursor-pointer flex-col items-center justify-center rounded-2xl bg-teal-50 text-sm font-bold text-teal-800 focus-within:ring-2 focus-within:ring-teal-500 dark:bg-slate-800 dark:text-teal-200 ${sending ? "pointer-events-none opacity-50" : ""}`}>
+                <CameraButton key={photoKind} label={label} disabled={sending} onCapture={(picked) => sendPhoto(photoKind, picked)} className="flex h-14 flex-col items-center justify-center rounded-2xl bg-teal-50 text-sm font-bold text-teal-800 focus-visible:ring-2 focus-visible:ring-teal-500 disabled:opacity-50 dark:bg-slate-800 dark:text-teal-200">
                   <Icon className="h-5 w-5" aria-hidden />
                   {label}
-                  <input type="file" accept={ACCEPTED_FILES} className="sr-only" aria-label={label} disabled={sending} onChange={(event) => { const picked = event.target.files?.[0]; event.target.value = ""; if (picked) sendPhoto(photoKind, picked); }} />
-                </label>
+                </CameraButton>
               ))}
               <button type="button" onClick={sendLocation} disabled={locating || sending} className="flex h-14 flex-col items-center justify-center rounded-2xl bg-teal-50 text-sm font-bold text-teal-800 disabled:opacity-50 dark:bg-slate-800 dark:text-teal-200">
                 {locating ? <Loader2 className="h-5 w-5 animate-spin" aria-hidden /> : <MapPin className="h-5 w-5" aria-hidden />}
@@ -179,6 +179,9 @@ export function OrderChat({
                 <ImagePlus className="h-5 w-5" aria-hidden />
                 <input type="file" accept={ACCEPTED_FILES} className="sr-only" aria-label="إرفاق صورة" onChange={(event) => { const picked = event.target.files?.[0]; event.target.value = ""; if (picked) setFile(picked); }} />
               </label>
+            )}
+            {viewer === "FACILITY" && (
+              <CameraButton onCapture={setFile} label="" className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" />
             )}
             <textarea
               value={text}

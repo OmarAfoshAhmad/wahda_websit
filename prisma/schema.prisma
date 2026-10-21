@@ -77,6 +77,7 @@ model Facility {
   reserved_pharmacy_items         PharmacyPrescriptionItem[] @relation("PharmacyItemReservationFacility")
   dispensed_pharmacy_items        PharmacyPrescriptionItem[] @relation("PharmacyItemDispensingFacility")
   pharmacy_profile                PharmacyProfile?
+  push_subscriptions              FacilityPushSubscription[]
   pharmacy_orders                 PharmacyOrder[]
 
   @@index([deleted_at])
@@ -843,4 +844,18 @@ enum CardNumberingStatus {
   DUPLICATE_FILE
   DUPLICATE_SYSTEM
   ERROR
+}
+
+/// اشتراكات إشعارات الويب (Web Push) لأجهزة الصيدلية: تصل الإشعارات والمنظومة مغلقة.
+model FacilityPushSubscription {
+  id          String   @id @default(cuid())
+  facility_id String
+  endpoint    String   @unique
+  p256dh      String
+  auth        String
+  user_agent  String?
+  created_at  DateTime @default(now())
+  facility    Facility @relation(fields: [facility_id], references: [id], onDelete: Cascade)
+
+  @@index([facility_id])
 }

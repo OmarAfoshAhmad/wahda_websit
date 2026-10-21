@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowRight, Bike, Camera, Check, ChevronLeft, Home, Loader2, LocateFixed, MapPin, MessageCircle, Pill, Search, Store } from "lucide-react";
+import { ArrowRight, Bike, Camera, Check, ChevronLeft, Home, Image as ImageIcon, Loader2, LocateFixed, MapPin, MessageCircle, Pill, Search, Store } from "lucide-react";
 import { createPharmacyOrder, listPharmaciesForBeneficiary } from "@/app/actions/pharmacy-orders";
 import { prepareFile } from "@/lib/pharmacy/client-files";
+import { CameraButton } from "@/components/pharmacy/camera-capture";
 import { getCurrentLocation, type GeoPoint } from "@/lib/geo-client";
 import type { ChronicDrugStatus } from "@/lib/pharmacy/summary";
 
@@ -56,27 +57,38 @@ function BigChoice({ selected, disabled, onClick, icon, title, subtitle, note }:
 function PhotoTile({ label, file, preparing, onPick }: { label: string; file: File | null; preparing: boolean; onPick: (file: File) => void }) {
   const preview = useMemo(() => (file && file.type.startsWith("image/") ? URL.createObjectURL(file) : null), [file]);
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
+  // الضغط على البطاقة يفتح الكاميرا مباشرة (الجوال والكمبيوتر)، ورابط صغير للاختيار من الصور الموجودة.
   return (
-    <label className={`relative flex min-h-42.5 cursor-pointer flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl border-2 border-dashed p-4 text-center focus-within:ring-4 focus-within:ring-primary/30 ${file ? "border-primary bg-primary-light" : "border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-900"}`}>
-      {preparing ? (
-        <><Loader2 className="h-10 w-10 animate-spin text-primary" aria-hidden /><span className="text-lg font-bold">جارٍ تجهيز الصورة…</span></>
-      ) : file ? (
-        <>
-          {preview
-            // eslint-disable-next-line @next/next/no-img-element -- معاينة محلية من الجهاز
-            ? <img src={preview} alt={label} className="max-h-32 rounded-lg object-contain" />
-            : <Check className="h-10 w-10 text-primary" aria-hidden />}
-          <span className="text-lg font-black text-primary">تم ✓ — اضغط لتغيير الصورة</span>
-        </>
-      ) : (
-        <>
-          <Camera className="h-12 w-12 text-primary" aria-hidden />
-          <span className="text-xl font-black text-slate-900 dark:text-white">{label}</span>
-          <span className="text-base text-slate-600 dark:text-slate-300">اضغط هنا للتصوير</span>
-        </>
-      )}
-      <input type="file" accept="image/*,application/pdf" className="sr-only" aria-label={label} onChange={(event) => { const picked = event.target.files?.[0]; event.target.value = ""; if (picked) onPick(picked); }} />
-    </label>
+    <div className="space-y-1.5">
+      <CameraButton
+        label={file ? `${label}: إعادة التصوير` : `${label}: تصوير`}
+        disabled={preparing}
+        onCapture={onPick}
+        className={`relative flex min-h-42.5 w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl border-2 border-dashed p-4 text-center focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/30 ${file ? "border-primary bg-primary-light" : "border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-900"}`}
+      >
+        {preparing ? (
+          <><Loader2 className="h-10 w-10 animate-spin text-primary" aria-hidden /><span className="text-lg font-bold">جارٍ تجهيز الصورة…</span></>
+        ) : file ? (
+          <>
+            {preview
+              // eslint-disable-next-line @next/next/no-img-element -- معاينة محلية من الجهاز
+              ? <img src={preview} alt={label} className="max-h-32 rounded-lg object-contain" />
+              : <Check className="h-10 w-10 text-primary" aria-hidden />}
+            <span className="text-lg font-black text-primary">تم ✓ — اضغط لإعادة التصوير</span>
+          </>
+        ) : (
+          <>
+            <Camera className="h-12 w-12 text-primary" aria-hidden />
+            <span className="text-xl font-black text-slate-900 dark:text-white">{label}</span>
+            <span className="text-base text-slate-600 dark:text-slate-300">اضغط هنا للتصوير</span>
+          </>
+        )}
+      </CameraButton>
+      <label className="flex min-h-11 cursor-pointer items-center justify-center gap-1.5 rounded-xl text-base font-bold text-primary focus-within:ring-2 focus-within:ring-primary/30 dark:text-teal-300">
+        <ImageIcon className="h-5 w-5" aria-hidden /> أو اختر صورة من الجهاز
+        <input type="file" accept="image/*,application/pdf" className="sr-only" aria-label={label} onChange={(event) => { const picked = event.target.files?.[0]; event.target.value = ""; if (picked) onPick(picked); }} />
+      </label>
+    </div>
   );
 }
 

@@ -12,6 +12,7 @@ import { ATTACHMENT_LABELS, storeAttachmentFile, type StoredFile } from "@/lib/p
 import { deliveryQuote, distanceKm, isOpenNow, isValidTime } from "@/lib/pharmacy/delivery";
 import { getChronicDrugStatuses, getPharmacyUsage, loadPharmacyPolicy } from "@/lib/pharmacy/summary";
 import { publishOrderEvent } from "@/lib/pharmacy/order-events";
+import { sendPushToFacility } from "@/lib/push";
 
 const CATEGORY_LABELS: Record<MedicineCategory, string> = { ROUTINE: "أدوية روتينية", CHRONIC: "أدوية مزمنة", CHEMICAL: "أدوية الأورام" };
 const OPEN_STATUSES: PharmacyOrderStatus[] = ["PENDING", "AVAILABLE", "CONFIRMED", "OUT_FOR_DELIVERY"];
@@ -207,6 +208,8 @@ export async function createPharmacyOrder(formData: FormData) {
       select: { id: true },
     });
     publishOrderEvent({ beneficiaryId: beneficiary.id, facilityId }, { type: "order", orderId: order.id, status: "PENDING" });
+    // إشعار لأجهزة الصيدلية حتى والمنظومة مغلقة (لا ينتظر الطلب الإرسال).
+    void sendPushToFacility(facilityId, { title: "طلب دواء جديد", body: `${beneficiary.name} — ${CATEGORY_LABELS[category]}${fulfillment === "DELIVERY" ? " · توصيل" : ""}`, url: `/admin/pharmacy-services/orders?order=${order.id}`, tag: `order-${order.id}` });
     return { success: true, orderId: order.id };
   } catch (error) {
     await cleanup();
@@ -309,6 +312,10 @@ async function appendMessage(order: { id: string; beneficiary_id: string; facili
   });
   await prisma.pharmacyOrder.update({ where: { id: order.id }, data: { updated_at: new Date() } });
   publishOrderEvent({ beneficiaryId: order.beneficiary_id, facilityId: order.facility_id }, { type: "message", orderId: order.id, message: serializeMessage(message) });
+  if (sender === "BENEFICIARY") {
+    const text = stored ? (stored.kind === "INSURANCE_CARD" ? "أرسل صورة البطاقة" : "أرسل صورة الوصفة") : location ? "أرسل موقعه" : (body ?? "").slice(0, 120);
+    void sendPushToFacility(order.facility_id, { title: "رسالة من مستفيد", body: text, url: `/admin/pharmacy-services/orders?order=${order.id}`, tag: `order-${order.id}` });
+  }
   return { success: true, message: serializeMessage(message) };
 }
 

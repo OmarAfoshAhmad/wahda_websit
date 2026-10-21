@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { ArrowRight, MessagesSquare } from "lucide-react";
 import { Shell } from "@/components/shell";
@@ -17,7 +18,7 @@ export default async function PharmacyOrdersPage() {
           <h1 className="flex items-center gap-2 text-2xl font-black text-slate-900 dark:text-white"><MessagesSquare className="h-6 w-6 text-teal-600" /> طلبات المستفيدين</h1>
           <Link href="/admin/pharmacy-services" className="inline-flex items-center gap-1 text-sm font-bold text-slate-500 hover:text-teal-700"><ArrowRight className="h-4 w-4" /> خدمات الصيدلية</Link>
         </div>
-        <OrdersInbox />
+        <Suspense><OrdersInbox /></Suspense>
       </div>
     </Shell>
   );

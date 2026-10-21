@@ -13,6 +13,7 @@ import {
 } from "@/app/actions/pharmacy";
 import { Button, Card, Input } from "@/components/ui";
 import { ACCEPTED_FILES, prepareFile } from "@/lib/pharmacy/client-files";
+import { CameraButton } from "@/components/pharmacy/camera-capture";
 
 type CategoryValue = "ROUTINE" | "CHRONIC" | "CHEMICAL";
 type AttachmentKind = "INSURANCE_CARD" | "PRESCRIPTION";
@@ -419,6 +420,7 @@ function FileZone({ kind, fileName, href, busy, disabled, onPick, onClear }: { k
       </div>
       {busy ? <Loader2 className="h-4 w-4 animate-spin text-teal-600" /> : (
         <>
+          <CameraButton disabled={disabled} onCapture={onPick} label={fileName ? "إعادة تصوير" : "تصوير"} />
           <label className={`rounded-md border border-teal-300 ${disabled ? "pointer-events-none opacity-40" : "cursor-pointer"} px-2.5 py-1.5 text-xs font-black text-teal-700 hover:bg-teal-50 dark:border-teal-800 dark:text-teal-300`}>
             {fileName ? "استبدال" : <span className="inline-flex items-center gap-1"><Upload className="h-3.5 w-3.5" /> رفع</span>}
             <input type="file" accept={ACCEPTED_FILES} disabled={disabled} className="sr-only" aria-label={ATTACHMENT_LABELS[kind]} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) onPick(file); }} />

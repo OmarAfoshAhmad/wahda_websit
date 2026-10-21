@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { logout } from "@/app/actions/auth";
 import { ThemeSwitcher } from "./theme-switcher";
+import { PharmacyAlerts } from "./pharmacy/pharmacy-alerts";
 import { hasPermission } from "@/lib/permissions";
 import { 
   BASE_NAV, 
@@ -324,6 +325,8 @@ export function Shell({
         </div>
       </nav>
 
+      {/* حساب الصيدلية: تنبيهات الطلبات بصوت في كل الصفحات، وتفعيل إشعارات الجهاز. */}
+      {!isAdmin && !isManager && !isEmployee && hasPermission(session, "pharmacy_services") && <div className="px-3 sm:px-5 lg:px-6"><PharmacyAlerts /></div>}
       <main className="mx-auto max-w-7xl px-3 py-4 sm:px-5 lg:px-6" suppressHydrationWarning>
         {children}
       </main>

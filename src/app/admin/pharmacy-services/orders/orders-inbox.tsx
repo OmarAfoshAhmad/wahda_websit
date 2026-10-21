@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowRight, Bike, Loader2, MapPin, Phone, Pill, Store } from "lucide-react";
 import {
   getFacilityPharmacyOrder,
@@ -25,7 +25,8 @@ export function OrdersInbox() {
   const router = useRouter();
   const [filter, setFilter] = useState<"OPEN" | "CLOSED">("OPEN");
   const [items, setItems] = useState<ListItem[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
+  // فتح طلب مباشرة من إشعار: ?order=<id>
+  const [activeId, setActiveId] = useState<string | null>(useSearchParams()?.get("order") ?? null);
   const [thread, setThread] = useState<Thread | null>(null);
   const [error, setError] = useState("");
   const [loadingList, setLoadingList] = useState(true);
