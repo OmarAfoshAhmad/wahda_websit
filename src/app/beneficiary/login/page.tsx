@@ -7,7 +7,7 @@ import { Loader2, ShieldAlert, Phone, CreditCard, Eye, EyeOff, Timer, KeyRound }
 type LoginCompany = { id: string; name: string; prefix: string };
 
 type Step = "credentials" | "otp";
-// password: الدخول اليومي بكلمة مرور الأسرة. otp: أول مرة أو نسيان كلمة المرور (الرمز لهاتف صاحب البطاقة).
+// otp (البداية دائمًا): رقم الهاتف ورمز التحقق لهاتف صاحب البطاقة. password: لمن أنشأ كلمة مرور الأسرة.
 type Mode = "password" | "otp";
 
 export default function BeneficiaryLoginPage() {
@@ -42,7 +42,6 @@ export default function BeneficiaryLoginPage() {
         if (cancelled) return;
         setCompanies(data.companies ?? []);
         try {
-          if (localStorage.getItem("beneficiary-has-password") === "1") setMode("password");
           const remembered = localStorage.getItem("beneficiary-company");
           if (remembered && data.companies?.some((item) => item.id === remembered)) setCompanyId(remembered);
         } catch {
@@ -85,7 +84,6 @@ export default function BeneficiaryLoginPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.status === "ok") {
-        try { localStorage.setItem("beneficiary-has-password", "1"); } catch { /* غير متاح */ }
         router.push("/beneficiary/choose");
         return;
       }
@@ -181,7 +179,6 @@ export default function BeneficiaryLoginPage() {
 
       if (res.ok && data.status === "ok") {
         // أول مرة (لا كلمة مرور بعد) أو نسيانها: إنشاء كلمة مرور الأسرة، وإلا اختيار فرد الأسرة.
-        if (!data.needs_password) { try { localStorage.setItem("beneficiary-has-password", "1"); } catch { /* غير متاح */ } }
         router.push(forgot || data.needs_password ? "/beneficiary/setup-pin" : "/beneficiary/choose");
         return;
       }

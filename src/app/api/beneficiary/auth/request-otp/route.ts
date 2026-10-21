@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomInt } from "crypto";
 import prisma from "@/lib/prisma";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { normalizeLibyanMobile } from "@/lib/phone";
 import { getOtpSettings } from "@/lib/system-settings";
 import { normalizeCardInput } from "@/lib/card-number";
 import { resolveFamilyAccountCard } from "@/lib/beneficiary-family";
@@ -16,7 +17,9 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => null);
-  const phone_number = typeof body?.phone_number === "string" ? body.phone_number.trim() : "";
+  // صيغة موحدة للهاتف (0912345678) حتى يطابق الرقم المسجل مهما كُتب (مسافات، 218…).
+  const rawPhone = typeof body?.phone_number === "string" ? body.phone_number.trim() : "";
+  const phone_number = normalizeLibyanMobile(rawPhone) ?? rawPhone;
   // الدخول بالشركة + الرقم الوظيفي (الجزء بعد رمز الشركة والسنة)، مع بقاء الدخول برقم البطاقة الكامل مدعومًا.
   let card_number = typeof body?.card_number === "string" ? normalizeCardInput(body.card_number) : "";
 

@@ -37,7 +37,6 @@ export default function SetupPasswordPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.status === "ok") {
-        try { localStorage.setItem("beneficiary-has-password", "1"); } catch { /* غير متاح */ }
         router.push("/beneficiary/choose");
         return;
       }
