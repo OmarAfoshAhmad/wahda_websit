@@ -1,36 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { BellRing, X } from "lucide-react";
 import { useOrderEvents } from "@/components/pharmacy/order-chat";
+import { armAlertToneOnFirstGesture, playAlertTone, unlockAlertTone } from "@/lib/alert-tone";
 
 type Alert = { orderId: string; title: string; body: string };
 
-/** نغمة تنبيه قصيرة (ثلاث نغمات) بلا ملف صوتي. المتصفح يسمح بها بعد أول تفاعل للمستخدم مع الصفحة. */
-function playAlertTone(context: AudioContext | null) {
-  if (!context) return;
-  // Chrome قد يُبقي الصوت معلّقًا (suspended) حتى بعد أول نقرة؛ نستأنفه قبل كل تنبيه.
-  if (context.state === "suspended") void context.resume().catch(() => undefined);
-  try {
-    [0, 0.25, 0.5].forEach((offset, index) => {
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      oscillator.type = "sine";
-      oscillator.frequency.value = index === 2 ? 1175 : 880;
-      const start = context.currentTime + offset;
-      gain.gain.setValueAtTime(0.0001, start);
-      gain.gain.exponentialRampToValueAtTime(0.25, start + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.2);
-      oscillator.connect(gain).connect(context.destination);
-      oscillator.start(start);
-      oscillator.stop(start + 0.22);
-    });
-  } catch {
-    // جهاز لا يدعم الصوت البرمجي
-  }
-}
 
 function urlBase64ToUint8Array(base64: string) {
   const padding = "=".repeat((4 - (base64.length % 4)) % 4);
@@ -47,7 +25,6 @@ type PushState = "unsupported" | "off" | "on" | "denied" | "unconfigured";
 export function PharmacyAlerts() {
   const router = useRouter();
   const pathname = usePathname();
-  const audio = useRef<AudioContext | null>(null);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [unseen, setUnseen] = useState(0);
   const [push, setPush] = useState<PushState>("off");
@@ -55,16 +32,7 @@ export function PharmacyAlerts() {
   const [connection, setConnection] = useState<"connecting" | "live" | "retrying">("connecting");
 
   // المتصفح لا يسمح بالصوت قبل أول لمسة/نقرة: نجهّز الصوت عندها.
-  useEffect(() => {
-    const unlock = () => {
-      if (audio.current) return;
-      const Ctor = window.AudioContext ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (Ctor) audio.current = new Ctor();
-    };
-    window.addEventListener("pointerdown", unlock, { once: true });
-    window.addEventListener("keydown", unlock, { once: true });
-    return () => { window.removeEventListener("pointerdown", unlock); window.removeEventListener("keydown", unlock); };
-  }, []);
+  useEffect(() => armAlertToneOnFirstGesture(), []);
 
   // حالة إشعارات هذا الجهاز
   useEffect(() => {
@@ -97,34 +65,24 @@ export function PharmacyAlerts() {
       alert = { orderId: event.orderId, title: "رسالة من مستفيد", body: event.message.body?.slice(0, 80) || (event.message.attachment_kind ? "أرسل صورة" : event.message.location ? "أرسل موقعه" : "رسالة جديدة") };
     }
     if (!alert) return;
-    playAlertTone(audio.current);
+    playAlertTone();
     navigator.vibrate?.([200, 100, 200]);
     if (document.visibilityState !== "visible") setUnseen((count) => count + 1);
     // في صندوق الطلبات تكفي الصوت والتحديث المباشر؛ في غيره تظهر بطاقة تنبيه.
     if (!pathname?.startsWith("/admin/pharmacy-services/orders")) setAlerts((current) => [alert!, ...current.filter((item) => item.orderId !== alert!.orderId)].slice(0, 3));
   }, setConnection);
 
-  const ensureAudio = () => {
-    if (!audio.current) {
-      const Ctor = window.AudioContext ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (Ctor) audio.current = new Ctor();
-    }
-    return audio.current;
-  };
   const [soundOk, setSoundOk] = useState(false);
   const testSound = () => {
-    const context = ensureAudio();
-    playAlertTone(context);
+    const context = unlockAlertTone();
+    playAlertTone();
     setSoundOk(Boolean(context));
   };
 
   const enablePush = async () => {
     setBusy(true);
     try {
-      if (!audio.current) {
-        const Ctor = window.AudioContext ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-        if (Ctor) audio.current = new Ctor();
-      }
+      unlockAlertTone();
       const { publicKey } = await fetch("/api/pharmacy/push").then((res) => res.json());
       if (!publicKey) { setPush("unconfigured"); return; }
       const permission = await Notification.requestPermission();

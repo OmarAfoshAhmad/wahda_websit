@@ -73,7 +73,7 @@ export function OrdersInbox() {
     } else {
       setThread((current) => current ? { ...current, status: event.status as Thread["status"] } : current);
     }
-  });
+  }, undefined, () => { void loadList(); if (activeId) void loadThread(activeId); });
 
   const act = (action: "AVAILABLE" | "REJECTED" | "OUT_FOR_DELIVERY" | "COMPLETED", reason?: string) => {
     if (!thread) return;

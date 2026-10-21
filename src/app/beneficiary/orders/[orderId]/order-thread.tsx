@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { ArrowRight, Bike, Loader2, Phone, Store } from "lucide-react";
 import { getMyPharmacyOrder, sendBeneficiaryOrderMessage, updateMyPharmacyOrder } from "@/app/actions/pharmacy-orders";
 import { OrderChat, OrderStatusBadge, useOrderEvents, type ChatMessage } from "@/components/pharmacy/order-chat";
+import { armAlertToneOnFirstGesture, playAlertTone } from "@/lib/alert-tone";
 
 type Thread = NonNullable<Extract<Awaited<ReturnType<typeof getMyPharmacyOrder>>, { order: unknown }>["order"]>;
 const CATEGORY_LABELS: Record<string, string> = { ROUTINE: "أدوية روتينية", CHRONIC: "أدوية مزمنة", CHEMICAL: "أدوية الأورام" };
@@ -16,6 +17,8 @@ export function BeneficiaryOrderThread({ initial }: { initial: Thread }) {
   const [acting, startAction] = useTransition();
   const [confirmCancel, setConfirmCancel] = useState(false);
 
+  useEffect(() => armAlertToneOnFirstGesture(), []);
+
   const refresh = async () => {
     const result = await getMyPharmacyOrder(thread.id);
     if ("order" in result && result.order) setThread(result.order);
@@ -26,13 +29,17 @@ export function BeneficiaryOrderThread({ initial }: { initial: Thread }) {
     if (event.type === "message") {
       setThread((current) => current.messages.some((message) => message.id === event.message.id) ? current : { ...current, messages: [...current.messages, event.message] });
       if (event.message.sender === "FACILITY") void refresh();
-      if (typeof navigator !== "undefined" && event.message.sender === "FACILITY") navigator.vibrate?.(80);
+      if (event.message.sender === "FACILITY") {
+        // صوت واهتزاز عند رد الصيدلية (الصوت يعمل بعد أول لمسة على الصفحة)
+        playAlertTone();
+        navigator.vibrate?.([120, 60, 120]);
+      }
     } else if (event.type === "read" && event.reader === "FACILITY") {
       setThread((current) => ({ ...current, messages: current.messages.map((message) => message.sender === "BENEFICIARY" ? { ...message, read_at: message.read_at ?? new Date().toISOString() } : message) }));
     } else if (event.type === "order") {
       setThread((current) => ({ ...current, status: event.status as Thread["status"] }));
     }
-  });
+  }, undefined, () => void refresh());
 
   const act = (action: "CONFIRM" | "CANCEL") => {
     setConfirmCancel(false);

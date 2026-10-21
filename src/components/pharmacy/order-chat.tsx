@@ -200,21 +200,38 @@ export function OrderChat({
 }
 
 /** يستمع لأحداث الطلبات والمحادثة لحظيًا، ويعيد الاتصال تلقائيًا عند الانقطاع (سلوك EventSource). */
-export function useOrderEvents(url: string, onEvent: (event: OrderEvent) => void, onStatus?: (status: "live" | "retrying") => void) {
+/**
+ * onResync: يُستدعى عند عودة الاتصال بعد انقطاع وعند الرجوع إلى الصفحة؛ الجوال (خصوصًا الآيفون) يقطع الاتصال
+ * عند قفل الشاشة، والأحداث أثناء الانقطاع تضيع، فيجب جلب الحالة من جديد.
+ */
+export function useOrderEvents(url: string, onEvent: (event: OrderEvent) => void, onStatus?: (status: "live" | "retrying") => void, onResync?: () => void) {
   const handler = useRef(onEvent);
   const status = useRef(onStatus);
-  useEffect(() => { handler.current = onEvent; status.current = onStatus; });
+  const resync = useRef(onResync);
+  useEffect(() => { handler.current = onEvent; status.current = onStatus; resync.current = onResync; });
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === "visible") resync.current?.(); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("pageshow", onVisible);
+    return () => { document.removeEventListener("visibilitychange", onVisible); window.removeEventListener("pageshow", onVisible); };
+  }, []);
   useEffect(() => {
     let source: EventSource | null = null;
     let retry: ReturnType<typeof setTimeout> | undefined;
     let delay = 2000;
     let closed = false;
+    let opened = false;
     // EventSource يعيد الاتصال وحده بعد الانقطاع، لكنه يتوقف نهائيًا إن رفض الخادم (429/500):
     // نعيد فتحه يدويًا بمهلة متزايدة حتى لا تتوقف التنبيهات بصمت.
     const connect = () => {
       if (closed) return;
       source = new EventSource(url);
-      source.onopen = () => { delay = 2000; status.current?.("live"); };
+      source.onopen = () => {
+        delay = 2000;
+        status.current?.("live");
+        if (opened) resync.current?.();
+        opened = true;
+      };
       source.onmessage = (message) => {
         try {
           handler.current(JSON.parse(message.data) as OrderEvent);
