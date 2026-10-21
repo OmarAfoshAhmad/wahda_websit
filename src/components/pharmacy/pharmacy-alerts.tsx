@@ -11,6 +11,8 @@ type Alert = { orderId: string; title: string; body: string };
 /** نغمة تنبيه قصيرة (ثلاث نغمات) بلا ملف صوتي. المتصفح يسمح بها بعد أول تفاعل للمستخدم مع الصفحة. */
 function playAlertTone(context: AudioContext | null) {
   if (!context) return;
+  // Chrome قد يُبقي الصوت معلّقًا (suspended) حتى بعد أول نقرة؛ نستأنفه قبل كل تنبيه.
+  if (context.state === "suspended") void context.resume().catch(() => undefined);
   try {
     [0, 0.25, 0.5].forEach((offset, index) => {
       const oscillator = context.createOscillator();
@@ -102,6 +104,20 @@ export function PharmacyAlerts() {
     if (!pathname?.startsWith("/admin/pharmacy-services/orders")) setAlerts((current) => [alert!, ...current.filter((item) => item.orderId !== alert!.orderId)].slice(0, 3));
   }, setConnection);
 
+  const ensureAudio = () => {
+    if (!audio.current) {
+      const Ctor = window.AudioContext ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (Ctor) audio.current = new Ctor();
+    }
+    return audio.current;
+  };
+  const [soundOk, setSoundOk] = useState(false);
+  const testSound = () => {
+    const context = ensureAudio();
+    playAlertTone(context);
+    setSoundOk(Boolean(context));
+  };
+
   const enablePush = async () => {
     setBusy(true);
     try {
@@ -148,6 +164,9 @@ export function PharmacyAlerts() {
       <div className="fixed bottom-3 left-3 z-40 flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/90 px-2.5 py-1 text-xs font-bold text-slate-600 shadow-sm dark:border-slate-700 dark:bg-slate-900/90 dark:text-slate-300" role="status" aria-label="حالة تنبيهات الطلبات">
         <span className={`h-2 w-2 rounded-full ${connection === "live" ? "bg-emerald-500" : connection === "retrying" ? "animate-pulse bg-amber-500" : "bg-slate-400"}`} aria-hidden />
         {connection === "live" ? "تنبيهات الطلبات متصلة" : connection === "retrying" ? "إعادة الاتصال بالتنبيهات…" : "جارٍ الاتصال بالتنبيهات…"}
+        <button type="button" onClick={testSound} className="ms-1 rounded-full bg-teal-600 px-2 py-0.5 text-white hover:bg-teal-700">
+          {soundOk ? "الصوت مفعّل ✓" : "تفعيل/تجربة الصوت"}
+        </button>
       </div>
 
       {alerts.length > 0 && (
