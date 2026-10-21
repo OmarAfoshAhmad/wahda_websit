@@ -12,6 +12,7 @@ import { ATTACHMENT_LABELS, storeAttachmentFile, type StoredFile } from "@/lib/p
 import { deliveryQuote, distanceKm, isOpenNow, isValidTime } from "@/lib/pharmacy/delivery";
 import { getChronicDrugStatuses, getPharmacyUsage, loadPharmacyPolicy } from "@/lib/pharmacy/summary";
 import { publishOrderEvent } from "@/lib/pharmacy/order-events";
+import { isPrescriptionValidToday } from "@/lib/pharmacy/policy";
 import { sendPushToFacility } from "@/lib/push";
 
 const CATEGORY_LABELS: Record<MedicineCategory, string> = { ROUTINE: "أدوية روتينية", CHRONIC: "أدوية مزمنة", CHEMICAL: "أدوية الأورام" };
@@ -306,8 +307,9 @@ async function appendMessage(order: { id: string; beneficiary_id: string; facili
     if ("error" in result) return { error: result.error };
     stored = result;
   }
+  // مرفقات الصيدلية في المحادثة عامة (صورة أو ملف) وليست بطاقة أو وصفة المستفيد.
   const message = await prisma.pharmacyOrderMessage.create({
-    data: { order_id: order.id, sender, body, attachment_kind: stored?.kind ?? null, file_name: stored?.fileName ?? null, mime_type: stored?.mime ?? null, storage_path: stored?.storagePath ?? null, latitude: location?.latitude ?? null, longitude: location?.longitude ?? null },
+    data: { order_id: order.id, sender, body, attachment_kind: sender === "FACILITY" ? null : stored?.kind ?? null, file_name: stored?.fileName ?? null, mime_type: stored?.mime ?? null, storage_path: stored?.storagePath ?? null, latitude: location?.latitude ?? null, longitude: location?.longitude ?? null },
     select: { id: true, sender: true, body: true, attachment_kind: true, file_name: true, latitude: true, longitude: true, read_at: true, created_at: true },
   });
   await prisma.pharmacyOrder.update({ where: { id: order.id }, data: { updated_at: new Date() } });
@@ -495,7 +497,13 @@ export async function startDispenseFromOrder(orderId: string) {
   if (!order) return { error: "الطلب غير موجود" };
   if (!["AVAILABLE", "CONFIRMED", "OUT_FOR_DELIVERY"].includes(order.status)) return { error: "أكد التوفر قبل بدء الصرف" };
   const target = { companyId: order.company_id, beneficiaryId: order.beneficiary_id, category: order.medicine_category };
-  if (order.medicine_category === "CHRONIC" || order.prescription_id) return { success: true, ...target };
+  if (order.medicine_category === "CHRONIC") return { success: true, ...target };
+  // وصفة الطلب السابقة تُستخدم فقط إن كانت مفتوحة وصالحة اليوم؛ وإلا تُفتح وصفة جديدة وتُنسخ إليها صور المستفيد،
+  // فلا يعيد الصيدلي رفع البطاقة والوصفة.
+  if (order.prescription_id) {
+    const existing = await prisma.pharmacyPrescription.findUnique({ where: { id: order.prescription_id }, select: { status: true, created_at: true } });
+    if (existing?.status === "OPEN" && isPrescriptionValidToday(existing.created_at)) return { success: true, ...target };
+  }
 
   const { createPharmacyPrescription } = await import("@/app/actions/pharmacy");
   const created = await createPharmacyPrescription({ companyId: order.company_id, beneficiaryId: order.beneficiary_id, category: order.medicine_category });

@@ -37,7 +37,6 @@ export function OrderChat({
 }) {
   const [text, setText] = useState("");
   const [file, setFile] = useState<File | null>(null);
-  const [kind, setKind] = useState<"PRESCRIPTION" | "INSURANCE_CARD">("PRESCRIPTION");
   const [error, setError] = useState("");
   const [sending, startSend] = useTransition();
   const endRef = useRef<HTMLDivElement>(null);
@@ -90,7 +89,6 @@ export function OrderChat({
         const prepared = await prepareFile(file);
         if ("error" in prepared) { setError(prepared.error); return; }
         formData.set("file", prepared.file);
-        formData.set("kind", kind);
       }
       const result = await send(formData);
       if (result?.error) { setError(result.error); return; }
@@ -110,15 +108,15 @@ export function OrderChat({
               {showDay && <p className="my-2 text-center text-xs font-bold text-slate-400">{dayOf(message.created_at)}</p>}
               <div className={`flex ${mine ? "justify-start" : "justify-end"}`}>
                 <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-base shadow-sm ${mine ? "rounded-ss-sm bg-teal-600 text-white" : "rounded-se-sm border border-slate-200 bg-white text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"}`}>
-                  {message.attachment_kind && (
+                  {message.file_name && (
                     <a href={`/api/pharmacy/order-files/${message.id}`} target="_blank" rel="noopener noreferrer" className="mb-1 block">
                       {message.file_name?.endsWith(".pdf") ? (
                         <span className={`inline-flex items-center gap-1.5 font-bold underline ${mine ? "text-white" : "text-primary dark:text-teal-300"}`}><FileText className="h-4 w-4" /> {message.file_name}</span>
                       ) : (
                         // eslint-disable-next-line @next/next/no-img-element -- صورة محمية تُخدم من مسار مصادق، لا يناسبها next/image
-                        <img src={`/api/pharmacy/order-files/${message.id}`} alt={message.attachment_kind === "INSURANCE_CARD" ? "صورة البطاقة التأمينية" : "صورة الوصفة"} className="max-h-56 rounded-lg" loading="lazy" />
+                        <img src={`/api/pharmacy/order-files/${message.id}`} alt={message.attachment_kind === "INSURANCE_CARD" ? "صورة البطاقة التأمينية" : message.attachment_kind === "PRESCRIPTION" ? "صورة الوصفة" : "مرفق"} className="max-h-56 rounded-lg" loading="lazy" />
                       )}
-                      <span className={`mt-0.5 block text-xs ${mine ? "text-teal-50" : "text-slate-500"}`}>{message.attachment_kind === "INSURANCE_CARD" ? "البطاقة التأمينية" : "الوصفة"}</span>
+                      <span className={`mt-0.5 block text-xs ${mine ? "text-teal-50" : "text-slate-500"}`}>{message.attachment_kind === "INSURANCE_CARD" ? "البطاقة التأمينية" : message.attachment_kind === "PRESCRIPTION" ? "الوصفة" : "مرفق"}</span>
                     </a>
                   )}
                   {message.location ? (
@@ -149,12 +147,6 @@ export function OrderChat({
           {file && (
             <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg bg-slate-100 px-2 py-1.5 text-sm dark:bg-slate-800">
               <span className="min-w-0 flex-1 truncate font-bold">{file.name}</span>
-              <label className="flex items-center gap-1 text-xs font-bold">
-                <select value={kind} onChange={(event) => setKind(event.target.value as typeof kind)} className="rounded border border-slate-300 bg-white px-1 py-0.5 dark:border-slate-600 dark:bg-slate-900" aria-label="نوع الصورة">
-                  <option value="PRESCRIPTION">وصفة</option>
-                  <option value="INSURANCE_CARD">بطاقة تأمين</option>
-                </select>
-              </label>
               <button type="button" onClick={() => setFile(null)} aria-label="إزالة الملف" className="text-slate-500 hover:text-rose-600"><X className="h-4 w-4" /></button>
             </div>
           )}

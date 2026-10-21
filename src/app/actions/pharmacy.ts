@@ -163,7 +163,8 @@ export async function getPharmacyBeneficiaryWorkspace(companyId: string, benefic
       ...beneficiary,
       birth_date: beneficiary.birth_date?.toISOString() ?? null,
       pharmacy_dispenses: beneficiary.pharmacy_dispenses.map((dispense) => {
-        const showPrices = staff || dispense.facility_id === session.id;
+        // سجل الصرف بجانب نافذة الصرف: البنود و«تم الصرف» فقط، بلا أسعار ولا إجماليات؛ الإدارة ترى المبالغ.
+        const showPrices = staff;
         return {
         ...dispense,
         gross_total: showPrices ? Number(dispense.gross_total) : null,
@@ -192,7 +193,7 @@ export async function getPharmacyBeneficiaryWorkspace(companyId: string, benefic
           status: voided ? "AVAILABLE" as const : slot.status,
           dispensed_by_facility: voided ? null : slot.dispensed_by_facility,
           reservation_expires_at: slot.reservation_expires_at?.toISOString() ?? null,
-          price: dispense_item && !voided && (staff || slot.dispensed_by_facility?.id === session.id) ? Number(dispense_item.price) : null,
+          price: dispense_item && !voided && staff ? Number(dispense_item.price) : null,
           reserved_by_current_facility: slot.reserved_by_facility?.id === session.id,
           dispensed_by_current_facility: !voided && slot.dispensed_by_facility?.id === session.id,
           };
