@@ -174,7 +174,7 @@ export function SettingsPageClient({ initialBalance, otpSettings, canManageIniti
                   name="apiUrl"
                   type="url"
                   defaultValue={otpSettings.apiUrl}
-                  placeholder="https://api.resala.ly/api/v1  (اتركه فارغًا للافتراضي)"
+                  placeholder="https://dev.resala.ly/api/v1"
                   className="h-12 text-sm text-left"
                   dir="ltr"
                 />

@@ -132,68 +132,33 @@ export async function POST(req: NextRequest) {
       if (!formattedPhone.startsWith("218")) formattedPhone = "218" + formattedPhone;
 
       const serviceName = otpSettings.senderId || otpSettings.facilityName || "بوابة المستفيد";
-      const message = `رمز التفعيل الخاص بك في ${serviceName} هو: ${code}`;
       const token = otpSettings.apiKey.trim();
-      // يقبل الرابط الكامل أو الأساسي فقط (https://api.resala.ly/api/v1) ويكمله إلى مسار الإرسال.
-      const configuredUrl = (otpSettings.apiUrl || "https://api.resala.ly/api/v1").trim().replace(/\/+$/, "");
-      const apiUrl = /\/(messages\/send|pins)$/.test(configuredUrl) ? configuredUrl : `${configuredUrl}/messages/send`;
+      // الرابط الأساسي من توثيق رسالة: https://dev.resala.ly/api/v1 (يُقبل أيضًا مع مسار /pins أو /messages/send).
+      const base = (otpSettings.apiUrl || "https://dev.resala.ly/api/v1").trim().replace(/\/+$/, "").replace(/\/(pins|messages\/send)$/, "");
+      const headers = { "Content-Type": "application/json", Accept: "application/json", Authorization: `Bearer ${token}` };
+      const reason = (body: Record<string, unknown>) => String(body.message ?? body.error ?? (body.errors ? JSON.stringify(body.errors) : "")).slice(0, 200);
 
-      // المحاولة الأولى: إرسال مباشر
-      let res = await fetch(apiUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Accept": "application/json",
-          "Authorization": `Bearer ${token}`,
-          "x-api-key": token,
-        },
-        body: JSON.stringify([{ phone: formattedPhone, message }]),
-      });
-
-      let result = await res.json().catch(() => ({}));
-
-      // المحاولة الثانية: Pins API (إذا فشل الإرسال المباشر)
-      if (!res.ok && (res.status === 403 || res.status === 401)) {
-        logger.warn("RESALA direct send failed, switching to PINS API fallback");
-
-        const pinsUrl = apiUrl.includes("/pins") ? apiUrl : apiUrl.replace("/messages/send", "/pins");
-
-        let finalPinsUrl = pinsUrl;
-        try {
-          const urlObj = new URL(pinsUrl);
-          urlObj.searchParams.set("service_name", serviceName);
-          finalPinsUrl = urlObj.toString();
-        } catch {
-          finalPinsUrl += (pinsUrl.includes("?") ? "&" : "?") + `service_name=${encodeURIComponent(serviceName)}`;
-        }
-
-        const resPins = await fetch(finalPinsUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`,
-          },
-          body: JSON.stringify({ phone: formattedPhone }),
-        });
-
-        if (resPins.ok) {
-          res = resPins;
-          result = await resPins.json().catch(() => ({}));
-
-          // مزامنة الرمز الذي ولّدته الشركة مع قاعدة بياناتنا
-          const generatedPin = result.pin || result.code || result.data?.pin;
-          if (generatedPin) {
-            code = generatedPin.toString();
-            logger.info("RESALA provider-generated PIN synced to local DB");
-          }
-        }
+      // 1) واجهة رموز التحقق (pins): رسالة تولّد الرمز وترسله وتعيده لنا فنحفظه للتحقق.
+      const pinsUrl = new URL(`${base}/pins`);
+      pinsUrl.searchParams.set("service_name", serviceName);
+      let res = await fetch(pinsUrl, { method: "POST", headers, body: JSON.stringify({ phone: formattedPhone }) });
+      let result: Record<string, unknown> = await res.json().catch(() => ({}));
+      if (res.ok) {
+        const data = (result.data ?? {}) as Record<string, unknown>;
+        const generatedPin = result.pin ?? result.code ?? data.pin ?? data.code;
+        if (generatedPin) code = String(generatedPin);
+      } else {
+        logger.warn("RESALA pins failed, trying messages/send", { status: res.status, reason: reason(result) });
+        // 2) احتياط: إرسال رسالة نصية برمزنا نحن.
+        const message = `رمز التفعيل الخاص بك في ${serviceName} هو: ${code}`;
+        res = await fetch(`${base}/messages/send`, { method: "POST", headers, body: JSON.stringify([{ phone: formattedPhone, message }]) });
+        result = await res.json().catch(() => ({}));
       }
 
       if (!res.ok) {
-        logger.error("RESALA send failed", { status: res.status });
-        return NextResponse.json({
-          error: result.message || "فشل الإرسال: تأكد من الصلاحيات أو الرصيد",
-        }, { status: res.status });
+        logger.error("RESALA send failed", { status: res.status, reason: reason(result) });
+        const detail = res.status === 401 ? "مفتاح API غير صحيح" : res.status === 403 ? "المفتاح بلا صلاحية إرسال أو اسم المرسل غير معتمد" : res.status === 402 ? "الرصيد غير كافٍ" : reason(result);
+        return NextResponse.json({ error: `فشل الإرسال${detail ? `: ${detail}` : ": تأكد من الصلاحيات أو الرصيد"}` }, { status: 502 });
       }
 
       logger.info("OTP sent successfully");
