@@ -1,68 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
-import prisma from "@/lib/prisma";
-import { beneficiaryLogin } from "@/lib/beneficiary-auth";
 import bcrypt from "bcryptjs";
-import { checkRateLimit } from "@/lib/rate-limit";
-import { normalizeCardInput } from "@/lib/card-number";
-import { setupPinSchema } from "@/lib/validation";
+import prisma from "@/lib/prisma";
+import { getBeneficiarySessionFromRequest } from "@/lib/beneficiary-auth";
 
-const GENERIC_AUTH_ERROR = "بيانات الدخول غير صحيحة";
+/** تعيين كلمة المرور مسموح فقط بعد التحقق برمز OTP حديث وصل إلى هاتف صاحب البطاقة. */
+const OTP_WINDOW_MS = 15 * 60 * 1000;
 
+/**
+ * يعيّن كلمة مرور الأسرة (6 أرقام) على حساب صاحب البطاقة الأساسية: أول مرة، أو عند نسيانها.
+ * لا يقبل رقم بطاقة من الطلب؛ الحساب يؤخذ من جلسة دخلت برمز التحقق.
+ */
 export async function POST(req: NextRequest) {
+  const origin = req.headers.get("origin");
+  const host = req.headers.get("host");
+  if (origin && host && new URL(origin).host !== host) {
+    return NextResponse.json({ error: "طلب غير مسموح" }, { status: 403 });
+  }
+
+  const session = await getBeneficiarySessionFromRequest(req);
+  if (!session) return NextResponse.json({ error: "انتهت الجلسة. ادخل برمز التحقق" }, { status: 401 });
+  if (session.auth !== "otp" || !session.otp_at || Date.now() - session.otp_at > OTP_WINDOW_MS) {
+    return NextResponse.json({ error: "لتغيير كلمة المرور ادخل برمز التحقق المرسل إلى هاتف صاحب البطاقة" }, { status: 403 });
+  }
+
   const body = await req.json().catch(() => null);
-  const parsed = setupPinSchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
-  }
-  const { pin } = parsed.data;
-  const card_number = normalizeCardInput(parsed.data.card_number);
-
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
-  const rateLimitError = await checkRateLimit(`beneficiary-setup-pin:${ip}`, "login");
-  if (rateLimitError) {
-    return NextResponse.json({ error: rateLimitError }, { status: 429 });
+  const password = typeof body?.password === "string" ? body.password.trim() : "";
+  const confirm = typeof body?.confirm_password === "string" ? body.confirm_password.trim() : "";
+  if (!/^\d{6}$/.test(password)) return NextResponse.json({ error: "كلمة المرور 6 أرقام" }, { status: 400 });
+  if (password !== confirm) return NextResponse.json({ error: "كلمتا المرور غير متطابقتين" }, { status: 400 });
+  if (/^(\d)\1{5}$/.test(password) || "0123456789".includes(password) || "9876543210".includes(password)) {
+    return NextResponse.json({ error: "اختر كلمة مرور أصعب من أرقام متكررة أو متتالية" }, { status: 400 });
   }
 
-  // استخدام transaction مع SELECT FOR UPDATE لمنع race condition
-  const result = await prisma.$transaction(async (tx) => {
-    const beneficiaries = await tx.$queryRaw<Array<{
-      id: string;
-      name: string;
-      card_number: string;
-      pin_hash: string | null;
-    }>>`
-      SELECT id, name, card_number, pin_hash
-      FROM "Beneficiary"
-      WHERE UPPER(BTRIM(card_number)) = UPPER(BTRIM(${card_number}))
-      AND "deleted_at" IS NULL
-      LIMIT 1
-      FOR UPDATE
-    `;
-
-    if (beneficiaries.length === 0) {
-      return { type: "error" as const, status: 401, body: { error: GENERIC_AUTH_ERROR } };
-    }
-
-    const beneficiary = beneficiaries[0];
-
-    // منع التعيين مرة ثانية (يجب المرور بالمشرف لإعادة التعيين)
-    if (beneficiary.pin_hash) {
-      return { type: "error" as const, status: 409, body: { error: "تم تعيين رمز PIN مسبقاً" } };
-    }
-
-    const pin_hash = await bcrypt.hash(pin, 12);
-    await tx.beneficiary.update({
-      where: { id: beneficiary.id },
-      data: { pin_hash, failed_attempts: 0, locked_until: null },
-    });
-
-    return { type: "success" as const, beneficiary: { id: beneficiary.id, name: beneficiary.name, card_number: beneficiary.card_number } };
+  await prisma.beneficiary.update({
+    where: { id: session.account_id ?? session.id },
+    data: { pin_hash: await bcrypt.hash(password, 12), failed_attempts: 0, locked_until: null },
   });
-
-  if (result.type === "error") {
-    return NextResponse.json(result.body, { status: result.status });
-  }
-
-  await beneficiaryLogin(result.beneficiary);
   return NextResponse.json({ status: "ok" });
 }

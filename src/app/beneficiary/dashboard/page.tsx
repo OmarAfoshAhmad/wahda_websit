@@ -3,11 +3,14 @@ import prisma from "@/lib/prisma";
 import { getBeneficiarySession } from "@/lib/beneficiary-auth";
 import { getLedgerRemainingByBeneficiaryId } from "@/lib/ledger-balance";
 import { ACTIVE_DISPENSE, getChronicDrugStatuses, getPharmacyUsage } from "@/lib/pharmacy/summary";
+import { familyHasPassword, listFamilyMembers } from "@/lib/beneficiary-family";
 import { BeneficiaryDashboardClient } from "./client";
 
 export default async function BeneficiaryDashboardPage() {
   const session = await getBeneficiarySession();
   if (!session) redirect("/beneficiary/login");
+  // لا دخول للبوابة قبل إنشاء كلمة مرور الأسرة بعد التحقق بالرمز.
+  if (!(await familyHasPassword(session.account_id ?? session.id))) redirect("/beneficiary/setup-pin");
 
   const beneficiary = await prisma.beneficiary.findFirst({
     where: { id: session.id, deleted_at: null },
@@ -73,5 +76,6 @@ export default async function BeneficiaryDashboardPage() {
     },
   };
 
-  return <BeneficiaryDashboardClient initialData={data} />;
+  const familySize = (await listFamilyMembers(session.account_id ?? session.id)).length;
+  return <BeneficiaryDashboardClient initialData={data} canSwitchMember={familySize > 1} />;
 }

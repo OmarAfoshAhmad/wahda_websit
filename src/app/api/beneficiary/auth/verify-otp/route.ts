@@ -3,7 +3,7 @@ import prisma from "@/lib/prisma";
 import { beneficiaryLogin } from "@/lib/beneficiary-auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { normalizeCardInput } from "@/lib/card-number";
-import { resolveCardByEmployeeNumber } from "@/lib/beneficiary-employee-number";
+import { resolveFamilyAccountCard } from "@/lib/beneficiary-family";
 
 const MAX_ATTEMPTS = 5;
 const LOCK_MINUTES = 10;
@@ -30,7 +30,8 @@ export async function POST(req: NextRequest) {
 
   // تحويل الرقم الوظيفي بعد حد المعدل حتى لا يُستغل لتخمين الأرقام.
   if (!card_number && typeof body?.company_id === "string" && typeof body?.employee_number === "string") {
-    const resolved = await resolveCardByEmployeeNumber(body.company_id, body.employee_number, phone_number);
+    // أي فرد من الأسرة يكتب رقمه، والرمز يذهب حصرًا إلى هاتف صاحب البطاقة الأساسية.
+    const resolved = await resolveFamilyAccountCard(body.company_id, body.employee_number, phone_number);
     if ("error" in resolved) return NextResponse.json({ error: resolved.error }, { status: 401 });
     card_number = normalizeCardInput(resolved.cardNumber);
   }
@@ -47,10 +48,11 @@ export async function POST(req: NextRequest) {
       name: string;
       card_number: string;
       phone_number: string | null;
+      pin_hash: string | null;
       failed_attempts: number;
       locked_until: Date | null;
     }>>`
-      SELECT id, name, card_number, phone_number, failed_attempts, locked_until
+      SELECT id, name, card_number, phone_number, pin_hash, failed_attempts, locked_until
       FROM "Beneficiary"
       WHERE REPLACE(REPLACE(UPPER(card_number), ' ', ''), '-', '') = UPPER(${cleanInput})
       AND "deleted_at" IS NULL
@@ -122,13 +124,14 @@ export async function POST(req: NextRequest) {
       data: updates,
     });
 
-    return { type: "success" as const, beneficiary: { id: beneficiary.id, name: beneficiary.name, card_number: beneficiary.card_number } };
+    return { type: "success" as const, needsPassword: !beneficiary.pin_hash, beneficiary: { id: beneficiary.id, name: beneficiary.name, card_number: beneficiary.card_number } };
   });
 
   if (result.type === "error") {
     return NextResponse.json(result.body, { status: result.status });
   }
 
-  await beneficiaryLogin(result.beneficiary);
-  return NextResponse.json({ status: "ok" });
+  // الدخول بالرمز يفتح تعيين كلمة مرور الأسرة (أول مرة أو عند نسيانها) لمدة محدودة.
+  await beneficiaryLogin({ ...result.beneficiary, account_id: result.beneficiary.id, auth: "otp", otp_at: Date.now() });
+  return NextResponse.json({ status: "ok", needs_password: result.needsPassword });
 }

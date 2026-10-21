@@ -20,7 +20,7 @@ type DashboardData = {
 
 const CATEGORY_LABELS: Record<PharmacyData["usage"][number]["category"], string> = { ROUTINE: "أدوية روتينية", CHRONIC: "أدوية مزمنة", CHEMICAL: "أدوية الأورام" };
 
-export function BeneficiaryDashboardClient({ initialData }: { initialData: DashboardData }) {
+export function BeneficiaryDashboardClient({ initialData, canSwitchMember }: { initialData: DashboardData; canSwitchMember: boolean }) {
   const data = initialData;
   // البوابة للصيدلية فقط: مجاميع الصيدلية، لا قيم السقف العام ولا حركات الخدمات الأخرى.
   const pharmacyUsed = data.pharmacy.usage[0]?.consumedOverall ?? 0;
@@ -37,7 +37,12 @@ export function BeneficiaryDashboardClient({ initialData }: { initialData: Dashb
       <div className="mb-4 flex items-center justify-between">
         <div>
           <p className="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">بوابة المستفيد</p>
-          <h1 className="text-lg font-black text-slate-900 dark:text-white">مرحباً {data.name.split(" ")[0]}</h1>
+          <h1 className="text-lg font-black text-slate-900 dark:text-white">{canSwitchMember ? "الدواء لـ" : "مرحباً"} {data.name.split(" ")[0]}</h1>
+          {canSwitchMember && (
+            <Link href="/beneficiary/choose" className="mt-1 inline-flex h-9 items-center rounded-full border border-primary/30 px-3 text-sm font-bold text-primary dark:text-teal-300">
+              تغيير الشخص
+            </Link>
+          )}
         </div>
 
         <div className="flex items-center gap-2">

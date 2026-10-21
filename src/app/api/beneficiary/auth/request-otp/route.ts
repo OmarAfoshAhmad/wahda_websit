@@ -4,7 +4,7 @@ import prisma from "@/lib/prisma";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getOtpSettings } from "@/lib/system-settings";
 import { normalizeCardInput } from "@/lib/card-number";
-import { resolveCardByEmployeeNumber } from "@/lib/beneficiary-employee-number";
+import { resolveFamilyAccountCard } from "@/lib/beneficiary-family";
 import { logger } from "@/lib/logger";
 
 export async function POST(req: NextRequest) {
@@ -29,7 +29,8 @@ export async function POST(req: NextRequest) {
 
   // تحويل الرقم الوظيفي بعد حد المعدل حتى لا يُستغل لتخمين الأرقام.
   if (!card_number && typeof body?.company_id === "string" && typeof body?.employee_number === "string") {
-    const resolved = await resolveCardByEmployeeNumber(body.company_id, body.employee_number, phone_number);
+    // أي فرد من الأسرة يكتب رقمه، والرمز يذهب حصرًا إلى هاتف صاحب البطاقة الأساسية.
+    const resolved = await resolveFamilyAccountCard(body.company_id, body.employee_number, phone_number);
     if ("error" in resolved) return NextResponse.json({ error: resolved.error }, { status: 401 });
     card_number = normalizeCardInput(resolved.cardNumber);
   }

@@ -2,15 +2,20 @@
 
 import { useRef, useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, ShieldAlert, Phone, CreditCard, Eye, EyeOff, Timer } from "lucide-react";
+import { Loader2, ShieldAlert, Phone, CreditCard, Eye, EyeOff, Timer, KeyRound } from "lucide-react";
 
 type LoginCompany = { id: string; name: string; prefix: string };
 
 type Step = "credentials" | "otp";
+// password: الدخول اليومي بكلمة مرور الأسرة. otp: أول مرة أو نسيان كلمة المرور (الرمز لهاتف صاحب البطاقة).
+type Mode = "password" | "otp";
 
 export default function BeneficiaryLoginPage() {
   const router = useRouter();
   const [step, setStep] = useState<Step>("credentials");
+  const [mode, setMode] = useState<Mode>("password");
+  const [forgot, setForgot] = useState(false);
+  const [password, setPassword] = useState("");
   // الدخول بالشركة + الرقم الوظيفي: ما بعد رمز الشركة والسنة في البطاقة (مثل 10540W1 من JMR202510540W1).
   const [companies, setCompanies] = useState<LoginCompany[]>([]);
   const [companyId, setCompanyId] = useState("");
@@ -62,6 +67,38 @@ export default function BeneficiaryLoginPage() {
       navigator.vibrate(120);
     }
   }, []);
+
+  // ── الدخول بكلمة المرور ─────────────────────────────────
+  const handlePasswordSubmit = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    if (!companyId || !employeeNumber.trim() || password.length !== 6) return;
+    try { localStorage.setItem("beneficiary-company", companyId); } catch { /* غير متاح */ }
+    setLoading(true);
+    try {
+      const res = await fetch("/api/beneficiary/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ company_id: companyId, employee_number: employeeNumber, password }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.status === "ok") {
+        router.push("/beneficiary/choose");
+        return;
+      }
+      if (data.status === "needs_setup") { setMode("otp"); setForgot(false); }
+      setPassword("");
+      triggerErrorFeedback(data.error ?? "تعذر الدخول");
+    } finally {
+      setLoading(false);
+    }
+  }, [companyId, employeeNumber, password, router, triggerErrorFeedback]);
+
+  const switchMode = (next: Mode, isForgot = false) => {
+    setMode(next);
+    setForgot(isForgot);
+    setError("");
+  };
 
   // ── الخطوة 1: طلب الـ OTP ──────────────────────────────
   const handleCredentialsSubmit = useCallback(async (e: React.FormEvent) => {
@@ -140,7 +177,8 @@ export default function BeneficiaryLoginPage() {
       const data = await res.json();
 
       if (res.ok && data.status === "ok") {
-        router.push("/beneficiary/dashboard");
+        // أول مرة (لا كلمة مرور بعد) أو نسيانها: إنشاء كلمة مرور الأسرة، وإلا اختيار فرد الأسرة.
+        router.push(forgot || data.needs_password ? "/beneficiary/setup-pin" : "/beneficiary/choose");
         return;
       }
 
@@ -150,7 +188,7 @@ export default function BeneficiaryLoginPage() {
     } finally {
       setLoading(false);
     }
-  }, [companyId, employeeNumber, phoneNumber, otpLength, timeLeft, router, triggerErrorFeedback]);
+  }, [companyId, employeeNumber, phoneNumber, otpLength, timeLeft, router, triggerErrorFeedback, forgot]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -172,7 +210,12 @@ export default function BeneficiaryLoginPage() {
 
         <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm">
           {step === "credentials" ? (
-            <form onSubmit={handleCredentialsSubmit} className="space-y-5">
+            <form onSubmit={mode === "password" ? handlePasswordSubmit : handleCredentialsSubmit} className="space-y-5">
+              {mode === "otp" && (
+                <p className="rounded-xl bg-primary-light px-4 py-3 text-sm font-bold text-primary dark:bg-primary/20 dark:text-teal-200">
+                  {forgot ? "نسيت كلمة المرور: سيصل رمز التحقق إلى هاتف صاحب البطاقة فقط، ثم تختار كلمة مرور جديدة." : "أول دخول: سيصل رمز التحقق إلى هاتف صاحب البطاقة، ثم تنشئ كلمة مرور لأسرتك."}
+                </p>
+              )}
               <div className="space-y-1.5">
                 <label htmlFor="company" className="block text-xs font-black uppercase tracking-widest text-slate-400 dark:text-slate-500">
                   الشركة
@@ -220,9 +263,32 @@ export default function BeneficiaryLoginPage() {
                 </p>
               </div>
 
+              {mode === "password" ? (
+              <div className="space-y-1.5">
+                <label htmlFor="password" className="block text-xs font-black uppercase tracking-widest text-slate-400 dark:text-slate-500">
+                  كلمة المرور (6 أرقام)
+                </label>
+                <div className="relative">
+                  <KeyRound className="absolute right-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+                  <input
+                    id="password"
+                    name="password"
+                    type="password"
+                    inputMode="numeric"
+                    autoComplete="current-password"
+                    maxLength={6}
+                    value={password}
+                    onChange={(e) => { setPassword(e.target.value.replace(/\D/g, "").slice(0, 6)); setError(""); }}
+                    placeholder="••••••"
+                    className="h-14 w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 pr-12 pl-4 text-center text-2xl font-black tracking-[0.5em] text-slate-900 dark:text-white focus:border-primary focus:bg-white dark:focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    required
+                  />
+                </div>
+              </div>
+              ) : (
               <div className="space-y-1.5">
                 <label htmlFor="phone_number" className="block text-xs font-black uppercase tracking-widest text-slate-400 dark:text-slate-500">
-                  رقم الهاتف (لربط الحساب)
+                  هاتف صاحب البطاقة
                 </label>
                 <div className="relative">
                   <Phone className="absolute right-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
@@ -240,6 +306,7 @@ export default function BeneficiaryLoginPage() {
                   />
                 </div>
               </div>
+              )}
 
               {error && (
                 <div className={`flex items-center gap-2 rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-900/20 px-4 py-3 ${errorPulse ? "animate-shake" : ""}`}>
@@ -250,12 +317,21 @@ export default function BeneficiaryLoginPage() {
 
               <button
                 type="submit"
-                disabled={loading || !phoneNumber.trim() || !companyId || !employeeNumber.trim()}
+                disabled={loading || !companyId || !employeeNumber.trim() || (mode === "password" ? password.length !== 6 : !phoneNumber.trim())}
                 className="flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-primary text-base font-black text-white shadow-sm transition hover:bg-primary-dark disabled:opacity-60"
               >
                 {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : null}
-                {loading ? "جارٍ الإرسال…" : "تسجيل / إرسال OTP"}
+                {loading ? "جارٍ…" : mode === "password" ? "دخول" : "أرسل رمز التحقق"}
               </button>
+
+              {mode === "password" ? (
+                <div className="flex flex-col items-center gap-3 pt-1 text-sm font-bold">
+                  <button type="button" onClick={() => switchMode("otp")} className="text-primary hover:underline">أول مرة؟ ادخل برمز التحقق</button>
+                  <button type="button" onClick={() => switchMode("otp", true)} className="text-slate-500 hover:underline dark:text-slate-400">نسيت كلمة المرور؟</button>
+                </div>
+              ) : (
+                <button type="button" onClick={() => switchMode("password")} className="w-full text-center text-sm font-bold text-primary hover:underline">الدخول بكلمة المرور</button>
+              )}
             </form>
           ) : (
             <div className="space-y-5">

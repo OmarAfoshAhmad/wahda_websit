@@ -16,10 +16,16 @@ function getKey() {
 }
 
 export interface BeneficiarySession {
+  /** فرد الأسرة الذي يُطلب له الدواء الآن (تُسجَّل عليه الطلبات والصرف). */
   id: string;
   name: string;
   card_number: string;
   type: "beneficiary";
+  /** صاحب الحساب (البطاقة الأساسية للأسرة): عليه كلمة المرور والهاتف. الجلسات القديمة بلا هذا الحقل = id. */
+  account_id?: string;
+  /** طريقة الدخول، ووقت التحقق بالرمز: تعيين كلمة المرور مسموح فقط بعد OTP حديث. */
+  auth?: "otp" | "password";
+  otp_at?: number;
 }
 
 export async function beneficiaryLogin(data: Omit<BeneficiarySession, "type">) {

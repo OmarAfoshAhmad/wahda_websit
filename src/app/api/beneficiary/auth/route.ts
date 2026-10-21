@@ -1,106 +1,75 @@
 import { NextRequest, NextResponse } from "next/server";
+import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
 import { beneficiaryLogin } from "@/lib/beneficiary-auth";
-import bcrypt from "bcryptjs";
+import { resolveFamilyAccountCard } from "@/lib/beneficiary-family";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { normalizeCardInput } from "@/lib/card-number";
-import { beneficiaryAuthSchema } from "@/lib/validation";
 
 const MAX_ATTEMPTS = 5;
 const LOCK_MINUTES = 10;
-const GENERIC_AUTH_ERROR = "بيانات الدخول غير صحيحة";
+const GENERIC_AUTH_ERROR = "الرقم الوظيفي أو كلمة المرور غير صحيحة";
 
+/**
+ * الدخول بالشركة + الرقم الوظيفي + كلمة مرور الأسرة (6 أرقام). أي فرد من الأسرة يدخل بها،
+ * والجلسة تبدأ على صاحب البطاقة الأساسية ثم يختار الفرد الذي يُطلب له الدواء.
+ */
 export async function POST(req: NextRequest) {
-  const body = await req.json().catch(() => null);
-  const parsed = beneficiaryAuthSchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
+  const origin = req.headers.get("origin");
+  const host = req.headers.get("host");
+  if (origin && host && new URL(origin).host !== host) {
+    return NextResponse.json({ error: "طلب غير مسموح" }, { status: 403 });
   }
-  const card_number = normalizeCardInput(parsed.data.card_number);
-  const pin = parsed.data.pin ?? "";
+
+  const body = await req.json().catch(() => null);
+  const companyId = typeof body?.company_id === "string" ? body.company_id : "";
+  const employeeNumber = typeof body?.employee_number === "string" ? body.employee_number : "";
+  const password = typeof body?.password === "string" ? body.password.trim() : "";
+  if (!companyId || !employeeNumber || !/^\d{6}$/.test(password)) {
+    return NextResponse.json({ error: "اختر الشركة واكتب الرقم الوظيفي وكلمة المرور (6 أرقام)" }, { status: 400 });
+  }
 
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
   const rateLimitError = await checkRateLimit(`beneficiary-login:${ip}`, "login");
-  if (rateLimitError) {
-    return NextResponse.json({ error: rateLimitError }, { status: 429 });
-  }
+  if (rateLimitError) return NextResponse.json({ error: rateLimitError }, { status: 429 });
 
-  // استخدام transaction مع SELECT FOR UPDATE لمنع race condition
+  const resolved = await resolveFamilyAccountCard(companyId, employeeNumber, "");
+  if ("error" in resolved) return NextResponse.json({ error: GENERIC_AUTH_ERROR }, { status: 401 });
+
   const result = await prisma.$transaction(async (tx) => {
-    const beneficiaries = await tx.$queryRaw<Array<{
-      id: string;
-      name: string;
-      card_number: string;
-      pin_hash: string | null;
-      failed_attempts: number;
-      locked_until: Date | null;
-    }>>`
+    const rows = await tx.$queryRaw<Array<{ id: string; name: string; card_number: string; pin_hash: string | null; failed_attempts: number; locked_until: Date | null }>>`
       SELECT id, name, card_number, pin_hash, failed_attempts, locked_until
       FROM "Beneficiary"
-      WHERE UPPER(BTRIM(card_number)) = UPPER(BTRIM(${card_number}))
-      AND "deleted_at" IS NULL
+      WHERE card_number = ${resolved.cardNumber} AND company_id = ${companyId} AND deleted_at IS NULL
       LIMIT 1
       FOR UPDATE
     `;
+    const account = rows[0];
+    if (!account) return { status: 401, body: { error: GENERIC_AUTH_ERROR } } as const;
 
-    if (beneficiaries.length === 0) {
-      return { type: "error" as const, status: 401, body: { error: GENERIC_AUTH_ERROR } };
+    if (account.locked_until && account.locked_until.getTime() > Date.now()) {
+      const minutesLeft = Math.ceil((account.locked_until.getTime() - Date.now()) / 60000);
+      return { status: 429, body: { error: `الحساب محجوب مؤقتاً. حاول بعد ${minutesLeft} دقيقة` } } as const;
+    }
+    if (!account.pin_hash) {
+      return { status: 409, body: { error: "لم تُنشأ كلمة مرور لهذه الأسرة بعد. ادخل برمز التحقق أول مرة", status: "needs_setup" } } as const;
     }
 
-    const beneficiary = beneficiaries[0];
-
-    // فحص الحجب
-    if (beneficiary.locked_until && beneficiary.locked_until.getTime() > Date.now()) {
-      const minutesLeft = Math.ceil((beneficiary.locked_until.getTime() - Date.now()) / 60000);
-      return { type: "error" as const, status: 429, body: { error: `الحساب محجوب مؤقتاً. حاول بعد ${minutesLeft} دقيقة` } };
-    }
-
-    // لا يوجد PIN بعد → اطلب الإعداد
-    if (!beneficiary.pin_hash) {
-      return { type: "status" as const, body: { status: "needs_setup" } };
-    }
-
-    // يجب تقديم PIN إذا كان موجوداً
-    if (!pin || pin.length !== 6) {
-      return { type: "status" as const, body: { status: "needs_pin" } };
-    }
-
-    const valid = await bcrypt.compare(pin, beneficiary.pin_hash);
-
-    if (!valid) {
-      const newAttempts = beneficiary.failed_attempts + 1;
-      const shouldLock = newAttempts >= MAX_ATTEMPTS;
+    if (!(await bcrypt.compare(password, account.pin_hash))) {
+      const attempts = account.failed_attempts + 1;
+      const lock = attempts >= MAX_ATTEMPTS;
       await tx.beneficiary.update({
-        where: { id: beneficiary.id },
-        data: {
-          failed_attempts: newAttempts,
-          locked_until: shouldLock ? new Date(Date.now() + LOCK_MINUTES * 60 * 1000) : undefined,
-        },
+        where: { id: account.id },
+        data: { failed_attempts: attempts, locked_until: lock ? new Date(Date.now() + LOCK_MINUTES * 60 * 1000) : undefined },
       });
-      const remaining = MAX_ATTEMPTS - newAttempts;
-      return {
-        type: "error" as const,
-        status: 401,
-        body: { error: shouldLock ? `تم حجب الحساب لمدة ${LOCK_MINUTES} دقائق` : `${GENERIC_AUTH_ERROR}. تبقى ${remaining} محاولة` },
-      };
+      return { status: 401, body: { error: lock ? `تم حجب الحساب لمدة ${LOCK_MINUTES} دقائق` : `${GENERIC_AUTH_ERROR}. تبقى ${MAX_ATTEMPTS - attempts} محاولة` } } as const;
     }
 
-    // ناجح — إعادة تعيين المحاولات
-    await tx.beneficiary.update({
-      where: { id: beneficiary.id },
-      data: { failed_attempts: 0, locked_until: null },
-    });
-
-    return { type: "success" as const, beneficiary: { id: beneficiary.id, name: beneficiary.name, card_number: beneficiary.card_number } };
+    await tx.beneficiary.update({ where: { id: account.id }, data: { failed_attempts: 0, locked_until: null } });
+    return { status: 200, account } as const;
   });
 
-  if (result.type === "error") {
-    return NextResponse.json(result.body, { status: result.status });
-  }
-  if (result.type === "status") {
-    return NextResponse.json(result.body);
-  }
-
-  await beneficiaryLogin(result.beneficiary);
+  if (result.status !== 200) return NextResponse.json(result.body, { status: result.status });
+  const { account } = result;
+  await beneficiaryLogin({ id: account.id, name: account.name, card_number: account.card_number, account_id: account.id, auth: "password" });
   return NextResponse.json({ status: "ok" });
 }
