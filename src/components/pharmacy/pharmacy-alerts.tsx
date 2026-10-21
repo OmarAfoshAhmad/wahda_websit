@@ -50,6 +50,7 @@ export function PharmacyAlerts() {
   const [unseen, setUnseen] = useState(0);
   const [push, setPush] = useState<PushState>("off");
   const [busy, setBusy] = useState(false);
+  const [connection, setConnection] = useState<"connecting" | "live" | "retrying">("connecting");
 
   // المتصفح لا يسمح بالصوت قبل أول لمسة/نقرة: نجهّز الصوت عندها.
   useEffect(() => {
@@ -99,7 +100,7 @@ export function PharmacyAlerts() {
     if (document.visibilityState !== "visible") setUnseen((count) => count + 1);
     // في صندوق الطلبات تكفي الصوت والتحديث المباشر؛ في غيره تظهر بطاقة تنبيه.
     if (!pathname?.startsWith("/admin/pharmacy-services/orders")) setAlerts((current) => [alert!, ...current.filter((item) => item.orderId !== alert!.orderId)].slice(0, 3));
-  });
+  }, setConnection);
 
   const enablePush = async () => {
     setBusy(true);
@@ -142,6 +143,12 @@ export function PharmacyAlerts() {
           )}
         </div>
       )}
+
+      {/* حالة اتصال التنبيهات المباشرة: تكشف فورًا إن كانت الطلبات لن تصل لهذا التبويب. */}
+      <div className="fixed bottom-3 left-3 z-40 flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/90 px-2.5 py-1 text-xs font-bold text-slate-600 shadow-sm dark:border-slate-700 dark:bg-slate-900/90 dark:text-slate-300" role="status" aria-label="حالة تنبيهات الطلبات">
+        <span className={`h-2 w-2 rounded-full ${connection === "live" ? "bg-emerald-500" : connection === "retrying" ? "animate-pulse bg-amber-500" : "bg-slate-400"}`} aria-hidden />
+        {connection === "live" ? "تنبيهات الطلبات متصلة" : connection === "retrying" ? "إعادة الاتصال بالتنبيهات…" : "جارٍ الاتصال بالتنبيهات…"}
+      </div>
 
       {alerts.length > 0 && (
         <div className="fixed inset-x-3 bottom-3 z-50 mx-auto max-w-md space-y-2" role="status" aria-live="assertive">

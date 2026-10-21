@@ -200,9 +200,10 @@ export function OrderChat({
 }
 
 /** يستمع لأحداث الطلبات والمحادثة لحظيًا، ويعيد الاتصال تلقائيًا عند الانقطاع (سلوك EventSource). */
-export function useOrderEvents(url: string, onEvent: (event: OrderEvent) => void) {
+export function useOrderEvents(url: string, onEvent: (event: OrderEvent) => void, onStatus?: (status: "live" | "retrying") => void) {
   const handler = useRef(onEvent);
-  useEffect(() => { handler.current = onEvent; });
+  const status = useRef(onStatus);
+  useEffect(() => { handler.current = onEvent; status.current = onStatus; });
   useEffect(() => {
     let source: EventSource | null = null;
     let retry: ReturnType<typeof setTimeout> | undefined;
@@ -213,7 +214,7 @@ export function useOrderEvents(url: string, onEvent: (event: OrderEvent) => void
     const connect = () => {
       if (closed) return;
       source = new EventSource(url);
-      source.onopen = () => { delay = 2000; };
+      source.onopen = () => { delay = 2000; status.current?.("live"); };
       source.onmessage = (message) => {
         try {
           handler.current(JSON.parse(message.data) as OrderEvent);
@@ -222,6 +223,7 @@ export function useOrderEvents(url: string, onEvent: (event: OrderEvent) => void
         }
       };
       source.onerror = () => {
+        status.current?.("retrying");
         if (source?.readyState !== EventSource.CLOSED) return;
         retry = setTimeout(connect, delay);
         delay = Math.min(delay * 2, 60_000);
