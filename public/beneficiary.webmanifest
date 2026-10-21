@@ -1,0 +1,17 @@
+{
+  "name": "بوابة المستفيد — الواحة للرعاية الصحية",
+  "short_name": "بوابة المستفيد",
+  "description": "اطلب دواءك وتابع ردود الصيدلية",
+  "id": "/beneficiary/dashboard",
+  "start_url": "/beneficiary/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "dir": "rtl",
+  "lang": "ar",
+  "background_color": "#effcf9",
+  "theme_color": "#0d9488",
+  "icons": [
+    { "src": "/logo.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/logo.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

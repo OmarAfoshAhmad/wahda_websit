@@ -6,6 +6,7 @@ import { ThemeSwitcher } from "@/components/theme-switcher";
 import { formatCurrency } from "@/lib/money";
 import { formatDateTripoli } from "@/lib/datetime";
 import { PharmacySection, type PharmacyData } from "./pharmacy-section";
+import { BeneficiaryPushPrompt } from "@/components/beneficiary-push-prompt";
 
 type DashboardData = {
   id: string;
@@ -110,6 +111,8 @@ export function BeneficiaryDashboardClient({ initialData, canSwitchMember }: { i
         <span className="text-2xl font-black">اطلب دواء</span>
         <MessageCircle className="h-8 w-8 shrink-0" aria-hidden />
       </Link>
+
+      <BeneficiaryPushPrompt />
 
       <PharmacySection data={data.pharmacy} />
 

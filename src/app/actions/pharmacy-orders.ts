@@ -13,7 +13,7 @@ import { deliveryQuote, distanceKm, isOpenNow, isValidTime } from "@/lib/pharmac
 import { getChronicDrugStatuses, getPharmacyUsage, loadPharmacyPolicy } from "@/lib/pharmacy/summary";
 import { publishOrderEvent } from "@/lib/pharmacy/order-events";
 import { isPrescriptionValidToday } from "@/lib/pharmacy/policy";
-import { sendPushToFacility } from "@/lib/push";
+import { sendPushToBeneficiary, sendPushToFacility } from "@/lib/push";
 
 const CATEGORY_LABELS: Record<MedicineCategory, string> = { ROUTINE: "أدوية روتينية", CHRONIC: "أدوية مزمنة", CHEMICAL: "أدوية الأورام" };
 const OPEN_STATUSES: PharmacyOrderStatus[] = ["PENDING", "AVAILABLE", "CONFIRMED", "OUT_FOR_DELIVERY"];
@@ -315,6 +315,11 @@ async function appendMessage(order: { id: string; beneficiary_id: string; facili
   });
   await prisma.pharmacyOrder.update({ where: { id: order.id }, data: { updated_at: new Date() } });
   publishOrderEvent({ beneficiaryId: order.beneficiary_id, facilityId: order.facility_id }, { type: "message", orderId: order.id, message: serializeMessage(message) });
+  if (sender === "FACILITY") {
+    const facilityName = (await prisma.facility.findUnique({ where: { id: order.facility_id }, select: { name: true } }))?.name ?? "الصيدلية";
+    const text = stored ? "أرسلت مرفقًا" : (body ?? "").slice(0, 120);
+    void sendPushToBeneficiary(order.beneficiary_id, { title: `رد من ${facilityName}`, body: text, url: `/beneficiary/orders/${order.id}`, tag: `ben-order-${order.id}` });
+  }
   if (sender === "BENEFICIARY") {
     const text = stored ? (declaredKind === "INSURANCE_CARD" ? "أرسل صورة البطاقة" : declaredKind === "PRESCRIPTION" ? "أرسل صورة الوصفة" : "أرسل مرفقًا") : location ? "أرسل موقعه" : (body ?? "").slice(0, 120);
     void sendPushToFacility(order.facility_id, { title: "رسالة من مستفيد", body: text, url: `/admin/pharmacy-services/orders?order=${order.id}`, tag: `order-${order.id}` });
@@ -340,6 +345,11 @@ async function changeStatus(order: { id: string; beneficiary_id: string; facilit
   const target = { beneficiaryId: order.beneficiary_id, facilityId: order.facility_id };
   publishOrderEvent(target, { type: "order", orderId: order.id, status });
   publishOrderEvent(target, { type: "message", orderId: order.id, message: serializeMessage(message) });
+  // تغيّر الحالة من الصيدلية يصل المستفيد إشعارًا حتى والبوابة مغلقة.
+  if (sender === "FACILITY") {
+    const facilityName = (await prisma.facility.findUnique({ where: { id: order.facility_id }, select: { name: true } }))?.name ?? "الصيدلية";
+    void sendPushToBeneficiary(order.beneficiary_id, { title: facilityName, body: note, url: `/beneficiary/orders/${order.id}`, tag: `ben-order-${order.id}` });
+  }
   return { success: true };
 }
 

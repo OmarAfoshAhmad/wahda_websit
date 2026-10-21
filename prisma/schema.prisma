@@ -859,3 +859,16 @@ model FacilityPushSubscription {
 
   @@index([facility_id])
 }
+
+/// اشتراكات إشعارات الويب لأجهزة المستفيدين: الجهاز مرتبط بحساب الأسرة (صاحب البطاقة)، فيصله رد الصيدلية على طلب أي فرد منها.
+model BeneficiaryPushSubscription {
+  id         String   @id @default(cuid())
+  account_id String
+  endpoint   String   @unique
+  p256dh     String
+  auth       String
+  user_agent String?
+  created_at DateTime @default(now())
+
+  @@index([account_id])
+}

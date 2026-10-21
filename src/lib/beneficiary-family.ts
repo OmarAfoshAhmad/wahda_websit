@@ -62,3 +62,17 @@ export async function familyHasPassword(accountId: string) {
   const account = await prisma.beneficiary.findUnique({ where: { id: accountId }, select: { pin_hash: true } });
   return Boolean(account?.pin_hash);
 }
+
+/** حساب الأسرة (بطاقة صاحب البطاقة) لأي فرد منها؛ إن لم توجد بطاقة أساسية فالفرد نفسه. */
+export async function familyAccountIdOf(beneficiaryId: string) {
+  const member = await prisma.beneficiary.findUnique({ where: { id: beneficiaryId }, select: { id: true, card_number: true, company_id: true } });
+  if (!member?.company_id) return beneficiaryId;
+  const base = baseEmployeeNumber(employeeNumberOf(member.card_number));
+  const rows = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT id FROM "Beneficiary"
+    WHERE company_id = ${member.company_id} AND deleted_at IS NULL
+      AND regexp_replace(regexp_replace(UPPER(REPLACE(REPLACE(card_number, ' ', ''), '-', '')), ${EMPLOYEE_NUMBER_SQL_PATTERN}, ''), '^0+(?=.)', '') = ${base}
+    LIMIT 1
+  `;
+  return rows[0]?.id ?? member.id;
+}

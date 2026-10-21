@@ -24,25 +24,49 @@ export function getPushPublicKey() {
 
 export type PushPayload = { title: string; body: string; url: string; tag?: string };
 
-/** يرسل لكل أجهزة المرفق المشتركة، ويحذف الاشتراكات المنتهية (410/404). لا يرمي أخطاء. */
+type StoredSubscription = { id: string; endpoint: string; p256dh: string; auth: string };
+
+/** يرسل لمجموعة اشتراكات ويعيد معرّفات المنتهية (410/404) لحذفها. لا يرمي أخطاء. */
+async function deliver(subscriptions: StoredSubscription[], payload: PushPayload, context: Record<string, unknown>) {
+  const expired: string[] = [];
+  await Promise.all(subscriptions.map(async (subscription) => {
+    try {
+      await webpush.sendNotification(
+        { endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } },
+        JSON.stringify(payload),
+        { TTL: 60 * 60, urgency: "high" },
+      );
+    } catch (error) {
+      const status = (error as { statusCode?: number }).statusCode;
+      if (status === 404 || status === 410) expired.push(subscription.id);
+      else logger.warn("push send failed", { status, ...context });
+    }
+  }));
+  return expired;
+}
+
+/** يرسل لكل أجهزة المرفق المشتركة، ويحذف الاشتراكات المنتهية. */
 export async function sendPushToFacility(facilityId: string, payload: PushPayload) {
   if (!configure()) return;
   try {
     const subscriptions = await prisma.facilityPushSubscription.findMany({ where: { facility_id: facilityId } });
-    await Promise.all(subscriptions.map(async (subscription) => {
-      try {
-        await webpush.sendNotification(
-          { endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } },
-          JSON.stringify(payload),
-          { TTL: 60 * 60, urgency: "high" },
-        );
-      } catch (error) {
-        const status = (error as { statusCode?: number }).statusCode;
-        if (status === 404 || status === 410) await prisma.facilityPushSubscription.delete({ where: { id: subscription.id } }).catch(() => undefined);
-        else logger.warn("push send failed", { status, facilityId });
-      }
-    }));
+    const expired = await deliver(subscriptions, payload, { facilityId });
+    if (expired.length) await prisma.facilityPushSubscription.deleteMany({ where: { id: { in: expired } } });
   } catch (error) {
     logger.warn("push lookup failed", { error: String(error) });
+  }
+}
+
+/** يرسل لأجهزة أسرة المستفيد (الأجهزة مرتبطة بحساب صاحب البطاقة). */
+export async function sendPushToBeneficiary(beneficiaryId: string, payload: PushPayload) {
+  if (!configure()) return;
+  try {
+    const { familyAccountIdOf } = await import("@/lib/beneficiary-family");
+    const accountId = await familyAccountIdOf(beneficiaryId);
+    const subscriptions = await prisma.beneficiaryPushSubscription.findMany({ where: { account_id: accountId } });
+    const expired = await deliver(subscriptions, payload, { accountId });
+    if (expired.length) await prisma.beneficiaryPushSubscription.deleteMany({ where: { id: { in: expired } } });
+  } catch (error) {
+    logger.warn("beneficiary push failed", { error: String(error) });
   }
 }

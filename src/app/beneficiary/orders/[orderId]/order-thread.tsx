@@ -6,6 +6,7 @@ import { ArrowRight, Bike, Loader2, Phone, Store } from "lucide-react";
 import { getMyPharmacyOrder, sendBeneficiaryOrderMessage, updateMyPharmacyOrder } from "@/app/actions/pharmacy-orders";
 import { OrderChat, OrderStatusBadge, useOrderEvents, type ChatMessage } from "@/components/pharmacy/order-chat";
 import { armAlertToneOnFirstGesture, playAlertTone } from "@/lib/alert-tone";
+import { BeneficiaryPushPrompt } from "@/components/beneficiary-push-prompt";
 
 type Thread = NonNullable<Extract<Awaited<ReturnType<typeof getMyPharmacyOrder>>, { order: unknown }>["order"]>;
 const CATEGORY_LABELS: Record<string, string> = { ROUTINE: "أدوية روتينية", CHRONIC: "أدوية مزمنة", CHEMICAL: "أدوية الأورام" };
@@ -87,6 +88,7 @@ export function BeneficiaryOrderThread({ initial }: { initial: Thread }) {
           </div>
         )}
         {error && <p role="alert" className="text-xs font-bold text-rose-600">{error}</p>}
+        <BeneficiaryPushPrompt />
       </header>
       <div className="flex min-h-0 flex-1 flex-col bg-slate-50 dark:bg-slate-950">
         <OrderChat
