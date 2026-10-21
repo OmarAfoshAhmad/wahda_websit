@@ -13,7 +13,8 @@ type Mode = "password" | "otp";
 export default function BeneficiaryLoginPage() {
   const router = useRouter();
   const [step, setStep] = useState<Step>("credentials");
-  const [mode, setMode] = useState<Mode>("password");
+  // البداية دائمًا بالتسجيل برمز التحقق ثم إنشاء كلمة المرور؛ الجهاز الذي أنشأ أو استخدم كلمة المرور يبدأ بها لاحقًا.
+  const [mode, setMode] = useState<Mode>("otp");
   const [forgot, setForgot] = useState(false);
   const [password, setPassword] = useState("");
   // الدخول بالشركة + الرقم الوظيفي: ما بعد رمز الشركة والسنة في البطاقة (مثل 10540W1 من JMR202510540W1).
@@ -41,6 +42,7 @@ export default function BeneficiaryLoginPage() {
         if (cancelled) return;
         setCompanies(data.companies ?? []);
         try {
+          if (localStorage.getItem("beneficiary-has-password") === "1") setMode("password");
           const remembered = localStorage.getItem("beneficiary-company");
           if (remembered && data.companies?.some((item) => item.id === remembered)) setCompanyId(remembered);
         } catch {
@@ -83,6 +85,7 @@ export default function BeneficiaryLoginPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.status === "ok") {
+        try { localStorage.setItem("beneficiary-has-password", "1"); } catch { /* غير متاح */ }
         router.push("/beneficiary/choose");
         return;
       }
@@ -178,6 +181,7 @@ export default function BeneficiaryLoginPage() {
 
       if (res.ok && data.status === "ok") {
         // أول مرة (لا كلمة مرور بعد) أو نسيانها: إنشاء كلمة مرور الأسرة، وإلا اختيار فرد الأسرة.
+        if (!data.needs_password) { try { localStorage.setItem("beneficiary-has-password", "1"); } catch { /* غير متاح */ } }
         router.push(forgot || data.needs_password ? "/beneficiary/setup-pin" : "/beneficiary/choose");
         return;
       }
@@ -213,7 +217,7 @@ export default function BeneficiaryLoginPage() {
             <form onSubmit={mode === "password" ? handlePasswordSubmit : handleCredentialsSubmit} className="space-y-5">
               {mode === "otp" && (
                 <p className="rounded-xl bg-primary-light px-4 py-3 text-sm font-bold text-primary dark:bg-primary/20 dark:text-teal-200">
-                  {forgot ? "نسيت كلمة المرور: سيصل رمز التحقق إلى هاتف صاحب البطاقة فقط، ثم تختار كلمة مرور جديدة." : "أول دخول: سيصل رمز التحقق إلى هاتف صاحب البطاقة، ثم تنشئ كلمة مرور لأسرتك."}
+                  {forgot ? "نسيت كلمة المرور: سيصل رمز التحقق إلى هاتف صاحب البطاقة فقط، ثم تختار كلمة مرور جديدة." : "التسجيل أول مرة: سيصل رمز التحقق إلى هاتف صاحب البطاقة، ثم تنشئ كلمة مرور لأسرتك تدخلون بها بعد ذلك."}
                 </p>
               )}
               <div className="space-y-1.5">
@@ -330,7 +334,7 @@ export default function BeneficiaryLoginPage() {
                   <button type="button" onClick={() => switchMode("otp", true)} className="text-slate-500 hover:underline dark:text-slate-400">نسيت كلمة المرور؟</button>
                 </div>
               ) : (
-                <button type="button" onClick={() => switchMode("password")} className="w-full text-center text-sm font-bold text-primary hover:underline">الدخول بكلمة المرور</button>
+                <button type="button" onClick={() => switchMode("password")} className="w-full text-center text-sm font-bold text-primary hover:underline">لدي كلمة مرور؟ الدخول بكلمة المرور</button>
               )}
             </form>
           ) : (
