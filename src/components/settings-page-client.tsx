@@ -162,12 +162,9 @@ export function SettingsPageClient({ initialBalance, otpSettings, canManageIniti
               <div className="space-y-2">
                 <label className="block text-xs font-black uppercase tracking-[0.18em] text-slate-400">مزود الخدمة (Provider)</label>
                 <select name="provider" defaultValue={otpSettings.provider} className="flex h-12 w-full rounded-md border border-slate-200 bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-800 dark:placeholder:text-slate-400 dark:focus-visible:ring-primary">
-                  <option value="MOCK">محاكاة (للتجربة)</option>
-                  <option value="ALMADAR">المدار (Almadar)</option>
-                  <option value="LIBYANA">ليبيانا (Libyana)</option>
-                  <option value="TWILIO">Twilio</option>
-                  <option value="CUSTOM">مخصص (Custom API)</option>
-                  <option value="RESALA">Resala.ly (رسالة.لي)</option>
+                  {/* المزود المبرمج فعليًا هو رسالة فقط؛ المحاكاة لا ترسل شيئًا ومرفوضة في الإنتاج. */}
+                  <option value="RESALA">Resala.ly (رسالة.لي) — إرسال فعلي</option>
+                  <option value="MOCK">محاكاة (للتجربة فقط — لا ترسل رسائل)</option>
                 </select>
               </div>
 
@@ -177,7 +174,7 @@ export function SettingsPageClient({ initialBalance, otpSettings, canManageIniti
                   name="apiUrl"
                   type="url"
                   defaultValue={otpSettings.apiUrl}
-                  placeholder="https://api.provider.com/sms"
+                  placeholder="https://api.resala.ly/api/v1  (اتركه فارغًا للافتراضي)"
                   className="h-12 text-sm text-left"
                   dir="ltr"
                 />

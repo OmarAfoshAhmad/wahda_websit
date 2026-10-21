@@ -134,7 +134,9 @@ export async function POST(req: NextRequest) {
       const serviceName = otpSettings.senderId || otpSettings.facilityName || "بوابة المستفيد";
       const message = `رمز التفعيل الخاص بك في ${serviceName} هو: ${code}`;
       const token = otpSettings.apiKey.trim();
-      const apiUrl = otpSettings.apiUrl || "https://api.resala.ly/api/v1/messages/send";
+      // يقبل الرابط الكامل أو الأساسي فقط (https://api.resala.ly/api/v1) ويكمله إلى مسار الإرسال.
+      const configuredUrl = (otpSettings.apiUrl || "https://api.resala.ly/api/v1").trim().replace(/\/+$/, "");
+      const apiUrl = /\/(messages\/send|pins)$/.test(configuredUrl) ? configuredUrl : `${configuredUrl}/messages/send`;
 
       // المحاولة الأولى: إرسال مباشر
       let res = await fetch(apiUrl, {
@@ -199,8 +201,12 @@ export async function POST(req: NextRequest) {
       logger.error("RESALA connection error", { error: error instanceof Error ? error.message : "Unknown" });
       return NextResponse.json({ error: "خطأ في الاتصال بمزود الرسائل" }, { status: 500 });
     }
+  } else if (process.env.NODE_ENV === "production" && process.env.OTP_PREVIEW !== "true") {
+    // في الإنتاج لا يُقبل وضع المحاكاة أو مزود غير مبرمج: الرمز لن يصل، فالأفضل خطأ واضح بدل صمت.
+    logger.error("OTP provider not configured for production", { provider: otpSettings.provider });
+    return NextResponse.json({ error: "خدمة الرسائل غير مفعّلة حاليًا. يرجى التواصل مع الدعم" }, { status: 503 });
   } else {
-    // وضع المحاكاة (MOCK) — للتطوير فقط
+    // وضع المحاكاة (MOCK) — للتطوير والتجربة فقط
   }
 
   // ── 6. حفظ الرمز في قاعدة البيانات (بعد نجاح الإرسال) ──
