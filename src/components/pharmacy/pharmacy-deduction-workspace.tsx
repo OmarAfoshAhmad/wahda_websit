@@ -409,24 +409,28 @@ function HistoryPanel({ beneficiary }: { beneficiary: WorkspaceBeneficiary }) {
 
 function FileZone({ kind, fileName, href, busy, disabled, onPick, onClear }: { kind: AttachmentKind; fileName: string | null; href?: string; busy?: boolean; disabled?: boolean; onPick: (file: File) => void; onClear?: () => void }) {
   const Icon = kind === "INSURANCE_CARD" ? CreditCard : FileText;
+  // العنوان واسم الملف في سطر، والأزرار تحته بعرض كامل: لا يلتف النص ولا يُقص في الشاشات الضيقة.
   return (
-    <div className={`flex min-h-16 items-center gap-2 rounded-lg border-2 border-dashed p-2.5 focus-within:ring-2 focus-within:ring-teal-500 ${fileName ? "border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/20" : "border-slate-300 dark:border-slate-700"}`}>
-      <Icon className={`h-6 w-6 shrink-0 ${fileName ? "text-emerald-600" : "text-slate-400"}`} aria-hidden />
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-black">{ATTACHMENT_LABELS[kind]} <span className="text-red-500" aria-hidden>*</span></p>
-        {href && fileName
-          ? <a href={href} target="_blank" rel="noopener noreferrer" className="block truncate text-xs font-bold text-teal-700 hover:underline dark:text-teal-300">{fileName}</a>
-          : <p className="truncate text-xs text-slate-500">{fileName ?? "PDF أو JPG أو PNG · حتى 8 ميجابايت"}</p>}
+    <div className={`space-y-2 rounded-lg border-2 border-dashed p-2.5 focus-within:ring-2 focus-within:ring-teal-500 ${fileName ? "border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/20" : "border-slate-300 dark:border-slate-700"}`}>
+      <div className="flex min-w-0 items-center gap-2">
+        <Icon className={`h-6 w-6 shrink-0 ${fileName ? "text-emerald-600" : "text-slate-400"}`} aria-hidden />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-black">{ATTACHMENT_LABELS[kind]} <span className="text-red-500" aria-hidden>*</span></p>
+          {href && fileName
+            ? <a href={href} target="_blank" rel="noopener noreferrer" className="block truncate text-xs font-bold text-teal-700 hover:underline dark:text-teal-300">{fileName}</a>
+            : <p className="truncate text-xs text-slate-500">{fileName ?? "صورة أو PDF · حتى 8 ميجابايت"}</p>}
+        </div>
+        {busy && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-teal-600" />}
+        {!busy && fileName && onClear && <button type="button" onClick={onClear} aria-label={`حذف ${ATTACHMENT_LABELS[kind]}`} className="shrink-0 text-slate-400 hover:text-rose-600"><Trash2 className="h-4 w-4" /></button>}
       </div>
-      {busy ? <Loader2 className="h-4 w-4 animate-spin text-teal-600" /> : (
-        <>
-          <CameraButton disabled={disabled} onCapture={onPick} label={fileName ? "إعادة تصوير" : "تصوير"} />
-          <label className={`rounded-md border border-teal-300 ${disabled ? "pointer-events-none opacity-40" : "cursor-pointer"} px-2.5 py-1.5 text-xs font-black text-teal-700 hover:bg-teal-50 dark:border-teal-800 dark:text-teal-300`}>
-            {fileName ? "استبدال" : <span className="inline-flex items-center gap-1"><Upload className="h-3.5 w-3.5" /> رفع</span>}
+      {!busy && (
+        <div className="grid grid-cols-2 gap-2">
+          <CameraButton disabled={disabled} onCapture={onPick} label={fileName ? "إعادة تصوير" : "تصوير"} className="inline-flex h-9 items-center justify-center gap-1 rounded-md border border-teal-300 text-xs font-black text-teal-700 hover:bg-teal-50 disabled:opacity-40 dark:border-teal-800 dark:text-teal-300" />
+          <label className={`inline-flex h-9 items-center justify-center gap-1 rounded-md border border-teal-300 text-xs font-black text-teal-700 hover:bg-teal-50 dark:border-teal-800 dark:text-teal-300 ${disabled ? "pointer-events-none opacity-40" : "cursor-pointer"}`}>
+            <Upload className="h-3.5 w-3.5" aria-hidden /> {fileName ? "استبدال بملف" : "رفع ملف"}
             <input type="file" accept={ACCEPTED_FILES} disabled={disabled} className="sr-only" aria-label={ATTACHMENT_LABELS[kind]} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) onPick(file); }} />
           </label>
-          {fileName && onClear && <button type="button" onClick={onClear} aria-label={`حذف ${ATTACHMENT_LABELS[kind]}`} className="text-slate-400 hover:text-rose-600"><Trash2 className="h-4 w-4" /></button>}
-        </>
+        </div>
       )}
     </div>
   );
@@ -600,7 +604,7 @@ function PrescriptionCard({
         </span>
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="grid gap-2 2xl:grid-cols-2">
         {(["INSURANCE_CARD", "PRESCRIPTION"] as const).map((kind) => (
           <FileZone key={kind} kind={kind} fileName={attachmentOf(kind)?.file_name ?? null} href={attachmentOf(kind) ? `/api/pharmacy/attachments/${attachmentOf(kind)!.id}` : undefined} busy={uploading === kind} disabled={busy && uploading !== kind} onPick={(file) => upload(kind, file)} />
         ))}
