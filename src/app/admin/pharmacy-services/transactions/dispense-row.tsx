@@ -23,6 +23,8 @@ type Row = {
   attachments: Array<{ id: string; kind: "INSURANCE_CARD" | "PRESCRIPTION" | null }>;
   items: Array<{ label: string; price: number; company: number; patient: number }>;
   canCancel: boolean;
+  /** سبب عدم إظهار زر الإلغاء (مثلًا صرف من يوم سابق)، يُعرض بدل الزر. */
+  cancelHint: string | null;
   redispenseHref: string;
 };
 
@@ -104,6 +106,7 @@ export function DispenseRow({ row }: { row: Row }) {
               <p className="self-center text-xs text-slate-500">للتعديل: ألغِ الصرف ثم اصرف من جديد بالقيم الصحيحة.</p>
             </div>
           )}
+          {!row.cancelled && !row.canCancel && row.cancelHint && <p className="text-xs font-bold text-slate-500">{row.cancelHint}</p>}
           {confirming && (
             <div className="space-y-2 rounded-lg border border-rose-200 p-3 dark:border-rose-900">
               <p className="text-sm font-bold">سيُلغى الصرف وتُعاد حصة الشركة إلى السقف، وتعود البنود متاحة للصرف.</p>

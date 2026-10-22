@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowRight, Pill, Users } from "lucide-react";
+import { ArrowRight, Pill, Receipt, Users } from "lucide-react";
 import { Shell } from "@/components/shell";
 import { PharmacyDeductionWorkspace } from "@/components/pharmacy/pharmacy-deduction-workspace";
 import { PharmacyBeneficiariesPanel } from "@/components/pharmacy/pharmacy-beneficiaries-panel";
@@ -66,12 +66,11 @@ export default async function PharmacyCompanyPage({ params, searchParams }: { pa
           </Link>
         </div>
 
-        {staff && (
-          <nav className="flex gap-1 rounded-lg bg-slate-100 p-1 dark:bg-slate-800" aria-label="أقسام الصيدلية">
-            <Link href={`/admin/pharmacy-services/${company.id}`} aria-current={!showBeneficiaries ? "page" : undefined} className={`flex flex-1 items-center justify-center gap-1.5 rounded-md py-2 text-sm font-bold ${!showBeneficiaries ? "bg-white shadow dark:bg-slate-900" : "text-slate-500"}`}><Pill className="h-4 w-4" /> صرف الأدوية</Link>
-            <Link href={`/admin/pharmacy-services/${company.id}?tab=beneficiaries`} aria-current={showBeneficiaries ? "page" : undefined} className={`flex flex-1 items-center justify-center gap-1.5 rounded-md py-2 text-sm font-bold ${showBeneficiaries ? "bg-white shadow dark:bg-slate-900" : "text-slate-500"}`}><Users className="h-4 w-4" /> المستفيدين</Link>
-          </nav>
-        )}
+        <nav className="flex gap-1 rounded-lg bg-slate-100 p-1 dark:bg-slate-800" aria-label="أقسام الصيدلية">
+          <Link href={`/admin/pharmacy-services/${company.id}`} aria-current={!showBeneficiaries ? "page" : undefined} className={`flex flex-1 items-center justify-center gap-1.5 rounded-md py-2 text-sm font-bold ${!showBeneficiaries ? "bg-white shadow dark:bg-slate-900" : "text-slate-500"}`}><Pill className="h-4 w-4" /> صرف الأدوية</Link>
+          <Link href={`/admin/pharmacy-services/transactions?company=${company.id}`} className="flex flex-1 items-center justify-center gap-1.5 rounded-md py-2 text-sm font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white"><Receipt className="h-4 w-4" /> حركات الشركة</Link>
+          {staff && <Link href={`/admin/pharmacy-services/${company.id}?tab=beneficiaries`} aria-current={showBeneficiaries ? "page" : undefined} className={`flex flex-1 items-center justify-center gap-1.5 rounded-md py-2 text-sm font-bold ${showBeneficiaries ? "bg-white shadow dark:bg-slate-900" : "text-slate-500"}`}><Users className="h-4 w-4" /> المستفيدين</Link>}
+        </nav>
 
         {showBeneficiaries ? (
           <PharmacyBeneficiariesPanel companyId={company.id} canEdit={hasPermission(session, "edit_beneficiary")} />

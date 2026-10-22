@@ -69,6 +69,7 @@ export default async function PharmacyTransactionsPage({ searchParams }: { searc
     prisma.insuranceCompany.findMany({ where: { id: { in: allowedCompanyIds } }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
   ]);
 
+  const selectedCompany = params.company ? companies.find((company) => company.id === params.company) ?? null : null;
   const today = getTripoliDayWindow(new Date());
   const canCancelAny = hasPermission(session, "cancel_transactions");
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -80,8 +81,8 @@ export default async function PharmacyTransactionsPage({ searchParams }: { searc
     <Shell facilityName={session.name} session={session}>
       <div className="space-y-4 pb-10">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3 dark:border-slate-800">
-          <h1 className="flex items-center gap-2 text-2xl font-black text-slate-900 dark:text-white"><Receipt className="h-6 w-6 text-teal-600" /> حركات الصيدلية</h1>
-          <Link href="/admin/pharmacy-services" className="inline-flex items-center gap-1 text-sm font-bold text-slate-500 hover:text-teal-700"><ArrowRight className="h-4 w-4" /> خدمات الصيدلية</Link>
+          <h1 className="flex items-center gap-2 text-2xl font-black text-slate-900 dark:text-white"><Receipt className="h-6 w-6 text-teal-600" /> حركات الصيدلية{selectedCompany ? ` — ${selectedCompany.name}` : ""}</h1>
+          <Link href={selectedCompany ? `/admin/pharmacy-services/${selectedCompany.id}` : "/admin/pharmacy-services"} className="inline-flex items-center gap-1 text-sm font-bold text-slate-500 hover:text-teal-700"><ArrowRight className="h-4 w-4" /> {selectedCompany ? `صرف الأدوية — ${selectedCompany.name}` : "خدمات الصيدلية"}</Link>
         </div>
 
         <Card className="p-3">
@@ -93,7 +94,7 @@ export default async function PharmacyTransactionsPage({ searchParams }: { searc
             <label className="flex flex-col gap-1 text-xs font-bold text-slate-500">النوع
               <select name="category" defaultValue={params.category ?? ""} className={field}><option value="">الكل</option>{Object.entries(CATEGORIES).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
             </label>
-            {staff && (
+            {(
               <label className="flex flex-col gap-1 text-xs font-bold text-slate-500">الشركة
                 <select name="company" defaultValue={params.company ?? ""} className={field}><option value="">كل الشركات</option>{companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}</select>
               </label>
@@ -136,6 +137,8 @@ export default async function PharmacyTransactionsPage({ searchParams }: { searc
                       attachments: [...row.attachments, ...(row.prescription?.attachments ?? [])],
                       items: row.items.map((item) => ({ label: item.drug?.name ?? `البند ${item.sequence}`, price: Number(item.price), company: Number(item.company_share), patient: Number(item.patient_share) })),
                       canCancel: !cancelled && hasPermission(session, "pharmacy_services") && (canCancelAny || ownSameDay),
+                      // الصيدلية تلغي صرفها في يومه فقط؛ بعده يُلغى من الإدارة (حتى لا تُحذف حركات قديمة دون رقابة).
+                      cancelHint: row.facility_id === session.id && !ownSameDay && !canCancelAny ? "إلغاء هذا الصرف بعد يومه يتم عن طريق الإدارة" : null,
                       redispenseHref: `/admin/pharmacy-services/${row.company_id}`,
                     }}
                   />
