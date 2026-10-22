@@ -452,7 +452,6 @@ function Totals({ prices, usage }: { prices: number[]; usage: Usage | undefined 
 
 type LineDraft = { key: string; sequence: string; price: string };
 
-const tripoliDayKey = (value: string | Date) => new Date(value).toLocaleDateString("en-CA", { timeZone: "Africa/Tripoli" });
 
 /**
  * تبويب الروتيني والكيميائي: تظهر مباشرة بطاقات وصفات اليوم بعدد الحد اليومي في السياسة.
@@ -476,10 +475,8 @@ function PrescriptionTab({
   submit: (prescriptionId: string, items: Array<{ sequence: number; price: number }>, idempotencyKey: string) => Promise<{ error?: string } | undefined>;
 }) {
   const dailyLimit = usage?.dailyLimit ?? 2;
-  const today = tripoliDayKey(new Date());
-  const todays = prescriptions
-    .filter((item) => tripoliDayKey(item.created_at) === today)
-    .sort((a, b) => a.prescription_number - b.prescription_number);
+  // الخادم يرسل وصفات اليوم فقط (بتوقيت طرابلس)، فلا تُصفّى هنا بساعة الجهاز التي قد تكون خاطئة.
+  const todays = [...prescriptions].sort((a, b) => a.prescription_number - b.prescription_number);
   const emptySlots = Math.max(0, dailyLimit - Math.max(usage?.todayCount ?? 0, todays.length));
 
   return (

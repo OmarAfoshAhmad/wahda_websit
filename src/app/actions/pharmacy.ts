@@ -118,8 +118,9 @@ export async function getPharmacyBeneficiaryWorkspace(companyId: string, benefic
           items: { orderBy: { sequence: "asc" }, select: { sequence: true, price: true, drug: { select: { name: true } } } },
         },
       },
+      // وصفات اليوم فقط بتوقيت الخادم (طرابلس)؛ لا يُعتمد على ساعة جهاز الصيدلي.
       pharmacy_prescriptions: {
-        where: { status: "OPEN" },
+        where: { status: "OPEN", created_at: { gte: getTripoliDayWindow(new Date()).start } },
         orderBy: { created_at: "desc" },
         select: {
           id: true,
