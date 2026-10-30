@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState, useTransition } from "react";
-import { ChevronLeft, Download, FileSpreadsheet, KeyRound, Loader2, LockKeyhole, Pause, Pencil, Phone, Pill, Play, Plus, Printer, Search, ShieldCheck, Upload, X } from "lucide-react";
+import { ChevronLeft, Download, FileSpreadsheet, KeyRound, Loader2, LockKeyhole, Pause, Pencil, Phone, Pill, Play, Plus, Printer, Search, ShieldCheck, Upload, Users, X } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import type { FamilyFilter } from "@/lib/pharmacy/families";
-import { Button, Card, Input } from "@/components/ui";
+import { Badge, Button, Card, Input, TableSkeleton } from "@/components/ui";
 import {
   addChronicDrug,
   getPharmacyBeneficiaryDetails,
@@ -25,14 +25,17 @@ const day = (value: string) => new Date(value).toLocaleDateString("en-GB", { tim
 const money = (value: number) => `${value.toLocaleString("ar-LY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} د.ل`;
 const count = (value: number) => value.toLocaleString("en");
 
-const FILTERS: Array<{ id: FamilyFilter; label: string; tone: string }> = [
-  { id: "all", label: "كل الأسر", tone: "text-slate-900 dark:text-white" },
-  { id: "no_phone", label: "بلا هاتف", tone: "text-amber-700 dark:text-amber-300" },
-  { id: "no_portal", label: "غير مسجّلة في البوابة", tone: "text-slate-700 dark:text-slate-300" },
-  { id: "chronic", label: "لديها مزمن", tone: "text-teal-700 dark:text-teal-300" },
-  { id: "recent", label: "صُرف لها خلال 30 يومًا", tone: "text-emerald-700 dark:text-emerald-300" },
-  { id: "never", label: "لم يُصرف لها", tone: "text-slate-500" },
+/** بطاقات الإحصاء بنفس ألوان بطاقات ملخص الخدمات الأخرى (حد ملوّن، عنوان صغير، رقم كبير). */
+const FILTERS: Array<{ id: FamilyFilter; label: string; card: string; title: string; value: string }> = [
+  { id: "all", label: "كل الأسر", card: "border-teal-200 dark:border-teal-800 bg-teal-50/50 dark:bg-teal-900/10", title: "text-teal-600 dark:text-teal-500", value: "text-teal-800 dark:text-teal-300" },
+  { id: "no_phone", label: "بلا هاتف", card: "border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/10", title: "text-amber-600 dark:text-amber-500", value: "text-amber-800 dark:text-amber-300" },
+  { id: "no_portal", label: "غير مسجّلة في البوابة", card: "", title: "text-slate-400", value: "text-slate-900 dark:text-white" },
+  { id: "chronic", label: "لديها مزمن", card: "border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/10", title: "text-blue-600 dark:text-blue-500", value: "text-blue-800 dark:text-blue-300" },
+  { id: "recent", label: "صُرف لها خلال 30 يومًا", card: "border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-900/10", title: "text-emerald-600 dark:text-emerald-500", value: "text-emerald-800 dark:text-emerald-300" },
+  { id: "never", label: "لم يُصرف لها", card: "", title: "text-slate-400", value: "text-slate-900 dark:text-white" },
 ];
+const TH = "px-4 py-3 font-black text-slate-500 dark:text-slate-400";
+const PAGE_BUTTON = "inline-flex items-center rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-sm font-bold text-slate-700 dark:text-slate-300 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700 disabled:cursor-not-allowed disabled:border-slate-100 disabled:bg-slate-50 disabled:text-slate-300 dark:disabled:border-slate-800 dark:disabled:bg-slate-900/50 dark:disabled:text-slate-600";
 
 /**
  * حالة القائمة في الرابط (q، filter، page، ben): يعمل زر الرجوع ويمكن نسخ الرابط لموظف آخر.
@@ -96,128 +99,135 @@ export function PharmacyBeneficiariesPanel({ companyId, canEdit = false, canExpo
   const open = (id: string) => setParams({ ben: id });
 
   return (
-    <Card className="space-y-3 p-3 sm:p-4">
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {FILTERS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            aria-pressed={params.filter === item.id}
-            onClick={() => setParams({ filter: item.id, page: 1 })}
-            className={`rounded-xl border p-2.5 text-start transition ${params.filter === item.id ? "border-teal-500 bg-teal-50 ring-1 ring-teal-500 dark:bg-teal-950/40" : "border-slate-200 bg-white hover:border-teal-300 dark:border-slate-700 dark:bg-slate-900"}`}
-          >
-            <span className={`block text-xl font-black tabular-nums ${item.tone}`}>{stats ? count(stats[item.id]) : "…"}</span>
-            <span className="block text-xs font-bold text-slate-500">{item.label}</span>
+          <button key={item.id} type="button" aria-pressed={params.filter === item.id} onClick={() => setParams({ filter: item.id, page: 1 })} className="text-start">
+            <Card className={`h-full p-4 transition-shadow hover:shadow-md ${item.card} ${params.filter === item.id ? "ring-2 ring-teal-500 dark:ring-teal-400" : ""}`}>
+              <p className={`text-[10px] font-black uppercase tracking-wider ${item.title}`}>{item.label}</p>
+              <p className={`mt-1 text-2xl font-black tabular-nums ${item.value}`}>{stats ? count(stats[item.id]) : "…"}</p>
+            </Card>
           </button>
         ))}
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        {stats ? <p className="text-xs text-slate-500">{count(stats.beneficiaries)} مستفيد في {count(stats.all)} أسرة</p> : <span />}
-        <span className="flex gap-2">
-          {canExport && (
-            <a
-              href={`/api/pharmacy/beneficiaries-export?${new URLSearchParams({ company: companyId, filter: params.filter, q: params.query }).toString()}`}
-              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-300 px-3 text-sm font-bold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
-            >
-              <Download className="h-4 w-4" /> تصدير Excel{loading ? "" : ` (${count(total)} أسرة)`}
-            </a>
-          )}
-          {canEdit && (
-            <Button type="button" onClick={() => setImporting(true)} className="h-9 gap-1.5 bg-teal-600 px-3 text-sm text-white hover:bg-teal-700">
-              <Upload className="h-4 w-4" /> استيراد الهواتف
-            </Button>
-          )}
-        </span>
-      </div>
 
-      <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); setParams({ query: draft.trim(), page: 1 }); }}>
-        <div className="relative flex-1">
-          <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
-          <Input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="الاسم بأي ترتيب، رقم البطاقة، الرقم الوظيفي أو الهاتف" className="h-11 pr-9" aria-label="بحث في المستفيدين" />
+      <Card className="space-y-4 overflow-hidden rounded-xl p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4 dark:border-slate-800">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <h2 className="flex items-center gap-2 whitespace-nowrap text-base font-black text-slate-900 dark:text-white">
+              <Users className="h-5 w-5 text-teal-600" /> أسر مستفيدي هذه الشركة
+            </h2>
+            <span className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-black text-slate-400 dark:border-slate-700 dark:bg-slate-800">
+              صفحة {params.page} من {pages}
+            </span>
+            {stats && <span className="hidden text-xs font-bold text-slate-400 sm:inline">{count(stats.beneficiaries)} مستفيد في {count(stats.all)} أسرة</span>}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {canExport && (
+              <a
+                href={`/api/pharmacy/beneficiaries-export?${new URLSearchParams({ company: companyId, filter: params.filter, q: params.query }).toString()}`}
+                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 text-xs font-black text-emerald-700 shadow-sm transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-emerald-400 dark:hover:bg-slate-700"
+              >
+                <Download className="h-4 w-4 text-emerald-600" /> <span>تصدير Excel</span>
+              </a>
+            )}
+            {canEdit && (
+              <Button type="button" onClick={() => setImporting(true)} className="h-9 gap-1.5 px-4 text-xs font-black">
+                <Upload className="h-4 w-4" /> استيراد الهواتف
+              </Button>
+            )}
+          </div>
         </div>
-        <Button type="submit" className="h-11 bg-teal-600 px-5 text-white hover:bg-teal-700">بحث</Button>
-        {params.query && <Button type="button" variant="outline" className="h-11" onClick={() => { setDraft(""); setParams({ query: "", page: 1 }); }}>مسح</Button>}
-      </form>
-      {result?.error && <p role="alert" className="rounded-md bg-rose-50 px-3 py-2 text-sm font-bold text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">{result.error}</p>}
 
-      <div className={`relative ${loading ? "opacity-60" : ""}`}>
-        {loading && !result ? (
-          <div className="flex justify-center p-8"><Loader2 className="h-6 w-6 animate-spin text-teal-600" /></div>
-        ) : families.length === 0 ? (
-          <p className="p-8 text-center text-sm text-slate-500">لا توجد أسر مطابقة</p>
-        ) : (
-          <>
-            {/* سطح المكتب: جدول مضغوط */}
-            <table className="hidden w-full text-sm md:table">
-              <thead className="sticky top-0 bg-slate-50 text-xs text-slate-500 dark:bg-slate-800">
-                <tr>
-                  <th className="w-8 p-2" />
-                  <th className="p-2 text-start">صاحب البطاقة</th>
-                  <th className="p-2 text-start">رقم البطاقة</th>
-                  <th className="p-2 text-center">الأفراد</th>
-                  <th className="p-2 text-start">الهاتف</th>
-                  <th className="p-2 text-center">البوابة</th>
-                  <th className="p-2 text-center">مزمن</th>
-                  <th className="p-2 text-start">آخر صرف</th>
-                </tr>
-              </thead>
-              <tbody>
+        <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); setParams({ query: draft.trim(), page: 1 }); }}>
+          <div className="relative flex-1">
+            <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
+            <Input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="الاسم بأي ترتيب، رقم البطاقة، الرقم الوظيفي أو الهاتف" className="pr-9" aria-label="بحث في المستفيدين" />
+          </div>
+          <Button type="submit" className="bg-teal-600 px-6 text-white hover:bg-teal-700">بحث</Button>
+          {params.query && <Button type="button" variant="outline" onClick={() => { setDraft(""); setParams({ query: "", page: 1 }); }}>إعادة تعيين</Button>}
+        </form>
+        {result?.error && <p role="alert" className="rounded-md bg-rose-50 px-3 py-2 text-sm font-bold text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">{result.error}</p>}
+
+        <div className={loading ? "opacity-60" : ""}>
+          {loading && !result ? (
+            <TableSkeleton rows={8} cols={7} />
+          ) : families.length === 0 ? (
+            <p className="py-10 text-center text-sm italic text-slate-500 dark:text-slate-400">لا توجد نتائج مطابقة.</p>
+          ) : (
+            <>
+              {/* سطح المكتب: جدول */}
+              <div className="-mx-5 hidden overflow-x-auto sm:block">
+                <table className="w-full border-collapse text-right text-sm">
+                  <thead className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-800/50">
+                    <tr>
+                      <th className="w-10 px-4 py-3" />
+                      <th className={TH}>صاحب البطاقة</th>
+                      <th className={TH}>رقم البطاقة</th>
+                      <th className={`${TH} text-center`}>الأفراد</th>
+                      <th className={TH}>الهاتف</th>
+                      <th className={`${TH} text-center`}>البوابة</th>
+                      <th className={`${TH} text-center`}>مزمن</th>
+                      <th className={TH}>آخر صرف</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {families.map((family) => (
+                      <FamilyRows key={family.key} family={family} expanded={expanded.has(family.key)} onToggle={() => toggle(family.key)} onOpen={open} />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {/* الجوال: بطاقات */}
+              <div className="-mx-5 divide-y divide-slate-100 dark:divide-slate-800 sm:hidden">
                 {families.map((family) => (
-                  <FamilyRows key={family.key} family={family} expanded={expanded.has(family.key)} onToggle={() => toggle(family.key)} onOpen={open} />
-                ))}
-              </tbody>
-            </table>
-            {/* الجوال: بطاقات */}
-            <ul className="space-y-2 md:hidden">
-              {families.map((family) => (
-                <li key={family.key} className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
-                  <button type="button" onClick={() => open(family.headId)} className="block w-full text-start">
-                    <span className="block font-black text-slate-900 dark:text-white">{family.name}</span>
-                    <span className="font-mono text-xs text-slate-500" dir="ltr">{family.cardNumber}</span>
-                  </button>
-                  <span className="mt-1.5 flex flex-wrap gap-1.5 text-xs font-bold">
-                    <PhoneBadge phone={family.phone} />
-                    {family.hasPassword && <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-800"><ShieldCheck className="h-3 w-3" /> البوابة</span>}
-                    {family.chronicCount > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-teal-50 px-2 py-0.5 text-teal-800"><Pill className="h-3 w-3" /> {family.chronicCount} مزمن</span>}
-                  </span>
-                  {family.members.length > 1 && (
-                    <>
-                      <button type="button" onClick={() => toggle(family.key)} className="mt-2 text-xs font-bold text-teal-700">
-                        {expanded.has(family.key) ? "إخفاء الأفراد" : `+${family.members.length - 1} من الأسرة`}
-                      </button>
-                      {expanded.has(family.key) && (
-                        <ul className="mt-1 space-y-1 border-t border-slate-100 pt-1 dark:border-slate-800">
-                          {family.members.filter((member) => member.id !== family.headId).map((member) => (
-                            <li key={member.id}>
-                              <button type="button" onClick={() => open(member.id)} className={`flex w-full justify-between gap-2 rounded px-1 py-1 text-start text-sm ${member.matched ? "bg-amber-50 dark:bg-amber-950/30" : ""}`}>
+                  <div key={family.key} className="px-4 py-3.5 hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                    <button type="button" onClick={() => open(family.headId)} className="block w-full text-start">
+                      <p className="font-black text-slate-900 dark:text-white">{family.name}</p>
+                      <p className="mt-1 font-mono text-xs text-slate-500 dark:text-slate-400">بطاقة: {family.cardNumber}</p>
+                    </button>
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      <PhoneBadge phone={family.phone} />
+                      {family.hasPassword && <Badge variant="success"><ShieldCheck className="me-1 h-3 w-3" /> البوابة</Badge>}
+                      {family.chronicCount > 0 && <Badge variant="info"><Pill className="me-1 h-3 w-3" /> {family.chronicCount} مزمن</Badge>}
+                    </div>
+                    {family.members.length > 1 && (
+                      <>
+                        <button type="button" onClick={() => toggle(family.key)} className="mt-2 text-xs font-bold text-teal-700 dark:text-teal-400">
+                          {expanded.has(family.key) ? "إخفاء الأفراد" : `+${family.members.length - 1} من الأسرة`}
+                        </button>
+                        {expanded.has(family.key) && (
+                          <div className="mt-1 space-y-0.5 border-t border-slate-100 pt-1 dark:border-slate-800">
+                            {family.members.filter((member) => member.id !== family.headId).map((member) => (
+                              <button key={member.id} type="button" onClick={() => open(member.id)} className={`flex w-full justify-between gap-2 rounded px-1 py-1 text-start text-sm ${member.matched ? "bg-amber-50 dark:bg-amber-950/30" : ""}`}>
                                 <span>{member.name} <span className="text-xs text-slate-500">· {member.relation}</span></span>
-                                {member.chronicCount > 0 && <span className="text-xs font-bold text-teal-700">{member.chronicCount} مزمن</span>}
+                                {member.chronicCount > 0 && <span className="text-xs font-bold text-blue-700 dark:text-blue-400">{member.chronicCount} مزمن</span>}
                               </button>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
-      </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
 
-      <div className="flex items-center justify-between text-sm text-slate-500">
-        <span>{count(total)} أسرة{params.query ? " مطابقة" : ""}</span>
-        <span className="flex items-center gap-2">
-          <Button type="button" variant="outline" disabled={params.page <= 1 || loading} onClick={() => setParams({ page: params.page - 1 })} className="h-8 px-3 text-xs">السابق</Button>
-          <span className="tabular-nums">{params.page} / {pages}</span>
-          <Button type="button" variant="outline" disabled={params.page >= pages || loading} onClick={() => setParams({ page: params.page + 1 })} className="h-8 px-3 text-xs">التالي</Button>
-        </span>
-      </div>
+        <div className="flex items-center justify-between border-t border-slate-100 pt-4 text-sm dark:border-slate-800">
+          <span className="text-xs font-bold text-slate-500">{count(total)} أسرة{params.query ? " مطابقة" : ""}</span>
+          <span className="flex items-center gap-1">
+            <button type="button" disabled={params.page <= 1 || loading} onClick={() => setParams({ page: params.page - 1 })} className={PAGE_BUTTON}>السابق</button>
+            <span className="px-2 text-sm text-slate-400 tabular-nums">{params.page} / {pages}</span>
+            <button type="button" disabled={params.page >= pages || loading} onClick={() => setParams({ page: params.page + 1 })} className={PAGE_BUTTON}>التالي</button>
+          </span>
+        </div>
+      </Card>
 
       {importing && <PhoneImportDialog companyId={companyId} onClose={() => setImporting(false)} onApplied={() => setVersion((value) => value + 1)} />}
       {params.ben && <BeneficiaryDrawer key={params.ben} companyId={companyId} beneficiaryId={params.ben} onClose={() => setParams({ ben: null })} onChanged={() => setVersion((value) => value + 1)} />}
-    </Card>
+    </div>
   );
 }
 
@@ -326,8 +336,8 @@ function PhoneImportDialog({ companyId, onClose, onApplied }: { companyId: strin
 
 function PhoneBadge({ phone }: { phone: string | null }) {
   return phone
-    ? <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-slate-700 dark:bg-slate-800 dark:text-slate-300"><Phone className="h-3 w-3" /><span dir="ltr">{phone}</span></span>
-    : <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">بلا هاتف</span>;
+    ? <span className="inline-flex items-center gap-1 font-mono text-xs text-slate-600 dark:text-slate-300"><Phone className="h-3 w-3 text-slate-400" /><span dir="ltr">{phone}</span></span>
+    : <Badge variant="warning">بلا هاتف</Badge>;
 }
 
 function FamilyRows({ family, expanded, onToggle, onOpen }: { family: Family; expanded: boolean; onToggle: () => void; onOpen: (id: string) => void }) {
@@ -335,34 +345,37 @@ function FamilyRows({ family, expanded, onToggle, onOpen }: { family: Family; ex
   const head = family.members.find((member) => member.id === family.headId);
   return (
     <>
-      <tr className="cursor-pointer border-t border-slate-100 hover:bg-teal-50/60 dark:border-slate-800 dark:hover:bg-teal-950/20" onClick={() => onOpen(family.headId)}>
-        <td className="p-2" onClick={(event) => event.stopPropagation()}>
+      <tr className={`cursor-pointer transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40 ${head?.matched ? "bg-amber-50/60 dark:bg-amber-950/20" : ""}`} onClick={() => onOpen(family.headId)}>
+        <td className="px-4 py-3" onClick={(event) => event.stopPropagation()}>
           {others.length > 0 && (
-            <button type="button" onClick={onToggle} aria-expanded={expanded} aria-label={expanded ? "إخفاء أفراد الأسرة" : "إظهار أفراد الأسرة"} className="rounded p-0.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">
+            <button type="button" onClick={onToggle} aria-expanded={expanded} aria-label={expanded ? "إخفاء أفراد الأسرة" : "إظهار أفراد الأسرة"} className="rounded-md border border-slate-200 p-0.5 text-slate-500 hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">
               <ChevronLeft className={`h-4 w-4 transition ${expanded ? "-rotate-90" : ""}`} />
             </button>
           )}
         </td>
-        <td className={`p-2 font-bold text-slate-900 dark:text-white ${head?.matched ? "bg-amber-50 dark:bg-amber-950/30" : ""}`}>
-          {family.name}
-          {!family.hasHeadCard && <span className="ms-1 text-xs font-normal text-slate-500">(لا توجد بطاقة أساسية)</span>}
-          {family.status === "SUSPENDED" && <span className="ms-1 text-xs font-bold text-rose-600">موقوف</span>}
+        <td className="px-4 py-3">
+          <span className="font-black text-slate-900 dark:text-white">{family.name}</span>
+          {family.status === "SUSPENDED" && <Badge variant="warning" className="ms-2">موقوف</Badge>}
+          {!family.hasHeadCard && <p className="text-[11px] text-slate-400">لا توجد بطاقة أساسية للأسرة</p>}
         </td>
-        <td className="p-2 font-mono text-xs text-slate-600" dir="ltr">{family.cardNumber}</td>
-        <td className="p-2 text-center tabular-nums">{family.members.length}</td>
-        <td className="p-2 text-xs"><PhoneBadge phone={family.phone} /></td>
-        <td className="p-2 text-center">{family.hasPassword ? <ShieldCheck className="mx-auto h-4 w-4 text-emerald-600" aria-label="مسجّلة" /> : <span className="text-slate-300">—</span>}</td>
-        <td className="p-2 text-center tabular-nums">{family.chronicCount > 0 ? <span className="font-bold text-teal-700">{family.chronicCount}</span> : <span className="text-slate-300">—</span>}</td>
-        <td className="p-2 text-xs tabular-nums text-slate-500">{family.lastDispenseAt ? day(family.lastDispenseAt) : "—"}</td>
+        <td className="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{family.cardNumber}</td>
+        <td className="px-4 py-3 text-center font-bold tabular-nums text-slate-700 dark:text-slate-300">{family.members.length}</td>
+        <td className="px-4 py-3"><PhoneBadge phone={family.phone} /></td>
+        <td className="px-4 py-3 text-center">{family.hasPassword ? <Badge variant="success">مسجّلة</Badge> : <span className="text-slate-300 dark:text-slate-600">—</span>}</td>
+        <td className="px-4 py-3 text-center">{family.chronicCount > 0 ? <Badge variant="info">{family.chronicCount}</Badge> : <span className="text-slate-300 dark:text-slate-600">—</span>}</td>
+        <td className="px-4 py-3 text-xs tabular-nums text-slate-500 dark:text-slate-400">{family.lastDispenseAt ? day(family.lastDispenseAt) : "—"}</td>
       </tr>
       {expanded && others.map((member) => (
-        <tr key={member.id} className={`cursor-pointer text-xs hover:bg-teal-50/60 dark:hover:bg-teal-950/20 ${member.matched ? "bg-amber-50 dark:bg-amber-950/30" : "bg-slate-50/60 dark:bg-slate-900/40"}`} onClick={() => onOpen(member.id)}>
+        <tr key={member.id} className={`cursor-pointer text-xs transition-colors hover:bg-slate-100 dark:hover:bg-slate-800/60 ${member.matched ? "bg-amber-50/60 dark:bg-amber-950/20" : "bg-slate-50/70 dark:bg-slate-800/30"}`} onClick={() => onOpen(member.id)}>
           <td />
-          <td className="p-1.5 ps-6">{member.name} <span className="text-slate-500">· {member.relation}</span>{member.status === "SUSPENDED" && <span className="ms-1 font-bold text-rose-600">موقوف</span>}</td>
-          <td className="p-1.5 font-mono text-slate-500" dir="ltr">{member.cardNumber}</td>
+          <td className="px-4 py-2 ps-8">
+            <span className="font-bold text-slate-700 dark:text-slate-200">{member.name}</span> <span className="text-slate-400">· {member.relation}</span>
+            {member.status === "SUSPENDED" && <Badge variant="warning" className="ms-2">موقوف</Badge>}
+          </td>
+          <td className="px-4 py-2 font-mono text-slate-500 dark:text-slate-400">{member.cardNumber}</td>
           <td colSpan={3} />
-          <td className="p-1.5 text-center tabular-nums">{member.chronicCount > 0 ? <span className="font-bold text-teal-700">{member.chronicCount}</span> : ""}</td>
-          <td className="p-1.5 tabular-nums text-slate-500">{member.lastDispenseAt ? day(member.lastDispenseAt) : ""}</td>
+          <td className="px-4 py-2 text-center">{member.chronicCount > 0 ? <Badge variant="info">{member.chronicCount}</Badge> : ""}</td>
+          <td className="px-4 py-2 tabular-nums text-slate-500 dark:text-slate-400">{member.lastDispenseAt ? day(member.lastDispenseAt) : ""}</td>
         </tr>
       ))}
     </>
