@@ -100,3 +100,103 @@ export async function resetFamilyPassword(beneficiaryId: string) {
   ]);
   return { success: true };
 }
+
+/** تفاصيل مستفيد للإدارة: الهاتف، أدويته المزمنة (الفعالة والموقوفة) ومواعيدها، وآخر ما صُرف له. */
+export async function getPharmacyBeneficiaryDetails(beneficiaryId: string) {
+  const target = await prisma.beneficiary.findFirst({
+    where: { id: beneficiaryId, deleted_at: null },
+    select: { id: true, name: true, card_number: true, phone_number: true, status: true, company_id: true, company: { select: { name: true } } },
+  });
+  if (!target?.company_id) return { error: "المستفيد غير موجود" };
+  const access = await requireStaff(target.company_id, "read");
+  if ("error" in access) return { error: access.error };
+
+  const [{ getPharmacyUsage, getChronicDrugStatuses }, { familyAccountIdOf }] = await Promise.all([import("@/lib/pharmacy/summary"), import("@/lib/beneficiary-family")]);
+  const accountId = await familyAccountIdOf(target.id);
+  const [account, summary, inactive, dispenses] = await Promise.all([
+    prisma.beneficiary.findUnique({ where: { id: accountId }, select: { id: true, name: true, phone_number: true, pin_hash: true } }),
+    getPharmacyUsage(target.id, target.company_id),
+    prisma.beneficiaryChronicDrug.findMany({ where: { beneficiary_id: target.id, active: false }, orderBy: { updated_at: "desc" }, select: { id: true, notes: true, updated_at: true, drug: { select: { name: true } } } }),
+    prisma.pharmacyDispense.findMany({
+      where: { beneficiary_id: target.id },
+      orderBy: { created_at: "desc" },
+      take: 15,
+      select: { id: true, medicine_category: true, created_at: true, gross_total: true, company_total: true, patient_total: true, item_count: true, status: true, transaction: { select: { is_cancelled: true } }, facility: { select: { name: true } } },
+    }),
+  ]);
+  const chronic = await getChronicDrugStatuses(target.id, summary.chronicIntervalDays);
+
+  return {
+    beneficiary: { id: target.id, name: target.name, card_number: target.card_number, status: target.status, company: target.company?.name ?? "" },
+    account: account ? { id: account.id, name: account.name, phone: account.phone_number, hasPassword: Boolean(account.pin_hash), isSelf: account.id === target.id } : null,
+    canEdit: hasPermission(access.session, "edit_beneficiary"),
+    chronicIntervalDays: summary.chronicIntervalDays,
+    chronic: chronic.map((drug) => ({ id: drug.id, name: drug.drug_name, notes: drug.notes, lastAt: drug.last_dispensed_at, lastFacility: drug.last_facility_name, eligible: drug.eligible, nextAt: drug.next_eligible_at })),
+    inactive: inactive.map((link) => ({ id: link.id, name: link.drug.name, notes: link.notes, stoppedAt: link.updated_at.toISOString() })),
+    dispenses: dispenses.map((dispense) => ({
+      id: dispense.id,
+      category: dispense.medicine_category,
+      createdAt: dispense.created_at.toISOString(),
+      facility: dispense.facility.name,
+      items: dispense.item_count,
+      gross: Number(dispense.gross_total),
+      company: Number(dispense.company_total),
+      patient: Number(dispense.patient_total),
+      cancelled: dispense.status === "CANCELLED" || dispense.transaction.is_cancelled,
+    })),
+  };
+}
+
+/** يقترح أدوية من الكتالوج أثناء الكتابة. */
+export async function searchDrugCatalog(companyId: string, query: string) {
+  const access = await requireStaff(companyId, "read");
+  if ("error" in access) return [];
+  const text = query.trim();
+  if (text.length < 2) return [];
+  return prisma.drugCatalog.findMany({ where: { active: true, name: { contains: text, mode: "insensitive" } }, orderBy: { name: "asc" }, take: 10, select: { id: true, name: true } });
+}
+
+/** يربط دواءً مزمنًا بالمستفيد (من الكتالوج أو اسم جديد)، أو يعيد تفعيل دواء موقوف. */
+export async function addChronicDrug(beneficiaryId: string, drugName: string, notes: string) {
+  const target = await prisma.beneficiary.findFirst({ where: { id: beneficiaryId, deleted_at: null }, select: { id: true, company_id: true, card_number: true } });
+  if (!target?.company_id) return { error: "المستفيد غير موجود" };
+  const access = await requireStaff(target.company_id, "write");
+  if ("error" in access) return { error: access.error };
+  const name = drugName.trim().replace(/\s+/g, " ");
+  if (name.length < 2 || name.length > 200) return { error: "اكتب اسم الدواء والجرعة (مثال: Concor 5mg)" };
+  if (/^[\d\s.,]+$/.test(name)) return { error: "اسم الدواء لا يكون أرقامًا فقط" };
+  const { normalizeDrugName } = await import("@/lib/pharmacy/chronic-import");
+  const normalized = normalizeDrugName(name);
+
+  await prisma.$transaction(async (tx) => {
+    const drug = await tx.drugCatalog.upsert({ where: { normalized_name: normalized }, create: { name, normalized_name: normalized }, update: { active: true }, select: { id: true } });
+    await tx.beneficiaryChronicDrug.upsert({
+      where: { beneficiary_id_drug_id: { beneficiary_id: target.id, drug_id: drug.id } },
+      create: { beneficiary_id: target.id, drug_id: drug.id, notes: notes.trim() || null },
+      update: { active: true, notes: notes.trim() || undefined },
+    });
+    await tx.auditLog.create({ data: { facility_id: access.session.id, user: access.session.username, action: "CHRONIC_DRUG_ADD", metadata: { beneficiary_id: target.id, card_number: target.card_number, drug: name } } });
+  });
+  return { success: true };
+}
+
+/** يعدّل ملاحظات دواء مزمن أو يوقفه/يعيده. الإيقاف لا يحذف سجل صرفه. */
+export async function updateChronicDrug(linkId: string, change: { notes?: string; active?: boolean }) {
+  const link = await prisma.beneficiaryChronicDrug.findUnique({ where: { id: linkId }, select: { id: true, notes: true, active: true, drug: { select: { name: true } }, beneficiary: { select: { id: true, company_id: true, card_number: true } } } });
+  if (!link?.beneficiary.company_id) return { error: "الدواء غير موجود" };
+  const access = await requireStaff(link.beneficiary.company_id, "write");
+  if ("error" in access) return { error: access.error };
+  const notes = change.notes === undefined ? undefined : change.notes.trim().slice(0, 300) || null;
+  await prisma.$transaction([
+    prisma.beneficiaryChronicDrug.update({ where: { id: link.id }, data: { notes, active: change.active } }),
+    prisma.auditLog.create({
+      data: {
+        facility_id: access.session.id,
+        user: access.session.username,
+        action: change.active === false ? "CHRONIC_DRUG_STOP" : change.active === true ? "CHRONIC_DRUG_RESUME" : "CHRONIC_DRUG_EDIT",
+        metadata: { beneficiary_id: link.beneficiary.id, card_number: link.beneficiary.card_number, drug: link.drug.name, before: { notes: link.notes, active: link.active }, after: { notes, active: change.active } },
+      },
+    }),
+  ]);
+  return { success: true };
+}

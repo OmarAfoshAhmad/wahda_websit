@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, CreditCard, FileText, Loader2, RotateCcw, XCircle } from "lucide-react";
+import { ChevronDown, CreditCard, FileText, Loader2, Printer, RotateCcw, XCircle } from "lucide-react";
 import { cancelPharmacyDispense } from "@/app/actions/pharmacy";
 
 type Row = {
@@ -98,6 +98,7 @@ export function DispenseRow({ row }: { row: Row }) {
             </div>
           )}
 
+          <a href={`/admin/pharmacy-services/transactions/${row.id}/print`} target="_blank" rel="noopener noreferrer" className="inline-flex h-9 w-fit items-center gap-1 rounded-md border border-slate-300 px-3 text-sm font-bold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200"><Printer className="h-4 w-4" /> طباعة الفاتورة مع المرفقات</a>
           {row.cancelled && row.cancellationReason && <p className="rounded-md bg-rose-50 p-2 text-sm text-rose-800 dark:bg-rose-950/30 dark:text-rose-300">سبب الإلغاء: {row.cancellationReason}</p>}
 
           {row.canCancel && !confirming && (
