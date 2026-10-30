@@ -50,11 +50,12 @@ export default async function PharmacyInvoicePrintPage({ params }: { params: Pro
   const number = dispense.id.slice(-8).toUpperCase();
 
   return (
-    <div dir="rtl" className="mx-auto max-w-3xl bg-white p-6 text-slate-900 print:max-w-none print:p-0">
-      <style>{`@page { size: A4; margin: 14mm; } @media print { .page-break { break-before: page; } body { background: white; } }`}</style>
+    // printable-report: طباعة globals.css تخفي كل الصفحة (القائمة الجانبية وغيرها) عدا هذا العنصر.
+    <div id="printable-report" dir="rtl" className="mx-auto max-w-3xl bg-white p-6 text-slate-900 print:max-w-none print:p-0">
+      <style>{`@page { size: A4; margin: 14mm; } @media print { .page-break { break-before: page; } body { background: white; } #printable-report { padding: 0 !important; } #printable-report th, #printable-report td { border: 1px solid #64748b !important; } }`}</style>
       <div className="mb-4 flex justify-end print:hidden"><PrintButton /></div>
 
-      <header className="flex items-start justify-between gap-4 border-b-2 border-slate-800 pb-3">
+      <div className="flex items-start justify-between gap-4 border-b-2 border-slate-800 pb-3">
         <div>
           <h1 className="text-2xl font-black">فاتورة صرف أدوية</h1>
           <p className="text-sm text-slate-600">رقم الفاتورة: <span className="font-mono font-bold" dir="ltr">{number}</span></p>
@@ -62,7 +63,7 @@ export default async function PharmacyInvoicePrintPage({ params }: { params: Pro
         </div>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/logo.png" alt="الواحة للرعاية الصحية" className="h-16 w-16 object-contain" />
-      </header>
+      </div>
 
       {cancelled && (
         <p className="mt-3 rounded border-2 border-rose-600 p-2 text-center text-lg font-black text-rose-700">
