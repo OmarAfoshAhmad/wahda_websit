@@ -1,117 +1,248 @@
 "use client";
 
 import { useCallback, useEffect, useState, useTransition } from "react";
-import { ChevronLeft, KeyRound, Loader2, LockKeyhole, Pause, Pencil, Phone, Pill, Play, Plus, Printer, Search, ShieldCheck, UserRound, X } from "lucide-react";
+import { ChevronLeft, KeyRound, Loader2, LockKeyhole, Pause, Pencil, Phone, Pill, Play, Plus, Printer, Search, ShieldCheck, X } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { Button, Card, Input } from "@/components/ui";
 import {
   addChronicDrug,
   getPharmacyBeneficiaryDetails,
-  listPharmacyBeneficiaries,
+  listPharmacyFamilies,
+  type FamilyFilter,
   resetFamilyPassword,
   searchDrugCatalog,
   setBeneficiaryPhone,
   updateChronicDrug,
 } from "@/app/actions/pharmacy-beneficiaries";
 
-type Row = {
-  id: string;
-  name: string;
-  card_number: string;
-  phone_number: string | null;
-  status: string;
-  has_password: boolean;
-  chronic_count: number;
-  is_account_holder: boolean;
-};
+type FamilyResult = Awaited<ReturnType<typeof listPharmacyFamilies>>;
+type Family = FamilyResult["families"][number];
 type Details = Extract<Awaited<ReturnType<typeof getPharmacyBeneficiaryDetails>>, { beneficiary: unknown }>;
 
 const CATEGORY: Record<string, string> = { ROUTINE: "روتيني", CHRONIC: "مزمن", CHEMICAL: "أورام" };
 const day = (value: string) => new Date(value).toLocaleDateString("en-GB", { timeZone: "Africa/Tripoli" });
 const money = (value: number) => `${value.toLocaleString("ar-LY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} د.ل`;
+const count = (value: number) => value.toLocaleString("en");
 
-/** مستفيدو الشركة في الصيدلية للإدارة: بحث، ثم نافذة تفاصيل فيها الهاتف وكلمة مرور الأسرة والأدوية المزمنة وسجل الصرف. */
+const FILTERS: Array<{ id: FamilyFilter; label: string; tone: string }> = [
+  { id: "all", label: "كل الأسر", tone: "text-slate-900 dark:text-white" },
+  { id: "no_phone", label: "بلا هاتف", tone: "text-amber-700 dark:text-amber-300" },
+  { id: "no_portal", label: "غير مسجّلة في البوابة", tone: "text-slate-700 dark:text-slate-300" },
+  { id: "chronic", label: "لديها مزمن", tone: "text-teal-700 dark:text-teal-300" },
+  { id: "recent", label: "صُرف لها خلال 30 يومًا", tone: "text-emerald-700 dark:text-emerald-300" },
+  { id: "never", label: "لم يُصرف لها", tone: "text-slate-500" },
+];
+
+/**
+ * حالة القائمة في الرابط (q، filter، page، ben): يعمل زر الرجوع ويمكن نسخ الرابط لموظف آخر.
+ * history.pushState متكامل مع موجّه Next فيحدّث useSearchParams دون إعادة تحميل الصفحة.
+ */
+function useListParams() {
+  const search = useSearchParams() ?? new URLSearchParams();
+  const filter = search.get("filter") as FamilyFilter | null;
+  const state = {
+    query: search.get("q") ?? "",
+    filter: FILTERS.some((item) => item.id === filter) ? (filter as FamilyFilter) : ("all" as FamilyFilter),
+    page: Math.max(1, Number(search.get("page")) || 1),
+    ben: search.get("ben"),
+  };
+  const update = (patch: Partial<typeof state>) => {
+    const next = { ...state, ...patch };
+    const params = new URLSearchParams(window.location.search);
+    const set = (key: string, value: string | null, empty: string) => (value && value !== empty ? params.set(key, value) : params.delete(key));
+    set("q", next.query, "");
+    set("filter", next.filter, "all");
+    set("page", String(next.page), "1");
+    set("ben", next.ben, "");
+    window.history.pushState(null, "", `${window.location.pathname}?${params.toString()}`);
+  };
+  return [state, update] as const;
+}
+
+/**
+ * مستفيدو الشركة للإدارة مجمّعين بالأسرة: لوحة أرقام تعمل كفلاتر، بحث من الخادم، جدول مضغوط
+ * (بطاقات على الجوال) بخمسين أسرة في الصفحة، والضغط على أي فرد يفتح نافذة تفاصيله.
+ */
 export function PharmacyBeneficiariesPanel({ companyId }: { companyId: string; canEdit?: boolean }) {
-  const [query, setQuery] = useState("");
-  const [applied, setApplied] = useState("");
-  const [page, setPage] = useState(1);
-  const [rows, setRows] = useState<Row[]>([]);
-  const [total, setTotal] = useState(0);
-  const [pageSize, setPageSize] = useState(50);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [openId, setOpenId] = useState<string | null>(null);
-
-  const apply = useCallback((result: Awaited<ReturnType<typeof listPharmacyBeneficiaries>>) => {
-    setLoading(false);
-    if (result.error) { setError(result.error); return; }
-    setRows(result.items);
-    setTotal(result.total);
-    setPageSize(result.pageSize);
-  }, []);
-  const reload = useCallback(async () => apply(await listPharmacyBeneficiaries(companyId, applied, page)), [apply, companyId, applied, page]);
+  const [params, setParams] = useListParams();
+  const [draft, setDraft] = useState(params.query);
+  const [result, setResult] = useState<FamilyResult | null>(null);
+  const [stats, setStats] = useState<FamilyResult["stats"]>(null);
+  const [loadedKey, setLoadedKey] = useState("");
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [version, setVersion] = useState(0);
+  const requestKey = JSON.stringify([params.query, params.filter, params.page, version]);
+  const loading = loadedKey !== requestKey;
 
   useEffect(() => {
     let cancelled = false;
-    listPharmacyBeneficiaries(companyId, applied, page).then((result) => { if (!cancelled) apply(result); });
+    listPharmacyFamilies(companyId, { query: params.query, filter: params.filter, page: params.page }).then((next) => {
+      if (cancelled) return;
+      setResult(next);
+      if (next.stats) setStats(next.stats);
+      setLoadedKey(requestKey);
+      // عند البحث تُفتح الأسر التي طابقها فرد غير صاحب البطاقة حتى يظهر المطابق مباشرة.
+      setExpanded(new Set(next.families.filter((family) => family.members.some((member) => member.matched && member.id !== family.headId)).map((family) => family.key)));
+    });
     return () => { cancelled = true; };
-  }, [apply, companyId, applied, page]);
+  }, [companyId, params.query, params.filter, params.page, requestKey]);
 
-  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const families = result?.families ?? [];
+  const total = result?.total ?? 0;
+  const pages = Math.max(1, Math.ceil(total / (result?.pageSize ?? 50)));
+  const toggle = (key: string) => setExpanded((current) => { const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next; });
+  const open = (id: string) => setParams({ ben: id });
 
   return (
     <Card className="space-y-3 p-3 sm:p-4">
-      <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); setLoading(true); setPage(1); setApplied(query); }}>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+        {FILTERS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            aria-pressed={params.filter === item.id}
+            onClick={() => setParams({ filter: item.id, page: 1 })}
+            className={`rounded-xl border p-2.5 text-start transition ${params.filter === item.id ? "border-teal-500 bg-teal-50 ring-1 ring-teal-500 dark:bg-teal-950/40" : "border-slate-200 bg-white hover:border-teal-300 dark:border-slate-700 dark:bg-slate-900"}`}
+          >
+            <span className={`block text-xl font-black tabular-nums ${item.tone}`}>{stats ? count(stats[item.id]) : "…"}</span>
+            <span className="block text-xs font-bold text-slate-500">{item.label}</span>
+          </button>
+        ))}
+      </div>
+      {stats && <p className="text-xs text-slate-500">{count(stats.beneficiaries)} مستفيد في {count(stats.all)} أسرة</p>}
+
+      <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); setParams({ query: draft.trim(), page: 1 }); }}>
         <div className="relative flex-1">
           <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
-          <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="الاسم أو رقم البطاقة أو الرقم الوظيفي" className="h-11 pr-9" aria-label="بحث في المستفيدين" />
+          <Input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="الاسم بأي ترتيب، رقم البطاقة، الرقم الوظيفي أو الهاتف" className="h-11 pr-9" aria-label="بحث في المستفيدين" />
         </div>
         <Button type="submit" className="h-11 bg-teal-600 px-5 text-white hover:bg-teal-700">بحث</Button>
+        {params.query && <Button type="button" variant="outline" className="h-11" onClick={() => { setDraft(""); setParams({ query: "", page: 1 }); }}>مسح</Button>}
       </form>
-      {error && <p role="alert" className="rounded-md bg-rose-50 px-3 py-2 text-sm font-bold text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">{error}</p>}
+      {result?.error && <p role="alert" className="rounded-md bg-rose-50 px-3 py-2 text-sm font-bold text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">{result.error}</p>}
 
-      {loading ? (
-        <div className="flex justify-center p-8"><Loader2 className="h-6 w-6 animate-spin text-teal-600" /></div>
-      ) : rows.length === 0 ? (
-        <p className="p-8 text-center text-sm text-slate-500">لا يوجد مستفيدون مطابقون</p>
-      ) : (
-        <ul className="grid gap-2 lg:grid-cols-2">
-          {rows.map((row) => (
-            <li key={row.id}>
-              <button type="button" onClick={() => setOpenId(row.id)} className="flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 text-start transition hover:border-teal-400 hover:shadow-sm dark:border-slate-700 dark:bg-slate-900">
-                <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${row.is_account_holder ? "bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300" : "bg-slate-100 text-slate-500 dark:bg-slate-800"}`}><UserRound className="h-5 w-5" aria-hidden /></span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-black text-slate-900 dark:text-white">{row.name}</span>
-                  <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-500">
-                    <span className="font-mono" dir="ltr">{row.card_number}</span>
-                    <span>{row.is_account_holder ? "صاحب البطاقة" : "فرد من الأسرة"}</span>
-                    {row.status === "SUSPENDED" && <span className="font-bold text-rose-600">موقوف</span>}
+      <div className={`relative ${loading ? "opacity-60" : ""}`}>
+        {loading && !result ? (
+          <div className="flex justify-center p-8"><Loader2 className="h-6 w-6 animate-spin text-teal-600" /></div>
+        ) : families.length === 0 ? (
+          <p className="p-8 text-center text-sm text-slate-500">لا توجد أسر مطابقة</p>
+        ) : (
+          <>
+            {/* سطح المكتب: جدول مضغوط */}
+            <table className="hidden w-full text-sm md:table">
+              <thead className="sticky top-0 bg-slate-50 text-xs text-slate-500 dark:bg-slate-800">
+                <tr>
+                  <th className="w-8 p-2" />
+                  <th className="p-2 text-start">صاحب البطاقة</th>
+                  <th className="p-2 text-start">رقم البطاقة</th>
+                  <th className="p-2 text-center">الأفراد</th>
+                  <th className="p-2 text-start">الهاتف</th>
+                  <th className="p-2 text-center">البوابة</th>
+                  <th className="p-2 text-center">مزمن</th>
+                  <th className="p-2 text-start">آخر صرف</th>
+                </tr>
+              </thead>
+              <tbody>
+                {families.map((family) => (
+                  <FamilyRows key={family.key} family={family} expanded={expanded.has(family.key)} onToggle={() => toggle(family.key)} onOpen={open} />
+                ))}
+              </tbody>
+            </table>
+            {/* الجوال: بطاقات */}
+            <ul className="space-y-2 md:hidden">
+              {families.map((family) => (
+                <li key={family.key} className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                  <button type="button" onClick={() => open(family.headId)} className="block w-full text-start">
+                    <span className="block font-black text-slate-900 dark:text-white">{family.name}</span>
+                    <span className="font-mono text-xs text-slate-500" dir="ltr">{family.cardNumber}</span>
+                  </button>
+                  <span className="mt-1.5 flex flex-wrap gap-1.5 text-xs font-bold">
+                    <PhoneBadge phone={family.phone} />
+                    {family.hasPassword && <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-800"><ShieldCheck className="h-3 w-3" /> البوابة</span>}
+                    {family.chronicCount > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-teal-50 px-2 py-0.5 text-teal-800"><Pill className="h-3 w-3" /> {family.chronicCount} مزمن</span>}
                   </span>
-                  <span className="mt-1 flex flex-wrap gap-1.5 text-xs font-bold">
-                    {row.is_account_holder && (row.phone_number
-                      ? <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-slate-700 dark:bg-slate-800 dark:text-slate-300"><Phone className="h-3 w-3" /><span dir="ltr">{row.phone_number}</span></span>
-                      : <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">بلا هاتف</span>)}
-                    {row.is_account_holder && row.has_password && <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-800"><ShieldCheck className="h-3 w-3" /> مسجّل في البوابة</span>}
-                    {row.chronic_count > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-teal-50 px-2 py-0.5 text-teal-800 dark:bg-teal-950/40 dark:text-teal-300"><Pill className="h-3 w-3" /> {row.chronic_count} مزمن</span>}
-                  </span>
-                </span>
-                <ChevronLeft className="h-5 w-5 shrink-0 text-slate-400" aria-hidden />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+                  {family.members.length > 1 && (
+                    <>
+                      <button type="button" onClick={() => toggle(family.key)} className="mt-2 text-xs font-bold text-teal-700">
+                        {expanded.has(family.key) ? "إخفاء الأفراد" : `+${family.members.length - 1} من الأسرة`}
+                      </button>
+                      {expanded.has(family.key) && (
+                        <ul className="mt-1 space-y-1 border-t border-slate-100 pt-1 dark:border-slate-800">
+                          {family.members.filter((member) => member.id !== family.headId).map((member) => (
+                            <li key={member.id}>
+                              <button type="button" onClick={() => open(member.id)} className={`flex w-full justify-between gap-2 rounded px-1 py-1 text-start text-sm ${member.matched ? "bg-amber-50 dark:bg-amber-950/30" : ""}`}>
+                                <span>{member.name} <span className="text-xs text-slate-500">· {member.relation}</span></span>
+                                {member.chronicCount > 0 && <span className="text-xs font-bold text-teal-700">{member.chronicCount} مزمن</span>}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </div>
 
       <div className="flex items-center justify-between text-sm text-slate-500">
-        <span>{total.toLocaleString("en")} مستفيد</span>
+        <span>{count(total)} أسرة{params.query ? " مطابقة" : ""}</span>
         <span className="flex items-center gap-2">
-          <Button type="button" variant="outline" disabled={page <= 1 || loading} onClick={() => { setLoading(true); setPage((value) => value - 1); }} className="h-8 px-3 text-xs">السابق</Button>
-          <span className="tabular-nums">{page} / {pages}</span>
-          <Button type="button" variant="outline" disabled={page >= pages || loading} onClick={() => { setLoading(true); setPage((value) => value + 1); }} className="h-8 px-3 text-xs">التالي</Button>
+          <Button type="button" variant="outline" disabled={params.page <= 1 || loading} onClick={() => setParams({ page: params.page - 1 })} className="h-8 px-3 text-xs">السابق</Button>
+          <span className="tabular-nums">{params.page} / {pages}</span>
+          <Button type="button" variant="outline" disabled={params.page >= pages || loading} onClick={() => setParams({ page: params.page + 1 })} className="h-8 px-3 text-xs">التالي</Button>
         </span>
       </div>
 
-      {openId && <BeneficiaryDrawer key={openId} companyId={companyId} beneficiaryId={openId} onClose={() => setOpenId(null)} onChanged={() => void reload()} />}
+      {params.ben && <BeneficiaryDrawer key={params.ben} companyId={companyId} beneficiaryId={params.ben} onClose={() => setParams({ ben: null })} onChanged={() => setVersion((value) => value + 1)} />}
     </Card>
+  );
+}
+
+function PhoneBadge({ phone }: { phone: string | null }) {
+  return phone
+    ? <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-slate-700 dark:bg-slate-800 dark:text-slate-300"><Phone className="h-3 w-3" /><span dir="ltr">{phone}</span></span>
+    : <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">بلا هاتف</span>;
+}
+
+function FamilyRows({ family, expanded, onToggle, onOpen }: { family: Family; expanded: boolean; onToggle: () => void; onOpen: (id: string) => void }) {
+  const others = family.members.filter((member) => member.id !== family.headId);
+  const head = family.members.find((member) => member.id === family.headId);
+  return (
+    <>
+      <tr className="cursor-pointer border-t border-slate-100 hover:bg-teal-50/60 dark:border-slate-800 dark:hover:bg-teal-950/20" onClick={() => onOpen(family.headId)}>
+        <td className="p-2" onClick={(event) => event.stopPropagation()}>
+          {others.length > 0 && (
+            <button type="button" onClick={onToggle} aria-expanded={expanded} aria-label={expanded ? "إخفاء أفراد الأسرة" : "إظهار أفراد الأسرة"} className="rounded p-0.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">
+              <ChevronLeft className={`h-4 w-4 transition ${expanded ? "-rotate-90" : ""}`} />
+            </button>
+          )}
+        </td>
+        <td className={`p-2 font-bold text-slate-900 dark:text-white ${head?.matched ? "bg-amber-50 dark:bg-amber-950/30" : ""}`}>
+          {family.name}
+          {!family.hasHeadCard && <span className="ms-1 text-xs font-normal text-slate-500">(لا توجد بطاقة أساسية)</span>}
+          {family.status === "SUSPENDED" && <span className="ms-1 text-xs font-bold text-rose-600">موقوف</span>}
+        </td>
+        <td className="p-2 font-mono text-xs text-slate-600" dir="ltr">{family.cardNumber}</td>
+        <td className="p-2 text-center tabular-nums">{family.members.length}</td>
+        <td className="p-2 text-xs"><PhoneBadge phone={family.phone} /></td>
+        <td className="p-2 text-center">{family.hasPassword ? <ShieldCheck className="mx-auto h-4 w-4 text-emerald-600" aria-label="مسجّلة" /> : <span className="text-slate-300">—</span>}</td>
+        <td className="p-2 text-center tabular-nums">{family.chronicCount > 0 ? <span className="font-bold text-teal-700">{family.chronicCount}</span> : <span className="text-slate-300">—</span>}</td>
+        <td className="p-2 text-xs tabular-nums text-slate-500">{family.lastDispenseAt ? day(family.lastDispenseAt) : "—"}</td>
+      </tr>
+      {expanded && others.map((member) => (
+        <tr key={member.id} className={`cursor-pointer text-xs hover:bg-teal-50/60 dark:hover:bg-teal-950/20 ${member.matched ? "bg-amber-50 dark:bg-amber-950/30" : "bg-slate-50/60 dark:bg-slate-900/40"}`} onClick={() => onOpen(member.id)}>
+          <td />
+          <td className="p-1.5 ps-6">{member.name} <span className="text-slate-500">· {member.relation}</span>{member.status === "SUSPENDED" && <span className="ms-1 font-bold text-rose-600">موقوف</span>}</td>
+          <td className="p-1.5 font-mono text-slate-500" dir="ltr">{member.cardNumber}</td>
+          <td colSpan={3} />
+          <td className="p-1.5 text-center tabular-nums">{member.chronicCount > 0 ? <span className="font-bold text-teal-700">{member.chronicCount}</span> : ""}</td>
+          <td className="p-1.5 tabular-nums text-slate-500">{member.lastDispenseAt ? day(member.lastDispenseAt) : ""}</td>
+        </tr>
+      ))}
+    </>
   );
 }
 
