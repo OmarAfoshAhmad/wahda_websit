@@ -1,19 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useState, useTransition } from "react";
-import { ChevronLeft, KeyRound, Loader2, LockKeyhole, Pause, Pencil, Phone, Pill, Play, Plus, Printer, Search, ShieldCheck, X } from "lucide-react";
+import { ChevronLeft, Download, FileSpreadsheet, KeyRound, Loader2, LockKeyhole, Pause, Pencil, Phone, Pill, Play, Plus, Printer, Search, ShieldCheck, Upload, X } from "lucide-react";
 import { useSearchParams } from "next/navigation";
+import type { FamilyFilter } from "@/lib/pharmacy/families";
 import { Button, Card, Input } from "@/components/ui";
 import {
   addChronicDrug,
   getPharmacyBeneficiaryDetails,
   listPharmacyFamilies,
-  type FamilyFilter,
   resetFamilyPassword,
   searchDrugCatalog,
   setBeneficiaryPhone,
   updateChronicDrug,
 } from "@/app/actions/pharmacy-beneficiaries";
+import { importFamilyPhones, type PhoneImportStatus } from "@/app/actions/pharmacy-phone-import";
 
 type FamilyResult = Awaited<ReturnType<typeof listPharmacyFamilies>>;
 type Family = FamilyResult["families"][number];
@@ -63,7 +64,7 @@ function useListParams() {
  * مستفيدو الشركة للإدارة مجمّعين بالأسرة: لوحة أرقام تعمل كفلاتر، بحث من الخادم، جدول مضغوط
  * (بطاقات على الجوال) بخمسين أسرة في الصفحة، والضغط على أي فرد يفتح نافذة تفاصيله.
  */
-export function PharmacyBeneficiariesPanel({ companyId }: { companyId: string; canEdit?: boolean }) {
+export function PharmacyBeneficiariesPanel({ companyId, canEdit = false, canExport = false }: { companyId: string; canEdit?: boolean; canExport?: boolean }) {
   const [params, setParams] = useListParams();
   const [draft, setDraft] = useState(params.query);
   const [result, setResult] = useState<FamilyResult | null>(null);
@@ -71,6 +72,7 @@ export function PharmacyBeneficiariesPanel({ companyId }: { companyId: string; c
   const [loadedKey, setLoadedKey] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [version, setVersion] = useState(0);
+  const [importing, setImporting] = useState(false);
   const requestKey = JSON.stringify([params.query, params.filter, params.page, version]);
   const loading = loadedKey !== requestKey;
 
@@ -109,7 +111,24 @@ export function PharmacyBeneficiariesPanel({ companyId }: { companyId: string; c
           </button>
         ))}
       </div>
-      {stats && <p className="text-xs text-slate-500">{count(stats.beneficiaries)} مستفيد في {count(stats.all)} أسرة</p>}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        {stats ? <p className="text-xs text-slate-500">{count(stats.beneficiaries)} مستفيد في {count(stats.all)} أسرة</p> : <span />}
+        <span className="flex gap-2">
+          {canExport && (
+            <a
+              href={`/api/pharmacy/beneficiaries-export?${new URLSearchParams({ company: companyId, filter: params.filter, q: params.query }).toString()}`}
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-300 px-3 text-sm font-bold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              <Download className="h-4 w-4" /> تصدير Excel{loading ? "" : ` (${count(total)} أسرة)`}
+            </a>
+          )}
+          {canEdit && (
+            <Button type="button" onClick={() => setImporting(true)} className="h-9 gap-1.5 bg-teal-600 px-3 text-sm text-white hover:bg-teal-700">
+              <Upload className="h-4 w-4" /> استيراد الهواتف
+            </Button>
+          )}
+        </span>
+      </div>
 
       <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); setParams({ query: draft.trim(), page: 1 }); }}>
         <div className="relative flex-1">
@@ -196,8 +215,112 @@ export function PharmacyBeneficiariesPanel({ companyId }: { companyId: string; c
         </span>
       </div>
 
+      {importing && <PhoneImportDialog companyId={companyId} onClose={() => setImporting(false)} onApplied={() => setVersion((value) => value + 1)} />}
       {params.ben && <BeneficiaryDrawer key={params.ben} companyId={companyId} beneficiaryId={params.ben} onClose={() => setParams({ ben: null })} onChanged={() => setVersion((value) => value + 1)} />}
     </Card>
+  );
+}
+
+const IMPORT_STATUS: Record<PhoneImportStatus, { label: string; tone: string }> = {
+  update: { label: "سيُحدَّث", tone: "bg-emerald-100 text-emerald-800" },
+  same: { label: "بدون تغيير", tone: "bg-slate-100 text-slate-600" },
+  invalid_phone: { label: "هاتف غير صحيح", tone: "bg-rose-100 text-rose-800" },
+  not_found: { label: "بطاقة غير موجودة", tone: "bg-rose-100 text-rose-800" },
+  phone_taken: { label: "الهاتف لبطاقة أخرى", tone: "bg-amber-100 text-amber-800" },
+  duplicate_phone: { label: "هاتف مكرر في الملف", tone: "bg-amber-100 text-amber-800" },
+  conflict: { label: "أسرة بهاتفين", tone: "bg-amber-100 text-amber-800" },
+};
+type ImportResult = Extract<Awaited<ReturnType<typeof importFamilyPhones>>, { rows: unknown }>;
+
+/** استيراد الهواتف: اختيار الملف ← معاينة بالأعداد والمشاكل ← تطبيق التحديثات الصحيحة فقط. */
+function PhoneImportDialog({ companyId, onClose, onApplied }: { companyId: string; onClose: () => void; onApplied: () => void }) {
+  const [file, setFile] = useState<{ name: string; base64: string } | null>(null);
+  const [preview, setPreview] = useState<ImportResult | null>(null);
+  const [done, setDone] = useState<number | null>(null);
+  const [error, setError] = useState("");
+  const [busy, startBusy] = useTransition();
+
+  const pick = async (picked: File | undefined) => {
+    setPreview(null); setDone(null); setError("");
+    if (!picked) return;
+    const bytes = new Uint8Array(await picked.arrayBuffer());
+    let binary = "";
+    for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+    const next = { name: picked.name, base64: btoa(binary) };
+    setFile(next);
+    startBusy(async () => {
+      const result = await importFamilyPhones(companyId, next.base64, false);
+      if ("error" in result && result.error) setError(result.error); else setPreview(result as ImportResult);
+    });
+  };
+  const applyNow = () => file && startBusy(async () => {
+    const result = await importFamilyPhones(companyId, file.base64, true);
+    if ("error" in result && result.error) { setError(result.error); return; }
+    setPreview(result as ImportResult);
+    setDone((result as ImportResult).applied);
+    onApplied();
+  });
+  const updates = preview?.counts.update ?? 0;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-3" role="dialog" aria-modal="true" aria-label="استيراد الهواتف">
+      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-2xl bg-white shadow-xl dark:bg-slate-900">
+        <div className="flex items-center justify-between border-b border-slate-200 p-4 dark:border-slate-700">
+          <h2 className="flex items-center gap-2 text-lg font-black"><FileSpreadsheet className="h-5 w-5 text-teal-600" /> استيراد هواتف الأسر</h2>
+          <button type="button" onClick={onClose} aria-label="إغلاق" className="rounded p-1 hover:bg-slate-100 dark:hover:bg-slate-800"><X className="h-5 w-5" /></button>
+        </div>
+        <div className="space-y-3 overflow-y-auto p-4 text-sm">
+          <p className="text-slate-600 dark:text-slate-300">
+            ملف Excel صفه الأول فيه عمودا <b>«رقم البطاقة»</b> و<b>«الهاتف»</b>. أسهل طريقة: صدّر «بلا هاتف» ثم عبّئ عمود الهاتف وارفع الملف نفسه.
+            بطاقة أي فرد تكفي، فالهاتف يُحفظ لصاحب البطاقة في أسرته. لن يتغير شيء قبل الضغط على «تطبيق».
+          </p>
+          <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 p-4 font-bold text-slate-600 hover:border-teal-400 dark:border-slate-600">
+            <Upload className="h-5 w-5" /> {file ? file.name : "اختر ملف Excel"}
+            <input type="file" accept=".xlsx" className="sr-only" aria-label="ملف الهواتف" onChange={(event) => void pick(event.target.files?.[0])} />
+          </label>
+          {busy && <p className="flex items-center gap-2 text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> جارٍ الفحص…</p>}
+          {error && <p role="alert" className="rounded-md bg-rose-50 px-3 py-2 font-bold text-rose-700">{error}</p>}
+          {done !== null && <p role="status" className="rounded-md bg-emerald-50 px-3 py-2 font-bold text-emerald-800">تم تحديث {count(done)} هاتف.</p>}
+          {preview && (
+            <>
+              <p className="text-slate-500">{count(preview.total)} صف في الملف:</p>
+              <div className="flex flex-wrap gap-1.5">
+                {(Object.keys(IMPORT_STATUS) as PhoneImportStatus[]).filter((key) => preview.counts[key]).map((key) => (
+                  <span key={key} className={`rounded-full px-2.5 py-1 text-xs font-bold ${IMPORT_STATUS[key].tone}`}>{IMPORT_STATUS[key].label}: {count(preview.counts[key] ?? 0)}</span>
+                ))}
+              </div>
+              {preview.rows.length > 0 && (
+                <div className="max-h-72 overflow-auto rounded-lg border border-slate-200 dark:border-slate-700">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-slate-50 text-slate-500 dark:bg-slate-800">
+                      <tr><th className="p-1.5 text-start">صف</th><th className="p-1.5 text-start">البطاقة</th><th className="p-1.5 text-start">صاحب البطاقة</th><th className="p-1.5 text-start">قبل</th><th className="p-1.5 text-start">بعد</th><th className="p-1.5 text-start">الحالة</th></tr>
+                    </thead>
+                    <tbody>
+                      {preview.rows.map((row) => (
+                        <tr key={row.row} className="border-t border-slate-100 dark:border-slate-800">
+                          <td className="p-1.5 tabular-nums">{row.row}</td>
+                          <td className="p-1.5 font-mono" dir="ltr">{row.card}</td>
+                          <td className="p-1.5">{row.holderName ?? "—"}</td>
+                          <td className="p-1.5 font-mono" dir="ltr">{row.before ?? "—"}</td>
+                          <td className="p-1.5 font-mono" dir="ltr">{row.phone}</td>
+                          <td className="p-1.5"><span className={`rounded-full px-2 py-0.5 font-bold ${IMPORT_STATUS[row.status].tone}`}>{IMPORT_STATUS[row.status].label}</span>{row.note && <span className="ms-1 text-slate-500">{row.note}</span>}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 border-t border-slate-200 p-4 dark:border-slate-700">
+          <Button type="button" variant="outline" onClick={onClose}>إغلاق</Button>
+          <Button type="button" disabled={busy || !preview || updates === 0 || done !== null} onClick={applyNow} className="bg-teal-600 text-white hover:bg-teal-700">
+            تطبيق {count(updates)} تحديث
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 

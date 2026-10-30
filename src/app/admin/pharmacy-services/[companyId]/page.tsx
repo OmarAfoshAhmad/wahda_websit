@@ -73,7 +73,7 @@ export default async function PharmacyCompanyPage({ params, searchParams }: { pa
         </nav>
 
         {showBeneficiaries ? (
-          <PharmacyBeneficiariesPanel companyId={company.id} canEdit={hasPermission(session, "edit_beneficiary")} />
+          <PharmacyBeneficiariesPanel companyId={company.id} canEdit={hasPermission(session, "edit_beneficiary")} canExport={session.is_admin || hasPermission(session, "export_data")} />
         ) : (
         <PharmacyDeductionWorkspace
           company={{ id: company.id, name: company.name, code: company.code, logo: company.logo }}
