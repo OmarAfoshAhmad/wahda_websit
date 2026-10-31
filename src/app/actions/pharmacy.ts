@@ -827,3 +827,68 @@ export async function cancelPharmacyDispenses(dispenseIds: string[], reason: str
   }
   return { success: true, cancelled, failed };
 }
+
+type BulkOutcome = { success: true; done: number; failed: Array<{ id: string; error: string }> } | { error: string };
+
+async function eachDispense(ids: string[], run: (dispenseId: string) => Promise<string | null>): Promise<BulkOutcome> {
+  const unique = [...new Set(ids.map(String))].slice(0, 100);
+  if (unique.length === 0) return { error: "لم يتم تحديد أي حركة" };
+  let done = 0;
+  const failed: Array<{ id: string; error: string }> = [];
+  for (const id of unique) {
+    const error = await run(id).catch((cause) => (cause instanceof PharmacyRuleError ? cause.message : "تعذر تنفيذ العملية"));
+    if (error) failed.push({ id, error });
+    else done += 1;
+  }
+  return { success: true, done, failed };
+}
+
+/**
+ * استعادة صرف ملغى (من سلة المحذوفات): تعود الحركة سارية ويُحتسب على السقف من جديد.
+ * صرف الوصفة (روتيني/أورام) لا يُستعاد لأن بنود وصفته حُررت وقد تكون صُرفت مجددًا؛ يُصرف من نافذة الصرف.
+ */
+export async function restorePharmacyDispenses(dispenseIds: string[]) {
+  return eachDispense(dispenseIds, async (id) => {
+    const dispense = await prisma.pharmacyDispense.findUnique({ where: { id }, select: { id: true, company_id: true, transaction_id: true, prescription_id: true, status: true, transaction: { select: { is_cancelled: true } } } });
+    if (!dispense) return "الصرف غير موجود";
+    const access = await requirePharmacySession(dispense.company_id, "write");
+    if ("error" in access) return access.error ?? "غير مصرح";
+    if (!hasPermission(access.session, "cancel_transactions")) return "الاستعادة تتطلب صلاحية إلغاء الحركات";
+    if (dispense.status !== "CANCELLED" && !dispense.transaction.is_cancelled) return "الحركة ليست ملغاة";
+    if (dispense.prescription_id) return "صرف وصفة: لا يُستعاد، اصرفه من جديد من نافذة الصرف";
+    await prisma.$transaction(async (tx) => {
+      await tx.transaction.update({ where: { id: dispense.transaction_id }, data: { is_cancelled: false } });
+      await tx.transaction.updateMany({ where: { original_transaction_id: dispense.transaction_id, type: "CANCELLATION" }, data: { is_cancelled: true } });
+      await tx.pharmacyDispense.update({ where: { id }, data: { status: "COMPLETED", cancelled_at: null, cancellation_reason: null } });
+      await tx.auditLog.create({ data: { facility_id: access.session.id, user: access.session.username, action: "PHARMACY_DISPENSE_RESTORE", metadata: { dispense_id: id, transaction_id: dispense.transaction_id } } });
+    });
+    return null;
+  });
+}
+
+/** حذف نهائي لصرف ملغى: الصرف وبنوده ومرفقاته وحركته المالية وحركة التصحيح، ولا يمكن التراجع. */
+export async function deletePharmacyDispensesPermanently(dispenseIds: string[]) {
+  return eachDispense(dispenseIds, async (id) => {
+    const dispense = await prisma.pharmacyDispense.findUnique({
+      where: { id },
+      select: { id: true, company_id: true, transaction_id: true, status: true, beneficiary_id: true, gross_total: true, transaction: { select: { is_cancelled: true } }, attachments: { select: { storage_path: true } } },
+    });
+    if (!dispense) return "الصرف غير موجود";
+    const access = await requirePharmacySession(dispense.company_id, "write");
+    if ("error" in access) return access.error ?? "غير مصرح";
+    if (!hasPermission(access.session, "delete_transaction")) return "الحذف النهائي يتطلب صلاحية حذف الحركات";
+    if (dispense.status !== "CANCELLED" && !dispense.transaction.is_cancelled) return "احذف الحركة أولًا (إلغاء) ثم احذفها نهائيًا من المحذوفات";
+    await prisma.$transaction(async (tx) => {
+      await tx.pharmacyDispense.delete({ where: { id } });
+      await tx.transaction.deleteMany({ where: { original_transaction_id: dispense.transaction_id, type: "CANCELLATION" } });
+      await tx.transaction.delete({ where: { id: dispense.transaction_id } });
+      await tx.auditLog.create({ data: { facility_id: access.session.id, user: access.session.username, action: "PHARMACY_DISPENSE_PERMANENT_DELETE", metadata: { dispense_id: id, transaction_id: dispense.transaction_id, beneficiary_id: dispense.beneficiary_id, gross_total: Number(dispense.gross_total) } } });
+    });
+    const root = path.join(/* turbopackIgnore: true */ process.cwd(), "storage", "pharmacy-prescriptions");
+    for (const file of dispense.attachments) {
+      const absolute = path.resolve(/* turbopackIgnore: true */ process.cwd(), file.storage_path);
+      if (absolute.startsWith(root + path.sep)) await unlink(absolute).catch(() => undefined);
+    }
+    return null;
+  });
+}
