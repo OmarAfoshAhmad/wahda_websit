@@ -11,8 +11,14 @@ import {
 } from "@/app/actions/pharmacy-chronic-import";
 import { Button, Card } from "@/components/ui";
 
-type Summary = { total: number; newCount: number; existingCount: number; errorCount: number; duplicateCount: number; warningCount: number; beneficiaryCount: number };
-type Filter = "ALL" | "ERROR" | "WARNING" | "NEW" | "DUPLICATE";
+type Summary = {
+  total: number; newCount: number; existingCount: number; errorCount: number; duplicateCount: number; warningCount: number; beneficiaryCount: number;
+  intervalDays: number; dispenseDated: number; lockedNow: number; dispenseIgnored: number; phoneSet: number; phoneSkipped: number;
+};
+type Filter = "ALL" | "ERROR" | "WARNING" | "NEW" | "DUPLICATE" | "LOCKED" | "PHONE";
+
+const todayTripoli = () => new Date(Date.now() + 2 * 3600_000).toISOString().slice(0, 10);
+const showDay = (day: string) => day.split("-").reverse().join("/");
 
 function saveBase64(fileName: string, base64: string) {
   const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
@@ -55,7 +61,11 @@ export function ChronicImportClient({ companies }: { companies: Array<{ id: stri
   const [confirmReplace, setConfirmReplace] = useState(false);
   const [pending, startTransition] = useTransition();
 
-  const visibleRows = useMemo(() => rows.filter((row) => filter === "ALL" || (filter === "ERROR" && row.status === "ERROR") || (filter === "WARNING" && row.warning) || (filter === "NEW" && row.status === "NEW") || (filter === "DUPLICATE" && row.status === "DUPLICATE")).slice(0, 500), [rows, filter]);
+  const visibleRows = useMemo(() => {
+    const today = todayTripoli();
+    return rows.filter((row) => filter === "ALL" || (filter === "ERROR" && row.status === "ERROR") || (filter === "WARNING" && (row.warning || row.dispenseNote)) || (filter === "NEW" && row.status === "NEW") || (filter === "DUPLICATE" && row.status === "DUPLICATE")
+      || (filter === "LOCKED" && row.nextEligibleOn && row.nextEligibleOn > today) || (filter === "PHONE" && row.phoneAction && row.phoneAction !== "SAME")).slice(0, 500);
+  }, [rows, filter]);
 
   const reset = () => { setSummary(null); setRows([]); setResult(""); setError(""); setConfirmReplace(false); };
 
@@ -77,7 +87,7 @@ export function ChronicImportClient({ companies }: { companies: Array<{ id: stri
       const response = await applyChronicDrugImport(companyId, fileBase64, mode);
       if ("error" in response && response.error) { setError(response.error); return; }
       if ("success" in response) {
-        setResult(`تم الاستيراد لـ ${response.beneficiaries} مستفيد: ${response.created} ربط جديد، ${response.reactivated} أعيد تفعيله، ${response.updatedNotes} تحديث ملاحظات${mode === "REPLACE" ? `، ${response.deactivated} أوقف` : ""}. الصفوف المرفوضة: ${response.summary.errorCount}.`);
+        setResult(`تم الاستيراد لـ ${response.beneficiaries} مستفيد: ${response.created} ربط جديد، ${response.reactivated} أعيد تفعيله، ${response.updatedNotes} تحديث ملاحظات${mode === "REPLACE" ? `، ${response.deactivated} أوقف` : ""}، ${response.datedDispenses} دواء بتاريخ صرف، ${response.phonesUpdated} هاتف أسرة. الصفوف المرفوضة: ${response.summary.errorCount}.`);
         setConfirmReplace(false);
       }
     });
@@ -97,7 +107,7 @@ export function ChronicImportClient({ companies }: { companies: Array<{ id: stri
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-1">
             <h2 className="text-base font-black text-slate-900 dark:text-white">1. جهّز الملف</h2>
-            <p className="text-sm text-slate-500">صف لكل دواء لكل مستفيد. الأعمدة: رقم البطاقة، اسم المستفيد (للتحقق)، اسم الدواء، ملاحظات.</p>
+            <p className="text-sm text-slate-500">صف لكل دواء لكل مستفيد. الأعمدة: رقم البطاقة، اسم المستفيد (للتحقق)، اسم الدواء، الجرعة، التكرار، ملاحظات، رقم الهاتف، تاريخ الصرف.</p>
           </div>
           <Button type="button" variant="outline" onClick={template} disabled={pending} className="h-9 text-sm"><Download className="h-4 w-4" /> تنزيل القالب</Button>
         </div>
@@ -141,14 +151,20 @@ export function ChronicImportClient({ companies }: { companies: Array<{ id: stri
             </Button>
           </div>
           {confirmReplace && <p className="text-sm font-bold text-amber-700">سيتم إيقاف أي دواء مرتبط بهؤلاء المستفيدين غير موجود في الملف. اضغط مرة أخرى للتأكيد.</p>}
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-6">
+          <p className="text-xs text-slate-500">
+            مدة صرف المزمن في سياسة هذه الشركة: <b className="text-slate-800 dark:text-slate-200">{summary.intervalDays} يومًا</b>.
+            الدواء الذي له تاريخ صرف يُقفل حتى (التاريخ + {summary.intervalDays} يومًا) ثم يُفتح تلقائيًا. لتغيير المدة عدّل سياسة الأدوية للشركة.
+          </p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
             {[
               ["الصفوف", summary.total, "ALL"],
               ["ربط جديد", summary.newCount, "NEW"],
               ["موجود مسبقًا", summary.existingCount, "ALL"],
               ["مرفوض", summary.errorCount, "ERROR"],
               ["مكرر يُتجاهل", summary.duplicateCount, "DUPLICATE"],
-              ["تنبيه اسم", summary.warningCount, "WARNING"],
+              ["تنبيهات", summary.warningCount + summary.dispenseIgnored, "WARNING"],
+              ["مقفل حتى موعده", summary.lockedNow, "LOCKED"],
+              ["هواتف تُحفظ", summary.phoneSet, "PHONE"],
             ].map(([label, value, target]) => (
               <button key={label as string} type="button" onClick={() => setFilter(target as Filter)} className={`rounded-md border p-2 text-start ${filter === target ? "border-teal-500 bg-teal-50 dark:bg-teal-950/30" : "border-slate-200 dark:border-slate-700"}`}>
                 <div className="text-xs font-bold text-slate-500">{label}</div>
@@ -158,9 +174,9 @@ export function ChronicImportClient({ companies }: { companies: Array<{ id: stri
           </div>
 
           <div className="overflow-x-auto rounded-md border border-slate-200 dark:border-slate-700">
-            <table className="w-full min-w-[640px] text-sm">
+            <table className="w-full min-w-240 text-sm">
               <thead className="bg-slate-50 text-xs text-slate-500 dark:bg-slate-800">
-                <tr><th className="p-2 text-start">الصف</th><th className="p-2 text-start">رقم البطاقة</th><th className="p-2 text-start">المستفيد</th><th className="p-2 text-start">الدواء</th><th className="p-2 text-start">الحالة</th></tr>
+                <tr><th className="p-2 text-start">الصف</th><th className="p-2 text-start">رقم البطاقة</th><th className="p-2 text-start">المستفيد</th><th className="p-2 text-start">الدواء</th><th className="p-2 text-start">الهاتف</th><th className="p-2 text-start">آخر صرف ← التالي</th><th className="p-2 text-start">الحالة</th></tr>
               </thead>
               <tbody>
                 {visibleRows.map((row) => (
@@ -169,10 +185,24 @@ export function ChronicImportClient({ companies }: { companies: Array<{ id: stri
                     <td className="p-2" dir="ltr">{row.card}</td>
                     <td className="p-2">{row.beneficiaryName}{row.warning && <div className="mt-0.5 flex items-center gap-1 text-xs text-amber-700"><AlertTriangle className="h-3 w-3" /> {row.warning}</div>}</td>
                     <td className="p-2" dir="auto">{row.drugName}{row.notes && <div className="text-xs text-slate-500">{row.notes}</div>}</td>
+                    <td className="p-2 text-xs">
+                      {row.phone && <div className="font-mono" dir="ltr">{row.phone}</div>}
+                      {row.phoneAction === "SET" && <div className="text-emerald-700">{row.phoneNote}</div>}
+                      {row.phoneAction === "SKIP" && <div className="text-amber-700">لن يُحفظ: {row.phoneNote}</div>}
+                    </td>
+                    <td className="p-2 text-xs tabular-nums">
+                      {row.dispensedOn ? (
+                        <>
+                          {row.dispenseNote && <div className="text-amber-700">{row.dispenseNote}</div>}
+                          <div>{showDay(row.dispensedOn)} ← <b className={row.nextEligibleOn! > todayTripoli() ? "text-rose-700" : "text-emerald-700"}>{showDay(row.nextEligibleOn!)}</b></div>
+                          <div className="text-slate-500">{row.nextEligibleOn! > todayTripoli() ? "مقفل حتى موعده" : "مستحق الآن"}</div>
+                        </>
+                      ) : row.dispenseNote ? <span className="text-amber-700">{row.dispenseNote}</span> : <span className="text-slate-400">لم يُصرف</span>}
+                    </td>
                     <td className="p-2">{row.status === "ERROR" ? <span className="text-xs font-bold text-rose-700">{row.message}</span> : row.status === "DUPLICATE" ? <span className="text-xs font-bold text-slate-500">مكرر</span> : row.status === "NEW" ? <span className="text-xs font-bold text-emerald-700">جديد</span> : <span className="text-xs font-bold text-slate-500">موجود</span>}</td>
                   </tr>
                 ))}
-                {visibleRows.length === 0 && <tr><td colSpan={5} className="p-4 text-center text-sm text-slate-500">لا توجد صفوف في هذا التصنيف</td></tr>}
+                {visibleRows.length === 0 && <tr><td colSpan={7} className="p-4 text-center text-sm text-slate-500">لا توجد صفوف في هذا التصنيف</td></tr>}
               </tbody>
             </table>
           </div>

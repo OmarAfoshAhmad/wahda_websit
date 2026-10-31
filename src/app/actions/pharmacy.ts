@@ -19,6 +19,7 @@ import {
   isPrescriptionValidToday,
   PRESCRIPTION_EXPIRED_MESSAGE,
   isChronicDrugEligible,
+  latestChronicDispense,
   resolvePharmacyCategoryPolicy,
   type MedicineCategoryValue,
 } from "@/lib/pharmacy/policy";
@@ -707,7 +708,7 @@ export async function dispenseChronicDrugs(formData: FormData) {
 
       const links = await tx.beneficiaryChronicDrug.findMany({
         where: { beneficiary_id: beneficiary.id, active: true },
-        select: { id: true, drug_id: true, drug: { select: { name: true } } },
+        select: { id: true, drug_id: true, imported_last_dispensed_at: true, drug: { select: { name: true } } },
       });
       if (links.length === 0) throw new PharmacyRuleError("المستفيد غير مشمول بخدمة الأدوية المزمنة: لا توجد أدوية مرتبطة به");
       const linkById = new Map(links.map((link) => [link.id, link]));
@@ -723,11 +724,15 @@ export async function dispenseChronicDrugs(formData: FormData) {
         distinct: ["drug_id"],
         select: { drug_id: true, dispense: { select: { created_at: true, facility: { select: { name: true } } } } },
       });
-      for (const last of lastItems) {
-        if (!isChronicDrugEligible(last.dispense.created_at, intervalDays, now)) {
-          const name = links.find((link) => link.drug_id === last.drug_id)?.drug.name ?? "الدواء";
-          const next = getNextChronicEligibleDate(last.dispense.created_at, intervalDays).toLocaleDateString("ar-LY", { timeZone: "Africa/Tripoli" });
-          throw new PharmacyRuleError(`${name} صُرف لدى ${last.dispense.facility.name}، ويُسمح بصرفه مجددًا من ${next}`);
+      const lastByDrug = new Map(lastItems.map((item) => [item.drug_id, item.dispense]));
+      for (const item of items) {
+        const link = linkById.get(item.chronicDrugId)!;
+        const system = lastByDrug.get(link.drug_id);
+        const lastAt = latestChronicDispense(system?.created_at, link.imported_last_dispensed_at);
+        if (lastAt && !isChronicDrugEligible(lastAt, intervalDays, now)) {
+          const where = lastAt === system?.created_at ? `لدى ${system.facility.name}` : "قبل المنظومة";
+          const next = getNextChronicEligibleDate(lastAt, intervalDays).toLocaleDateString("ar-LY", { timeZone: "Africa/Tripoli" });
+          throw new PharmacyRuleError(`${link.drug.name} صُرف ${where}، ويُسمح بصرفه مجددًا من ${next}`);
         }
       }
 

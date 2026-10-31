@@ -5,6 +5,7 @@ import {
   getPolicyYearWindow,
   getTripoliDayWindow,
   isChronicDrugEligible,
+  latestChronicDispense,
   resolvePharmacyCategoryPolicy,
   type MedicineCategoryValue,
 } from "@/lib/pharmacy/policy";
@@ -104,7 +105,7 @@ export async function getChronicDrugStatuses(beneficiaryId: string, intervalDays
   const links = await prisma.beneficiaryChronicDrug.findMany({
     where: { beneficiary_id: beneficiaryId, active: true },
     orderBy: [{ sort_order: "asc" }, { created_at: "asc" }],
-    select: { id: true, notes: true, drug: { select: { id: true, name: true } } },
+    select: { id: true, notes: true, imported_last_dispensed_at: true, drug: { select: { id: true, name: true } } },
   });
   if (links.length === 0) return [];
   const lastItems = await prisma.pharmacyDispenseItem.findMany({
@@ -116,16 +117,17 @@ export async function getChronicDrugStatuses(beneficiaryId: string, intervalDays
   const lastByDrug = new Map(lastItems.map((item) => [item.drug_id, item]));
   return links.map((link) => {
     const last = lastByDrug.get(link.drug.id);
-    const lastAt = last?.dispense.created_at ?? null;
+    const lastAt = latestChronicDispense(last?.dispense.created_at, link.imported_last_dispensed_at);
+    const fromImport = lastAt !== null && lastAt !== last?.dispense.created_at;
     return {
       id: link.id,
       drug_id: link.drug.id,
       drug_name: link.drug.name,
       notes: link.notes,
       last_dispensed_at: lastAt?.toISOString() ?? null,
-      last_facility_id: last?.dispense.facility.id ?? null,
-      last_facility_name: last?.dispense.facility.name ?? null,
-      last_price: last ? Number(last.price) : null,
+      last_facility_id: fromImport ? null : last?.dispense.facility.id ?? null,
+      last_facility_name: fromImport ? "قبل المنظومة" : last?.dispense.facility.name ?? null,
+      last_price: last && !fromImport ? Number(last.price) : null,
       eligible: isChronicDrugEligible(lastAt, intervalDays, now),
       next_eligible_at: lastAt ? getNextChronicEligibleDate(lastAt, intervalDays).toISOString() : null,
     };

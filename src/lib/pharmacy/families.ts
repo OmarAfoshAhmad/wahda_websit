@@ -59,11 +59,11 @@ export function familyCte(companyId: string, search: string) {
     m AS (
       SELECT b.id, b.name, b.card_number, b.phone_number, b.status::text AS status, (b.pin_hash IS NOT NULL) AS has_password,
         ${famExpr} AS fam, (e.emp = ${famExpr}) AS is_head,
-        COALESCE(cc.n, 0)::int AS chronic_count, ld.last_at AS last_dispense_at,
+        COALESCE(cc.n, 0)::int AS chronic_count, GREATEST(ld.last_at, cc.imported_at) AS last_dispense_at,
         ${search ? memberSearchSql(search) : Prisma.sql`TRUE`} AS matched
       FROM "Beneficiary" b
       CROSS JOIN LATERAL (SELECT ${EMP_SQL} AS emp) e
-      LEFT JOIN (SELECT beneficiary_id, COUNT(*) AS n FROM "BeneficiaryChronicDrug" WHERE active GROUP BY beneficiary_id) cc ON cc.beneficiary_id = b.id
+      LEFT JOIN (SELECT beneficiary_id, COUNT(*) AS n, MAX(imported_last_dispensed_at) AS imported_at FROM "BeneficiaryChronicDrug" WHERE active GROUP BY beneficiary_id) cc ON cc.beneficiary_id = b.id
       LEFT JOIN (SELECT beneficiary_id, MAX(created_at) AS last_at FROM "PharmacyDispense" WHERE company_id = ${companyId} AND status = 'COMPLETED' GROUP BY beneficiary_id) ld ON ld.beneficiary_id = b.id
       WHERE b.company_id = ${companyId} AND b.deleted_at IS NULL
     ),

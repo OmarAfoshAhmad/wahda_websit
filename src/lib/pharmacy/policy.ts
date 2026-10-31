@@ -9,7 +9,7 @@ function tripoliParts(date: Date) {
   return { year: shifted.getUTCFullYear(), month: shifted.getUTCMonth(), day: shifted.getUTCDate() };
 }
 
-function tripoliMidnight(year: number, month: number, day: number) {
+export function tripoliMidnight(year: number, month: number, day: number) {
   return new Date(Date.UTC(year, month, day) - TRIPOLI_OFFSET_MS);
 }
 
@@ -52,6 +52,13 @@ export function getNextChronicEligibleDate(lastDispensedAt: Date, intervalDays: 
   if (!Number.isInteger(intervalDays) || intervalDays < 1) throw new Error("فترة صرف المزمن يجب أن تكون يومًا على الأقل");
   const { year, month, day } = tripoliParts(lastDispensedAt);
   return tripoliMidnight(year, month, day + intervalDays);
+}
+
+/** آخر صرف فعّال للدواء: الأحدث بين صرف المنظومة وصرف ما قبلها (المستورد). */
+export function latestChronicDispense(systemAt: Date | null | undefined, importedAt: Date | null | undefined) {
+  if (!systemAt) return importedAt ?? null;
+  if (!importedAt) return systemAt;
+  return importedAt > systemAt ? importedAt : systemAt;
 }
 
 export function isChronicDrugEligible(lastDispensedAt: Date | null, intervalDays: number, now: Date) {
