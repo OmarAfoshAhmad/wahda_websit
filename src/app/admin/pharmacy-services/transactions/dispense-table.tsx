@@ -1,8 +1,9 @@
 "use client";
 
 import { Fragment, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, CreditCard, FileText, Printer, RotateCcw, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, CreditCard, Download, FileText, History, Printer, RotateCcw, Trash2 } from "lucide-react";
 import { cancelPharmacyDispenses, deletePharmacyDispensesPermanently, restorePharmacyDispenses } from "@/app/actions/pharmacy";
 import { ConfirmationModal } from "@/components/confirmation-modal";
 
@@ -36,12 +37,16 @@ const ACTION_TEXT: Record<Action, { title: string; body: (n: number) => string; 
 
 const money = (value: number) => value.toLocaleString("ar-LY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const when = (value: string) => new Date(value).toLocaleString("en-GB", { timeZone: "Africa/Tripoli", dateStyle: "short", timeStyle: "short" });
-const TH = "px-3 py-3 text-start text-xs font-black text-slate-500 whitespace-nowrap";
-const TD = "px-3 py-2.5 align-middle";
+const TH = "px-4 py-3 text-start font-black text-slate-500 dark:text-slate-400 whitespace-nowrap";
+const TD = "px-4 py-3.5 align-middle";
 const ICON = "inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors disabled:opacity-50";
 
 /** جدول حركات الصيدلية: أعمدة مستقلة، تحديد متعدد، حذف ناعم، ومن «المحذوفة» استعادة أو حذف نهائي. */
-export function DispenseTable({ rows, deletedView, canRestore, canDeletePermanently }: { rows: DispenseRowData[]; deletedView: boolean; canRestore: boolean; canDeletePermanently: boolean }) {
+export function DispenseTable({ rows, deletedView, canRestore, canDeletePermanently, page, totalPages, total, prevHref, nextHref, printHref, exportHref, showCompany }: {
+  rows: DispenseRowData[]; deletedView: boolean; canRestore: boolean; canDeletePermanently: boolean;
+  page: number; totalPages: number; total: number; prevHref: string | null; nextHref: string | null;
+  printHref: string; exportHref: string | null; showCompany: boolean;
+}) {
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [open, setOpen] = useState<string | null>(null);
@@ -76,22 +81,41 @@ export function DispenseTable({ rows, deletedView, canRestore, canDeletePermanen
   const ask = (action: Action, ids: string[]) => { setError(null); setNotice(null); setPendingAction({ action, ids }); };
   const ids = [...selected];
 
+  const bulk = (label: string, action: Action, tone: "warning" | "danger" | "success") => (
+    <button
+      type="button"
+      disabled={selected.size === 0}
+      onClick={() => ask(action, ids)}
+      className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-4 text-xs font-black transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+        tone === "warning" ? "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300"
+        : tone === "success" ? "border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300"
+        : "border-red-300 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-900 dark:bg-red-950/20 dark:text-red-400"}`}
+    >
+      {label}
+      <span className="rounded-full bg-white/80 px-1.5 text-[10px] dark:bg-slate-900/60">{selected.size}</span>
+    </button>
+  );
+
   return (
-    <>
-      {selected.size > 0 && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 bg-slate-50 px-4 py-2 dark:border-slate-800 dark:bg-slate-900/50">
-          <span className="text-sm font-bold text-slate-600 dark:text-slate-300">محدد: {selected.size}</span>
-          {!deletedView && <button type="button" onClick={() => ask("delete", ids)} className="inline-flex h-8 items-center gap-1 rounded-md bg-rose-600 px-3 text-sm font-bold text-white"><Trash2 className="h-4 w-4" /> حذف المحدد</button>}
-          {deletedView && canRestore && <button type="button" onClick={() => ask("restore", ids)} className="inline-flex h-8 items-center gap-1 rounded-md bg-emerald-600 px-3 text-sm font-bold text-white"><RotateCcw className="h-4 w-4" /> استعادة المحدد</button>}
-          {deletedView && canDeletePermanently && <button type="button" onClick={() => ask("purge", ids)} className="inline-flex h-8 items-center gap-1 rounded-md bg-rose-700 px-3 text-sm font-bold text-white"><Trash2 className="h-4 w-4" /> حذف نهائي للمحدد</button>}
-          <button type="button" onClick={() => setSelected(new Set())} className="text-sm font-bold text-slate-500 hover:underline">إلغاء التحديد</button>
+    <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4 dark:border-slate-800">
+        <div className="flex items-center gap-2.5">
+          <h2 className="flex items-center gap-2 text-base font-black text-slate-900 dark:text-white"><History className="h-5 w-5 text-teal-600" /> {deletedView ? "الحركات المحذوفة" : "سجل الحركات"}</h2>
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-black text-slate-400 dark:border-slate-700 dark:bg-slate-800">صفحة {page} من {totalPages}</span>
         </div>
-      )}
-      {notice && <p role="status" className="bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">{notice}</p>}
+        <div className="flex flex-wrap items-center gap-2">
+          {!deletedView && selectable.length > 0 && bulk("حذف المحدد", "delete", "warning")}
+          {deletedView && canRestore && bulk("استعادة المحدد", "restore", "success")}
+          {deletedView && canDeletePermanently && bulk("حذف نهائي للمحدد", "purge", "danger")}
+          <a href={printHref} target="_blank" rel="noopener noreferrer" className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 text-xs font-black text-slate-700 shadow-sm transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"><Printer className="h-4 w-4 text-teal-600" /> طباعة الكشف المصفى</a>
+          {exportHref && <a href={exportHref} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 text-xs font-black text-emerald-700 shadow-sm transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-emerald-400"><Download className="h-4 w-4 text-emerald-600" /> تصدير Excel</a>}
+        </div>
+      </div>
+      {notice && <p role="status" className="rounded-md bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">{notice}</p>}
 
       <div className="overflow-x-auto">
         <table className="w-full min-w-245 text-sm">
-          <thead className="bg-slate-50 dark:bg-slate-800/60">
+          <thead className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-800/50">
             <tr>
               <th className="w-10 px-3 py-3">
                 {selectable.length > 0 && <input type="checkbox" aria-label="تحديد الكل" checked={allSelected} onChange={() => setSelected(allSelected ? new Set() : new Set(selectable.map((row) => row.id)))} className="h-4 w-4 accent-teal-600" />}
@@ -99,6 +123,7 @@ export function DispenseTable({ rows, deletedView, canRestore, canDeletePermanen
               <th className={TH}>المستفيد</th>
               <th className={TH}>رقم البطاقة</th>
               <th className={TH}>النوع</th>
+              {showCompany && <th className={TH}>الشركة</th>}
               <th className={TH}>الصيدلية</th>
               <th className={TH}>{deletedView ? "تاريخ الحذف" : "التاريخ"}</th>
               <th className={`${TH} text-end`}>الإجمالي</th>
@@ -122,7 +147,8 @@ export function DispenseTable({ rows, deletedView, canRestore, canDeletePermanen
                     </td>
                     <td className={`${TD} font-mono text-xs text-slate-600 dark:text-slate-300`} dir="ltr">{row.card}</td>
                     <td className={TD}>{row.category}{row.prescriptionNumber ? <span className="text-xs text-slate-500"> · وصفة {row.prescriptionNumber}</span> : null}</td>
-                    <td className={`${TD} text-slate-600 dark:text-slate-300`}>{row.facility}</td>
+                    {showCompany && <td className={`${TD} text-xs text-slate-600 dark:text-slate-300`}>{row.company}</td>}
+                    <td className={`${TD} text-xs font-bold text-slate-600 dark:text-slate-300`}>{row.facility}</td>
                     <td className={`${TD} whitespace-nowrap tabular-nums text-slate-600 dark:text-slate-300`} dir="ltr">{when(deletedView && row.cancelledAt ? row.cancelledAt : row.createdAt)}</td>
                     <td className={`${TD} text-end font-black tabular-nums`}>{money(row.gross)}</td>
                     <td className={`${TD} text-end tabular-nums text-teal-700 dark:text-teal-300`}>{money(row.companyShare)}</td>
@@ -141,7 +167,7 @@ export function DispenseTable({ rows, deletedView, canRestore, canDeletePermanen
                   {expanded && (
                     <tr className="bg-slate-50/70 dark:bg-slate-900/40">
                       <td />
-                      <td colSpan={9} className="px-3 py-3">
+                      <td colSpan={showCompany ? 10 : 9} className="px-3 py-3">
                         <table className="w-full max-w-2xl text-xs">
                           <thead className="text-slate-500"><tr><th className="py-1 text-start">البند</th><th className="py-1 text-end">السعر</th><th className="py-1 text-end">على الشركة</th><th className="py-1 text-end">على المستفيد</th></tr></thead>
                           <tbody>
@@ -171,9 +197,25 @@ export function DispenseTable({ rows, deletedView, canRestore, canDeletePermanen
                 </Fragment>
               );
             })}
+            {rows.length === 0 && (
+              <tr><td colSpan={showCompany ? 11 : 10} className="px-4 py-12 text-center font-bold text-slate-500 dark:text-slate-400">{deletedView ? "لا توجد حركات محذوفة." : "لا توجد حركات مطابقة للبحث أو معايير الفلترة المحددة."}</td></tr>
+            )}
           </tbody>
         </table>
       </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between border-t border-slate-100 pt-4 dark:border-slate-800">
+          <div className="flex items-center gap-1">
+            {[{ href: prevHref, icon: <ChevronRight className="h-4 w-4" />, title: "الصفحة السابقة" }, { href: nextHref, icon: <ChevronLeft className="h-4 w-4" />, title: "الصفحة التالية" }].map((item) => item.href ? (
+              <Link key={item.title} href={item.href} title={item.title} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">{item.icon}</Link>
+            ) : (
+              <span key={item.title} className="inline-flex h-9 w-9 cursor-not-allowed items-center justify-center rounded-lg border border-slate-100 bg-slate-50/50 text-slate-300 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-600">{item.icon}</span>
+            ))}
+          </div>
+          <span className="text-xs font-bold text-slate-500 dark:text-slate-400">صفحة {page} من {totalPages} (إجمالي {total.toLocaleString("ar-LY")} حركة)</span>
+        </div>
+      )}
 
       {pendingAction && (
         <ConfirmationModal
@@ -188,6 +230,6 @@ export function DispenseTable({ rows, deletedView, canRestore, canDeletePermanen
           error={error}
         />
       )}
-    </>
+    </div>
   );
 }
