@@ -15,13 +15,14 @@ import {
   updateChronicDrug,
 } from "@/app/actions/pharmacy-beneficiaries";
 import { importFamilyPhones, type PhoneImportStatus } from "@/app/actions/pharmacy-phone-import";
+import { formatDateTripoli } from "@/lib/datetime";
 
 type FamilyResult = Awaited<ReturnType<typeof listPharmacyFamilies>>;
 type Family = FamilyResult["families"][number];
 type Details = Extract<Awaited<ReturnType<typeof getPharmacyBeneficiaryDetails>>, { beneficiary: unknown }>;
 
 const CATEGORY: Record<string, string> = { ROUTINE: "روتيني", CHRONIC: "مزمن", CHEMICAL: "أورام" };
-const day = (value: string) => new Date(value).toLocaleDateString("en-GB", { timeZone: "Africa/Tripoli" });
+const day = (value: string) => formatDateTripoli(value);
 const money = (value: number) => `${value.toLocaleString("ar-LY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} د.ل`;
 const count = (value: number) => value.toLocaleString("en");
 

@@ -14,6 +14,7 @@ import {
 import { Button, Card, Input } from "@/components/ui";
 import { ACCEPTED_FILES, prepareFile } from "@/lib/pharmacy/client-files";
 import { CameraButton } from "@/components/pharmacy/camera-capture";
+import { formatDateTripoli } from "@/lib/datetime";
 
 type CategoryValue = "ROUTINE" | "CHRONIC" | "CHEMICAL";
 type AttachmentKind = "INSURANCE_CARD" | "PRESCRIPTION";
@@ -92,7 +93,7 @@ type ReviewLine = { label: string; price: number };
 type PendingDispense = { lines: ReviewLine[]; files: string[]; submit: () => Promise<{ error?: string } | undefined> };
 
 const money = (value: number) => `${value.toLocaleString("ar-LY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} د.ل`;
-const tripoliDate = (value: string) => new Date(value).toLocaleDateString("ar-LY", { timeZone: "Africa/Tripoli" });
+const tripoliDate = (value: string) => formatDateTripoli(value);
 const newKey = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
 
 /** تقدير الحصص في الواجهة بنفس قاعدة الخادم: السقف يُستهلك بالإجمالي، والصرف فوق المتبقي مرفوض. الخادم هو المرجع النهائي. */

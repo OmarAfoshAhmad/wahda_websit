@@ -3,6 +3,7 @@ import ExcelJS from "exceljs";
 import prisma from "@/lib/prisma";
 import { hasPermission } from "@/lib/session-guard";
 import { FAMILY_FILTERS, familyCte, filterSql, requirePharmacyStaff, type FamilyFilter, type HeadRow } from "@/lib/pharmacy/families";
+import { formatDateTripoli } from "@/lib/datetime";
 
 const FILTER_LABEL: Record<FamilyFilter, string> = {
   all: "كل الأسر", no_phone: "بلا هاتف", no_portal: "غير مسجلة في البوابة", chronic: "لديها مزمن", recent: "صرف خلال 30 يوما", never: "لم يصرف لها",
@@ -59,7 +60,7 @@ export async function GET(request: Request) {
       member_names: row.member_names ?? "",
       portal: row.has_password ? "نعم" : "لا",
       chronic: row.chronic_count,
-      last: row.last_dispense_at ? row.last_dispense_at.toLocaleDateString("en-GB", { timeZone: "Africa/Tripoli" }) : "",
+      last: row.last_dispense_at ? formatDateTripoli(row.last_dispense_at) : "",
     });
   }
 

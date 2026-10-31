@@ -9,6 +9,7 @@ import { prepareFile } from "@/lib/pharmacy/client-files";
 import { CameraButton } from "@/components/pharmacy/camera-capture";
 import { getCurrentLocation, type GeoPoint } from "@/lib/geo-client";
 import type { ChronicDrugStatus } from "@/lib/pharmacy/summary";
+import { formatDateTripoli } from "@/lib/datetime";
 
 /**
  * طلب دواء من صيدلية كخطوات بسيطة: قرار واحد في كل شاشة، أزرار كبيرة، ولغة بسيطة.
@@ -29,7 +30,7 @@ const OPEN_STATUSES = ["PENDING", "AVAILABLE", "CONFIRMED", "OUT_FOR_DELIVERY"];
 const SEARCH_THRESHOLD = 8;
 
 const normalizeArabic = (value: string) => value.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").replace(/\s+/g, " ").trim();
-const dateText = (iso: string) => new Date(iso).toLocaleDateString("ar-LY", { timeZone: "Africa/Tripoli", day: "numeric", month: "long" });
+const dateText = (iso: string) => formatDateTripoli(iso);
 
 /** زر اختيار كبير: عنوان واضح وسطر واحد مساعد. */
 function BigChoice({ selected, disabled, onClick, icon, title, subtitle, note }: { selected?: boolean; disabled?: boolean; onClick: () => void; icon?: React.ReactNode; title: string; subtitle?: React.ReactNode; note?: string }) {

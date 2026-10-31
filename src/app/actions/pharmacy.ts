@@ -25,6 +25,7 @@ import {
 } from "@/lib/pharmacy/policy";
 import { cancelTransactionInTx } from "@/lib/transaction-cancel";
 import { notifyBeneficiaryOfDispense } from "@/lib/pharmacy/dispense-notify";
+import { formatDateTripoli } from "@/lib/datetime";
 
 type PharmacySession = NonNullable<Awaited<ReturnType<typeof getSessionWithFreshPermissions>>>;
 type Tx = Omit<typeof prisma, "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends">;
@@ -731,7 +732,7 @@ export async function dispenseChronicDrugs(formData: FormData) {
         const lastAt = latestChronicDispense(system?.created_at, link.imported_last_dispensed_at);
         if (lastAt && !isChronicDrugEligible(lastAt, intervalDays, now)) {
           const where = lastAt === system?.created_at ? `لدى ${system.facility.name}` : "قبل المنظومة";
-          const next = getNextChronicEligibleDate(lastAt, intervalDays).toLocaleDateString("ar-LY", { timeZone: "Africa/Tripoli" });
+          const next = formatDateTripoli(getNextChronicEligibleDate(lastAt, intervalDays));
           throw new PharmacyRuleError(`${link.drug.name} صُرف ${where}، ويُسمح بصرفه مجددًا من ${next}`);
         }
       }

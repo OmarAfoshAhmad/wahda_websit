@@ -64,7 +64,7 @@ export function MyPharmacyForm({ facilityName, initial }: { facilityName: string
     <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); save(); }}>
       <Card className="space-y-3 p-4">
         <h2 className="text-base font-black">{facilityName}</h2>
-        <Toggle checked={form.acceptsOrders} onChange={(value) => set("acceptsOrders", value)} label="استقبال طلبات المستفيدين" description="عند التفعيل تظهر صيدليتك في بوابة المستفيدين ويمكنهم مراسلتك وطلب الأدوية." />
+        <p className="text-xs text-slate-500">تظهر صيدليتك في بوابة المستفيدين لاستقبال الطلبات بمجرد تحديد موقعها على الخريطة.</p>
       </Card>
 
       <Card className="space-y-3 p-4">

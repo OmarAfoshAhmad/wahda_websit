@@ -5,6 +5,7 @@ import { Camera, Check, CheckCheck, FileText, MapPin, ImagePlus, Loader2, Send, 
 import { ACCEPTED_FILES, prepareFile } from "@/lib/pharmacy/client-files";
 import { CameraButton } from "@/components/pharmacy/camera-capture";
 import { getCurrentLocation } from "@/lib/geo-client";
+import { formatDateTripoli } from "@/lib/datetime";
 
 export type ChatMessage = {
   id: string;
@@ -18,7 +19,7 @@ export type ChatMessage = {
 };
 
 const timeOf = (value: string) => new Date(value).toLocaleTimeString("ar-LY", { timeZone: "Africa/Tripoli", hour: "2-digit", minute: "2-digit" });
-const dayOf = (value: string) => new Date(value).toLocaleDateString("ar-LY", { timeZone: "Africa/Tripoli", day: "numeric", month: "long" });
+const dayOf = (value: string) => formatDateTripoli(value);
 
 /**
  * محادثة طلب صيدلية مشتركة بين المستفيد وحساب المرفق.

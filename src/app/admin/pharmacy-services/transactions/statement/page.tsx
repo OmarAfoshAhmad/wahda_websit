@@ -5,10 +5,11 @@ import { canAccessAdmin } from "@/lib/permissions";
 import { getAllowedCompanyIds } from "@/lib/company-scope";
 import { PrintButton } from "@/components/print-button";
 import { buildDispenseWhere, DISPENSE_CATEGORIES, type DispenseFilterParams } from "@/lib/pharmacy/dispense-filter";
+import { formatDateTripoli } from "@/lib/datetime";
 
 const MAX_ROWS = 5000;
 const money = (value: unknown) => Number(value ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const when = (value: Date) => value.toLocaleString("en-GB", { timeZone: "Africa/Tripoli", dateStyle: "short", timeStyle: "short" });
+const when = (value: Date) => formatDateTripoli(value);
 
 /** كشف حركات الصيدلية المصفّى للطباعة (نفس فلاتر الجدول). */
 export default async function PharmacyStatementPage({ searchParams }: { searchParams: Promise<DispenseFilterParams> }) {

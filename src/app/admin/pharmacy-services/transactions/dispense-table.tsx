@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronLeft, ChevronRight, CreditCard, Download, FileText, History, Printer, RotateCcw, Trash2 } from "lucide-react";
 import { cancelPharmacyDispenses, deletePharmacyDispensesPermanently, restorePharmacyDispenses } from "@/app/actions/pharmacy";
 import { ConfirmationModal } from "@/components/confirmation-modal";
+import { formatDateTripoli } from "@/lib/datetime";
 
 export type DispenseRowData = {
   id: string;
@@ -36,7 +37,7 @@ const ACTION_TEXT: Record<Action, { title: string; body: (n: number) => string; 
 };
 
 const money = (value: number) => value.toLocaleString("ar-LY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const when = (value: string) => new Date(value).toLocaleString("en-GB", { timeZone: "Africa/Tripoli", dateStyle: "short", timeStyle: "short" });
+const when = (value: string) => formatDateTripoli(value);
 const TH = "px-4 py-3 text-start font-black text-slate-500 dark:text-slate-400 whitespace-nowrap";
 const TD = "px-4 py-3.5 align-middle";
 const ICON = "inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors disabled:opacity-50";

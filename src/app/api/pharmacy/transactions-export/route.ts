@@ -5,6 +5,7 @@ import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-gua
 import { canAccessAdmin } from "@/lib/permissions";
 import { getAllowedCompanyIds } from "@/lib/company-scope";
 import { buildDispenseWhere, DISPENSE_CATEGORIES, type DispenseFilterParams } from "@/lib/pharmacy/dispense-filter";
+import { formatDateTripoli } from "@/lib/datetime";
 
 const MAX_ROWS = 50_000;
 
@@ -47,7 +48,7 @@ export async function GET(request: Request) {
   const header = ws.getRow(1);
   header.font = { bold: true, color: { argb: "FFFFFFFF" } };
   header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0D9488" } };
-  const when = (date: Date) => date.toLocaleString("en-GB", { timeZone: "Africa/Tripoli", dateStyle: "short", timeStyle: "short" });
+  const when = (date: Date) => formatDateTripoli(date);
   for (const row of rows) {
     ws.addRow({
       number: row.id.slice(-8).toUpperCase(),

@@ -12,6 +12,7 @@ import {
 } from "@/app/actions/pharmacy-orders";
 import { Button, Card } from "@/components/ui";
 import { OrderChat, OrderStatusBadge, useOrderEvents, type ChatMessage } from "@/components/pharmacy/order-chat";
+import { formatDateTripoli } from "@/lib/datetime";
 
 const CATEGORY_LABELS: Record<string, string> = { ROUTINE: "روتيني", CHRONIC: "مزمن", CHEMICAL: "أورام" };
 const CLOSED = ["COMPLETED", "REJECTED", "CANCELLED"];
@@ -19,7 +20,7 @@ const CLOSED = ["COMPLETED", "REJECTED", "CANCELLED"];
 type ListItem = Awaited<ReturnType<typeof listFacilityPharmacyOrders>>["items"][number];
 type Thread = NonNullable<Extract<Awaited<ReturnType<typeof getFacilityPharmacyOrder>>, { order: unknown }>["order"]>;
 
-const when = (value: string) => new Date(value).toLocaleString("ar-LY", { timeZone: "Africa/Tripoli", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+const when = (value: string) => formatDateTripoli(value);
 
 export function OrdersInbox() {
   const router = useRouter();

@@ -5,6 +5,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { MedicineCategory, PharmacyAttachmentKind, PharmacyFulfillment, PharmacyOrderStatus, Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
+import { formatDateTripoli } from "@/lib/datetime";
 import { getBeneficiarySession } from "@/lib/beneficiary-auth";
 import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-guard";
 import { checkRateLimit } from "@/lib/rate-limit";
@@ -148,7 +149,7 @@ export async function createPharmacyOrder(formData: FormData) {
     if (chronicDrugIds.length === 0) return { error: "اختر دواءً مزمنًا واحدًا على الأقل" };
     const byId = new Map(statuses.map((drug) => [drug.id, drug]));
     const blocked = chronicDrugIds.find((id) => !byId.get(id)?.eligible);
-    if (blocked) return { error: byId.has(blocked) ? `${byId.get(blocked)!.drug_name} غير مستحق قبل ${new Date(byId.get(blocked)!.next_eligible_at!).toLocaleDateString("ar-LY", { timeZone: "Africa/Tripoli" })}` : "أحد الأدوية غير مرتبط بحسابك" };
+    if (blocked) return { error: byId.has(blocked) ? `${byId.get(blocked)!.drug_name} غير مستحق قبل ${formatDateTripoli(byId.get(blocked)!.next_eligible_at!)}` : "أحد الأدوية غير مرتبط بحسابك" };
   }
 
   let deliveryFee: number | null = null;
@@ -406,12 +407,12 @@ export async function saveMyPharmacyProfile(input: {
   if (!session) return { error: "غير مصرح" };
   const location = parseLocation(input.latitude, input.longitude);
   if ((input.latitude !== null || input.longitude !== null) && !location) return { error: "الموقع غير صالح" };
-  if (input.acceptsOrders && !location) return { error: "حدد موقع الصيدلية قبل تفعيل استقبال الطلبات" };
   if ((input.opensAt || input.closesAt) && !(isValidTime(input.opensAt) && isValidTime(input.closesAt))) return { error: "اكتب ساعات العمل بصيغة 09:00" };
   const money = [input.deliveryBaseFee, input.deliveryPerKm, input.deliveryMaxKm ?? 0];
   if (money.some((value) => !Number.isFinite(value) || value < 0 || value > 1000)) return { error: "قيم التوصيل يجب أن تكون بين 0 و1000" };
   const data = {
-    accepts_orders: input.acceptsOrders,
+    // استقبال الطلبات مفعل دائمًا؛ تظهر الصيدلية للمستفيدين متى حُدد موقعها.
+    accepts_orders: location !== null,
     address: input.address.trim().slice(0, 300) || null,
     city: input.city.trim().slice(0, 100) || null,
     phone: input.phone.trim().slice(0, 30) || null,

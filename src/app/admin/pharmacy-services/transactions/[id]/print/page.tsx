@@ -7,13 +7,14 @@ import { PrintButton } from "@/components/print-button";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { pdfPageCount } from "@/lib/pharmacy/attachment-conversion";
+import { formatDateTripoli } from "@/lib/datetime";
 
 const STORAGE_ROOT = path.join(/* turbopackIgnore: true */ process.cwd(), "storage", "pharmacy-prescriptions");
 
 const CATEGORY: Record<string, string> = { ROUTINE: "أدوية روتينية", CHRONIC: "أدوية مزمنة", CHEMICAL: "أدوية الأورام" };
 const KIND: Record<string, string> = { INSURANCE_CARD: "صورة البطاقة التأمينية", PRESCRIPTION: "صورة الوصفة الطبية" };
 const money = (value: unknown) => Number(value ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const when = (value: Date) => value.toLocaleString("en-GB", { timeZone: "Africa/Tripoli", dateStyle: "short", timeStyle: "short" });
+const when = (value: Date) => formatDateTripoli(value);
 
 /**
  * فاتورة صرف أدوية للطباعة: بيانات الصرف والبنود والتوزيع بين الشركة والمستفيد، ثم المرفقات (البطاقة والوصفة)
@@ -129,10 +130,6 @@ export default async function PharmacyInvoicePrintPage({ params }: { params: Pro
         </tfoot>
       </table>
 
-      <div className="mt-10 grid grid-cols-2 gap-8 text-sm">
-        <div className="border-t border-slate-400 pt-1 text-center">توقيع وختم الصيدلية</div>
-        <div className="border-t border-slate-400 pt-1 text-center">توقيع المستفيد بالاستلام</div>
-      </div>
       <p className="mt-4 text-xs text-slate-500">المرفقات: {attachments.length ? attachments.map((item) => KIND[item.kind ?? ""] ?? item.file_name).join("، ") : "لا توجد"} · مرجع الحركة <span className="font-mono" dir="ltr">{dispense.transaction.id.slice(-8).toUpperCase()}</span></p>
 
       {attachments.flatMap((attachment) => {
@@ -155,6 +152,11 @@ export default async function PharmacyInvoicePrintPage({ params }: { params: Pro
           </section>
         ));
       })}
+
+      <div className="mt-10 grid break-inside-avoid grid-cols-2 gap-8 text-sm">
+        <div className="border-t border-slate-400 pt-1 text-center">توقيع وختم الصيدلية</div>
+        <div className="border-t border-slate-400 pt-1 text-center">توقيع المستفيد بالاستلام</div>
+      </div>
     </div>
   );
 }
