@@ -12,7 +12,7 @@ import { getEndOfDayTripoli, getStartOfDayTripoli } from "@/lib/datetime";
 import { getArabicSearchTerms } from "@/lib/search";
 import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-guard";
 import { getTripoliDayWindow } from "@/lib/pharmacy/policy";
-import { DispenseRow } from "./dispense-row";
+import { DispenseList } from "./dispense-list";
 
 const PAGE_SIZE = 25;
 const CATEGORIES: Record<MedicineCategory, string> = { ROUTINE: "روتيني", CHRONIC: "مزمن", CHEMICAL: "أورام" };
@@ -113,14 +113,11 @@ export default async function PharmacyTransactionsPage({ searchParams }: { searc
 
         <Card className="overflow-hidden">
           {rows.length === 0 ? <p className="p-8 text-center text-sm text-slate-500">لا توجد حركات مطابقة</p> : (
-            <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-              {rows.map((row) => {
+            <DispenseList
+              rows={rows.map((row) => {
                 const cancelled = row.status === "CANCELLED" || row.transaction.is_cancelled;
                 const ownSameDay = row.facility_id === session.id && row.created_at >= today.start && row.created_at < today.end;
-                return (
-                  <DispenseRow
-                    key={row.id}
-                    row={{
+                return {
                       id: row.id,
                       category: CATEGORIES[row.medicine_category],
                       beneficiary: row.beneficiary.name,
@@ -140,11 +137,9 @@ export default async function PharmacyTransactionsPage({ searchParams }: { searc
                       // الصيدلية تلغي صرفها في يومه فقط؛ بعده يُلغى من الإدارة (حتى لا تُحذف حركات قديمة دون رقابة).
                       cancelHint: row.facility_id === session.id && !ownSameDay && !canCancelAny ? "إلغاء هذا الصرف بعد يومه يتم عن طريق الإدارة" : null,
                       redispenseHref: `/admin/pharmacy-services/${row.company_id}`,
-                    }}
-                  />
-                );
+                };
               })}
-            </ul>
+            />
           )}
         </Card>
         <div className="flex justify-center"><PaginationButtons page={page} totalPages={totalPages} hrefForPage={hrefFor} /></div>

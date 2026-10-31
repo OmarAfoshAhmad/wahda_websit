@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { ChevronDown, CreditCard, FileText, Loader2, Printer, RotateCcw, XCircle } from "lucide-react";
 import { cancelPharmacyDispense } from "@/app/actions/pharmacy";
 
-type Row = {
+export type DispenseRowData = {
   id: string;
   category: string;
   beneficiary: string;
@@ -31,7 +31,7 @@ type Row = {
 const money = (value: number) => `${value.toLocaleString("ar-LY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} د.ل`;
 const when = (value: string) => new Date(value).toLocaleString("ar-LY", { timeZone: "Africa/Tripoli", dateStyle: "medium", timeStyle: "short" });
 
-export function DispenseRow({ row }: { row: Row }) {
+export function DispenseRow({ row, selected = false, onToggle }: { row: DispenseRowData; selected?: boolean; onToggle?: () => void }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -50,8 +50,12 @@ export function DispenseRow({ row }: { row: Row }) {
   };
 
   return (
-    <li className={row.cancelled ? "bg-slate-50 dark:bg-slate-900/50" : ""}>
-      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-start sm:grid-cols-[minmax(0,2fr)_minmax(0,1.5fr)_auto_auto]">
+    <li className={row.cancelled ? "bg-slate-50 dark:bg-slate-900/50" : selected ? "bg-rose-50/60 dark:bg-rose-950/20" : ""}>
+      <div className="flex items-center">
+      <span className="flex w-10 shrink-0 justify-center ps-2">
+        {onToggle && <input type="checkbox" checked={selected} onChange={onToggle} aria-label={`تحديد ${row.beneficiary}`} className="h-4 w-4 accent-teal-600" />}
+      </span>
+      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-3 pe-4 text-start sm:grid-cols-[minmax(0,2fr)_minmax(0,1.5fr)_auto_auto]">
         <span className="min-w-0">
           <span className={`block truncate text-sm font-black ${row.cancelled ? "text-slate-400 line-through" : ""}`}>{row.beneficiary}</span>
           <span className="block text-xs text-slate-500" dir="ltr">{row.card}</span>
@@ -66,6 +70,7 @@ export function DispenseRow({ row }: { row: Row }) {
         </span>
         <ChevronDown className={`hidden h-4 w-4 text-slate-400 transition-transform sm:block ${open ? "rotate-180" : ""}`} aria-hidden />
       </button>
+      </div>
 
       {open && (
         <div className="space-y-3 px-4 pb-4">

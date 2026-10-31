@@ -5,6 +5,7 @@ import prisma from "@/lib/prisma";
 import { hasPermission, requireActiveFacilitySession } from "@/lib/session-guard";
 import { assertCompanyAccessForSession } from "@/lib/company-scope";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { renderPdfPageWebp } from "@/lib/pharmacy/attachment-conversion";
 
 const STORAGE_ROOT = path.join(/* turbopackIgnore: true */ process.cwd(), "storage", "pharmacy-prescriptions");
 
@@ -47,6 +48,17 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   } catch {
     return new NextResponse("Not found", { status: 404 });
   }
+
+  // ?page=N: صفحة واحدة من PDF صورةً، لتُطبع داخل الفاتورة نفسها.
+  const page = Number(_request.nextUrl.searchParams.get("page"));
+  if (page && attachment.mime_type === "application/pdf") {
+    const image = Number.isInteger(page) ? await renderPdfPageWebp(bytes, page).catch(() => null) : null;
+    if (!image) return new NextResponse("Not found", { status: 404 });
+    return new NextResponse(new Uint8Array(image), {
+      headers: { "Content-Type": "image/webp", "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" },
+    });
+  }
+
   return new NextResponse(new Uint8Array(bytes), {
     headers: {
       "Content-Type": attachment.mime_type,

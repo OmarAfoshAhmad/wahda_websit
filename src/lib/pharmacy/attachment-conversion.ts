@@ -36,6 +36,38 @@ async function renderSinglePagePdf(bytes: Buffer): Promise<Buffer | null> {
   }
 }
 
+/** عدد صفحات PDF (لعرض كل صفحة صورةً في الفاتورة المطبوعة). */
+export async function pdfPageCount(bytes: Buffer) {
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const loadingTask = pdfjs.getDocument({ data: new Uint8Array(bytes), disableFontFace: true, useSystemFonts: false });
+  try {
+    return (await loadingTask.promise).numPages;
+  } finally {
+    await loadingTask.destroy();
+  }
+}
+
+/** يعرض صفحة واحدة من PDF صورةً webp، لتُطبع مع الفاتورة في ملف واحد. */
+export async function renderPdfPageWebp(bytes: Buffer, pageNumber: number): Promise<Buffer | null> {
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const { createCanvas } = await import("@napi-rs/canvas");
+  const loadingTask = pdfjs.getDocument({ data: new Uint8Array(bytes), disableFontFace: true, useSystemFonts: false });
+  try {
+    const document = await loadingTask.promise;
+    if (pageNumber < 1 || pageNumber > document.numPages) return null;
+    const page = await document.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: PDF_RENDER_SCALE });
+    const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+    const context = canvas.getContext("2d");
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvas: canvas as unknown as HTMLCanvasElement, canvasContext: context as unknown as CanvasRenderingContext2D, viewport }).promise;
+    return imageToWebp(canvas.toBuffer("image/png"));
+  } finally {
+    await loadingTask.destroy();
+  }
+}
+
 /**
  * سياسة التخزين: الصور (JPG/PNG/WEBP) تُحوَّل إلى webp، وPDF من صفحة واحدة يُحوَّل إلى webp،
  * وPDF متعدد الصفحات يبقى كما هو.

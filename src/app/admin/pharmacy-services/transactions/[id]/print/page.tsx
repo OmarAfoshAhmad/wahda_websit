@@ -4,6 +4,11 @@ import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-gua
 import { assertCompanyAccessForSession } from "@/lib/company-scope";
 import { canAccessAdmin } from "@/lib/permissions";
 import { PrintButton } from "@/components/print-button";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { pdfPageCount } from "@/lib/pharmacy/attachment-conversion";
+
+const STORAGE_ROOT = path.join(/* turbopackIgnore: true */ process.cwd(), "storage", "pharmacy-prescriptions");
 
 const CATEGORY: Record<string, string> = { ROUTINE: "أدوية روتينية", CHRONIC: "أدوية مزمنة", CHEMICAL: "أدوية الأورام" };
 const KIND: Record<string, string> = { INSURANCE_CARD: "صورة البطاقة التأمينية", PRESCRIPTION: "صورة الوصفة الطبية" };
@@ -29,8 +34,8 @@ export default async function PharmacyInvoicePrintPage({ params }: { params: Pro
       company: { select: { name: true, code: true } },
       beneficiary: { select: { name: true, card_number: true } },
       transaction: { select: { id: true, is_cancelled: true } },
-      prescription: { select: { prescription_number: true, attachments: { select: { id: true, kind: true, file_name: true, mime_type: true } } } },
-      attachments: { select: { id: true, kind: true, file_name: true, mime_type: true } },
+      prescription: { select: { prescription_number: true, attachments: { select: { id: true, kind: true, file_name: true, mime_type: true, storage_path: true } } } },
+      attachments: { select: { id: true, kind: true, file_name: true, mime_type: true, storage_path: true } },
       items: { orderBy: { sequence: "asc" }, select: { sequence: true, price: true, coverage_percent: true, company_share: true, patient_share: true, drug: { select: { name: true } } } },
     },
   });
@@ -46,7 +51,13 @@ export default async function PharmacyInvoicePrintPage({ params }: { params: Pro
   }
 
   const cancelled = dispense.status === "CANCELLED" || dispense.transaction.is_cancelled;
-  const attachments = [...dispense.attachments, ...(dispense.prescription?.attachments ?? [])];
+  // PDF متعدد الصفحات: كل صفحة تُعرض صورةً داخل الفاتورة، فتُطبع الفاتورة ومرفقاتها ملفًا واحدًا.
+  const attachments = await Promise.all([...dispense.attachments, ...(dispense.prescription?.attachments ?? [])].map(async (attachment) => {
+    if (attachment.mime_type !== "application/pdf") return { ...attachment, pages: [0] };
+    const absolutePath = path.resolve(/* turbopackIgnore: true */ process.cwd(), attachment.storage_path);
+    const count = absolutePath.startsWith(STORAGE_ROOT + path.sep) ? await readFile(absolutePath).then(pdfPageCount).catch(() => 0) : 0;
+    return { ...attachment, pages: Array.from({ length: count }, (_, index) => index + 1) };
+  }));
   const number = dispense.id.slice(-8).toUpperCase();
 
   return (
@@ -61,8 +72,12 @@ export default async function PharmacyInvoicePrintPage({ params }: { params: Pro
           <p className="text-sm text-slate-600">رقم الفاتورة: <span className="font-mono font-bold" dir="ltr">{number}</span></p>
           <p className="text-sm text-slate-600">التاريخ: <span dir="ltr">{when(dispense.created_at)}</span></p>
         </div>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/logo.png" alt="الواحة للرعاية الصحية" className="h-16 w-16 object-contain" />
+        <div className="flex items-center gap-3">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/waad-logo.png" alt="وعد" className="h-16 w-auto max-w-32 object-contain" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.png" alt="الواحة للرعاية الصحية" className="h-16 w-16 object-contain" />
+        </div>
       </div>
 
       {cancelled && (
@@ -120,19 +135,26 @@ export default async function PharmacyInvoicePrintPage({ params }: { params: Pro
       </div>
       <p className="mt-4 text-xs text-slate-500">المرفقات: {attachments.length ? attachments.map((item) => KIND[item.kind ?? ""] ?? item.file_name).join("، ") : "لا توجد"} · مرجع الحركة <span className="font-mono" dir="ltr">{dispense.transaction.id.slice(-8).toUpperCase()}</span></p>
 
-      {attachments.map((attachment) => (
-        <section key={attachment.id} className="page-break mt-8 print:mt-0">
-          <h2 className="mb-2 border-b border-slate-300 pb-1 text-base font-black">{KIND[attachment.kind ?? ""] ?? "مرفق"} — فاتورة <span className="font-mono" dir="ltr">{number}</span></h2>
-          {attachment.mime_type === "application/pdf" ? (
-            <p className="rounded border border-dashed border-slate-400 p-4 text-sm">
-              مرفق PDF: <a href={`/api/pharmacy/attachments/${attachment.id}`} className="font-bold underline" target="_blank" rel="noopener noreferrer">{attachment.file_name}</a> — يُطبع من الرابط منفصلًا.
-            </p>
-          ) : (
-            // eslint-disable-next-line @next/next/no-img-element -- صورة محمية تُخدم من مسار مصادق
-            <img src={`/api/pharmacy/attachments/${attachment.id}`} alt={KIND[attachment.kind ?? ""] ?? "مرفق"} className="mx-auto max-h-[240mm] w-auto max-w-full object-contain" />
-          )}
-        </section>
-      ))}
+      {attachments.flatMap((attachment) => {
+        const label = KIND[attachment.kind ?? ""] ?? "مرفق";
+        if (attachment.pages.length === 0) {
+          return [
+            <section key={attachment.id} className="page-break mt-8 print:mt-0">
+              <h2 className="mb-2 border-b border-slate-300 pb-1 text-base font-black">{label} — فاتورة <span className="font-mono" dir="ltr">{number}</span></h2>
+              <p className="rounded border border-dashed border-slate-400 p-4 text-sm">تعذر عرض ملف PDF: {attachment.file_name}</p>
+            </section>,
+          ];
+        }
+        return attachment.pages.map((page) => (
+          <section key={`${attachment.id}-${page}`} className="page-break mt-8 print:mt-0">
+            <h2 className="mb-2 border-b border-slate-300 pb-1 text-base font-black">
+              {label}{attachment.pages.length > 1 ? ` (صفحة ${page} من ${attachment.pages.length})` : ""} — فاتورة <span className="font-mono" dir="ltr">{number}</span>
+            </h2>
+            {/* eslint-disable-next-line @next/next/no-img-element -- صورة محمية تُخدم من مسار مصادق */}
+            <img src={`/api/pharmacy/attachments/${attachment.id}${page ? `?page=${page}` : ""}`} alt={label} className="mx-auto max-h-[240mm] w-auto max-w-full object-contain" />
+          </section>
+        ));
+      })}
     </div>
   );
 }

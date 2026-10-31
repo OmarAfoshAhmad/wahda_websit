@@ -809,3 +809,21 @@ export async function cancelPharmacyDispense(dispenseId: string, reason: string)
   }
   return { success: true };
 }
+
+/**
+ * إلغاء جماعي (حذف ناعم): كل صرف يُلغى بنفس قواعد الإلغاء المفرد وفي معاملة مستقلة،
+ * فيبقى السجل مع سببه وتُعكس حركته المالية. ما يفشل يُعاد مع سببه ولا يوقف الباقي.
+ */
+export async function cancelPharmacyDispenses(dispenseIds: string[], reason: string) {
+  const ids = [...new Set(dispenseIds.map(String))].slice(0, 100);
+  if (ids.length === 0) return { error: "لم يتم تحديد أي حركة" };
+  if (reason.trim().length < 3) return { error: "اكتب سبب الإلغاء" };
+  let cancelled = 0;
+  const failed: Array<{ id: string; error: string }> = [];
+  for (const id of ids) {
+    const result = await cancelPharmacyDispense(id, reason);
+    if ("error" in result && result.error) failed.push({ id, error: result.error });
+    else cancelled += 1;
+  }
+  return { success: true, cancelled, failed };
+}
