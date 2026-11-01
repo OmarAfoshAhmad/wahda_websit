@@ -17,6 +17,7 @@ async function familyStats(companyId: string): Promise<FamilyStats> {
   const [row] = await prisma.$queryRaw<FamilyStats[]>`
     WITH ${familyCte(companyId, "")}
     SELECT COUNT(*)::int AS "all", COALESCE(SUM(members), 0)::int AS beneficiaries,
+      COUNT(*) FILTER (WHERE ${filterSql("with_phone")})::int AS with_phone,
       COUNT(*) FILTER (WHERE ${filterSql("no_phone")})::int AS no_phone,
       COUNT(*) FILTER (WHERE ${filterSql("no_portal")})::int AS no_portal,
       COUNT(*) FILTER (WHERE ${filterSql("chronic")})::int AS chronic,

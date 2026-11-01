@@ -26,8 +26,8 @@ export async function requirePharmacyStaff(companyId: string, mode: "read" | "wr
   return { session } as const;
 }
 
-export type FamilyFilter = "all" | "no_phone" | "no_portal" | "chronic" | "recent" | "never";
-export const FAMILY_FILTERS: FamilyFilter[] = ["all", "no_phone", "no_portal", "chronic", "recent", "never"];
+export type FamilyFilter = "all" | "with_phone" | "no_phone" | "no_portal" | "chronic" | "recent" | "never";
+export const FAMILY_FILTERS: FamilyFilter[] = ["all", "with_phone", "no_phone", "no_portal", "chronic", "recent", "never"];
 
 /** أفراد الأسرة كما يرجعهم json_agg (التاريخ نص). */
 export type MemberRow = { id: string; name: string; card_number: string; status: string; chronic_count: number; last_dispense_at: string | null; is_head: boolean; matched: boolean };
@@ -83,6 +83,7 @@ export function familyCte(companyId: string, search: string) {
 
 export function filterSql(filter: FamilyFilter) {
   switch (filter) {
+    case "with_phone": return Prisma.sql`h.phone_number IS NOT NULL`;
     case "no_phone": return Prisma.sql`h.phone_number IS NULL`;
     case "no_portal": return Prisma.sql`NOT h.has_password`;
     case "chronic": return Prisma.sql`h.chronic_count > 0`;

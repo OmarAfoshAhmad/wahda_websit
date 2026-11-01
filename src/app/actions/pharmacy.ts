@@ -266,6 +266,7 @@ export async function createPharmacyPrescription(input: {
   if ("error" in access) return { error: access.error };
   const { session } = access;
   if (input.category === "CHRONIC") return { error: "صرف الأدوية المزمنة يتم من قائمة الأدوية المرتبطة بالمستفيد" };
+  if (input.category === "CHEMICAL") return { error: "صرف الأدوية الكيميائية مقفل حاليًا" };
 
   const policy = await loadPharmacyPolicy(prisma, input.companyId);
   if (!policy?.pharmacy_config) return { error: "سياسة الصيدلية غير مهيأة" };

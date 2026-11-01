@@ -190,6 +190,7 @@ export function PharmacyDeductionWorkspace({
   const usageFor = (value: CategoryValue) => workspace?.usage?.categories.find((item) => item.category === value);
   const chronicLinked = (beneficiary?.chronic_drugs.length ?? 0) > 0;
   const tabDisabledReason = (value: CategoryValue) => {
+    if (value === "CHEMICAL") return "مقفل حاليًا";
     if (!enabledCategories.includes(value)) return "غير مفعل في سياسة الشركة";
     if (value === "CHRONIC" && beneficiary && !chronicLinked) return "لا توجد أدوية مزمنة مرتبطة بالمستفيد";
     return null;

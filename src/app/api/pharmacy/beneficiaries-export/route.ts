@@ -6,7 +6,7 @@ import { FAMILY_FILTERS, familyCte, filterSql, requirePharmacyStaff, type Family
 import { formatDateTripoli } from "@/lib/datetime";
 
 const FILTER_LABEL: Record<FamilyFilter, string> = {
-  all: "كل الأسر", no_phone: "بلا هاتف", no_portal: "غير مسجلة في البوابة", chronic: "لديها مزمن", recent: "صرف خلال 30 يوما", never: "لم يصرف لها",
+  all: "كل الأسر", with_phone: "لديها هاتف", no_phone: "بلا هاتف", no_portal: "غير مسجلة في البوابة", chronic: "لديها مزمن", recent: "صرف خلال 30 يوما", never: "لم يصرف لها",
 };
 
 /**

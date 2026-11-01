@@ -29,6 +29,7 @@ const count = (value: number) => value.toLocaleString("en");
 /** بطاقات الإحصاء بنفس ألوان بطاقات ملخص الخدمات الأخرى (حد ملوّن، عنوان صغير، رقم كبير). */
 const FILTERS: Array<{ id: FamilyFilter; label: string; card: string; title: string; value: string }> = [
   { id: "all", label: "كل الأسر", card: "border-teal-200 dark:border-teal-800 bg-teal-50/50 dark:bg-teal-900/10", title: "text-teal-600 dark:text-teal-500", value: "text-teal-800 dark:text-teal-300" },
+  { id: "with_phone", label: "لديها هاتف", card: "border-sky-200 dark:border-sky-800 bg-sky-50/50 dark:bg-sky-900/10", title: "text-sky-600 dark:text-sky-500", value: "text-sky-800 dark:text-sky-300" },
   { id: "no_phone", label: "بلا هاتف", card: "border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/10", title: "text-amber-600 dark:text-amber-500", value: "text-amber-800 dark:text-amber-300" },
   { id: "no_portal", label: "غير مسجّلة في البوابة", card: "", title: "text-slate-400", value: "text-slate-900 dark:text-white" },
   { id: "chronic", label: "لديها مزمن", card: "border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/10", title: "text-blue-600 dark:text-blue-500", value: "text-blue-800 dark:text-blue-300" },
@@ -101,12 +102,12 @@ export function PharmacyBeneficiariesPanel({ companyId, canEdit = false, canExpo
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
         {FILTERS.map((item) => (
           <button key={item.id} type="button" aria-pressed={params.filter === item.id} onClick={() => setParams({ filter: item.id, page: 1 })} className="text-start">
             <Card className={`h-full p-4 transition-shadow hover:shadow-md ${item.card} ${params.filter === item.id ? "ring-2 ring-teal-500 dark:ring-teal-400" : ""}`}>
               <p className={`text-[10px] font-black uppercase tracking-wider ${item.title}`}>{item.label}</p>
-              <p className={`mt-1 text-2xl font-black tabular-nums ${item.value}`}>{stats ? count(stats[item.id]) : "…"}</p>
+              <p className={`mt-1 text-2xl font-black tabular-nums ${item.value}`}>{stats ? count(stats[item.id] ?? 0) : "…"}</p>
             </Card>
           </button>
         ))}
