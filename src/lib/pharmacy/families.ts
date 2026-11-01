@@ -94,6 +94,16 @@ export function filterSql(filter: FamilyFilter) {
 }
 
 
+/** فلاتر قابلة للجمع مع البطاقة: الهاتف (with/without) والمزمن (yes/no). */
+export type FamilyExtraFilters = { phone?: string | null; chronic?: string | null };
+export function extraFilterSql({ phone, chronic }: FamilyExtraFilters) {
+  const parts = [
+    phone === "with" ? Prisma.sql`h.phone_number IS NOT NULL` : phone === "without" ? Prisma.sql`h.phone_number IS NULL` : null,
+    chronic === "yes" ? Prisma.sql`h.chronic_count > 0` : chronic === "no" ? Prisma.sql`h.chronic_count = 0` : null,
+  ].filter((part): part is Prisma.Sql => part !== null);
+  return parts.length ? Prisma.join(parts, " AND ") : Prisma.sql`TRUE`;
+}
+
 export type FamilyStats = Record<FamilyFilter, number> & { beneficiaries: number };
 /** أرقام لوحة الأسر محفوظة دقيقة لكل شركة؛ تُمسح بعد أي تعديل هاتف أو كلمة مرور. */
 export const familyStatsCache = new Map<string, { at: number; stats: FamilyStats }>();

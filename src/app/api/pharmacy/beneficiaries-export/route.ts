@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import prisma from "@/lib/prisma";
 import { hasPermission } from "@/lib/session-guard";
-import { FAMILY_FILTERS, familyCte, filterSql, requirePharmacyStaff, type FamilyFilter, type HeadRow } from "@/lib/pharmacy/families";
+import { FAMILY_FILTERS, familyCte, filterSql, extraFilterSql, requirePharmacyStaff, type FamilyFilter, type HeadRow } from "@/lib/pharmacy/families";
 import { formatDateTripoli } from "@/lib/datetime";
 
 const FILTER_LABEL: Record<FamilyFilter, string> = {
@@ -30,7 +30,7 @@ export async function GET(request: Request) {
       WITH ${familyCte(companyId, search)}
       SELECT h.*, 0 AS total,
         (SELECT string_agg(m.name || ' (' || m.card_number || ')', '، ' ORDER BY m.card_number) FROM m WHERE m.fam = h.fam AND m.id <> h.head_id) AS member_names
-      FROM h WHERE h.matched AND ${filterSql(filter)}
+      FROM h WHERE h.matched AND ${filterSql(filter)} AND ${extraFilterSql({ phone: url.searchParams.get("phone"), chronic: url.searchParams.get("chronic") })}
       ORDER BY h.card_number ASC
     `,
   ]);

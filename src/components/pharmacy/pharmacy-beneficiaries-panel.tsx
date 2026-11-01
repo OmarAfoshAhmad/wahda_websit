@@ -36,6 +36,7 @@ const FILTERS: Array<{ id: FamilyFilter; label: string; card: string; title: str
   { id: "recent", label: "صُرف لها خلال 30 يومًا", card: "border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-900/10", title: "text-emerald-600 dark:text-emerald-500", value: "text-emerald-800 dark:text-emerald-300" },
   { id: "never", label: "لم يُصرف لها", card: "", title: "text-slate-400", value: "text-slate-900 dark:text-white" },
 ];
+const SELECT = "h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200";
 const TH = "px-4 py-3 font-black text-slate-500 dark:text-slate-400";
 const PAGE_BUTTON = "inline-flex items-center rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-sm font-bold text-slate-700 dark:text-slate-300 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700 disabled:cursor-not-allowed disabled:border-slate-100 disabled:bg-slate-50 disabled:text-slate-300 dark:disabled:border-slate-800 dark:disabled:bg-slate-900/50 dark:disabled:text-slate-600";
 
@@ -49,6 +50,8 @@ function useListParams() {
   const state = {
     query: search.get("q") ?? "",
     filter: FILTERS.some((item) => item.id === filter) ? (filter as FamilyFilter) : ("all" as FamilyFilter),
+    phone: search.get("phone") ?? "",
+    chronic: search.get("chronic") ?? "",
     page: Math.max(1, Number(search.get("page")) || 1),
     ben: search.get("ben"),
   };
@@ -58,6 +61,8 @@ function useListParams() {
     const set = (key: string, value: string | null, empty: string) => (value && value !== empty ? params.set(key, value) : params.delete(key));
     set("q", next.query, "");
     set("filter", next.filter, "all");
+    set("phone", next.phone, "");
+    set("chronic", next.chronic, "");
     set("page", String(next.page), "1");
     set("ben", next.ben, "");
     window.history.pushState(null, "", `${window.location.pathname}?${params.toString()}`);
@@ -78,12 +83,12 @@ export function PharmacyBeneficiariesPanel({ companyId, canEdit = false, canExpo
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [version, setVersion] = useState(0);
   const [importing, setImporting] = useState(false);
-  const requestKey = JSON.stringify([params.query, params.filter, params.page, version]);
+  const requestKey = JSON.stringify([params.query, params.filter, params.phone, params.chronic, params.page, version]);
   const loading = loadedKey !== requestKey;
 
   useEffect(() => {
     let cancelled = false;
-    listPharmacyFamilies(companyId, { query: params.query, filter: params.filter, page: params.page }).then((next) => {
+    listPharmacyFamilies(companyId, { query: params.query, filter: params.filter, page: params.page, phone: params.phone, chronic: params.chronic }).then((next) => {
       if (cancelled) return;
       setResult(next);
       if (next.stats) setStats(next.stats);
@@ -92,7 +97,7 @@ export function PharmacyBeneficiariesPanel({ companyId, canEdit = false, canExpo
       setExpanded(new Set(next.families.filter((family) => family.members.some((member) => member.matched && member.id !== family.headId)).map((family) => family.key)));
     });
     return () => { cancelled = true; };
-  }, [companyId, params.query, params.filter, params.page, requestKey]);
+  }, [companyId, params.query, params.filter, params.phone, params.chronic, params.page, requestKey]);
 
   const families = result?.families ?? [];
   const total = result?.total ?? 0;
@@ -127,7 +132,7 @@ export function PharmacyBeneficiariesPanel({ companyId, canEdit = false, canExpo
           <div className="flex shrink-0 items-center gap-2">
             {canExport && (
               <a
-                href={`/api/pharmacy/beneficiaries-export?${new URLSearchParams({ company: companyId, filter: params.filter, q: params.query }).toString()}`}
+                href={`/api/pharmacy/beneficiaries-export?${new URLSearchParams({ company: companyId, filter: params.filter, q: params.query, phone: params.phone, chronic: params.chronic }).toString()}`}
                 className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 text-xs font-black text-emerald-700 shadow-sm transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-emerald-400 dark:hover:bg-slate-700"
               >
                 <Download className="h-4 w-4 text-emerald-600" /> <span>تصدير Excel</span>
@@ -141,13 +146,23 @@ export function PharmacyBeneficiariesPanel({ companyId, canEdit = false, canExpo
           </div>
         </div>
 
-        <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); setParams({ query: draft.trim(), page: 1 }); }}>
-          <div className="relative flex-1">
+        <form className="flex flex-wrap gap-2" onSubmit={(event) => { event.preventDefault(); setParams({ query: draft.trim(), page: 1 }); }}>
+          <div className="relative min-w-60 flex-1">
             <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
             <Input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="الاسم بأي ترتيب، رقم البطاقة، الرقم الوظيفي أو الهاتف" className="pr-9" aria-label="بحث في المستفيدين" />
           </div>
+          <select value={params.phone} onChange={(event) => setParams({ phone: event.target.value, page: 1 })} aria-label="الهاتف" className={SELECT}>
+            <option value="">الهاتف: الكل</option>
+            <option value="with">لديها هاتف</option>
+            <option value="without">بلا هاتف</option>
+          </select>
+          <select value={params.chronic} onChange={(event) => setParams({ chronic: event.target.value, page: 1 })} aria-label="الأدوية المزمنة" className={SELECT}>
+            <option value="">المزمن: الكل</option>
+            <option value="yes">لديها مزمن</option>
+            <option value="no">بدون مزمن</option>
+          </select>
           <Button type="submit" className="bg-teal-600 px-6 text-white hover:bg-teal-700">بحث</Button>
-          {params.query && <Button type="button" variant="outline" onClick={() => { setDraft(""); setParams({ query: "", page: 1 }); }}>إعادة تعيين</Button>}
+          {(params.query || params.phone || params.chronic || params.filter !== "all") && <Button type="button" variant="outline" onClick={() => { setDraft(""); setParams({ query: "", phone: "", chronic: "", filter: "all", page: 1 }); }}>إعادة تعيين</Button>}
         </form>
         {result?.error && <p role="alert" className="rounded-md bg-rose-50 px-3 py-2 text-sm font-bold text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">{result.error}</p>}
 

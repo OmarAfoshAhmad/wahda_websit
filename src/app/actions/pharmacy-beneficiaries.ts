@@ -3,7 +3,7 @@
 import prisma from "@/lib/prisma";
 import { hasPermission } from "@/lib/session-guard";
 import { relationLabel } from "@/lib/beneficiary-family";
-import { FAMILY_FILTERS, familyCte, filterSql, requirePharmacyStaff as requireStaff, familyStatsCache as statsCache, type FamilyFilter, type FamilyStats, type HeadRow, type MemberRow } from "@/lib/pharmacy/families";
+import { FAMILY_FILTERS, familyCte, filterSql, extraFilterSql, requirePharmacyStaff as requireStaff, familyStatsCache as statsCache, type FamilyFilter, type FamilyStats, type HeadRow, type MemberRow } from "@/lib/pharmacy/families";
 import { normalizeLibyanMobile } from "@/lib/phone";
 
 const PAGE_SIZE = 50;
@@ -34,7 +34,7 @@ async function familyStats(companyId: string): Promise<FamilyStats> {
  * البحث والفلترة والترقيم في قاعدة البيانات، 50 أسرة في الصفحة، وأفراد أسر الصفحة فقط.
  * البحث يطابق أي فرد فتظهر أسرته كلها ويُعلَّم المطابق.
  */
-export async function listPharmacyFamilies(companyId: string, input: { query?: string; filter?: FamilyFilter; page?: number }) {
+export async function listPharmacyFamilies(companyId: string, input: { query?: string; filter?: FamilyFilter; page?: number; phone?: string | null; chronic?: string | null }) {
   const access = await requireStaff(companyId, "read");
   if ("error" in access) return { error: access.error, families: [], total: 0, pageSize: PAGE_SIZE, stats: null };
   const search = (input.query ?? "").trim().slice(0, 80);
@@ -47,7 +47,7 @@ export async function listPharmacyFamilies(companyId: string, input: { query?: s
       WITH ${familyCte(companyId, search)},
       pg AS (
         SELECT h.*, COUNT(*) OVER()::int AS total FROM h
-        WHERE h.matched AND ${filterSql(filter)}
+        WHERE h.matched AND ${filterSql(filter)} AND ${extraFilterSql(input)}
         ORDER BY h.head_matched DESC, h.card_number ASC
         LIMIT ${PAGE_SIZE} OFFSET ${offset}
       )
