@@ -382,6 +382,8 @@ model BeneficiaryChronicDrug {
   notes          String?
   /// آخر صرف قبل المنظومة (من ملف الاستيراد)؛ يقفل الدواء حتى موعده التالي مثل الصرف الفعلي.
   imported_last_dispensed_at DateTime?
+  /// إعادة تفعيل يدوية: صرف جزئي للحصة يُتجاهل قفله إن كان قبل هذا الوقت.
+  unlocked_at    DateTime?
   created_at     DateTime    @default(now())
   updated_at     DateTime    @updatedAt
   beneficiary    Beneficiary @relation(fields: [beneficiary_id], references: [id], onDelete: Cascade)

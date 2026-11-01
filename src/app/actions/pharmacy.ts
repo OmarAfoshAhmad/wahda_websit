@@ -20,6 +20,7 @@ import {
   PRESCRIPTION_EXPIRED_MESSAGE,
   isChronicDrugEligible,
   latestChronicDispense,
+  isChronicLockCleared,
   resolvePharmacyCategoryPolicy,
   type MedicineCategoryValue,
 } from "@/lib/pharmacy/policy";
@@ -163,6 +164,7 @@ export async function getPharmacyBeneficiaryWorkspace(companyId: string, benefic
   return {
     usage,
     chronicIntervalDays,
+    canUnlockChronic: staff,
     beneficiary: {
       ...beneficiary,
       birth_date: beneficiary.birth_date?.toISOString() ?? null,
@@ -710,7 +712,7 @@ export async function dispenseChronicDrugs(formData: FormData) {
 
       const links = await tx.beneficiaryChronicDrug.findMany({
         where: { beneficiary_id: beneficiary.id, active: true },
-        select: { id: true, drug_id: true, imported_last_dispensed_at: true, drug: { select: { name: true } } },
+        select: { id: true, drug_id: true, imported_last_dispensed_at: true, unlocked_at: true, drug: { select: { name: true } } },
       });
       if (links.length === 0) throw new PharmacyRuleError("المستفيد غير مشمول بخدمة الأدوية المزمنة: لا توجد أدوية مرتبطة به");
       const linkById = new Map(links.map((link) => [link.id, link]));
@@ -731,7 +733,7 @@ export async function dispenseChronicDrugs(formData: FormData) {
         const link = linkById.get(item.chronicDrugId)!;
         const system = lastByDrug.get(link.drug_id);
         const lastAt = latestChronicDispense(system?.created_at, link.imported_last_dispensed_at);
-        if (lastAt && !isChronicDrugEligible(lastAt, intervalDays, now)) {
+        if (lastAt && !isChronicLockCleared(lastAt, link.unlocked_at) && !isChronicDrugEligible(lastAt, intervalDays, now)) {
           const where = lastAt === system?.created_at ? `لدى ${system.facility.name}` : "قبل المنظومة";
           const next = formatDateTripoli(getNextChronicEligibleDate(lastAt, intervalDays));
           throw new PharmacyRuleError(`${link.drug.name} صُرف ${where}، ويُسمح بصرفه مجددًا من ${next}`);
@@ -774,6 +776,25 @@ export async function dispenseChronicDrugs(formData: FormData) {
  * حتى يبقى كل رقم مالي مشتقًا من حركات سليمة بلا تعديل في المكان.
  * يُسمح لصاحب صلاحية إلغاء الحركات، أو للمرفق نفسه في يوم الصرف ذاته (بتوقيت طرابلس).
  */
+/**
+ * إعادة تفعيل دواء مزمن مقفل (صُرف جزء من الحصة فقط): يُسمح بصرفه الآن مرة أخرى،
+ * والصرف التالي يبدأ دورة جديدة. لموظفي الإدارة فقط، ويُسجّل في سجل التدقيق.
+ */
+export async function unlockChronicDrug(chronicDrugId: string, reason: string) {
+  const link = await prisma.beneficiaryChronicDrug.findUnique({ where: { id: chronicDrugId }, select: { id: true, beneficiary: { select: { id: true, company_id: true } }, drug: { select: { name: true } } } });
+  if (!link) return { error: "الدواء غير موجود" };
+  const access = await requirePharmacySession(link.beneficiary.company_id, "read");
+  if ("error" in access) return { error: access.error };
+  if (!canAccessAdmin(access.session)) return { error: "إعادة التفعيل لموظفي الإدارة فقط" };
+  const note = reason.trim().slice(0, 300);
+  if (!note) return { error: "اكتب سبب إعادة التفعيل" };
+  await prisma.$transaction([
+    prisma.beneficiaryChronicDrug.update({ where: { id: link.id }, data: { unlocked_at: new Date() } }),
+    prisma.auditLog.create({ data: { facility_id: access.session.id, user: access.session.username, action: "PHARMACY_CHRONIC_UNLOCK", metadata: { chronic_drug_id: link.id, beneficiary_id: link.beneficiary.id, drug: link.drug.name, reason: note } } }),
+  ]);
+  return { success: true };
+}
+
 export async function cancelPharmacyDispense(dispenseId: string, reason: string) {
   const dispense = await prisma.pharmacyDispense.findUnique({
     where: { id: dispenseId },

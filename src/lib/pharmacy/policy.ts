@@ -61,6 +61,11 @@ export function latestChronicDispense(systemAt: Date | null | undefined, importe
   return importedAt > systemAt ? importedAt : systemAt;
 }
 
+/** القفل مرفوع يدويًا (إعادة تفعيل) بعد آخر صرف. */
+export function isChronicLockCleared(lastDispensedAt: Date | null, unlockedAt: Date | null | undefined) {
+  return lastDispensedAt !== null && unlockedAt != null && unlockedAt >= lastDispensedAt;
+}
+
 export function isChronicDrugEligible(lastDispensedAt: Date | null, intervalDays: number, now: Date) {
   return lastDispensedAt === null || now.getTime() >= getNextChronicEligibleDate(lastDispensedAt, intervalDays).getTime();
 }

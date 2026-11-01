@@ -6,6 +6,7 @@ import {
   getTripoliDayWindow,
   isChronicDrugEligible,
   latestChronicDispense,
+  isChronicLockCleared,
   resolvePharmacyCategoryPolicy,
   type MedicineCategoryValue,
 } from "@/lib/pharmacy/policy";
@@ -97,6 +98,8 @@ export type ChronicDrugStatus = {
   last_facility_name: string | null;
   last_price: number | null;
   eligible: boolean;
+  /** أعيد تفعيله يدويًا بعد آخر صرف. */
+  unlocked: boolean;
   next_eligible_at: string | null;
 };
 
@@ -105,7 +108,7 @@ export async function getChronicDrugStatuses(beneficiaryId: string, intervalDays
   const links = await prisma.beneficiaryChronicDrug.findMany({
     where: { beneficiary_id: beneficiaryId, active: true },
     orderBy: [{ sort_order: "asc" }, { created_at: "asc" }],
-    select: { id: true, notes: true, imported_last_dispensed_at: true, drug: { select: { id: true, name: true } } },
+    select: { id: true, notes: true, imported_last_dispensed_at: true, unlocked_at: true, drug: { select: { id: true, name: true } } },
   });
   if (links.length === 0) return [];
   const lastItems = await prisma.pharmacyDispenseItem.findMany({
@@ -119,6 +122,7 @@ export async function getChronicDrugStatuses(beneficiaryId: string, intervalDays
     const last = lastByDrug.get(link.drug.id);
     const lastAt = latestChronicDispense(last?.dispense.created_at, link.imported_last_dispensed_at);
     const fromImport = lastAt !== null && lastAt !== last?.dispense.created_at;
+    const cleared = isChronicLockCleared(lastAt, link.unlocked_at);
     return {
       id: link.id,
       drug_id: link.drug.id,
@@ -128,8 +132,9 @@ export async function getChronicDrugStatuses(beneficiaryId: string, intervalDays
       last_facility_id: fromImport ? null : last?.dispense.facility.id ?? null,
       last_facility_name: fromImport ? "قبل المنظومة" : last?.dispense.facility.name ?? null,
       last_price: last && !fromImport ? Number(last.price) : null,
-      eligible: isChronicDrugEligible(lastAt, intervalDays, now),
-      next_eligible_at: lastAt ? getNextChronicEligibleDate(lastAt, intervalDays).toISOString() : null,
+      eligible: cleared || isChronicDrugEligible(lastAt, intervalDays, now),
+      unlocked: cleared,
+      next_eligible_at: lastAt && !cleared ? getNextChronicEligibleDate(lastAt, intervalDays).toISOString() : null,
     };
   });
 }

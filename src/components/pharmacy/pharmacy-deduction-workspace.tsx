@@ -9,6 +9,7 @@ import {
   dispensePharmacyPrescriptionItems,
   getPharmacyBeneficiaryWorkspace,
   searchPharmacyBeneficiaries,
+  unlockChronicDrug,
   uploadPharmacyPrescriptionAttachment,
 } from "@/app/actions/pharmacy";
 import { Button, Card, Input } from "@/components/ui";
@@ -65,6 +66,7 @@ type ChronicDrug = {
   last_facility_name: string | null;
   last_price: number | null;
   eligible: boolean;
+  unlocked?: boolean;
   next_eligible_at: string | null;
 };
 
@@ -87,7 +89,7 @@ type WorkspaceBeneficiary = SearchItem & {
   chronic_drugs: ChronicDrug[];
 };
 
-type Workspace = { beneficiary: WorkspaceBeneficiary; usage: { categories: Usage[] } | null; chronicIntervalDays: number };
+type Workspace = { beneficiary: WorkspaceBeneficiary; usage: { categories: Usage[] } | null; chronicIntervalDays: number; canUnlockChronic: boolean };
 
 type ReviewLine = { label: string; price: number };
 type PendingDispense = { lines: ReviewLine[]; files: string[]; submit: () => Promise<{ error?: string } | undefined> };
@@ -165,7 +167,7 @@ export function PharmacyDeductionWorkspace({
     const response = await getPharmacyBeneficiaryWorkspace(company.id, beneficiaryId);
     if ("error" in response && response.error) { setSearchError(response.error); return false; }
     if (!("beneficiary" in response) || !response.beneficiary) { setSearchError("تعذر تحميل بيانات المستفيد"); return false; }
-    setWorkspace({ beneficiary: response.beneficiary as unknown as WorkspaceBeneficiary, usage: response.usage ?? null, chronicIntervalDays: response.chronicIntervalDays ?? 28 });
+    setWorkspace({ beneficiary: response.beneficiary as unknown as WorkspaceBeneficiary, usage: response.usage ?? null, chronicIntervalDays: response.chronicIntervalDays ?? 28, canUnlockChronic: Boolean(response.canUnlockChronic) });
     return true;
   };
 
@@ -290,6 +292,14 @@ export function PharmacyDeductionWorkspace({
                       orderCard={fromOrder?.beneficiaryId === beneficiary.id ? { orderId: fromOrder.orderId, preselect: fromOrder.chronicDrugIds } : null}
                       usage={usageFor("CHRONIC")}
                       intervalDays={workspace.chronicIntervalDays}
+                      onUnlock={workspace.canUnlockChronic ? async (drug) => {
+                        const reason = window.prompt(`سبب إعادة تفعيل «${drug.drug_name}» (مثال: صُرف جزء من الحصة فقط):`);
+                        if (reason === null) return;
+                        const response = await unlockChronicDrug(drug.id, reason);
+                        if (response.error) { setNotice({ type: "error", text: response.error }); return; }
+                        setNotice({ type: "success", text: `أعيد تفعيل ${drug.drug_name}، ويمكن صرفه الآن` });
+                        await reload();
+                      } : undefined}
                       onReview={setPending}
                       submit={async (items, files, idempotencyKey) => {
                         const formData = new FormData();
@@ -649,6 +659,7 @@ function ChronicTab({
   orderCard,
   usage,
   intervalDays,
+  onUnlock,
   onReview,
   submit,
 }: {
@@ -657,6 +668,8 @@ function ChronicTab({
   orderCard: { orderId: string; preselect: string[] } | null;
   usage: Usage | undefined;
   intervalDays: number;
+  /** لموظفي الإدارة: إعادة تفعيل دواء مقفل صُرف جزء من حصته فقط. */
+  onUnlock?: (drug: ChronicDrug) => Promise<void>;
   onReview: (pending: PendingDispense) => void;
   submit: (items: Array<{ chronicDrugId: string; price: number }>, files: { INSURANCE_CARD?: File }, idempotencyKey: string) => Promise<{ error?: string } | undefined>;
 }) {
@@ -712,9 +725,13 @@ function ChronicTab({
                     {!drug.eligible && <LockKeyhole className="h-3 w-3" aria-hidden />}
                     {drug.last_dispensed_at ? `آخر صرف ${tripoliDate(drug.last_dispensed_at)} لدى ${drug.last_facility_name}` : "لم يُصرف من قبل"}
                     {!drug.eligible && drug.next_eligible_at ? ` · متاح من ${tripoliDate(drug.next_eligible_at)}` : ""}
+                    {drug.unlocked ? " · أعيد تفعيله يدويًا" : ""}
                   </span>
                 </span>
               </label>
+              {!drug.eligible && onUnlock && (
+                <Button type="button" variant="outline" className="h-9 text-xs font-black" onClick={() => void onUnlock(drug)}>إعادة تفعيل</Button>
+              )}
               {checked && <Input aria-label={`سعر ${drug.drug_name}`} placeholder="السعر (د.ل)" type="number" inputMode="decimal" dir="ltr" min="0" step="0.01" value={selected[drug.id]} onChange={(event) => setSelected((current) => ({ ...current, [drug.id]: event.target.value }))} className="h-10" />}
             </li>
           );
