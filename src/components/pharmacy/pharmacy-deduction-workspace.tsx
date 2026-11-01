@@ -370,12 +370,14 @@ function PolicyStrip({ usage }: { usage: Usage | undefined }) {
 }
 
 function HistoryPanel({ beneficiary }: { beneficiary: WorkspaceBeneficiary }) {
+  // الصرف المحذوف (الملغى) لا يظهر هنا؛ مكانه تبويب «المحذوفة» في آخر الحركات.
+  const dispenses = beneficiary.pharmacy_dispenses.filter((dispense) => dispense.status !== "CANCELLED");
   return (
     <Card className="p-3 sm:p-4">
       <h3 className="mb-3 flex items-center gap-2 text-base font-black"><History className="h-4 w-4 text-teal-600" aria-hidden /> سجل الصرف</h3>
-      {beneficiary.pharmacy_dispenses.length === 0 ? <p className="text-sm text-slate-500">لم يُصرف للمستفيد شيء بعد.</p> : (
+      {dispenses.length === 0 ? <p className="text-sm text-slate-500">لم يُصرف للمستفيد شيء بعد.</p> : (
         <ol className="space-y-2">
-          {beneficiary.pharmacy_dispenses.map((dispense) => (
+          {dispenses.map((dispense) => (
             <li key={dispense.id} className={`rounded-md border p-2.5 ${dispense.status === "CANCELLED" ? "border-slate-200 opacity-60 dark:border-slate-700" : "border-slate-200 dark:border-slate-700"}`}>
               <div className="flex flex-wrap items-center justify-between gap-1">
                 <span className="text-sm font-black">{CATEGORY_LABELS[dispense.medicine_category]}{dispense.prescription ? ` · وصفة ${dispense.prescription.prescription_number}` : ""}</span>
