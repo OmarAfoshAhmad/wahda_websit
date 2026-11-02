@@ -408,7 +408,7 @@ function BeneficiaryDrawer({ companyId, beneficiaryId, onClose, onChanged }: { c
   const [drugName, setDrugName] = useState("");
   const [drugNotes, setDrugNotes] = useState("");
   const [suggestions, setSuggestions] = useState<Array<{ id: string; name: string }>>([]);
-  const [editingNotes, setEditingNotes] = useState<{ id: string; value: string } | null>(null);
+  const [editingNotes, setEditingNotes] = useState<{ id: string; name: string; value: string } | null>(null);
 
   const apply = useCallback((result: Awaited<ReturnType<typeof getPharmacyBeneficiaryDetails>>) => {
     if ("error" in result && result.error) setError(result.error);
@@ -515,8 +515,9 @@ function BeneficiaryDrawer({ companyId, beneficiaryId, onClose, onChanged }: { c
                           : <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800"><LockKeyhole className="h-3 w-3" /> من {drug.nextAt ? day(drug.nextAt) : "—"}</span>}
                       </div>
                       {editingNotes?.id === drug.id ? (
-                        <form className="flex gap-1" onSubmit={(event) => { event.preventDefault(); run(() => updateChronicDrug(drug.id, { notes: editingNotes.value }), "حُفظت الملاحظة"); setEditingNotes(null); }}>
-                          <Input autoFocus value={editingNotes.value} onChange={(event) => setEditingNotes({ id: drug.id, value: event.target.value })} placeholder="الجرعة أو التكرار (مثال: 1×2)" className="h-9 flex-1" aria-label="ملاحظة الدواء" />
+                        <form className="flex flex-wrap gap-1" onSubmit={(event) => { event.preventDefault(); run(() => updateChronicDrug(drug.id, { name: editingNotes.name, notes: editingNotes.value }), "حُفظ التعديل"); setEditingNotes(null); }}>
+                          <Input autoFocus value={editingNotes.name} onChange={(event) => setEditingNotes({ ...editingNotes, name: event.target.value })} list={`drugs-${beneficiaryId}`} placeholder="اسم الدواء والجرعة" className="h-9 min-w-40 flex-1" aria-label="اسم الدواء" dir="auto" />
+                          <Input value={editingNotes.value} onChange={(event) => setEditingNotes({ ...editingNotes, value: event.target.value })} placeholder="الجرعة أو التكرار (مثال: 1×2)" className="h-9 flex-1" aria-label="ملاحظة الدواء" />
                           <Button type="submit" disabled={busy} className="h-9 bg-teal-600 px-3 text-xs text-white">حفظ</Button>
                           <button type="button" onClick={() => setEditingNotes(null)} aria-label="إلغاء" className="p-1 text-slate-400"><X className="h-4 w-4" /></button>
                         </form>
@@ -525,7 +526,7 @@ function BeneficiaryDrawer({ companyId, beneficiaryId, onClose, onChanged }: { c
                           <span className="text-xs text-slate-600 dark:text-slate-300" dir="auto">{drug.notes || "بلا ملاحظات"}</span>
                           {canEditChronic && (
                             <span className="flex gap-1">
-                              <button type="button" onClick={() => setEditingNotes({ id: drug.id, value: drug.notes ?? "" })} className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs font-bold hover:bg-slate-50 dark:border-slate-600"><Pencil className="h-3 w-3" /> ملاحظة</button>
+                              <button type="button" onClick={() => setEditingNotes({ id: drug.id, name: drug.name, value: drug.notes ?? "" })} className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs font-bold hover:bg-slate-50 dark:border-slate-600"><Pencil className="h-3 w-3" /> تعديل</button>
                               <button type="button" disabled={busy} onClick={() => { if (window.confirm(`إيقاف ${drug.name}؟ لن يظهر للصيدليات، ويبقى سجل صرفه.`)) run(() => updateChronicDrug(drug.id, { active: false }), `أُوقف ${drug.name}`); }} className="inline-flex items-center gap-1 rounded-md border border-rose-200 px-2 py-1 text-xs font-bold text-rose-700 hover:bg-rose-50"><Pause className="h-3 w-3" /> إيقاف</button>
                             </span>
                           )}
