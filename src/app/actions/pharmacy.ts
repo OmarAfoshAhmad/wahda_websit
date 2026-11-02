@@ -165,7 +165,7 @@ export async function getPharmacyBeneficiaryWorkspace(companyId: string, benefic
   return {
     usage,
     chronicIntervalDays,
-    canUnlockChronic: staff,
+    canUnlockChronic: staff && hasPermission(session, "manage_pharmacy_chronic"),
     beneficiary: {
       ...beneficiary,
       birth_date: beneficiary.birth_date?.toISOString() ?? null,
@@ -786,7 +786,7 @@ export async function unlockChronicDrug(chronicDrugId: string, reason: string) {
   if (!link) return { error: "الدواء غير موجود" };
   const access = await requirePharmacySession(link.beneficiary.company_id, "read");
   if ("error" in access) return { error: access.error };
-  if (!canAccessAdmin(access.session)) return { error: "إعادة التفعيل لموظفي الإدارة فقط" };
+  if (!canAccessAdmin(access.session) || !hasPermission(access.session, "manage_pharmacy_chronic")) return { error: "إعادة التفعيل تتطلب صلاحية إدارة الأدوية المزمنة" };
   const note = reason.trim().slice(0, 300);
   if (!note) return { error: "اكتب سبب إعادة التفعيل" };
   await prisma.$transaction([

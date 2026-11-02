@@ -10,12 +10,12 @@ import { EMPLOYEE_NUMBER_SQL_PATTERN } from "@/lib/beneficiary-employee-number";
  * مشتركة بين قائمة الإدارة وتصدير Excel واستيراد الهواتف.
  */
 
-/** قائمة المستفيدين لموظفي الإدارة فقط؛ تعديل الهاتف وكلمة المرور يتطلب صلاحية تعديل المستفيدين. */
-export async function requirePharmacyStaff(companyId: string, mode: "read" | "write") {
+/** قائمة المستفيدين لموظفي الإدارة فقط؛ الهواتف وكلمات المرور والأدوية المزمنة لكل منها صلاحية خاصة. */
+export async function requirePharmacyStaff(companyId: string, mode: "read" | "phones" | "chronic") {
   const session = await getSessionWithFreshPermissions();
   if (!session || !canAccessAdmin(session)) return { error: "غير مصرح" } as const;
-  const allowed = mode === "write"
-    ? hasPermission(session, "edit_beneficiary")
+  const allowed = mode === "phones" ? hasPermission(session, "manage_pharmacy_phones")
+    : mode === "chronic" ? hasPermission(session, "manage_pharmacy_chronic")
     : hasPermission(session, "pharmacy_services") || hasPermission(session, "view_pharmacy_beneficiaries");
   if (!allowed) return { error: "غير مصرح" } as const;
   try {

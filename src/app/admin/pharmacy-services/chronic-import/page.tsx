@@ -10,7 +10,7 @@ import { ChronicImportClient } from "./chronic-import-client";
 export default async function ChronicImportPage() {
   const session = await getSessionWithFreshPermissions();
   if (!session) redirect("/login");
-  if (!hasPermission(session, "manage_companies")) redirect("/admin/pharmacy-services");
+  if (!hasPermission(session, "manage_pharmacy_chronic")) redirect("/admin/pharmacy-services");
 
   const companies = await prisma.insuranceCompany.findMany({
     where: {

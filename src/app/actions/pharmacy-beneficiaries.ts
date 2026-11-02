@@ -95,7 +95,7 @@ export async function listPharmacyFamilies(companyId: string, input: { query?: s
 export async function setBeneficiaryPhone(beneficiaryId: string, phone: string) {
   const target = await prisma.beneficiary.findFirst({ where: { id: beneficiaryId, deleted_at: null }, select: { id: true, company_id: true, phone_number: true, card_number: true } });
   if (!target?.company_id) return { error: "المستفيد غير موجود" };
-  const access = await requireStaff(target.company_id, "write");
+  const access = await requireStaff(target.company_id, "phones");
   if ("error" in access) return { error: access.error };
 
   const normalized = phone.trim() === "" ? null : normalizeLibyanMobile(phone);
@@ -124,7 +124,7 @@ export async function setBeneficiaryPhone(beneficiaryId: string, phone: string) 
 export async function resetFamilyPassword(beneficiaryId: string) {
   const target = await prisma.beneficiary.findFirst({ where: { id: beneficiaryId, deleted_at: null }, select: { id: true, company_id: true, card_number: true } });
   if (!target?.company_id) return { error: "المستفيد غير موجود" };
-  const access = await requireStaff(target.company_id, "write");
+  const access = await requireStaff(target.company_id, "phones");
   if ("error" in access) return { error: access.error };
   await prisma.$transaction([
     prisma.beneficiary.update({ where: { id: target.id }, data: { pin_hash: null, failed_attempts: 0, locked_until: null } }),
@@ -162,7 +162,8 @@ export async function getPharmacyBeneficiaryDetails(beneficiaryId: string) {
   return {
     beneficiary: { id: target.id, name: target.name, card_number: target.card_number, status: target.status, company: target.company?.name ?? "" },
     account: account ? { id: account.id, name: account.name, phone: account.phone_number, hasPassword: Boolean(account.pin_hash), isSelf: account.id === target.id } : null,
-    canEdit: hasPermission(access.session, "edit_beneficiary"),
+    canEditPhones: hasPermission(access.session, "manage_pharmacy_phones"),
+    canEditChronic: hasPermission(access.session, "manage_pharmacy_chronic"),
     chronicIntervalDays: summary.chronicIntervalDays,
     chronic: chronic.map((drug) => ({ id: drug.id, name: drug.drug_name, notes: drug.notes, lastAt: drug.last_dispensed_at, lastFacility: drug.last_facility_name, eligible: drug.eligible, nextAt: drug.next_eligible_at })),
     inactive: inactive.map((link) => ({ id: link.id, name: link.drug.name, notes: link.notes, stoppedAt: link.updated_at.toISOString() })),
@@ -193,7 +194,7 @@ export async function searchDrugCatalog(companyId: string, query: string) {
 export async function addChronicDrug(beneficiaryId: string, drugName: string, notes: string) {
   const target = await prisma.beneficiary.findFirst({ where: { id: beneficiaryId, deleted_at: null }, select: { id: true, company_id: true, card_number: true } });
   if (!target?.company_id) return { error: "المستفيد غير موجود" };
-  const access = await requireStaff(target.company_id, "write");
+  const access = await requireStaff(target.company_id, "chronic");
   if ("error" in access) return { error: access.error };
   const name = drugName.trim().replace(/\s+/g, " ");
   if (name.length < 2 || name.length > 200) return { error: "اكتب اسم الدواء والجرعة (مثال: Concor 5mg)" };
@@ -217,7 +218,7 @@ export async function addChronicDrug(beneficiaryId: string, drugName: string, no
 export async function updateChronicDrug(linkId: string, change: { notes?: string; active?: boolean }) {
   const link = await prisma.beneficiaryChronicDrug.findUnique({ where: { id: linkId }, select: { id: true, notes: true, active: true, drug: { select: { name: true } }, beneficiary: { select: { id: true, company_id: true, card_number: true } } } });
   if (!link?.beneficiary.company_id) return { error: "الدواء غير موجود" };
-  const access = await requireStaff(link.beneficiary.company_id, "write");
+  const access = await requireStaff(link.beneficiary.company_id, "chronic");
   if ("error" in access) return { error: access.error };
   const notes = change.notes === undefined ? undefined : change.notes.trim().slice(0, 300) || null;
   await prisma.$transaction([

@@ -34,7 +34,7 @@ const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 async function requireImportAccess(companyId: string) {
   const session = await getSessionWithFreshPermissions();
-  if (!session || !hasPermission(session, "manage_companies")) return { error: "غير مصرح: يتطلب صلاحية إدارة الشركات والسياسات" } as const;
+  if (!session || !hasPermission(session, "manage_pharmacy_chronic")) return { error: "غير مصرح: يتطلب صلاحية إدارة الأدوية المزمنة" } as const;
   try {
     await assertCompanyAccessForSession(session, companyId);
   } catch {
@@ -45,7 +45,7 @@ async function requireImportAccess(companyId: string) {
 
 export async function downloadChronicImportTemplate() {
   const session = await getSessionWithFreshPermissions();
-  if (!session || !hasPermission(session, "manage_companies")) return { error: "غير مصرح" };
+  if (!session || !hasPermission(session, "manage_pharmacy_chronic")) return { error: "غير مصرح" };
   return { fileName: "قالب_استيراد_الأدوية_المزمنة.xlsx", base64: (await buildChronicImportTemplate()).toString("base64") };
 }
 

@@ -66,6 +66,8 @@ export const PERMISSION_DEFINITIONS: ReadonlyArray<PermissionDefinition> = [
   { key: "view_equestrian_beneficiaries", label: "عرض مستفيدي خدمات الفروسية", group: "equestrian" },
   { key: "pharmacy_services", label: "صلاحية خدمات الصيدلية (صرف، حركات، كشف)", group: "pharmacy" },
   { key: "view_pharmacy_beneficiaries", label: "عرض مستفيدي خدمات الصيدلية", group: "pharmacy" },
+  { key: "manage_pharmacy_chronic", label: "إدارة الأدوية المزمنة (استيراد، إضافة، إيقاف، إعادة تفعيل)", group: "pharmacy" },
+  { key: "manage_pharmacy_phones", label: "إدارة هواتف مستفيدي الصيدلية وكلمات مرور الأسر (استيراد وتعديل)", group: "pharmacy" },
 ];
 
 export const PERMISSION_KEYS = PERMISSION_DEFINITIONS.map((d) => d.key);
@@ -129,6 +131,8 @@ const EMPLOYEE_ALLOWED_PERMISSION_KEYS = [
   "view_equestrian_beneficiaries",
   "pharmacy_services",
   "view_pharmacy_beneficiaries",
+  "manage_pharmacy_chronic",
+  "manage_pharmacy_phones",
 ] as const satisfies ReadonlyArray<PermissionKey>;
 
 const FACILITY_ALLOWED_PERMISSION_KEYS = [

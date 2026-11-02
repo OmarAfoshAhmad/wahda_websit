@@ -112,7 +112,7 @@ export default async function PharmacyCompanyPage({ params, searchParams }: { pa
                 <span className="font-black text-amber-800 dark:text-amber-300">تحمل {copay}%</span>
               </div>
             )}
-            {hasPermission(session, "manage_companies") && (
+            {hasPermission(session, "manage_pharmacy_chronic") && (
               <Link href="/admin/pharmacy-services/chronic-import" className="mr-1 flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-black text-slate-700 shadow-sm transition-all hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">
                 <Pill className="h-3.5 w-3.5 text-teal-600" />
                 <span>استيراد الأدوية المزمنة</span>
@@ -139,7 +139,7 @@ export default async function PharmacyCompanyPage({ params, searchParams }: { pa
           <PharmacyTransactionsSection session={session} params={{ q: sp.q, view: sp.view, category: sp.category, facility: sp.facility, from: sp.from, to: sp.to, page: sp.page, company: company.id }} basePath={base} hidden={{ tab: "transactions", company: company.id }} />
         )}
         {activeTab === "beneficiaries" && (
-          <PharmacyBeneficiariesPanel companyId={company.id} canEdit={hasPermission(session, "edit_beneficiary")} canExport={session.is_admin || hasPermission(session, "export_data")} />
+          <PharmacyBeneficiariesPanel companyId={company.id} canEdit={hasPermission(session, "manage_pharmacy_phones")} canExport={session.is_admin || hasPermission(session, "export_data")} />
         )}
       </div>
     </Shell>

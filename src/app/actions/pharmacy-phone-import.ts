@@ -17,7 +17,7 @@ type PlannedRow = { row: number; card: string; phone: string; status: PhoneImpor
  * apply=false معاينة فقط؛ apply=true يعيد التحقق من الملف نفسه ثم يحدّث صفوف «تحديث» وحدها.
  */
 export async function importFamilyPhones(companyId: string, fileBase64: string, apply: boolean) {
-  const access = await requirePharmacyStaff(companyId, apply ? "write" : "read");
+  const access = await requirePharmacyStaff(companyId, apply ? "phones" : "read");
   if ("error" in access) return { error: access.error };
 
   let parsed: Array<{ row: number; card: string; phone: string }>;

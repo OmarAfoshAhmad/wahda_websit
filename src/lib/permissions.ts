@@ -37,6 +37,8 @@ export type ManagerPermissions = {
   view_equestrian_beneficiaries: boolean; // عرض مستفيدي الفروسية
   pharmacy_services: boolean; // صلاحية خدمات الصيدلية
   view_pharmacy_beneficiaries: boolean; // عرض مستفيدي الصيدلية
+  manage_pharmacy_chronic: boolean; // إدارة الأدوية المزمنة (استيراد، إضافة، إيقاف، إعادة تفعيل)
+  manage_pharmacy_phones: boolean; // إدارة هواتف مستفيدي الصيدلية وكلمات مرور الأسر
   add_manual_transaction: boolean; // صلاحية إضافة حركات يدوية
   edit_any_facility_transaction: boolean; // تعديل حركات خارج المرفق
 };

@@ -443,7 +443,8 @@ function BeneficiaryDrawer({ companyId, beneficiaryId, onClose, onChanged }: { c
     });
   };
 
-  const canEdit = data?.canEdit ?? false;
+  const canEdit = data?.canEditPhones ?? false;
+  const canEditChronic = data?.canEditChronic ?? false;
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={onClose}>
@@ -522,7 +523,7 @@ function BeneficiaryDrawer({ companyId, beneficiaryId, onClose, onChanged }: { c
                       ) : (
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <span className="text-xs text-slate-600 dark:text-slate-300" dir="auto">{drug.notes || "بلا ملاحظات"}</span>
-                          {canEdit && (
+                          {canEditChronic && (
                             <span className="flex gap-1">
                               <button type="button" onClick={() => setEditingNotes({ id: drug.id, value: drug.notes ?? "" })} className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs font-bold hover:bg-slate-50 dark:border-slate-600"><Pencil className="h-3 w-3" /> ملاحظة</button>
                               <button type="button" disabled={busy} onClick={() => { if (window.confirm(`إيقاف ${drug.name}؟ لن يظهر للصيدليات، ويبقى سجل صرفه.`)) run(() => updateChronicDrug(drug.id, { active: false }), `أُوقف ${drug.name}`); }} className="inline-flex items-center gap-1 rounded-md border border-rose-200 px-2 py-1 text-xs font-bold text-rose-700 hover:bg-rose-50"><Pause className="h-3 w-3" /> إيقاف</button>
@@ -534,7 +535,7 @@ function BeneficiaryDrawer({ companyId, beneficiaryId, onClose, onChanged }: { c
                   ))}
                 </ul>
 
-                {canEdit && (
+                {canEditChronic && (
                   <form className="space-y-2 rounded-lg bg-slate-50 p-2 dark:bg-slate-800/50" onSubmit={(event) => { event.preventDefault(); run(() => addChronicDrug(beneficiaryId, drugName, drugNotes), `أُضيف ${drugName}`); setDrugName(""); setDrugNotes(""); setSuggestions([]); }}>
                     <p className="text-xs font-black text-slate-600 dark:text-slate-300">إضافة دواء مزمن</p>
                     <Input value={drugName} onChange={(event) => setDrugName(event.target.value)} list={`drugs-${beneficiaryId}`} placeholder="اسم الدواء والجرعة (مثال: Concor 5mg)" className="h-10" aria-label="اسم الدواء" dir="auto" />
@@ -553,7 +554,7 @@ function BeneficiaryDrawer({ companyId, beneficiaryId, onClose, onChanged }: { c
                       {data.inactive.map((drug) => (
                         <li key={drug.id} className="flex items-center justify-between gap-2 text-slate-500">
                           <span dir="auto">{drug.name} · أُوقف {day(drug.stoppedAt)}</span>
-                          {canEdit && <button type="button" disabled={busy} onClick={() => run(() => updateChronicDrug(drug.id, { active: true }), `أُعيد ${drug.name}`)} className="inline-flex items-center gap-1 rounded-md border border-teal-300 px-2 py-0.5 text-xs font-bold text-teal-700"><Play className="h-3 w-3" /> إعادة</button>}
+                          {canEditChronic && <button type="button" disabled={busy} onClick={() => run(() => updateChronicDrug(drug.id, { active: true }), `أُعيد ${drug.name}`)} className="inline-flex items-center gap-1 rounded-md border border-teal-300 px-2 py-0.5 text-xs font-bold text-teal-700"><Play className="h-3 w-3" /> إعادة</button>}
                         </li>
                       ))}
                     </ul>
@@ -581,7 +582,7 @@ function BeneficiaryDrawer({ companyId, beneficiaryId, onClose, onChanged }: { c
                   </ul>
                 )}
               </section>
-              {!canEdit && <p className="text-xs text-slate-500">للتعديل تحتاج صلاحية «تعديل المستفيدين».</p>}
+              {!canEditChronic && <p className="text-xs text-slate-500">للتعديل تحتاج صلاحية «إدارة الأدوية المزمنة».</p>}
             </>
           )}
         </div>
