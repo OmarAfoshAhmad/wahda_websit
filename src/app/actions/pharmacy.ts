@@ -4,6 +4,7 @@ import { copyFile, unlink } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { PharmacyAttachmentKind } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { orderByIds, rankBeneficiaryIds } from "@/lib/beneficiary-search";
 import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-guard";
@@ -793,6 +794,83 @@ export async function unlockChronicDrug(chronicDrugId: string, reason: string) {
     prisma.auditLog.create({ data: { facility_id: access.session.id, user: access.session.username, action: "PHARMACY_CHRONIC_UNLOCK", metadata: { chronic_drug_id: link.id, beneficiary_id: link.beneficiary.id, drug: link.drug.name, reason: note } } }),
   ]);
   return { success: true };
+}
+
+/**
+ * تعديل صرف قائم في مكانه (بدون حذف ولا إعادة رفع المرفقات): أسعار البنود تُعاد بحسب
+ * سياسة الشركة الحالية، ويُحسب السقف باستبعاد هذا الصرف نفسه. save=false معاينة فقط.
+ */
+export async function editPharmacyDispense(dispenseId: string, prices: Array<{ sequence: number; price: number }>, save: boolean) {
+  const dispense = await prisma.pharmacyDispense.findUnique({
+    where: { id: dispenseId },
+    select: { id: true, company_id: true, facility_id: true, beneficiary_id: true, created_at: true, status: true, medicine_category: true, gross_total: true, company_total: true, patient_total: true, transaction_id: true, transaction: { select: { is_cancelled: true } } },
+  });
+  if (!dispense) return { error: "الصرف غير موجود" };
+  const access = await requirePharmacySession(dispense.company_id, "write");
+  if ("error" in access) return { error: access.error };
+  const { session } = access;
+  const today = getTripoliDayWindow(new Date());
+  const ownSameDay = dispense.facility_id === session.id && dispense.created_at >= today.start && dispense.created_at < today.end;
+  if (!hasPermission(session, "cancel_transactions") && !ownSameDay) return { error: "تعديل الصرف بعد يومه يتطلب صلاحية إلغاء الحركات" };
+  if (dispense.status === "CANCELLED" || dispense.transaction.is_cancelled) return { error: "لا يمكن تعديل صرف محذوف" };
+
+  try {
+    return await prisma.$transaction(async (tx) => {
+      await lockBeneficiary(tx, dispense.beneficiary_id);
+      const items = await tx.pharmacyDispenseItem.findMany({ where: { dispense_id: dispense.id }, orderBy: { sequence: "asc" }, select: { id: true, sequence: true, drug_id: true, price: true } });
+      const priceOf = new Map(prices.map((line) => [Number(line.sequence), Number(line.price)]));
+      const lines = items.map((item) => ({ sequence: item.sequence, drugId: item.drug_id, price: priceOf.get(item.sequence) ?? Number(item.price) }));
+      if (lines.some((line) => !Number.isFinite(line.price) || line.price <= 0 || line.price > 1_000_000)) throw new PharmacyRuleError("أدخل سعرًا صحيحًا أكبر من صفر لكل بند");
+
+      const policy = await loadPharmacyPolicy(tx, dispense.company_id);
+      if (!policy?.pharmacy_config) throw new PharmacyRuleError("سياسة الصيدلية غير مهيأة");
+      const resolved = resolvePharmacyCategoryPolicy(policy, policy.pharmacy_config, dispense.medicine_category);
+      const window = getPolicyYearWindow(dispense.created_at, resolved.policyYearStartMonth);
+      const consumption = await getPharmacyConsumption(tx, dispense.beneficiary_id, dispense.medicine_category, window);
+      // الصرف نفسه داخل الاستهلاك؛ يُستبعد ليُحسب بقيمته الجديدة.
+      const own = new Prisma.Decimal(dispense.gross_total ?? 0);
+      const calculation = calculatePharmacyDispense({
+        items: lines,
+        defaultCoveragePercent: resolved.coveragePercent,
+        ceilingBasis: "GROSS",
+        ceilingAmount: resolved.categoryCeiling,
+        consumedBefore: consumption.category.minus(own),
+        additionalCeilings: [{ ceilingAmount: resolved.overallCeiling, consumedBefore: consumption.overall.minus(own) }],
+      });
+      if (calculation.remainingBefore !== null && calculation.grossTotal.gt(calculation.remainingBefore)) {
+        throw new PharmacyRuleError(`الإجمالي (${calculation.grossTotal.toFixed(2)}) يتجاوز المتبقي من السقف (${calculation.remainingBefore.toFixed(2)} د.ل)`);
+      }
+      const result = {
+        success: true as const,
+        coveragePercent: Number(resolved.coveragePercent),
+        before: { gross: Number(dispense.gross_total ?? 0), company: Number(dispense.company_total ?? 0), patient: Number(dispense.patient_total ?? 0) },
+        after: { gross: Number(calculation.grossTotal), company: Number(calculation.companyTotal), patient: Number(calculation.patientTotal) },
+        items: calculation.items.map((item) => ({ sequence: item.sequence, price: Number(item.price), company: Number(item.companyShare), patient: Number(item.patientShare) })),
+      };
+      if (!save) return result;
+
+      const idBySequence = new Map(items.map((item) => [item.sequence, item.id]));
+      for (const item of calculation.items) {
+        await tx.pharmacyDispenseItem.update({ where: { id: idBySequence.get(item.sequence)! }, data: { price: item.price, coverage_percent: item.coveragePercent, company_share: item.companyShare, patient_share: item.patientShare } });
+      }
+      await tx.pharmacyDispense.update({ where: { id: dispense.id }, data: { gross_total: calculation.grossTotal, company_total: calculation.companyTotal, patient_total: calculation.patientTotal } });
+      await tx.transaction.update({
+        where: { id: dispense.transaction_id },
+        data: {
+          amount: calculation.grossTotal,
+          original_company_share: calculation.companyTotal, original_patient_share: calculation.patientTotal,
+          actual_company_share: calculation.companyTotal, actual_patient_share: calculation.patientTotal,
+          ceiling_consumed: calculation.ceilingConsumption, consumed_before: calculation.consumedBefore, consumed_after: calculation.consumedAfter,
+          remaining_ceiling_before: calculation.remainingBefore, remaining_ceiling_after: calculation.remainingAfter,
+          policy_snapshot: JSON.parse(JSON.stringify({ policy, resolved })),
+        },
+      });
+      await tx.auditLog.create({ data: { facility_id: session.id, user: session.username, action: "PHARMACY_DISPENSE_EDIT", metadata: { dispense_id: dispense.id, transaction_id: dispense.transaction_id, before: result.before, after: result.after } } });
+      return result;
+    });
+  } catch (error) {
+    return toErrorResult(error);
+  }
 }
 
 export async function cancelPharmacyDispense(dispenseId: string, reason: string) {

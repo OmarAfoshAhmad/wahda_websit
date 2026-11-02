@@ -1,10 +1,10 @@
 "use client";
 
-import { Fragment, useState, useTransition } from "react";
+import { Fragment, useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronLeft, ChevronRight, CreditCard, Download, FileText, History, Printer, RotateCcw, Trash2 } from "lucide-react";
-import { cancelPharmacyDispenses, deletePharmacyDispensesPermanently, restorePharmacyDispenses } from "@/app/actions/pharmacy";
+import { ChevronDown, ChevronLeft, ChevronRight, CreditCard, Download, FileText, History, Pencil, Printer, RotateCcw, Trash2 } from "lucide-react";
+import { cancelPharmacyDispenses, deletePharmacyDispensesPermanently, editPharmacyDispense, restorePharmacyDispenses } from "@/app/actions/pharmacy";
 import { ConfirmationModal } from "@/components/confirmation-modal";
 import { formatDateTripoli } from "@/lib/datetime";
 
@@ -25,7 +25,7 @@ export type DispenseRowData = {
   cancellationReason: string | null;
   prescriptionNumber: number | null;
   attachments: Array<{ id: string; kind: "INSURANCE_CARD" | "PRESCRIPTION" | null }>;
-  items: Array<{ label: string; price: number; company: number; patient: number }>;
+  items: Array<{ sequence: number; label: string; price: number; company: number; patient: number }>;
   canCancel: boolean;
 };
 
@@ -55,6 +55,7 @@ export function DispenseTable({ rows, deletedView, canRestore, canDeletePermanen
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, startBusy] = useTransition();
+  const [editing, setEditing] = useState<DispenseRowData | null>(null);
 
   const selectable = rows.filter((row) => (deletedView ? canRestore || canDeletePermanently : row.canCancel));
   const allSelected = selectable.length > 0 && selectable.every((row) => selected.has(row.id));
@@ -157,6 +158,7 @@ export function DispenseTable({ rows, deletedView, canRestore, canDeletePermanen
                     <td className={TD}>
                       <div className="flex items-center justify-center gap-1.5">
                         <a href={`/admin/pharmacy-services/transactions/${row.id}/print`} target="_blank" rel="noopener noreferrer" title="طباعة الفاتورة مع المرفقات" className={`${ICON} border-slate-200 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300`}><Printer className="h-4 w-4" /></a>
+                        {!deletedView && row.canCancel && <button type="button" title="تعديل الأسعار (المرفقات تبقى كما هي)" onClick={() => setEditing(row)} className={`${ICON} border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100 dark:border-sky-900/50 dark:bg-sky-950/20 dark:text-sky-400`}><Pencil className="h-4 w-4" /></button>}
                         {!deletedView && row.canCancel && <button type="button" title="حذف (يمكن استعادته)" onClick={() => ask("delete", [row.id])} className={`${ICON} border-red-200 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-400`}><Trash2 className="h-4 w-4" /></button>}
                         {deletedView && canRestore && (
                           <button type="button" title={row.fromPrescription ? "صرف وصفة: يُصرف من جديد من نافذة الصرف" : "استعادة الحركة"} disabled={row.fromPrescription} onClick={() => ask("restore", [row.id])} className={`${ICON} border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-400`}><RotateCcw className="h-4 w-4" /></button>
@@ -218,6 +220,8 @@ export function DispenseTable({ rows, deletedView, canRestore, canDeletePermanen
         </div>
       )}
 
+      {editing && <EditDispenseModal row={editing} onClose={() => setEditing(null)} onSaved={(text) => { setEditing(null); setNotice(text); router.refresh(); }} />}
+
       {pendingAction && (
         <ConfirmationModal
           isOpen
@@ -231,6 +235,73 @@ export function DispenseTable({ rows, deletedView, canRestore, canDeletePermanen
           error={error}
         />
       )}
+    </div>
+  );
+}
+
+type EditPreview = { coveragePercent: number; before: { gross: number; company: number; patient: number }; after: { gross: number; company: number; patient: number }; items: Array<{ sequence: number; price: number; company: number; patient: number }> };
+
+/** تعديل أسعار صرف قائم: يُعاد التوزيع بحسب السياسة الحالية ويُعرض قبل الحفظ، والمرفقات لا تُمس. */
+function EditDispenseModal({ row, onClose, onSaved }: { row: DispenseRowData; onClose: () => void; onSaved: (text: string) => void }) {
+  const [prices, setPrices] = useState<Record<number, string>>(() => Object.fromEntries(row.items.map((item) => [item.sequence, String(item.price)])));
+  const [preview, setPreview] = useState<EditPreview | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, startBusy] = useTransition();
+  const lines = () => row.items.map((item) => ({ sequence: item.sequence, price: Number(prices[item.sequence]) }));
+
+  const call = (save: boolean) => startBusy(async () => {
+    setError(null);
+    const result = await editPharmacyDispense(row.id, lines(), save);
+    if ("error" in result && result.error) { setError(result.error); return; }
+    if (!("after" in result) || !result.after) return;
+    setPreview(result as EditPreview);
+    if (save) onSaved(`عُدّل صرف ${row.beneficiary}: الإجمالي ${money(result.after.gross)}، على الشركة ${money(result.after.company)}، على المستفيد ${money(result.after.patient)}`);
+  });
+
+  // المعاينة الأولى فورًا لتظهر السياسة الحالية حتى بدون تغيير الأسعار.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { call(false); }, []);
+
+  const shareOf = (sequence: number) => preview?.items.find((item) => item.sequence === sequence);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-label="تعديل الصرف">
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white p-5 shadow-xl dark:bg-slate-900">
+        <h3 className="text-lg font-black">تعديل صرف — {row.beneficiary}</h3>
+        <p className="mt-1 text-xs text-slate-500">المرفقات تبقى كما هي. التوزيع يُحسب بسياسة الشركة الحالية{preview ? ` (تغطية ${preview.coveragePercent}%)` : ""}.</p>
+        <table className="mt-4 w-full text-sm">
+          <thead className="text-xs text-slate-500"><tr><th className="py-1 text-start">البند</th><th className="py-1 text-start">السعر</th><th className="py-1 text-end">على الشركة</th><th className="py-1 text-end">على المستفيد</th></tr></thead>
+          <tbody>
+            {row.items.map((item) => {
+              const share = shareOf(item.sequence);
+              return (
+                <tr key={item.sequence} className="border-t border-slate-100 dark:border-slate-800">
+                  <td className="py-2">{item.label}</td>
+                  <td className="py-2"><input type="number" min="0" step="0.01" dir="ltr" value={prices[item.sequence]} onChange={(event) => setPrices((current) => ({ ...current, [item.sequence]: event.target.value }))} onBlur={() => call(false)} className="h-9 w-28 rounded-md border border-slate-300 px-2 tabular-nums dark:border-slate-700 dark:bg-slate-800" aria-label={`سعر ${item.label}`} /></td>
+                  <td className="py-2 text-end tabular-nums text-teal-700">{share ? money(share.company) : "…"}</td>
+                  <td className="py-2 text-end tabular-nums">{share ? money(share.patient) : "…"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {preview && (
+          <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
+            {([["الإجمالي", "gross"], ["على الشركة", "company"], ["على المستفيد", "patient"]] as const).map(([label, key]) => (
+              <div key={key} className="rounded-lg border border-slate-200 p-2 dark:border-slate-700">
+                <p className="font-bold text-slate-500">{label}</p>
+                <p className="tabular-nums text-slate-400 line-through">{money(preview.before[key])}</p>
+                <p className="text-base font-black tabular-nums">{money(preview.after[key])}</p>
+              </div>
+            ))}
+          </div>
+        )}
+        {error && <p className="mt-3 rounded-md bg-red-50 p-2 text-sm font-bold text-red-700">{error}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="h-10 rounded-lg border border-slate-200 px-4 text-sm font-bold dark:border-slate-700">إلغاء</button>
+          <button type="button" onClick={() => call(false)} disabled={busy} className="h-10 rounded-lg border border-teal-200 px-4 text-sm font-bold text-teal-700 disabled:opacity-50">إعادة الحساب</button>
+          <button type="button" onClick={() => call(true)} disabled={busy || !preview} className="h-10 rounded-lg bg-teal-600 px-5 text-sm font-black text-white hover:bg-teal-700 disabled:opacity-50">{busy ? "جارٍ..." : "حفظ التعديل"}</button>
+        </div>
+      </div>
     </div>
   );
 }

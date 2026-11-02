@@ -168,7 +168,7 @@ export async function PharmacyTransactionsSection({ session, params, basePath, h
             cancellationReason: row.cancellation_reason ?? (row.transaction.is_cancelled && row.status !== "CANCELLED" ? "أُلغيت الحركة المالية من شاشة الحركات" : null),
             prescriptionNumber: row.prescription?.prescription_number ?? null,
             attachments: [...row.attachments, ...(row.prescription?.attachments ?? [])],
-            items: row.items.map((item) => ({ label: item.drug?.name ?? `البند ${item.sequence}`, price: Number(item.price), company: Number(item.company_share), patient: Number(item.patient_share) })),
+            items: row.items.map((item) => ({ sequence: item.sequence, label: item.drug?.name ?? `البند ${item.sequence}`, price: Number(item.price), company: Number(item.company_share), patient: Number(item.patient_share) })),
             // الصيدلية تحذف صرفها في يومه فقط؛ بعده يُحذف من الإدارة (حتى لا تُحذف حركات قديمة دون رقابة).
             canCancel: !cancelled && hasPermission(session, "pharmacy_services") && (canCancelAny || ownSameDay),
           };
