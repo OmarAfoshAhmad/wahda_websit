@@ -445,6 +445,7 @@ function BeneficiaryDrawer({ companyId, beneficiaryId, onClose, onChanged }: { c
 
   const canEdit = data?.canEditPhones ?? false;
   const canEditChronic = data?.canEditChronic ?? false;
+  const canDeleteChronic = data?.canDeleteChronic ?? false;
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={onClose}>
@@ -524,10 +525,10 @@ function BeneficiaryDrawer({ companyId, beneficiaryId, onClose, onChanged }: { c
                       ) : (
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <span className="text-xs text-slate-600 dark:text-slate-300" dir="auto">{drug.notes || "بلا ملاحظات"}</span>
-                          {canEditChronic && (
+                          {(canEditChronic || canDeleteChronic) && (
                             <span className="flex gap-1">
-                              <button type="button" onClick={() => setEditingNotes({ id: drug.id, name: drug.name, value: drug.notes ?? "" })} className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs font-bold hover:bg-slate-50 dark:border-slate-600"><Pencil className="h-3 w-3" /> تعديل</button>
-                              <button type="button" disabled={busy} onClick={() => { if (window.confirm(`إيقاف ${drug.name}؟ لن يظهر للصيدليات، ويبقى سجل صرفه.`)) run(() => updateChronicDrug(drug.id, { active: false }), `أُوقف ${drug.name}`); }} className="inline-flex items-center gap-1 rounded-md border border-rose-200 px-2 py-1 text-xs font-bold text-rose-700 hover:bg-rose-50"><Pause className="h-3 w-3" /> إيقاف</button>
+                              {canEditChronic && <button type="button" onClick={() => setEditingNotes({ id: drug.id, name: drug.name, value: drug.notes ?? "" })} className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs font-bold hover:bg-slate-50 dark:border-slate-600"><Pencil className="h-3 w-3" /> تعديل</button>}
+                              {canDeleteChronic && <button type="button" disabled={busy} onClick={() => { if (window.confirm(`إيقاف ${drug.name}؟ لن يظهر للصيدليات، ويبقى سجل صرفه.`)) run(() => updateChronicDrug(drug.id, { active: false }), `أُوقف ${drug.name}`); }} className="inline-flex items-center gap-1 rounded-md border border-rose-200 px-2 py-1 text-xs font-bold text-rose-700 hover:bg-rose-50"><Pause className="h-3 w-3" /> إيقاف</button>}
                             </span>
                           )}
                         </div>
@@ -555,7 +556,7 @@ function BeneficiaryDrawer({ companyId, beneficiaryId, onClose, onChanged }: { c
                       {data.inactive.map((drug) => (
                         <li key={drug.id} className="flex items-center justify-between gap-2 text-slate-500">
                           <span dir="auto">{drug.name} · أُوقف {day(drug.stoppedAt)}</span>
-                          {canEditChronic && <button type="button" disabled={busy} onClick={() => run(() => updateChronicDrug(drug.id, { active: true }), `أُعيد ${drug.name}`)} className="inline-flex items-center gap-1 rounded-md border border-teal-300 px-2 py-0.5 text-xs font-bold text-teal-700"><Play className="h-3 w-3" /> إعادة</button>}
+                          {canDeleteChronic && <button type="button" disabled={busy} onClick={() => run(() => updateChronicDrug(drug.id, { active: true }), `أُعيد ${drug.name}`)} className="inline-flex items-center gap-1 rounded-md border border-teal-300 px-2 py-0.5 text-xs font-bold text-teal-700"><Play className="h-3 w-3" /> إعادة</button>}
                         </li>
                       ))}
                     </ul>
@@ -583,7 +584,7 @@ function BeneficiaryDrawer({ companyId, beneficiaryId, onClose, onChanged }: { c
                   </ul>
                 )}
               </section>
-              {!canEditChronic && <p className="text-xs text-slate-500">للتعديل تحتاج صلاحية «إدارة الأدوية المزمنة».</p>}
+              {!canEditChronic && !canDeleteChronic && <p className="text-xs text-slate-500">للتعديل تحتاج صلاحية «إضافة وتعديل الأدوية المزمنة» أو «حذف الأدوية المزمنة».</p>}
             </>
           )}
         </div>

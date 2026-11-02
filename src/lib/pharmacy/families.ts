@@ -11,11 +11,12 @@ import { EMPLOYEE_NUMBER_SQL_PATTERN } from "@/lib/beneficiary-employee-number";
  */
 
 /** قائمة المستفيدين لموظفي الإدارة فقط؛ الهواتف وكلمات المرور والأدوية المزمنة لكل منها صلاحية خاصة. */
-export async function requirePharmacyStaff(companyId: string, mode: "read" | "phones" | "chronic") {
+export async function requirePharmacyStaff(companyId: string, mode: "read" | "phones" | "chronic" | "chronic_delete") {
   const session = await getSessionWithFreshPermissions();
   if (!session || !canAccessAdmin(session)) return { error: "غير مصرح" } as const;
   const allowed = mode === "phones" ? hasPermission(session, "manage_pharmacy_phones")
     : mode === "chronic" ? hasPermission(session, "manage_pharmacy_chronic")
+    : mode === "chronic_delete" ? hasPermission(session, "delete_pharmacy_chronic")
     : hasPermission(session, "pharmacy_services") || hasPermission(session, "view_pharmacy_beneficiaries");
   if (!allowed) return { error: "غير مصرح" } as const;
   try {

@@ -164,6 +164,7 @@ export async function getPharmacyBeneficiaryDetails(beneficiaryId: string) {
     account: account ? { id: account.id, name: account.name, phone: account.phone_number, hasPassword: Boolean(account.pin_hash), isSelf: account.id === target.id } : null,
     canEditPhones: hasPermission(access.session, "manage_pharmacy_phones"),
     canEditChronic: hasPermission(access.session, "manage_pharmacy_chronic"),
+    canDeleteChronic: hasPermission(access.session, "delete_pharmacy_chronic"),
     chronicIntervalDays: summary.chronicIntervalDays,
     chronic: chronic.map((drug) => ({ id: drug.id, name: drug.drug_name, notes: drug.notes, lastAt: drug.last_dispensed_at, lastFacility: drug.last_facility_name, eligible: drug.eligible, nextAt: drug.next_eligible_at })),
     inactive: inactive.map((link) => ({ id: link.id, name: link.drug.name, notes: link.notes, stoppedAt: link.updated_at.toISOString() })),
@@ -218,7 +219,11 @@ export async function addChronicDrug(beneficiaryId: string, drugName: string, no
 export async function updateChronicDrug(linkId: string, change: { name?: string; notes?: string; active?: boolean }) {
   const link = await prisma.beneficiaryChronicDrug.findUnique({ where: { id: linkId }, select: { id: true, notes: true, active: true, drug_id: true, drug: { select: { name: true } }, beneficiary: { select: { id: true, company_id: true, card_number: true } } } });
   if (!link?.beneficiary.company_id) return { error: "الدواء غير موجود" };
-  const access = await requireStaff(link.beneficiary.company_id, "chronic");
+  // الإيقاف والإعادة صلاحية «الحذف»، وتغيير الاسم أو الملاحظة صلاحية «الإضافة والتعديل».
+  const editing = change.name !== undefined || change.notes !== undefined;
+  const togglingActive = change.active !== undefined;
+  if (editing && togglingActive) return { error: "عدّل الدواء أو أوقفه، كل على حدة" };
+  const access = await requireStaff(link.beneficiary.company_id, togglingActive ? "chronic_delete" : "chronic");
   if ("error" in access) return { error: access.error };
   const notes = change.notes === undefined ? undefined : change.notes.trim().slice(0, 300) || null;
   // تغيير الاسم = ربط الرابط نفسه بدواء آخر من الكتالوج (يُنشأ إن لم يوجد)، فيبقى تاريخ الاستيراد والملاحظات.
