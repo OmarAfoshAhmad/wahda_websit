@@ -184,7 +184,6 @@ export function PharmacyOrderClient({ categories, chronicDrugs, contextError, or
   };
   const receiveNext = () => {
     if (!fulfillment) return setStepError("اختر طريقة الاستلام");
-    if (fulfillment === "DELIVERY" && !location) return setStepError("اضغط «استخدم موقعي» حتى نعرف أين نوصل الدواء");
     if (fulfillment === "DELIVERY" && !address.trim()) return setStepError("اكتب وصفًا لعنوان البيت");
     goTo("review");
   };
@@ -355,13 +354,13 @@ export function PharmacyOrderClient({ categories, chronicDrugs, contextError, or
           {step === "receive" && pharmacy && (
             <div className="space-y-3" role="radiogroup" aria-label="طريقة الاستلام">
               <BigChoice selected={fulfillment === "PICKUP"} onClick={() => { setFulfillment("PICKUP"); setStepError(""); }} icon={<Store className="h-6 w-6" aria-hidden />} title="أستلمه من الصيدلية" subtitle="بدون أي مبلغ إضافي" />
-              {pharmacy.delivery.available || !location ? (
+              {pharmacy.delivery.available || (!location && pharmacy.delivery.reason !== "لا توفر هذه الصيدلية التوصيل") ? (
                 <BigChoice
                   selected={fulfillment === "DELIVERY"}
                   onClick={() => { setFulfillment("DELIVERY"); setStepError(""); }}
                   icon={<Bike className="h-6 w-6" aria-hidden />}
                   title="توصيل للبيت"
-                  subtitle={pharmacy.delivery.available ? `+ ${pharmacy.delivery.fee} دينار تدفعها عند الاستلام` : "نحتاج موقعك لمعرفة قيمة التوصيل"}
+                  subtitle={pharmacy.delivery.available ? `+ ${pharmacy.delivery.fee} دينار تدفعها عند الاستلام` : "قيمة التوصيل تؤكدها الصيدلية (أو شارك موقعك لحسابها)"}
                 />
               ) : (
                 <p className="rounded-2xl bg-slate-100 p-4 text-lg text-slate-700 dark:bg-slate-800 dark:text-slate-200">هذه الصيدلية لا توصّل إلى موقعك</p>
@@ -370,7 +369,7 @@ export function PharmacyOrderClient({ categories, chronicDrugs, contextError, or
                 <div className="space-y-3 pt-2">
                   {!location && (
                     <button type="button" onClick={requestMyLocation} disabled={locating} className="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 text-lg font-bold text-white disabled:opacity-60">
-                      {locating ? <Loader2 className="h-6 w-6 animate-spin" aria-hidden /> : <MapPin className="h-6 w-6" aria-hidden />} استخدم موقعي
+                      {locating ? <Loader2 className="h-6 w-6 animate-spin" aria-hidden /> : <MapPin className="h-6 w-6" aria-hidden />} استخدم موقعي (اختياري)
                     </button>
                   )}
                   {locationHint && <p className="text-base text-amber-800 dark:text-amber-300">{locationHint}</p>}
@@ -389,7 +388,7 @@ export function PharmacyOrderClient({ categories, chronicDrugs, contextError, or
                 {[
                   ["الصيدلية", pharmacy.name],
                   ["الدواء", category === "CHRONIC" ? `${CATEGORY_TEXT.CHRONIC.title} (${chronicIds.length})` : CATEGORY_TEXT[category].title],
-                  ["الاستلام", fulfillment === "DELIVERY" ? `توصيل للبيت + ${pharmacy.delivery.available ? pharmacy.delivery.fee : "—"} دينار` : "من الصيدلية"],
+                  ["الاستلام", fulfillment === "DELIVERY" ? (pharmacy.delivery.available ? `توصيل للبيت + ${pharmacy.delivery.fee} دينار` : "توصيل للبيت (القيمة تؤكدها الصيدلية)") : "من الصيدلية"],
                   ["الصور", needsRx ? "البطاقة والوصفة ✓" : "البطاقة ✓"],
                 ].map(([label, value]) => (
                   <div key={label} className="flex justify-between gap-3 px-4 py-3"><dt className="text-slate-500 dark:text-slate-400">{label}</dt><dd className="text-end font-bold">{value}</dd></div>

@@ -155,7 +155,15 @@ export async function createPharmacyOrder(formData: FormData) {
   let deliveryFee: number | null = null;
   let distance: number | null = null;
   if (fulfillment === "DELIVERY") {
-    if (!location) return { error: "شارك موقعك لتحديد عنوان التوصيل" };
+    // الموقع اختياري: بدونه يكفي وصف العنوان، والقيمة الأساسية فقط وتؤكد الصيدلية الباقي.
+    if (!address) return { error: "اكتب وصفًا لعنوان البيت" };
+    const settings = deliverySettingsOf(profile);
+    if (!location) {
+      if (!settings.enabled) return { error: "لا توفر هذه الصيدلية التوصيل" };
+      deliveryFee = settings.baseFee;
+    }
+  }
+  if (fulfillment === "DELIVERY" && location) {
     distance = profile.latitude !== null && profile.longitude !== null ? distanceKm(location, { latitude: profile.latitude, longitude: profile.longitude }) : null;
     const quote = deliveryQuote(deliverySettingsOf(profile), distance);
     if (!quote.available) return { error: quote.reason };
