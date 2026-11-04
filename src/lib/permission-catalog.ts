@@ -69,6 +69,7 @@ export const PERMISSION_DEFINITIONS: ReadonlyArray<PermissionDefinition> = [
   { key: "manage_pharmacy_chronic", label: "إضافة وتعديل الأدوية المزمنة (استيراد، إضافة، تعديل، إعادة تفعيل)", group: "pharmacy" },
   { key: "delete_pharmacy_chronic", label: "حذف (إيقاف) الأدوية المزمنة للمستفيدين وإعادتها", group: "pharmacy" },
   { key: "manage_pharmacy_phones", label: "إدارة هواتف مستفيدي الصيدلية وكلمات مرور الأسر (استيراد وتعديل)", group: "pharmacy" },
+  { key: "manual_pharmacy_dispense", label: "خصم صيدلية يدوي (روتيني أو مزمن) باسم مرفق محدد", group: "pharmacy" },
 ];
 
 export const PERMISSION_KEYS = PERMISSION_DEFINITIONS.map((d) => d.key);
@@ -135,6 +136,7 @@ const EMPLOYEE_ALLOWED_PERMISSION_KEYS = [
   "manage_pharmacy_chronic",
   "delete_pharmacy_chronic",
   "manage_pharmacy_phones",
+  "manual_pharmacy_dispense",
 ] as const satisfies ReadonlyArray<PermissionKey>;
 
 const FACILITY_ALLOWED_PERMISSION_KEYS = [

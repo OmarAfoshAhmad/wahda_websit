@@ -16,6 +16,7 @@ import {
 } from "@/app/actions/pharmacy-beneficiaries";
 import { importFamilyPhones, type PhoneImportStatus } from "@/app/actions/pharmacy-phone-import";
 import { formatDateTripoli } from "@/lib/datetime";
+import { ManualDispenseForm } from "@/components/pharmacy/manual-dispense-form";
 
 type FamilyResult = Awaited<ReturnType<typeof listPharmacyFamilies>>;
 type Family = FamilyResult["families"][number];
@@ -566,7 +567,17 @@ function BeneficiaryDrawer({ companyId, beneficiaryId, onClose, onChanged }: { c
 
               {/* سجل الصرف */}
               <section className="space-y-2 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
-                <h3 className="text-sm font-black">آخر ما صُرف له</h3>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-sm font-black">آخر ما صُرف له</h3>
+                  {data.canManualDispense && (
+                    <ManualDispenseForm
+                      companyId={companyId}
+                      beneficiaryId={beneficiaryId}
+                      chronic={data.chronic.map((drug) => ({ id: drug.id, name: drug.name, eligible: drug.eligible, nextAt: drug.nextAt }))}
+                      onDone={(message) => { setError(""); setNotice(message); void reload(); onChanged(); }}
+                    />
+                  )}
+                </div>
                 {data.dispenses.length === 0 ? <p className="text-sm text-slate-500">لم يُصرف له شيء بعد.</p> : (
                   <ul className="divide-y divide-slate-100 dark:divide-slate-800">
                     {data.dispenses.map((dispense) => (

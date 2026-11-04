@@ -40,6 +40,7 @@ export type ManagerPermissions = {
   manage_pharmacy_chronic: boolean; // إضافة وتعديل الأدوية المزمنة (استيراد، إضافة، تعديل، إعادة تفعيل)
   delete_pharmacy_chronic: boolean; // حذف (إيقاف) الأدوية المزمنة وإعادتها
   manage_pharmacy_phones: boolean; // إدارة هواتف مستفيدي الصيدلية وكلمات مرور الأسر
+  manual_pharmacy_dispense: boolean; // خصم صيدلية يدوي من الإدارة باسم مرفق محدد
   add_manual_transaction: boolean; // صلاحية إضافة حركات يدوية
   edit_any_facility_transaction: boolean; // تعديل حركات خارج المرفق
 };

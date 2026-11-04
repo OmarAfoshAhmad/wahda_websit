@@ -451,7 +451,11 @@ async function recordPharmacyDispense(tx: Tx, input: {
   lines: DispenseLine[];
   prescriptionId: string | null;
   idempotencyKey: string;
+  /** المرفق الذي تُسجَّل الحركة باسمه (الخصم اليدوي من الإدارة)؛ الافتراضي هو الحساب نفسه. */
+  facilityId?: string;
+  manualNote?: string;
 }) {
+  const facilityId = input.facilityId ?? input.session.id;
   const policy = await loadPharmacyPolicy(tx, input.companyId);
   if (!policy?.pharmacy_config) throw new PharmacyRuleError("سياسة الصيدلية غير مهيأة");
   const resolved = resolvePharmacyCategoryPolicy(policy, policy.pharmacy_config, input.category);
@@ -479,11 +483,11 @@ async function recordPharmacyDispense(tx: Tx, input: {
 
   // لا رصيد عام للصيدلية: الحد هو سقوف سياسة الأدوية خلال السنة التأمينية فقط (حركاتها من نوع PHARMACY معزولة).
 
-  const facility = await tx.facility.findUnique({ where: { id: input.session.id }, select: { name: true } });
+  const facility = await tx.facility.findUnique({ where: { id: facilityId }, select: { name: true } });
   const transaction = await tx.transaction.create({
     data: {
       beneficiary_id: input.beneficiaryId,
-      facility_id: input.session.id,
+      facility_id: facilityId,
       company_id: input.companyId,
       service_type_id: policy.service_type_id,
       type: "PHARMACY",
@@ -509,7 +513,7 @@ async function recordPharmacyDispense(tx: Tx, input: {
     data: {
       beneficiary_id: input.beneficiaryId,
       company_id: input.companyId,
-      facility_id: input.session.id,
+      facility_id: facilityId,
       medicine_category: input.category,
       prescription_id: input.prescriptionId,
       item_count: calculation.itemCount,
@@ -538,8 +542,9 @@ async function recordPharmacyDispense(tx: Tx, input: {
     data: {
       facility_id: input.session.id,
       user: input.session.username,
-      action: "PHARMACY_DISPENSE",
+      action: input.facilityId ? "PHARMACY_MANUAL_DISPENSE" : "PHARMACY_DISPENSE",
       metadata: {
+        ...(input.facilityId ? { manual: true, facility_id: facilityId, note: input.manualNote ?? null } : {}),
         dispense_id: dispense.id,
         transaction_id: transaction.id,
         beneficiary_id: input.beneficiaryId,
@@ -559,6 +564,29 @@ async function recordPharmacyDispense(tx: Tx, input: {
     patientTotal: Number(calculation.patientTotal),
     remainingAfter: calculation.remainingAfter === null ? null : Number(calculation.remainingAfter),
   };
+}
+
+/** كل دواء مزمن يُصرف مرة كل chronic_interval_days يومًا (من أي مرفق)، ما لم تُعِد الإدارة تفعيله. */
+async function assertChronicEligible(tx: Tx, companyId: string, beneficiaryId: string, links: Array<{ drug_id: string; imported_last_dispensed_at: Date | null; unlocked_at: Date | null; drug: { name: string } }>) {
+  const policy = await loadPharmacyPolicy(tx, companyId);
+  const intervalDays = policy?.pharmacy_config?.chronic_interval_days ?? 28;
+  const now = new Date();
+  const lastItems = await tx.pharmacyDispenseItem.findMany({
+    where: { drug_id: { in: links.map((link) => link.drug_id) }, dispense: { beneficiary_id: beneficiaryId, medicine_category: "CHRONIC", ...ACTIVE_DISPENSE } },
+    orderBy: { dispense: { created_at: "desc" } },
+    distinct: ["drug_id"],
+    select: { drug_id: true, dispense: { select: { created_at: true, facility: { select: { name: true } } } } },
+  });
+  const lastByDrug = new Map(lastItems.map((item) => [item.drug_id, item.dispense]));
+  for (const link of links) {
+    const system = lastByDrug.get(link.drug_id);
+    const lastAt = latestChronicDispense(system?.created_at, link.imported_last_dispensed_at);
+    if (lastAt && !isChronicLockCleared(lastAt, link.unlocked_at) && !isChronicDrugEligible(lastAt, intervalDays, now)) {
+      const where = lastAt === system?.created_at ? `لدى ${system.facility.name}` : "قبل المنظومة";
+      const next = formatDateTripoli(getNextChronicEligibleDate(lastAt, intervalDays));
+      throw new PharmacyRuleError(`${link.drug.name} صُرف ${where}، ويُسمح بصرفه مجددًا من ${next}`);
+    }
+  }
 }
 
 function toErrorResult(error: unknown) {
@@ -719,27 +747,7 @@ export async function dispenseChronicDrugs(formData: FormData) {
       const linkById = new Map(links.map((link) => [link.id, link]));
       if (items.some((item) => !linkById.has(item.chronicDrugId))) throw new PharmacyRuleError("أحد الأدوية المختارة غير مرتبط بالمستفيد");
 
-      const policy = await loadPharmacyPolicy(tx, companyId);
-      const intervalDays = policy?.pharmacy_config?.chronic_interval_days ?? 28;
-      const now = new Date();
-      const drugIds = items.map((item) => linkById.get(item.chronicDrugId)!.drug_id);
-      const lastItems = await tx.pharmacyDispenseItem.findMany({
-        where: { drug_id: { in: drugIds }, dispense: { beneficiary_id: beneficiary.id, medicine_category: "CHRONIC", ...ACTIVE_DISPENSE } },
-        orderBy: { dispense: { created_at: "desc" } },
-        distinct: ["drug_id"],
-        select: { drug_id: true, dispense: { select: { created_at: true, facility: { select: { name: true } } } } },
-      });
-      const lastByDrug = new Map(lastItems.map((item) => [item.drug_id, item.dispense]));
-      for (const item of items) {
-        const link = linkById.get(item.chronicDrugId)!;
-        const system = lastByDrug.get(link.drug_id);
-        const lastAt = latestChronicDispense(system?.created_at, link.imported_last_dispensed_at);
-        if (lastAt && !isChronicLockCleared(lastAt, link.unlocked_at) && !isChronicDrugEligible(lastAt, intervalDays, now)) {
-          const where = lastAt === system?.created_at ? `لدى ${system.facility.name}` : "قبل المنظومة";
-          const next = formatDateTripoli(getNextChronicEligibleDate(lastAt, intervalDays));
-          throw new PharmacyRuleError(`${link.drug.name} صُرف ${where}، ويُسمح بصرفه مجددًا من ${next}`);
-        }
-      }
+      await assertChronicEligible(tx, companyId, beneficiary.id, items.map((item) => linkById.get(item.chronicDrugId)!));
 
       const result = await recordPharmacyDispense(tx, {
         session,
@@ -992,4 +1000,128 @@ export async function deletePharmacyDispensesPermanently(dispenseIds: string[]) 
     }
     return null;
   });
+}
+
+// ───────────────────────── الخصم اليدوي من الإدارة ─────────────────────────
+
+async function requireManualDispense(companyId: string) {
+  const access = await requirePharmacySession(companyId, "read");
+  if ("error" in access) return access;
+  if (!canAccessAdmin(access.session) || !hasPermission(access.session, "manual_pharmacy_dispense")) return { error: "الخصم اليدوي يتطلب صلاحية «خصم صيدلية يدوي»" } as const;
+  return access;
+}
+
+/** الصيدليات التي يمكن تسجيل الخصم اليدوي باسمها. */
+export async function getManualDispenseFacilities(companyId: string) {
+  const access = await requireManualDispense(companyId);
+  if ("error" in access) return { error: access.error, facilities: [] };
+  const facilities = await prisma.facility.findMany({
+    where: { deleted_at: null, facility_type: "PHARMACY", is_admin: false, is_manager: false, is_employee: false },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true },
+  });
+  return { facilities };
+}
+
+/**
+ * خصم صيدلية يدوي من الإدارة باسم مرفق محدد: روتيني (أسماء أدوية وأسعارها، بلا وصفة في المنظومة)
+ * أو مزمن (من أدوية المستفيد المرتبطة، بنفس قفل الفترة). يمر بنفس الحساب والسقوف وسجل التدقيق،
+ * والمرفقات اختيارية. FormData: companyId, beneficiaryId, facilityId, category, note, idempotencyKey,
+ * items (JSON: [{ name, price }] للروتيني أو [{ chronicDrugId, price }] للمزمن)، insuranceCard و prescription اختياريان.
+ */
+export async function manualPharmacyDispense(formData: FormData) {
+  const companyId = String(formData.get("companyId") ?? "");
+  const beneficiaryId = String(formData.get("beneficiaryId") ?? "");
+  const facilityId = String(formData.get("facilityId") ?? "");
+  const category = String(formData.get("category") ?? "");
+  const idempotencyKey = String(formData.get("idempotencyKey") ?? "");
+  const note = String(formData.get("note") ?? "").trim().slice(0, 300);
+  const access = await requireManualDispense(companyId);
+  if ("error" in access) return { error: access.error };
+  const { session } = access;
+  if (!beneficiaryId || !idempotencyKey) return { error: "طلب غير صالح" };
+  if (category !== "ROUTINE" && category !== "CHRONIC") return { error: "اختر نوع الأدوية: روتيني أو مزمن" };
+  if (!note) return { error: "اكتب سبب الخصم اليدوي" };
+  const facility = await prisma.facility.findFirst({ where: { id: facilityId, deleted_at: null, facility_type: "PHARMACY" }, select: { id: true } });
+  if (!facility) return { error: "اختر الصيدلية التي يُسجَّل الخصم باسمها" };
+
+  let rawItems: Array<{ name: string; chronicDrugId: string; price: number }>;
+  try {
+    const parsed = JSON.parse(String(formData.get("items") ?? "[]"));
+    if (!Array.isArray(parsed)) throw new Error("items");
+    rawItems = parsed.map((item) => ({ name: String(item.name ?? "").trim().replace(/\s+/g, " "), chronicDrugId: String(item.chronicDrugId ?? ""), price: Number(item.price) }));
+  } catch {
+    return { error: "بيانات البنود غير صالحة" };
+  }
+  if (rawItems.length === 0) return { error: "أدخل بندًا واحدًا على الأقل" };
+  if (rawItems.length > MAX_PRESCRIPTION_LINE) return { error: `الحد ${MAX_PRESCRIPTION_LINE} بندًا` };
+  if (category === "ROUTINE" && rawItems.some((item) => item.name.length < 2 || item.name.length > 200)) return { error: "اكتب اسم كل دواء" };
+  if (category === "CHRONIC" && new Set(rawItems.map((item) => item.chronicDrugId)).size !== rawItems.length) return { error: "الدواء مكرر في الطلب" };
+
+  const existing = await prisma.pharmacyDispense.findUnique({ where: { idempotency_key: idempotencyKey }, select: { id: true } });
+  if (existing) return { success: true, duplicated: true, dispenseId: existing.id };
+
+  const stored: StoredFile[] = [];
+  const cleanup = () => Promise.all(stored.map((file) => unlink(file.absolutePath).catch(() => undefined)));
+  const uploads: Array<[PharmacyAttachmentKind, FormDataEntryValue | null]> = [["INSURANCE_CARD", formData.get("insuranceCard")], ["PRESCRIPTION", formData.get("prescription")]];
+  for (const [kind, file] of uploads) {
+    if (!(file instanceof File) || file.size === 0) continue;
+    const result = await storeAttachmentFile(file, kind);
+    if ("error" in result) {
+      await cleanup();
+      return { error: result.error };
+    }
+    stored.push(result);
+  }
+
+  const { normalizeDrugName } = await import("@/lib/pharmacy/chronic-import");
+  try {
+    const outcome = await prisma.$transaction(async (tx) => {
+      const beneficiary = await tx.beneficiary.findFirst({ where: { id: beneficiaryId, company_id: companyId, deleted_at: null, status: { not: "SUSPENDED" } }, select: { id: true } });
+      if (!beneficiary) throw new PharmacyRuleError("المستفيد موقوف أو لا يتبع الشركة المختارة");
+      await lockBeneficiary(tx, beneficiary.id);
+
+      const lines: DispenseLine[] = [];
+      if (category === "CHRONIC") {
+        const links = await tx.beneficiaryChronicDrug.findMany({
+          where: { id: { in: rawItems.map((item) => item.chronicDrugId) }, beneficiary_id: beneficiary.id, active: true },
+          select: { id: true, drug_id: true, imported_last_dispensed_at: true, unlocked_at: true, drug: { select: { name: true } } },
+        });
+        const linkById = new Map(links.map((link) => [link.id, link]));
+        if (rawItems.some((item) => !linkById.has(item.chronicDrugId))) throw new PharmacyRuleError("أحد الأدوية المختارة غير مرتبط بالمستفيد");
+        await assertChronicEligible(tx, companyId, beneficiary.id, links);
+        rawItems.forEach((item, index) => lines.push({ sequence: index + 1, price: item.price, drugId: linkById.get(item.chronicDrugId)!.drug_id }));
+      } else {
+        // أسماء الأدوية تُربط بالكتالوج (تُنشأ إن لم توجد) لتظهر في الفاتورة والكشوفات.
+        for (const [index, item] of rawItems.entries()) {
+          const normalized = normalizeDrugName(item.name);
+          const drug = await tx.drugCatalog.upsert({ where: { normalized_name: normalized }, create: { name: item.name, normalized_name: normalized }, update: {}, select: { id: true } });
+          lines.push({ sequence: index + 1, price: item.price, drugId: drug.id });
+        }
+      }
+
+      const result = await recordPharmacyDispense(tx, {
+        session,
+        companyId,
+        beneficiaryId: beneficiary.id,
+        category,
+        prescriptionId: null,
+        idempotencyKey,
+        lines,
+        facilityId: facility.id,
+        manualNote: note,
+      });
+      if (stored.length) {
+        await tx.pharmacyDispenseAttachment.createMany({
+          data: stored.map((file) => ({ dispense_id: result.dispenseId, kind: file.kind, uploaded_by_id: session.id, file_name: file.fileName, mime_type: file.mime, file_size: file.size, storage_path: file.storagePath })),
+        });
+      }
+      return { success: true, duplicated: false, ...result };
+    });
+    void notifyBeneficiaryOfDispense(outcome.dispenseId);
+    return outcome;
+  } catch (error) {
+    await cleanup();
+    return toErrorResult(error);
+  }
 }

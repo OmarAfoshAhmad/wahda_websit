@@ -165,6 +165,7 @@ export async function getPharmacyBeneficiaryDetails(beneficiaryId: string) {
     canEditPhones: hasPermission(access.session, "manage_pharmacy_phones"),
     canEditChronic: hasPermission(access.session, "manage_pharmacy_chronic"),
     canDeleteChronic: hasPermission(access.session, "delete_pharmacy_chronic"),
+    canManualDispense: hasPermission(access.session, "manual_pharmacy_dispense"),
     chronicIntervalDays: summary.chronicIntervalDays,
     chronic: chronic.map((drug) => ({ id: drug.id, name: drug.drug_name, notes: drug.notes, lastAt: drug.last_dispensed_at, lastFacility: drug.last_facility_name, eligible: drug.eligible, nextAt: drug.next_eligible_at })),
     inactive: inactive.map((link) => ({ id: link.id, name: link.drug.name, notes: link.notes, stoppedAt: link.updated_at.toISOString() })),
