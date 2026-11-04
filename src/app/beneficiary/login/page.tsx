@@ -16,6 +16,7 @@ export default function BeneficiaryLoginPage() {
   // البداية دائمًا بالتسجيل برمز التحقق ثم إنشاء كلمة المرور؛ الجهاز الذي أنشأ أو استخدم كلمة المرور يبدأ بها لاحقًا.
   const [mode, setMode] = useState<Mode>("otp");
   const [forgot, setForgot] = useState(false);
+  const [info, setInfo] = useState("");
   const [password, setPassword] = useState("");
   // الدخول بالشركة + الرقم الوظيفي: ما بعد رمز الشركة والسنة في البطاقة (مثل 10540W1 من JMR202510540W1).
   const [companies, setCompanies] = useState<LoginCompany[]>([]);
@@ -42,6 +43,8 @@ export default function BeneficiaryLoginPage() {
         if (cancelled) return;
         setCompanies(data.companies ?? []);
         try {
+          // جهاز دخل بكلمة المرور سابقًا يبدأ بها مباشرة.
+          if (localStorage.getItem("beneficiary-has-password") === "1") setMode("password");
           const remembered = localStorage.getItem("beneficiary-company");
           if (remembered && data.companies?.some((item) => item.id === remembered)) setCompanyId(remembered);
         } catch {
@@ -84,10 +87,11 @@ export default function BeneficiaryLoginPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.status === "ok") {
+        try { localStorage.setItem("beneficiary-has-password", "1"); } catch { /* غير متاح */ }
         router.push("/beneficiary/choose");
         return;
       }
-      if (data.status === "needs_setup") { setMode("otp"); setForgot(false); }
+      if (data.status === "needs_setup") { setMode("otp"); setForgot(false); try { localStorage.removeItem("beneficiary-has-password"); } catch { /* غير متاح */ } }
       setPassword("");
       triggerErrorFeedback(data.error ?? "تعذر الدخول");
     } finally {
@@ -99,6 +103,7 @@ export default function BeneficiaryLoginPage() {
     setMode(next);
     setForgot(isForgot);
     setError("");
+    setInfo("");
   };
 
   // ── الخطوة 1: طلب الـ OTP ──────────────────────────────
@@ -114,12 +119,21 @@ export default function BeneficiaryLoginPage() {
       const res = await fetch("/api/beneficiary/auth/request-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ company_id: companyId, employee_number: employeeNumber, phone_number: trimmedPhone }),
+        body: JSON.stringify({ company_id: companyId, employee_number: employeeNumber, phone_number: trimmedPhone, forgot }),
       });
       const data = await res.json();
 
       if (!res.ok) {
         triggerErrorFeedback(data.error ?? "حدث خطأ");
+        return;
+      }
+
+      if (data.status === "use_password") {
+        try { localStorage.setItem("beneficiary-has-password", "1"); } catch { /* غير متاح */ }
+        setMode("password");
+        setForgot(false);
+        setError("");
+        setInfo("حسابك مفعّل: ادخل بكلمة المرور التي أنشأتها");
         return;
       }
 
@@ -135,7 +149,7 @@ export default function BeneficiaryLoginPage() {
     } finally {
       setLoading(false);
     }
-  }, [companyId, employeeNumber, phoneNumber, triggerErrorFeedback]);
+  }, [companyId, employeeNumber, phoneNumber, forgot, triggerErrorFeedback]);
 
   // ── الخطوة 2: إدخال OTP ───────────────────────────────────────────
   const handleOtpChange = useCallback(async (index: number, value: string) => {
@@ -212,6 +226,9 @@ export default function BeneficiaryLoginPage() {
         <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm">
           {step === "credentials" ? (
             <form onSubmit={mode === "password" ? handlePasswordSubmit : handleCredentialsSubmit} className="space-y-5">
+              {info && mode === "password" && (
+                <p role="status" className="rounded-xl bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300">{info}</p>
+              )}
               {mode === "otp" && (
                 <p className="rounded-xl bg-primary-light px-4 py-3 text-sm font-bold text-primary dark:bg-primary/20 dark:text-teal-200">
                   {forgot ? "نسيت كلمة المرور: سيصل رمز التحقق إلى هاتف صاحب البطاقة فقط، ثم تختار كلمة مرور جديدة." : "التسجيل أول مرة: سيصل رمز التحقق إلى هاتف صاحب البطاقة، ثم تنشئ كلمة مرور لأسرتك تدخلون بها بعد ذلك."}

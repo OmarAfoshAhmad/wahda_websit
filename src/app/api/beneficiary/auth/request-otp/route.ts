@@ -54,8 +54,9 @@ export async function POST(req: NextRequest) {
     id: string;
     phone_number: string | null;
     locked_until: Date | null;
+    pin_hash: string | null;
   }>>`
-    SELECT id, phone_number, locked_until
+    SELECT id, phone_number, locked_until, pin_hash
     FROM "Beneficiary"
     WHERE REPLACE(REPLACE(UPPER(card_number), ' ', ''), '-', '') = UPPER(${cleanInput})
     AND "deleted_at" IS NULL
@@ -105,6 +106,12 @@ export async function POST(req: NextRequest) {
       SET phone_number = ${phone_number}
       WHERE id = ${beneficiary.id}
     `;
+  }
+
+  // حساب مفعّل بكلمة مرور: الدخول بها مباشرة دون رمز، إلا في «نسيت كلمة المرور».
+  // (بعد مطابقة الهاتف حتى لا يكشف الرد شيئًا لمن لا يعرف رقم صاحب البطاقة.)
+  if (beneficiary.pin_hash && body?.forgot !== true) {
+    return NextResponse.json({ status: "use_password" });
   }
 
   // ── 3. توليد رمز OTP آمن تشفيرياً ─────────────────────
