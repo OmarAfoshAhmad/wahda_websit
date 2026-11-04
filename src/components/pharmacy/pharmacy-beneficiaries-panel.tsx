@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, useTransition } from "react";
-import { CalendarClock, ChevronLeft, Download, FileSpreadsheet, KeyRound, Loader2, LockKeyhole, Pause, Pencil, Phone, Pill, Play, Plus, Printer, Search, ShieldCheck, Upload, Users, X } from "lucide-react";
+import { ChevronLeft, Download, FileSpreadsheet, KeyRound, Loader2, LockKeyhole, Pause, Pencil, Phone, Pill, Play, Plus, Printer, Search, ShieldCheck, Upload, Users, X } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import type { FamilyFilter } from "@/lib/pharmacy/families";
 import { Badge, Button, Card, Input, TableSkeleton } from "@/components/ui";
@@ -18,6 +18,7 @@ import {
 import { importFamilyPhones, type PhoneImportStatus } from "@/app/actions/pharmacy-phone-import";
 import { formatDateTripoli } from "@/lib/datetime";
 import { ManualDispenseForm } from "@/components/pharmacy/manual-dispense-form";
+import { ChronicLastDispenseForm } from "@/components/pharmacy/chronic-last-dispense-form";
 
 type FamilyResult = Awaited<ReturnType<typeof listPharmacyFamilies>>;
 type Family = FamilyResult["families"][number];
@@ -411,7 +412,6 @@ function BeneficiaryDrawer({ companyId, beneficiaryId, onClose, onChanged }: { c
   const [drugNotes, setDrugNotes] = useState("");
   const [suggestions, setSuggestions] = useState<Array<{ id: string; name: string }>>([]);
   const [editingNotes, setEditingNotes] = useState<{ id: string; name: string; value: string } | null>(null);
-  const [editingLast, setEditingLast] = useState<{ id: string; date: string; facility: string } | null>(null);
 
   const apply = useCallback((result: Awaited<ReturnType<typeof getPharmacyBeneficiaryDetails>>) => {
     if ("error" in result && result.error) setError(result.error);
@@ -512,22 +512,15 @@ function BeneficiaryDrawer({ companyId, beneficiaryId, onClose, onChanged }: { c
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <p className="font-bold" dir="auto">{drug.name}</p>
-                          <p className="text-xs text-slate-500">{drug.lastAt ? `آخر صرف ${day(drug.lastAt)} · ${drug.lastFacility}` : "لم يُصرف بعد"}</p>
+                          <p className="text-xs text-slate-500">
+                            {drug.lastAt ? `آخر صرف ${day(drug.lastAt)} · ${drug.lastFacility}` : "لم يُصرف بعد"}
+                            {canEditChronic && drug.manualAt && <button type="button" disabled={busy} onClick={() => { if (window.confirm(`مسح آخر صرف المُدخل يدويًا لـ ${drug.name}؟`)) run(() => setChronicLastDispense(drug.id, "", ""), "مُسح آخر صرف اليدوي"); }} className="ms-2 font-bold text-rose-600 underline">مسح الإدخال اليدوي</button>}
+                          </p>
                         </div>
                         {drug.eligible
                           ? <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">متاح الآن</span>
                           : <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800"><LockKeyhole className="h-3 w-3" /> من {drug.nextAt ? day(drug.nextAt) : "—"}</span>}
                       </div>
-                      {editingLast?.id === drug.id && (
-                        <form className="flex flex-wrap items-center gap-1 rounded-md bg-slate-50 p-2 dark:bg-slate-800/50" onSubmit={(event) => { event.preventDefault(); run(() => setChronicLastDispense(drug.id, editingLast.date, editingLast.facility), editingLast.date ? "حُفظ آخر صرف" : "مُسح آخر صرف اليدوي"); setEditingLast(null); }}>
-                          <span className="w-full text-xs font-bold text-slate-600 dark:text-slate-300">آخر صرف (بدون تفاصيل مالية، يقفل الدواء حتى موعده)</span>
-                          <Input type="date" value={editingLast.date} max={new Date().toISOString().slice(0, 10)} onChange={(event) => setEditingLast({ ...editingLast, date: event.target.value })} className="h-9 w-40" dir="ltr" aria-label="تاريخ آخر صرف" />
-                          <Input value={editingLast.facility} onChange={(event) => setEditingLast({ ...editingLast, facility: event.target.value })} placeholder="اسم المرفق الذي صرف" className="h-9 min-w-36 flex-1" aria-label="اسم المرفق" dir="auto" />
-                          <Button type="submit" disabled={busy || (Boolean(editingLast.date) && editingLast.facility.trim().length < 2)} className="h-9 bg-teal-600 px-3 text-xs text-white">حفظ</Button>
-                          {drug.manualAt && <button type="button" disabled={busy} onClick={() => { run(() => setChronicLastDispense(drug.id, "", ""), "مُسح آخر صرف اليدوي"); setEditingLast(null); }} className="rounded-md border border-rose-200 px-2 py-1 text-xs font-bold text-rose-700">مسح</button>}
-                          <button type="button" onClick={() => setEditingLast(null)} aria-label="إلغاء" className="p-1 text-slate-400"><X className="h-4 w-4" /></button>
-                        </form>
-                      )}
                       {editingNotes?.id === drug.id ? (
                         <form className="flex flex-wrap gap-1" onSubmit={(event) => { event.preventDefault(); run(() => updateChronicDrug(drug.id, { name: editingNotes.name, notes: editingNotes.value }), "حُفظ التعديل"); setEditingNotes(null); }}>
                           <Input autoFocus value={editingNotes.name} onChange={(event) => setEditingNotes({ ...editingNotes, name: event.target.value })} list={`drugs-${beneficiaryId}`} placeholder="اسم الدواء والجرعة" className="h-9 min-w-40 flex-1" aria-label="اسم الدواء" dir="auto" />
@@ -540,7 +533,6 @@ function BeneficiaryDrawer({ companyId, beneficiaryId, onClose, onChanged }: { c
                           <span className="text-xs text-slate-600 dark:text-slate-300" dir="auto">{drug.notes || "بلا ملاحظات"}</span>
                           {(canEditChronic || canDeleteChronic) && (
                             <span className="flex gap-1">
-                              {canEditChronic && <button type="button" onClick={() => setEditingLast({ id: drug.id, date: drug.manualAt ? drug.manualAt.slice(0, 10) : "", facility: drug.manualFacility ?? "" })} className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs font-bold hover:bg-slate-50 dark:border-slate-600"><CalendarClock className="h-3 w-3" /> آخر صرف</button>}
                               {canEditChronic && <button type="button" onClick={() => setEditingNotes({ id: drug.id, name: drug.name, value: drug.notes ?? "" })} className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs font-bold hover:bg-slate-50 dark:border-slate-600"><Pencil className="h-3 w-3" /> تعديل</button>}
                               {canDeleteChronic && <button type="button" disabled={busy} onClick={() => { if (window.confirm(`إيقاف ${drug.name}؟ لن يظهر للصيدليات، ويبقى سجل صرفه.`)) run(() => updateChronicDrug(drug.id, { active: false }), `أُوقف ${drug.name}`); }} className="inline-flex items-center gap-1 rounded-md border border-rose-200 px-2 py-1 text-xs font-bold text-rose-700 hover:bg-rose-50"><Pause className="h-3 w-3" /> إيقاف</button>}
                             </span>
@@ -551,6 +543,14 @@ function BeneficiaryDrawer({ companyId, beneficiaryId, onClose, onChanged }: { c
                   ))}
                 </ul>
 
+                {canEditChronic && data.chronic.length > 0 && (
+                  <ChronicLastDispenseForm
+                    companyId={companyId}
+                    beneficiaryId={beneficiaryId}
+                    drugs={data.chronic.map((drug) => ({ id: drug.id, name: drug.name, manualAt: drug.manualAt, manualFacility: drug.manualFacility }))}
+                    onDone={(message) => { setError(""); setNotice(message); void reload(); onChanged(); }}
+                  />
+                )}
                 {canEditChronic && (
                   <form className="space-y-2 rounded-lg bg-slate-50 p-2 dark:bg-slate-800/50" onSubmit={(event) => { event.preventDefault(); run(() => addChronicDrug(beneficiaryId, drugName, drugNotes), `أُضيف ${drugName}`); setDrugName(""); setDrugNotes(""); setSuggestions([]); }}>
                     <p className="text-xs font-black text-slate-600 dark:text-slate-300">إضافة دواء مزمن</p>
