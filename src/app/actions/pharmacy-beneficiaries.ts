@@ -167,7 +167,7 @@ export async function getPharmacyBeneficiaryDetails(beneficiaryId: string) {
     canDeleteChronic: hasPermission(access.session, "delete_pharmacy_chronic"),
     canManualDispense: hasPermission(access.session, "manual_pharmacy_dispense"),
     chronicIntervalDays: summary.chronicIntervalDays,
-    chronic: chronic.map((drug) => ({ id: drug.id, name: drug.drug_name, notes: drug.notes, lastAt: drug.last_dispensed_at, lastFacility: drug.last_facility_name, eligible: drug.eligible, nextAt: drug.next_eligible_at })),
+    chronic: chronic.map((drug) => ({ id: drug.id, name: drug.drug_name, notes: drug.notes, lastAt: drug.last_dispensed_at, lastFacility: drug.last_facility_name, manualAt: drug.manual_at, manualFacility: drug.manual_facility, eligible: drug.eligible, nextAt: drug.next_eligible_at })),
     inactive: inactive.map((link) => ({ id: link.id, name: link.drug.name, notes: link.notes, stoppedAt: link.updated_at.toISOString() })),
     dispenses: dispenses.map((dispense) => ({
       id: dispense.id,
@@ -250,6 +250,38 @@ export async function updateChronicDrug(linkId: string, change: { name?: string;
         user: access.session.username,
         action: change.active === false ? "CHRONIC_DRUG_STOP" : change.active === true ? "CHRONIC_DRUG_RESUME" : "CHRONIC_DRUG_EDIT",
         metadata: { beneficiary_id: link.beneficiary.id, card_number: link.beneficiary.card_number, drug: link.drug.name, before: { drug: link.drug.name, notes: link.notes, active: link.active }, after: { drug: drugId ? name : link.drug.name, notes, active: change.active } },
+      },
+    }),
+  ]);
+  return { success: true };
+}
+
+/**
+ * آخر صرف لدواء مزمن بدون تفاصيل (تاريخ واسم المرفق فقط)، مثل صرف تم خارج المنظومة: يقفل الدواء
+ * حتى موعده التالي ولا ينشئ حركة مالية. التاريخ الفارغ يمسح الإدخال.
+ */
+export async function setChronicLastDispense(linkId: string, date: string, facility: string) {
+  const link = await prisma.beneficiaryChronicDrug.findUnique({ where: { id: linkId }, select: { id: true, imported_last_dispensed_at: true, imported_last_facility: true, drug: { select: { name: true } }, beneficiary: { select: { id: true, company_id: true, card_number: true } } } });
+  if (!link?.beneficiary.company_id) return { error: "الدواء غير موجود" };
+  const access = await requireStaff(link.beneficiary.company_id, "chronic");
+  if ("error" in access) return { error: access.error };
+  let at: Date | null = null;
+  const name = facility.trim().replace(/\s+/g, " ").slice(0, 200) || null;
+  if (date) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: "تاريخ غير صالح" };
+    at = new Date(`${date}T12:00:00+02:00`);
+    if (Number.isNaN(at.getTime())) return { error: "تاريخ غير صالح" };
+    if (at.getTime() > Date.now() + 86_400_000) return { error: "تاريخ آخر صرف لا يكون في المستقبل" };
+    if (!name) return { error: "اكتب اسم المرفق الذي صرف" };
+  }
+  await prisma.$transaction([
+    prisma.beneficiaryChronicDrug.update({ where: { id: link.id }, data: { imported_last_dispensed_at: at, imported_last_facility: at ? name : null } }),
+    prisma.auditLog.create({
+      data: {
+        facility_id: access.session.id,
+        user: access.session.username,
+        action: "CHRONIC_DRUG_LAST_DISPENSE",
+        metadata: { beneficiary_id: link.beneficiary.id, card_number: link.beneficiary.card_number, drug: link.drug.name, before: { at: link.imported_last_dispensed_at?.toISOString() ?? null, facility: link.imported_last_facility }, after: { at: at?.toISOString() ?? null, facility: at ? name : null } },
       },
     }),
   ]);

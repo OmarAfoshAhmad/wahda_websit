@@ -382,6 +382,8 @@ model BeneficiaryChronicDrug {
   notes          String?
   /// آخر صرف قبل المنظومة (من ملف الاستيراد)؛ يقفل الدواء حتى موعده التالي مثل الصرف الفعلي.
   imported_last_dispensed_at DateTime?
+  /// اسم المرفق الذي صرف آخر مرة قبل المنظومة (إدخال يدوي أو استيراد)؛ بلا تفاصيل مالية.
+  imported_last_facility     String?
   /// إعادة تفعيل يدوية: صرف جزئي للحصة يُتجاهل قفله إن كان قبل هذا الوقت.
   unlocked_at    DateTime?
   created_at     DateTime    @default(now())

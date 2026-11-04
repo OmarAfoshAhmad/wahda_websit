@@ -567,7 +567,7 @@ async function recordPharmacyDispense(tx: Tx, input: {
 }
 
 /** كل دواء مزمن يُصرف مرة كل chronic_interval_days يومًا (من أي مرفق)، ما لم تُعِد الإدارة تفعيله. */
-async function assertChronicEligible(tx: Tx, companyId: string, beneficiaryId: string, links: Array<{ drug_id: string; imported_last_dispensed_at: Date | null; unlocked_at: Date | null; drug: { name: string } }>) {
+async function assertChronicEligible(tx: Tx, companyId: string, beneficiaryId: string, links: Array<{ drug_id: string; imported_last_dispensed_at: Date | null; imported_last_facility: string | null; unlocked_at: Date | null; drug: { name: string } }>) {
   const policy = await loadPharmacyPolicy(tx, companyId);
   const intervalDays = policy?.pharmacy_config?.chronic_interval_days ?? 28;
   const now = new Date();
@@ -582,7 +582,7 @@ async function assertChronicEligible(tx: Tx, companyId: string, beneficiaryId: s
     const system = lastByDrug.get(link.drug_id);
     const lastAt = latestChronicDispense(system?.created_at, link.imported_last_dispensed_at);
     if (lastAt && !isChronicLockCleared(lastAt, link.unlocked_at) && !isChronicDrugEligible(lastAt, intervalDays, now)) {
-      const where = lastAt === system?.created_at ? `لدى ${system.facility.name}` : "قبل المنظومة";
+      const where = lastAt === system?.created_at ? `لدى ${system.facility.name}` : link.imported_last_facility ? `لدى ${link.imported_last_facility}` : "قبل المنظومة";
       const next = formatDateTripoli(getNextChronicEligibleDate(lastAt, intervalDays));
       throw new PharmacyRuleError(`${link.drug.name} صُرف ${where}، ويُسمح بصرفه مجددًا من ${next}`);
     }
@@ -741,7 +741,7 @@ export async function dispenseChronicDrugs(formData: FormData) {
 
       const links = await tx.beneficiaryChronicDrug.findMany({
         where: { beneficiary_id: beneficiary.id, active: true },
-        select: { id: true, drug_id: true, imported_last_dispensed_at: true, unlocked_at: true, drug: { select: { name: true } } },
+        select: { id: true, drug_id: true, imported_last_dispensed_at: true, imported_last_facility: true, unlocked_at: true, drug: { select: { name: true } } },
       });
       if (links.length === 0) throw new PharmacyRuleError("المستفيد غير مشمول بخدمة الأدوية المزمنة: لا توجد أدوية مرتبطة به");
       const linkById = new Map(links.map((link) => [link.id, link]));
@@ -1085,7 +1085,7 @@ export async function manualPharmacyDispense(formData: FormData) {
       if (category === "CHRONIC") {
         const links = await tx.beneficiaryChronicDrug.findMany({
           where: { id: { in: rawItems.map((item) => item.chronicDrugId) }, beneficiary_id: beneficiary.id, active: true },
-          select: { id: true, drug_id: true, imported_last_dispensed_at: true, unlocked_at: true, drug: { select: { name: true } } },
+          select: { id: true, drug_id: true, imported_last_dispensed_at: true, imported_last_facility: true, unlocked_at: true, drug: { select: { name: true } } },
         });
         const linkById = new Map(links.map((link) => [link.id, link]));
         if (rawItems.some((item) => !linkById.has(item.chronicDrugId))) throw new PharmacyRuleError("أحد الأدوية المختارة غير مرتبط بالمستفيد");
