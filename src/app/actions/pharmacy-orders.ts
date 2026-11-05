@@ -407,6 +407,35 @@ export async function getMyPharmacyProfile() {
   };
 }
 
+/** هل تحتاج الصيدلية إكمال بياناتها الأساسية (الهاتف والموقع) عند الدخول؟ لحسابات الصيدليات فقط. */
+export async function getPharmacyOnboardingStatus() {
+  const session = await requirePharmacyFacility();
+  if (!session || session.facility_type !== "PHARMACY" || session.is_admin || session.is_manager || session.is_employee) return { needed: false as const };
+  const profile = await prisma.pharmacyProfile.findUnique({ where: { facility_id: session.id }, select: { phone: true, latitude: true, longitude: true, address: true } });
+  const hasPhone = Boolean(profile?.phone);
+  const hasLocation = profile?.latitude != null && profile?.longitude != null;
+  if (hasPhone && hasLocation) return { needed: false as const };
+  return { needed: true as const, phone: profile?.phone ?? "", address: profile?.address ?? "", hasPhone, hasLocation };
+}
+
+/** يحفظ هاتف الصيدلية (إلزامي) وموقعها والعنوان فقط، دون المساس ببقية الإعدادات. */
+export async function savePharmacyOnboarding(input: { phone: string; address: string; latitude: number | null; longitude: number | null }) {
+  const session = await requirePharmacyFacility();
+  if (!session || session.facility_type !== "PHARMACY") return { error: "غير مصرح" };
+  const phone = input.phone.replace(/[^\d+]/g, "");
+  if (!/^\+?\d{7,15}$/.test(phone)) return { error: "اكتب رقم هاتف صحيح للصيدلية (مثال: 0912345678)" };
+  const location = parseLocation(input.latitude, input.longitude);
+  if ((input.latitude !== null || input.longitude !== null) && !location) return { error: "الموقع غير صالح" };
+  const address = input.address.trim().slice(0, 300) || null;
+  const data = {
+    phone,
+    ...(address ? { address } : {}),
+    ...(location ? { latitude: location.latitude, longitude: location.longitude, accepts_orders: true } : {}),
+  };
+  await prisma.pharmacyProfile.upsert({ where: { facility_id: session.id }, create: { facility_id: session.id, accepts_orders: location !== null, ...data }, update: data });
+  return { success: true };
+}
+
 export async function saveMyPharmacyProfile(input: {
   acceptsOrders: boolean; address: string; city: string; phone: string; latitude: number | null; longitude: number | null;
   opensAt: string; closesAt: string; deliveryEnabled: boolean; deliveryBaseFee: number; deliveryPerKm: number; deliveryMaxKm: number | null;

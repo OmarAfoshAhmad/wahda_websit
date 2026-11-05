@@ -13,6 +13,7 @@ import {
 import { logout } from "@/app/actions/auth";
 import { ThemeSwitcher } from "./theme-switcher";
 import { PharmacyAlerts } from "./pharmacy/pharmacy-alerts";
+import { PharmacyOnboardingGate } from "./pharmacy/pharmacy-onboarding-gate";
 import { hasPermission } from "@/lib/permissions";
 import { 
   BASE_NAV, 
@@ -326,7 +327,7 @@ export function Shell({
       </nav>
 
       {/* حساب الصيدلية: تنبيهات الطلبات بصوت في كل الصفحات، وتفعيل إشعارات الجهاز. */}
-      {!isAdmin && !isManager && !isEmployee && hasPermission(session, "pharmacy_services") && <div className="px-3 sm:px-5 lg:px-6"><PharmacyAlerts /></div>}
+      {!isAdmin && !isManager && !isEmployee && hasPermission(session, "pharmacy_services") && <div className="px-3 sm:px-5 lg:px-6"><PharmacyAlerts /><PharmacyOnboardingGate /></div>}
       <main className="mx-auto max-w-7xl px-3 py-4 sm:px-5 lg:px-6" suppressHydrationWarning>
         {children}
       </main>

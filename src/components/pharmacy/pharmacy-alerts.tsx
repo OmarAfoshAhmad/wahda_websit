@@ -18,6 +18,26 @@ function urlBase64ToUint8Array(base64: string) {
 
 type PushState = "unsupported" | "off" | "on" | "denied" | "unconfigured";
 
+/** يشترك هذا الجهاز في إشعارات طلبات الصيدلية (يُستدعى من نقرة المستخدم). */
+export async function subscribePharmacyPush(): Promise<PushState> {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return "unsupported";
+  try {
+    const permissionRequest = Notification.requestPermission();
+    const { publicKey } = await fetch("/api/pharmacy/push").then((res) => res.json());
+    const permission = await permissionRequest;
+    if (permission !== "granted") return permission === "denied" ? "denied" : "off";
+    if (!publicKey) return "unconfigured";
+    const registration = await navigator.serviceWorker.register("/pharmacy-sw.js");
+    await navigator.serviceWorker.ready;
+    const subscription = (await registration.pushManager.getSubscription())
+      ?? await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) });
+    const res = await fetch("/api/pharmacy/push", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(subscription.toJSON()) });
+    return res.ok ? "on" : "off";
+  } catch {
+    return "off";
+  }
+}
+
 /**
  * تنبيهات طلبات المستفيدين لحساب الصيدلية في كل صفحات المنظومة: صوت واهتزاز وعدد في عنوان التبويب
  * عند طلب جديد أو رسالة من مستفيد، وزر لتفعيل إشعارات الجهاز (تصل والمنظومة مغلقة).
@@ -83,18 +103,7 @@ export function PharmacyAlerts() {
     setBusy(true);
     try {
       unlockAlertTone();
-      const { publicKey } = await fetch("/api/pharmacy/push").then((res) => res.json());
-      if (!publicKey) { setPush("unconfigured"); return; }
-      const permission = await Notification.requestPermission();
-      if (permission !== "granted") { setPush(permission === "denied" ? "denied" : "off"); return; }
-      const registration = await navigator.serviceWorker.register("/pharmacy-sw.js");
-      await navigator.serviceWorker.ready;
-      const subscription = (await registration.pushManager.getSubscription())
-        ?? await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) });
-      const res = await fetch("/api/pharmacy/push", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(subscription.toJSON()) });
-      setPush(res.ok ? "on" : "off");
-    } catch {
-      setPush("off");
+      setPush(await subscribePharmacyPush());
     } finally {
       setBusy(false);
     }
