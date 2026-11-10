@@ -157,7 +157,7 @@ export function OrdersInbox() {
                 {thread.beneficiary?.phone_number && <a href={`tel:${thread.beneficiary.phone_number}`} className="inline-flex items-center gap-1 text-teal-700 dark:text-teal-300" dir="ltr"><Phone className="h-3.5 w-3.5" /> {thread.beneficiary.phone_number}</a>}
                 {thread.fulfillment === "DELIVERY" ? (
                   <span className="inline-flex items-center gap-1">
-                    <Bike className="h-3.5 w-3.5" /> توصيل {thread.deliveryFee} د.ل{thread.deliveryDistanceKm !== null ? ` · ${thread.deliveryDistanceKm} كم` : ""}
+                    <Bike className="h-3.5 w-3.5" /> توصيل{thread.deliveryDistanceKm !== null ? ` · ${thread.deliveryDistanceKm} كم` : ""}
                     {thread.deliveryLocation && <a className="inline-flex items-center gap-0.5 text-teal-700 underline dark:text-teal-300" href={`https://www.google.com/maps?q=${thread.deliveryLocation.latitude},${thread.deliveryLocation.longitude}`} target="_blank" rel="noopener noreferrer"><MapPin className="h-3.5 w-3.5" /> الموقع</a>}
                   </span>
                 ) : <span className="inline-flex items-center gap-1"><Store className="h-3.5 w-3.5" /> استلام من الصيدلية</span>}

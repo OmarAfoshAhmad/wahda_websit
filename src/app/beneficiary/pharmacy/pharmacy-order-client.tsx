@@ -316,7 +316,7 @@ export function PharmacyOrderClient({ categories, chronicDrugs, contextError, or
                     icon={<Pill className="h-6 w-6" aria-hidden />}
                     title={CATEGORY_TEXT[value].title}
                     subtitle={CATEGORY_TEXT[value].hint}
-                    note={noneDue ? (nextDate ? `أدويتك جاهزة من ${dateText(nextDate)}` : "لا توجد أدوية جاهزة الآن") : undefined}
+                    note={noneDue ? (chronicDrugs.length === 0 ? "لا توجد أدوية مزمنة مسجلة لك؛ تواصل مع شركتك" : nextDate ? `أدويتك جاهزة من ${dateText(nextDate)}` : "لا توجد أدوية جاهزة الآن") : undefined}
                   />
                 );
               })}
@@ -354,16 +354,16 @@ export function PharmacyOrderClient({ categories, chronicDrugs, contextError, or
           {step === "receive" && pharmacy && (
             <div className="space-y-3" role="radiogroup" aria-label="طريقة الاستلام">
               <BigChoice selected={fulfillment === "PICKUP"} onClick={() => { setFulfillment("PICKUP"); setStepError(""); }} icon={<Store className="h-6 w-6" aria-hidden />} title="أستلمه من الصيدلية" subtitle="بدون أي مبلغ إضافي" />
-              {pharmacy.delivery.available || (!location && pharmacy.delivery.reason !== "لا توفر هذه الصيدلية التوصيل") ? (
+              {pharmacy.delivery.available ? (
                 <BigChoice
                   selected={fulfillment === "DELIVERY"}
                   onClick={() => { setFulfillment("DELIVERY"); setStepError(""); }}
                   icon={<Bike className="h-6 w-6" aria-hidden />}
                   title="توصيل للبيت"
-                  subtitle={pharmacy.delivery.available ? `+ ${pharmacy.delivery.fee} دينار تدفعها عند الاستلام` : "قيمة التوصيل تؤكدها الصيدلية (أو شارك موقعك لحسابها)"}
+                  subtitle="قيمة التوصيل تتفق عليها مع الصيدلية"
                 />
               ) : (
-                <p className="rounded-2xl bg-slate-100 p-4 text-lg text-slate-700 dark:bg-slate-800 dark:text-slate-200">هذه الصيدلية لا توصّل إلى موقعك</p>
+                <p className="rounded-2xl bg-slate-100 p-4 text-lg text-slate-700 dark:bg-slate-800 dark:text-slate-200">هذه الصيدلية لا توفر التوصيل</p>
               )}
               {fulfillment === "DELIVERY" && (
                 <div className="space-y-3 pt-2">
@@ -388,7 +388,7 @@ export function PharmacyOrderClient({ categories, chronicDrugs, contextError, or
                 {[
                   ["الصيدلية", pharmacy.name],
                   ["الدواء", category === "CHRONIC" ? `${CATEGORY_TEXT.CHRONIC.title} (${chronicIds.length})` : CATEGORY_TEXT[category].title],
-                  ["الاستلام", fulfillment === "DELIVERY" ? (pharmacy.delivery.available ? `توصيل للبيت + ${pharmacy.delivery.fee} دينار` : "توصيل للبيت (القيمة تؤكدها الصيدلية)") : "من الصيدلية"],
+                  ["الاستلام", fulfillment === "DELIVERY" ? "توصيل للبيت" : "من الصيدلية"],
                   ["الصور", needsRx ? "البطاقة والوصفة ✓" : "البطاقة ✓"],
                 ].map(([label, value]) => (
                   <div key={label} className="flex justify-between gap-3 px-4 py-3"><dt className="text-slate-500 dark:text-slate-400">{label}</dt><dd className="text-end font-bold">{value}</dd></div>

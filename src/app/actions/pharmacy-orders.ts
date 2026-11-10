@@ -10,7 +10,7 @@ import { getBeneficiarySession } from "@/lib/beneficiary-auth";
 import { getSessionWithFreshPermissions, hasPermission } from "@/lib/session-guard";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { ATTACHMENT_LABELS, storeAttachmentFile, type StoredFile } from "@/lib/pharmacy/attachments";
-import { deliveryQuote, distanceKm, isOpenNow, isValidTime } from "@/lib/pharmacy/delivery";
+import { distanceKm, isOpenNow, isValidTime } from "@/lib/pharmacy/delivery";
 import { getChronicDrugStatuses, getPharmacyUsage, loadPharmacyPolicy } from "@/lib/pharmacy/summary";
 import { publishOrderEvent } from "@/lib/pharmacy/order-events";
 import { isPrescriptionValidToday } from "@/lib/pharmacy/policy";
@@ -72,7 +72,6 @@ export async function listPharmaciesForBeneficiary(input: { latitude?: number | 
   });
   const items = profiles.map((profile) => {
     const distance = location && profile.latitude !== null && profile.longitude !== null ? distanceKm(location, { latitude: profile.latitude, longitude: profile.longitude }) : null;
-    const quote = deliveryQuote(deliverySettingsOf(profile), distance);
     return {
       facilityId: profile.facility_id,
       name: profile.facility.name,
@@ -82,7 +81,8 @@ export async function listPharmaciesForBeneficiary(input: { latitude?: number | 
       distanceKm: distance === null ? null : Math.round(distance * 10) / 10,
       openNow: isOpenNow(profile.opens_at, profile.closes_at),
       hours: profile.opens_at && profile.closes_at ? `${profile.opens_at} - ${profile.closes_at}` : null,
-      delivery: quote.available ? { available: true as const, fee: quote.fee } : { available: false as const, reason: quote.reason },
+      // التوصيل يُتفق على قيمته بين الصيدلية والمستفيد: لا سعر ولا مسافة هنا، يكفي أن الصيدلية توصّل.
+      delivery: profile.delivery_enabled ? { available: true as const } : { available: false as const, reason: "لا توفر هذه الصيدلية التوصيل" },
     };
   });
   items.sort((a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity) || a.name.localeCompare(b.name, "ar"));
@@ -96,7 +96,8 @@ export async function getBeneficiaryOrderContext() {
   const { usage, chronicIntervalDays } = await getPharmacyUsage(beneficiary.id, beneficiary.company_id);
   const chronic = await getChronicDrugStatuses(beneficiary.id, chronicIntervalDays);
   return {
-    categories: (usage?.categories ?? []).filter((category) => category.enabled && (category.category !== "CHRONIC" || chronic.length > 0)).map((category) => category.category),
+    // البوابة: روتيني ومزمن فقط (أدوية الأورام تُصرف من الصيدلية مباشرة، لا تُطلب من البوابة).
+    categories: (usage?.categories ?? []).filter((category) => category.enabled && category.category !== "CHEMICAL").map((category) => category.category),
     chronicDrugs: chronic,
   };
 }
@@ -152,22 +153,14 @@ export async function createPharmacyOrder(formData: FormData) {
     if (blocked) return { error: byId.has(blocked) ? `${byId.get(blocked)!.drug_name} غير مستحق قبل ${formatDateTripoli(byId.get(blocked)!.next_eligible_at!)}` : "أحد الأدوية غير مرتبط بحسابك" };
   }
 
-  let deliveryFee: number | null = null;
+  const deliveryFee: number | null = null;
   let distance: number | null = null;
   if (fulfillment === "DELIVERY") {
     // الموقع اختياري: بدونه يكفي وصف العنوان، والقيمة الأساسية فقط وتؤكد الصيدلية الباقي.
     if (!address) return { error: "اكتب وصفًا لعنوان البيت" };
-    const settings = deliverySettingsOf(profile);
-    if (!location) {
-      if (!settings.enabled) return { error: "لا توفر هذه الصيدلية التوصيل" };
-      deliveryFee = settings.baseFee;
-    }
-  }
-  if (fulfillment === "DELIVERY" && location) {
-    distance = profile.latitude !== null && profile.longitude !== null ? distanceKm(location, { latitude: profile.latitude, longitude: profile.longitude }) : null;
-    const quote = deliveryQuote(deliverySettingsOf(profile), distance);
-    if (!quote.available) return { error: quote.reason };
-    deliveryFee = quote.fee;
+    // قيمة التوصيل تتفق عليها الصيدلية مع المستفيد؛ الموقع (إن أُرسل) للإيصال فقط.
+    if (!deliverySettingsOf(profile).enabled) return { error: "لا توفر هذه الصيدلية التوصيل" };
+    if (location && profile.latitude !== null && profile.longitude !== null) distance = distanceKm(location, { latitude: profile.latitude, longitude: profile.longitude });
   }
 
   const required: PharmacyAttachmentKind[] = category === "CHRONIC" ? ["INSURANCE_CARD"] : ["INSURANCE_CARD", "PRESCRIPTION"];
@@ -189,7 +182,7 @@ export async function createPharmacyOrder(formData: FormData) {
 
   try {
     const summary = [
-      `طلب ${CATEGORY_LABELS[category]} — ${fulfillment === "DELIVERY" ? `توصيل (${deliveryFee} د.ل خارج التأمين)` : "استلام من الصيدلية"}`,
+      `طلب ${CATEGORY_LABELS[category]} — ${fulfillment === "DELIVERY" ? "توصيل (قيمته يُتفق عليها مع الصيدلية، خارج التأمين)" : "استلام من الصيدلية"}`,
       `رقم البطاقة: ${beneficiary.card_number}`,
       address ? `العنوان: ${address}` : null,
       note,
@@ -370,7 +363,7 @@ export async function updateMyPharmacyOrder(orderId: string, action: "CONFIRM" |
   if (!order) return { error: "الطلب غير موجود" };
   if (action === "CONFIRM") {
     if (order.status !== "AVAILABLE") return { error: "لا يمكن التأكيد قبل أن تؤكد الصيدلية التوفر" };
-    return changeStatus(order, "CONFIRMED", order.fulfillment === "DELIVERY" ? `أكد المستفيد الطلب مع التوصيل (${Number(order.delivery_fee)} د.ل خارج التأمين)` : "أكد المستفيد الطلب وسيستلمه من الصيدلية", "BENEFICIARY");
+    return changeStatus(order, "CONFIRMED", order.fulfillment === "DELIVERY" ? "أكد المستفيد الطلب مع التوصيل (قيمته يُتفق عليها مع الصيدلية، خارج التأمين)" : "أكد المستفيد الطلب وسيستلمه من الصيدلية", "BENEFICIARY");
   }
   if (!["PENDING", "AVAILABLE", "CONFIRMED"].includes(order.status)) return { error: "لا يمكن إلغاء الطلب في هذه المرحلة" };
   return changeStatus(order, "CANCELLED", "ألغى المستفيد الطلب", "BENEFICIARY");

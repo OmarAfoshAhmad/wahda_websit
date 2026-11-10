@@ -67,14 +67,14 @@ export function BeneficiaryOrderThread({ initial }: { initial: Thread }) {
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
           <OrderStatusBadge status={thread.status} />
-          {thread.fulfillment === "DELIVERY" ? <span className="inline-flex items-center gap-1"><Bike className="h-3.5 w-3.5" /> توصيل {thread.deliveryFee} د.ل خارج التأمين</span> : <span className="inline-flex items-center gap-1"><Store className="h-3.5 w-3.5" /> استلام من الصيدلية</span>}
+          {thread.fulfillment === "DELIVERY" ? <span className="inline-flex items-center gap-1"><Bike className="h-3.5 w-3.5" /> توصيل (قيمته مع الصيدلية)</span> : <span className="inline-flex items-center gap-1"><Store className="h-3.5 w-3.5" /> استلام من الصيدلية</span>}
         </div>
         {thread.chronicDrugs.length > 0 && <p className="text-xs"><span className="font-bold">المطلوب: </span>{thread.chronicDrugs.map((drug) => drug.name).join("، ")}</p>}
         {(thread.status === "AVAILABLE" || ["PENDING", "CONFIRMED"].includes(thread.status)) && (
           <div className="flex gap-2">
             {thread.status === "AVAILABLE" && (
               <button type="button" onClick={() => act("CONFIRM")} disabled={acting} className="flex h-10 flex-1 items-center justify-center gap-1 rounded-xl bg-primary text-sm font-black text-white disabled:opacity-50">
-                {acting && <Loader2 className="h-4 w-4 animate-spin" />} تأكيد الطلب{thread.fulfillment === "DELIVERY" ? ` مع التوصيل (${thread.deliveryFee} د.ل)` : ""}
+                {acting && <Loader2 className="h-4 w-4 animate-spin" />} تأكيد الطلب{thread.fulfillment === "DELIVERY" ? " مع التوصيل" : ""}
               </button>
             )}
             {confirmCancel ? (
