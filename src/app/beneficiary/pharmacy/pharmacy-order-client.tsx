@@ -184,7 +184,7 @@ export function PharmacyOrderClient({ categories, chronicDrugs, contextError, or
   };
   const receiveNext = () => {
     if (!fulfillment) return setStepError("اختر طريقة الاستلام");
-    if (fulfillment === "DELIVERY" && !address.trim()) return setStepError("اكتب وصفًا لعنوان البيت");
+    if (fulfillment === "DELIVERY" && !location && !address.trim()) return setStepError("شارك موقعك أو اكتب وصفًا لعنوان البيت");
     goTo("review");
   };
 
@@ -374,7 +374,7 @@ export function PharmacyOrderClient({ categories, chronicDrugs, contextError, or
                   )}
                   {locationHint && <p className="text-base text-amber-800 dark:text-amber-300">{locationHint}</p>}
                   <label className="block">
-                    <span className="mb-1 block text-lg font-bold">أين البيت؟</span>
+                    <span className="mb-1 block text-lg font-bold">أين البيت؟{location ? <span className="ms-1 text-base font-normal text-slate-500">(اختياري، حُدد موقعك)</span> : null}</span>
                     <input value={address} onChange={(event) => setAddress(event.target.value)} maxLength={300} placeholder="مثال: الفويهات، قرب المسجد" className="h-14 w-full rounded-2xl border-2 border-slate-200 bg-white px-4 text-lg dark:border-slate-700 dark:bg-slate-900" />
                   </label>
                 </div>

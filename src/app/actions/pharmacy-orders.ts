@@ -156,8 +156,8 @@ export async function createPharmacyOrder(formData: FormData) {
   const deliveryFee: number | null = null;
   let distance: number | null = null;
   if (fulfillment === "DELIVERY") {
-    // الموقع اختياري: بدونه يكفي وصف العنوان، والقيمة الأساسية فقط وتؤكد الصيدلية الباقي.
-    if (!address) return { error: "اكتب وصفًا لعنوان البيت" };
+    // يكفي أحدهما: الموقع المحدد أو وصف العنوان.
+    if (!address && !location) return { error: "شارك موقعك أو اكتب وصفًا لعنوان البيت" };
     // قيمة التوصيل تتفق عليها الصيدلية مع المستفيد؛ الموقع (إن أُرسل) للإيصال فقط.
     if (!deliverySettingsOf(profile).enabled) return { error: "لا توفر هذه الصيدلية التوصيل" };
     if (location && profile.latitude !== null && profile.longitude !== null) distance = distanceKm(location, { latitude: profile.latitude, longitude: profile.longitude });
