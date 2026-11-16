@@ -19,7 +19,16 @@ type TransactionView = {
   facility_id?: string;
   facility_name: string;
   is_cancelled: boolean;
+  service_category?: string | null;
 };
+
+/** الأنواع الفرعية للأسنان: لكل منها نسبة تغطية في إعدادات الشركة، فتغييرها يعيد توزيع الحصص. */
+const DENTAL_SUBCATEGORIES: Array<{ value: string; label: string }> = [
+  { value: "DENTAL", label: "أسنان (عام)" },
+  { value: "DENTAL_PROSTHETICS", label: "تركيبات" },
+  { value: "DENTAL_IMPLANT", label: "زراعة" },
+  { value: "DENTAL_ORTHO", label: "تقويم" },
+];
 
 type EditableTransactionType = "MEDICINE" | "SUPPLIES" | "DENTAL" | "OPTICS" | "PHYSIOTHERAPY" | "EQUESTRIAN";
 
@@ -38,10 +47,13 @@ export function TransactionEditModal({
   transaction,
   facilities,
   datalistId,
+  dentalOptions,
 }: {
   transaction: TransactionView;
   facilities: FacilityOption[];
   datalistId?: string;
+  /** الأنواع الفرعية المفعلة في سياسة الشركة مع نسبها؛ بدونها تظهر كلها ويتحقق الخادم. */
+  dentalOptions?: Array<{ value: string; label: string }>;
 }) {
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -71,6 +83,7 @@ export function TransactionEditModal({
   const [type, setType] = useState<EditableTransactionType>(toMovementType(transaction.type));
   const [transactionDate, setTransactionDate] = useState(defaultDate);
   const [facilityQuery, setFacilityQuery] = useState(defaultFacilityName);
+  const [subCategory, setSubCategory] = useState(transaction.service_category || "DENTAL");
 
   useEffect(() => {
     if (!open) return;
@@ -79,8 +92,9 @@ export function TransactionEditModal({
     setType(toMovementType(transaction.type));
     setTransactionDate(defaultDate);
     setFacilityQuery(defaultFacilityName);
+    setSubCategory(transaction.service_category || "DENTAL");
     setError(null);
-  }, [open, transaction.amount, transaction.type, defaultDate, defaultFacilityName]);
+  }, [open, transaction.amount, transaction.type, transaction.service_category, defaultDate, defaultFacilityName]);
 
   useEffect(() => {
     if (!open) return;
@@ -112,6 +126,7 @@ export function TransactionEditModal({
         type,
         transactionDate,
         facilityId: resolvedFacilityId,
+        ...(transaction.type === "DENTAL" ? { serviceCategory: subCategory } : {}),
       });
 
       if (result.error) {
@@ -186,6 +201,20 @@ export function TransactionEditModal({
 
               <div>
                 <label className="mb-1 block text-xs font-black text-slate-500 dark:text-slate-400">نوع الحركة</label>
+                {transaction.type === "DENTAL" ? (
+                  <>
+                    <select
+                      value={subCategory}
+                      onChange={(e) => setSubCategory(e.target.value)}
+                      className="flex h-10 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-200"
+                    >
+                      {(dentalOptions ?? DENTAL_SUBCATEGORIES).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                    {subCategory !== (transaction.service_category || "DENTAL") && (
+                      <p className="mt-1 text-xs font-bold text-amber-700 dark:text-amber-400">ستُعاد حصة الشركة والمستفيد بنسبة تغطية النوع الجديد.</p>
+                    )}
+                  </>
+                ) : (
                 <select
                   value={type}
                   onChange={(e) => setType(e.target.value as EditableTransactionType)}
@@ -206,6 +235,7 @@ export function TransactionEditModal({
                     </>
                   )}
                 </select>
+                )}
               </div>
 
               <div>

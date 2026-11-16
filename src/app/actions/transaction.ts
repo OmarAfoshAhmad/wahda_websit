@@ -44,7 +44,11 @@ export type EditTransactionInput = {
   type: "MEDICINE" | "SUPPLIES" | "IMPORT" | "DENTAL" | "OPTICS" | "PHYSIOTHERAPY" | "EQUESTRIAN";
   transactionDate: string;
   facilityId?: string;
+  /** للأسنان فقط: النوع الفرعي (عام/تركيبات/زراعة/تقويم) ويحدد نسبة التغطية. */
+  serviceCategory?: string;
 };
+
+const DENTAL_SUBCATEGORY_SETTING: Record<string, string> = { DENTAL_PROSTHETICS: "prosthetics", DENTAL_IMPLANT: "implant", DENTAL_ORTHO: "ortho" };
 
 function getTripoliIsoDate(date: Date = new Date()): string {
   return new Intl.DateTimeFormat("en-CA", {
@@ -460,10 +464,24 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
           throw new Error("لا يمكن تغيير نوع حركة معزولة عن الرصيد الأساسي (أسنان/بصريات/علاج طبيعي/فروسية)");
         }
 
+        // النوع الفرعي للأسنان: يجب أن يكون مفعّلًا في سياسة الشركة، وإعادة الاحتساب أدناه تطبق نسبته.
+        let newSubCategory: string | null | undefined;
+        if (transaction.type === "DENTAL" && input.serviceCategory && input.serviceCategory !== (transaction.service_category || "DENTAL")) {
+          if (input.serviceCategory !== "DENTAL") {
+            const key = DENTAL_SUBCATEGORY_SETTING[input.serviceCategory];
+            if (!key) throw new Error("نوع الأسنان غير صالح");
+            const company = transaction.company_id ? await tx.insuranceCompany.findUnique({ where: { id: transaction.company_id }, select: { dental_settings: true } }) : null;
+            const settings = (company?.dental_settings ?? null) as Record<string, { enabled?: boolean }> | null;
+            if (!settings?.[key]?.enabled) throw new Error("هذا النوع غير مفعّل في سياسة أسنان الشركة");
+          }
+          newSubCategory = input.serviceCategory === "DENTAL" ? null : input.serviceCategory;
+        }
+
         // 1. Update the transaction basic data
         await tx.transaction.update({
           where: { id: transaction.id },
           data: {
+            ...(newSubCategory !== undefined ? { service_category: newSubCategory } : {}),
             amount: input.amount,
             created_at: parsedDate,
             facility_id: facility.id,
@@ -498,6 +516,7 @@ export async function updateTransactionEntry(input: EditTransactionInput): Promi
               new_date: parsedDate.toISOString(),
               old_facility_id: transaction.facility_id ?? null,
               new_facility_id: facility.id,
+              ...(newSubCategory !== undefined ? { old_category: transaction.service_category, new_category: newSubCategory } : {}),
               isolated_from_base_balance: true,
             },
           },

@@ -1027,6 +1027,7 @@ export default async function TransactionsPage({
                                     facility_id: tx.facility.id,
                                     facility_name: tx.facility.name,
                                     is_cancelled: tx.is_cancelled,
+                                    service_category: tx.service_category,
                                   }}
                                   facilities={facilities}
                                   datalistId={globalDatalistId}

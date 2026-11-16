@@ -106,6 +106,15 @@ export default async function DentalCompanyPage({
     ? await prisma.facility.findMany({ where: { deleted_at: null }, select: { id: true, name: true }, orderBy: { name: "asc" } })
     : [{ id: session.id, name: session.name }];
 
+  // أنواع الأسنان المتاحة في نافذة تعديل الحركة: العام + المفعّل في سياسة الشركة مع نسبة تغطيته.
+  const dentalSettingsForEdit = (company.dental_settings ?? null) as Record<string, { enabled?: boolean; coverage?: number }> | null;
+  const dentalEditOptions = [
+    { value: "DENTAL", label: "أسنان (عام)" },
+    ...([["DENTAL_PROSTHETICS", "prosthetics", "تركيبات"], ["DENTAL_IMPLANT", "implant", "زراعة"], ["DENTAL_ORTHO", "ortho", "تقويم"]] as const)
+      .filter(([, key]) => dentalSettingsForEdit?.[key]?.enabled)
+      .map(([value, key, label]) => ({ value, label: `${label} (${Number(dentalSettingsForEdit?.[key]?.coverage ?? 0)}% تغطية)` })),
+  ];
+
   const selectedFacility = !isFacility ? facilities.find((f) => f.id === facilityFilter || f.name === facilityFilter) : undefined;
   const facilityFilterInputValue = selectedFacility?.name ?? facilityFilter;
 
@@ -858,9 +867,11 @@ export default async function DentalCompanyPage({
                                         facility_id: tx.facility.id,
                                         facility_name: tx.facility.name,
                                         is_cancelled: tx.is_cancelled,
+                                        service_category: tx.service_category,
                                       }}
                                       facilities={facilities}
                                       datalistId={globalDatalistId}
+                                      dentalOptions={dentalEditOptions}
                                     />
                                   </div>
                                 </td>
