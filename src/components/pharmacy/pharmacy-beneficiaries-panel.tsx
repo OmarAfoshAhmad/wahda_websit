@@ -108,10 +108,6 @@ export function PharmacyBeneficiariesPanel({ companyId, canEdit = false, canExpo
   const pages = Math.max(1, Math.ceil(total / (result?.pageSize ?? 50)));
   const toggle = (key: string) => setExpanded((current) => { const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next; });
   const open = (id: string) => setParams({ ben: id });
-  const chemicalSaved = (id: string, enabled: boolean) => setResult((current) => {
-    if (!current || "error" in current) return current;
-    return { ...current, families: current.families.map((family) => ({ ...family, members: family.members.map((member) => member.id === id ? { ...member, chemicalEnabled: enabled } : member) })) };
-  });
 
   return (
     <div className="space-y-4">
@@ -199,7 +195,7 @@ export function PharmacyBeneficiariesPanel({ companyId, canEdit = false, canExpo
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {families.map((family) => (
-                      <FamilyRows key={family.key} family={family} expanded={expanded.has(family.key)} onToggle={() => toggle(family.key)} onOpen={open} canManageChemical={result?.canManageChemical ?? false} onChemicalSaved={chemicalSaved} />
+                      <FamilyRows key={family.key} family={family} expanded={expanded.has(family.key)} onToggle={() => toggle(family.key)} onOpen={open} />
                     ))}
                   </tbody>
                 </table>
@@ -216,7 +212,7 @@ export function PharmacyBeneficiariesPanel({ companyId, canEdit = false, canExpo
                       <PhoneBadge phone={family.phone} />
                       {family.hasPassword && <Badge variant="success"><ShieldCheck className="me-1 h-3 w-3" /> البوابة</Badge>}
                       {family.chronicCount > 0 && <Badge variant="info"><Pill className="me-1 h-3 w-3" /> {family.chronicCount} مزمن</Badge>}
-                      {family.members.filter((member) => member.id === family.headId).map((member) => <ChemicalToggle key={member.id} member={member} canManage={result?.canManageChemical ?? false} onSaved={chemicalSaved} />)}
+                      {family.members.filter((member) => member.id === family.headId).map((member) => <ChemicalBadge key={member.id} enabled={member.chemicalEnabled} />)}
                     </div>
                     {family.members.length > 1 && (
                       <>
@@ -229,7 +225,7 @@ export function PharmacyBeneficiariesPanel({ companyId, canEdit = false, canExpo
                               <div key={member.id} className={`flex flex-wrap items-center justify-between gap-2 rounded px-1 py-1 text-sm ${member.matched ? "bg-amber-50 dark:bg-amber-950/30" : ""}`}>
                                 <button type="button" onClick={() => open(member.id)} className="text-start">{member.name} <span className="text-xs text-slate-500">· {member.relation}</span></button>
                                 {member.chronicCount > 0 && <span className="text-xs font-bold text-blue-700 dark:text-blue-400">{member.chronicCount} مزمن</span>}
-                                <ChemicalToggle member={member} canManage={result?.canManageChemical ?? false} onSaved={chemicalSaved} />
+                                <ChemicalBadge enabled={member.chemicalEnabled} />
                               </div>
                             ))}
                           </div>
@@ -368,29 +364,14 @@ function PhoneBadge({ phone }: { phone: string | null }) {
     : <Badge variant="warning">بلا هاتف</Badge>;
 }
 
-function ChemicalToggle({ member, canManage, onSaved }: { member: Family["members"][number]; canManage: boolean; onSaved: (id: string, enabled: boolean) => void }) {
-  const enabled = member.chemicalEnabled;
-  const [error, setError] = useState("");
-  const [busy, startBusy] = useTransition();
-  return <div onClick={(event) => event.stopPropagation()}>
-    <button type="button" role="switch" aria-checked={enabled} aria-label={`الكيميائي للمستفيد ${member.name}`} disabled={!canManage || busy}
-      title={canManage ? (enabled ? "إيقاف الكيميائي لهذا المستفيد" : "تفعيل الكيميائي لهذا المستفيد") : "تحتاج صلاحية تعديل المستفيدين"}
-      className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-bold disabled:cursor-default ${enabled ? "border-emerald-300 bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200" : "border-slate-300 bg-slate-50 text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300"}`}
-      onClick={() => { setError(""); startBusy(async () => {
-        try {
-          const result = await setBeneficiaryChemicalEnabled(member.id, !enabled);
-          if (result.error) { setError(result.error); return; }
-          if ("enabled" in result) onSaved(member.id, result.enabled);
-        } catch { setError("تعذر حفظ الحالة، حاول مجددًا"); }
-      }); }}>
-      {busy && <Loader2 className="h-3 w-3 animate-spin" />}
-      الكيميائي: {enabled ? "مفعّل" : "موقوف"}
-    </button>
-    {error && <p role="alert" className="mt-1 max-w-48 text-xs text-rose-600">{error}</p>}
-  </div>;
+/** حالة الكيميائي في القائمة للعرض فقط؛ التفعيل والإيقاف من نافذة المستفيد مع تأكيد. */
+function ChemicalBadge({ enabled }: { enabled: boolean }) {
+  return enabled
+    ? <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">الكيميائي مفعّل</span>
+    : <span className="text-slate-300 dark:text-slate-600">—</span>;
 }
 
-function FamilyRows({ family, expanded, onToggle, onOpen, canManageChemical, onChemicalSaved }: { family: Family; expanded: boolean; onToggle: () => void; onOpen: (id: string) => void; canManageChemical: boolean; onChemicalSaved: (id: string, enabled: boolean) => void }) {
+function FamilyRows({ family, expanded, onToggle, onOpen }: { family: Family; expanded: boolean; onToggle: () => void; onOpen: (id: string) => void }) {
   const others = family.members.filter((member) => member.id !== family.headId);
   const head = family.members.find((member) => member.id === family.headId);
   return (
@@ -413,7 +394,7 @@ function FamilyRows({ family, expanded, onToggle, onOpen, canManageChemical, onC
         <td className="px-4 py-3"><PhoneBadge phone={family.phone} /></td>
         <td className="px-4 py-3 text-center">{family.hasPassword ? <Badge variant="success">مسجّلة</Badge> : <span className="text-slate-300 dark:text-slate-600">—</span>}</td>
         <td className="px-4 py-3 text-center">{family.chronicCount > 0 ? <Badge variant="info">{family.chronicCount}</Badge> : <span className="text-slate-300 dark:text-slate-600">—</span>}</td>
-        <td className="px-4 py-3 text-center">{head && <ChemicalToggle member={head} canManage={canManageChemical} onSaved={onChemicalSaved} />}</td>
+        <td className="px-4 py-3 text-center">{head && <ChemicalBadge enabled={head.chemicalEnabled} />}</td>
         <td className="px-4 py-3 text-xs tabular-nums text-slate-500 dark:text-slate-400">{family.lastDispenseAt ? day(family.lastDispenseAt) : "—"}</td>
       </tr>
       {expanded && others.map((member) => (
@@ -426,7 +407,7 @@ function FamilyRows({ family, expanded, onToggle, onOpen, canManageChemical, onC
           <td className="px-4 py-2 font-mono text-slate-500 dark:text-slate-400">{member.cardNumber}</td>
           <td colSpan={3} />
           <td className="px-4 py-2 text-center">{member.chronicCount > 0 ? <Badge variant="info">{member.chronicCount}</Badge> : ""}</td>
-          <td className="px-4 py-2 text-center"><ChemicalToggle member={member} canManage={canManageChemical} onSaved={onChemicalSaved} /></td>
+          <td className="px-4 py-2 text-center"><ChemicalBadge enabled={member.chemicalEnabled} /></td>
           <td className="px-4 py-2 tabular-nums text-slate-500 dark:text-slate-400">{member.lastDispenseAt ? day(member.lastDispenseAt) : ""}</td>
         </tr>
       ))}
@@ -531,6 +512,33 @@ function BeneficiaryDrawer({ companyId, beneficiaryId, onClose, onChanged }: { c
                       </span>
                     </div>
                   </>
+                )}
+              </section>
+
+              {/* الكيميائي (أدوية الأورام) */}
+              <section className="space-y-2 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-sm font-black">الكيميائي (أدوية الأورام)</h3>
+                  {data.beneficiary.chemicalEnabled
+                    ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">مفعّل</span>
+                    : <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">موقوف</span>}
+                </div>
+                <p className="text-xs text-slate-500">لهذا المستفيد وحده، ولا يُصرف له الكيميائي إلا إذا كان مفعّلًا.</p>
+                {data.canManageChemical && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      const enable = !data.beneficiary.chemicalEnabled;
+                      const question = enable
+                        ? `تفعيل الكيميائي (أدوية الأورام) للمستفيد ${data.beneficiary.name}؟\nسيصبح بإمكان الصيدليات صرف الكيميائي له.`
+                        : `إيقاف الكيميائي للمستفيد ${data.beneficiary.name}؟\nلن تتمكن الصيدليات من صرفه له.`;
+                      if (window.confirm(question)) run(() => setBeneficiaryChemicalEnabled(data.beneficiary.id, enable), enable ? "فُعّل الكيميائي" : "أُوقف الكيميائي");
+                    }}
+                    className={`inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs font-bold ${data.beneficiary.chemicalEnabled ? "border-rose-200 text-rose-700 hover:bg-rose-50" : "border-teal-300 text-teal-700 hover:bg-teal-50"}`}
+                  >
+                    {data.beneficiary.chemicalEnabled ? "إيقاف الكيميائي" : "تفعيل الكيميائي"}
+                  </button>
                 )}
               </section>
 

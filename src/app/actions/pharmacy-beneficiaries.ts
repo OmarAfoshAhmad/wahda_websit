@@ -167,7 +167,7 @@ export async function resetFamilyPassword(beneficiaryId: string) {
 export async function getPharmacyBeneficiaryDetails(beneficiaryId: string) {
   const target = await prisma.beneficiary.findFirst({
     where: { id: beneficiaryId, deleted_at: null },
-    select: { id: true, name: true, card_number: true, phone_number: true, status: true, company_id: true, company: { select: { name: true } } },
+    select: { id: true, name: true, card_number: true, phone_number: true, status: true, chemical_enabled: true, company_id: true, company: { select: { name: true } } },
   });
   if (!target?.company_id) return { error: "المستفيد غير موجود" };
   const access = await requireStaff(target.company_id, "read");
@@ -189,12 +189,13 @@ export async function getPharmacyBeneficiaryDetails(beneficiaryId: string) {
   const chronic = await getChronicDrugStatuses(target.id, summary.chronicIntervalDays);
 
   return {
-    beneficiary: { id: target.id, name: target.name, card_number: target.card_number, status: target.status, company: target.company?.name ?? "" },
+    beneficiary: { id: target.id, name: target.name, card_number: target.card_number, status: target.status, chemicalEnabled: target.chemical_enabled, company: target.company?.name ?? "" },
     account: account ? { id: account.id, name: account.name, phone: account.phone_number, hasPassword: Boolean(account.pin_hash), isSelf: account.id === target.id } : null,
     canEditPhones: hasPermission(access.session, "manage_pharmacy_phones"),
     canEditChronic: hasPermission(access.session, "manage_pharmacy_chronic"),
     canDeleteChronic: hasPermission(access.session, "delete_pharmacy_chronic"),
     canManualDispense: hasPermission(access.session, "manual_pharmacy_dispense"),
+    canManageChemical: hasPermission(access.session, "edit_beneficiary"),
     chronicIntervalDays: summary.chronicIntervalDays,
     chronic: chronic.map((drug) => ({ id: drug.id, name: drug.drug_name, notes: drug.notes, lastAt: drug.last_dispensed_at, lastFacility: drug.last_facility_name, manualAt: drug.manual_at, manualFacility: drug.manual_facility, eligible: drug.eligible, nextAt: drug.next_eligible_at })),
     inactive: inactive.map((link) => ({ id: link.id, name: link.drug.name, notes: link.notes, stoppedAt: link.updated_at.toISOString() })),
