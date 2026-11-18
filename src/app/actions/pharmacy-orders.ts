@@ -121,6 +121,7 @@ export async function createPharmacyOrder(formData: FormData) {
   const address = String(formData.get("address") ?? "").trim().slice(0, 300) || null;
   const location = parseLocation(formData.get("latitude"), formData.get("longitude"));
   if (!["ROUTINE", "CHRONIC", "CHEMICAL"].includes(category)) return { error: "اختر نوع الأدوية" };
+  if (category === "CHEMICAL") return { error: "الأدوية الكيميائية تُصرف من الصيدلية مباشرة" };
   if (!["PICKUP", "DELIVERY"].includes(fulfillment)) return { error: "اختر الاستلام أو التوصيل" };
 
   const openCount = await prisma.pharmacyOrder.count({ where: { beneficiary_id: beneficiary.id, status: { in: OPEN_STATUSES } } });

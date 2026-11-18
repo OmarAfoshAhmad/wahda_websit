@@ -103,6 +103,7 @@ export async function getPharmacyBeneficiaryWorkspace(companyId: string, benefic
       name: true,
       phone_number: true,
       birth_date: true,
+      chemical_enabled: true,
       status: true,
       company: { select: { id: true, name: true, code: true, logo: true } },
       pharmacy_dispenses: {
@@ -269,7 +270,6 @@ export async function createPharmacyPrescription(input: {
   if ("error" in access) return { error: access.error };
   const { session } = access;
   if (input.category === "CHRONIC") return { error: "صرف الأدوية المزمنة يتم من قائمة الأدوية المرتبطة بالمستفيد" };
-  if (input.category === "CHEMICAL") return { error: "صرف الأدوية الكيميائية مقفل حاليًا" };
 
   const policy = await loadPharmacyPolicy(prisma, input.companyId);
   if (!policy?.pharmacy_config) return { error: "سياسة الصيدلية غير مهيأة" };
@@ -281,9 +281,10 @@ export async function createPharmacyPrescription(input: {
   if (!facility) return { error: "الحساب الحالي غير مرتبط بمرفق صالح" };
 
   return prisma.$transaction(async (tx) => {
-    const beneficiary = await tx.beneficiary.findFirst({ where: { id: input.beneficiaryId, company_id: input.companyId, deleted_at: null, status: { not: "SUSPENDED" } }, select: { id: true } });
+    await lockBeneficiary(tx, input.beneficiaryId);
+    const beneficiary = await tx.beneficiary.findFirst({ where: { id: input.beneficiaryId, company_id: input.companyId, deleted_at: null, status: { not: "SUSPENDED" } }, select: { id: true, chemical_enabled: true } });
     if (!beneficiary) return { error: "المستفيد موقوف أو لا يتبع الشركة المختارة" };
-    await lockBeneficiary(tx, beneficiary.id);
+    if (input.category === "CHEMICAL" && !beneficiary.chemical_enabled) return { error: "الكيميائي موقوف لهذا المستفيد" };
 
     const today = getTripoliDayWindow(new Date());
     const todayCount = await tx.pharmacyPrescription.count({
@@ -456,6 +457,10 @@ async function recordPharmacyDispense(tx: Tx, input: {
   manualNote?: string;
 }) {
   const facilityId = input.facilityId ?? input.session.id;
+  if (input.category === "CHEMICAL") {
+    const beneficiary = await tx.beneficiary.findFirst({ where: { id: input.beneficiaryId, company_id: input.companyId, deleted_at: null }, select: { chemical_enabled: true } });
+    if (!beneficiary?.chemical_enabled) throw new PharmacyRuleError("الكيميائي موقوف لهذا المستفيد");
+  }
   const policy = await loadPharmacyPolicy(tx, input.companyId);
   if (!policy?.pharmacy_config) throw new PharmacyRuleError("سياسة الصيدلية غير مهيأة");
   const resolved = resolvePharmacyCategoryPolicy(policy, policy.pharmacy_config, input.category);
@@ -622,11 +627,12 @@ export async function dispensePharmacyPrescriptionItems(input: {
       await tx.$queryRaw`SELECT "id" FROM "PharmacyPrescription" WHERE "id" = ${input.prescriptionId} FOR UPDATE`;
       const prescription = await tx.pharmacyPrescription.findUnique({
         where: { id: input.prescriptionId },
-        select: { id: true, status: true, created_at: true, total_item_count: true, medicine_category: true, beneficiary: { select: { status: true, deleted_at: true } } },
+        select: { id: true, status: true, created_at: true, total_item_count: true, medicine_category: true, beneficiary: { select: { status: true, deleted_at: true, chemical_enabled: true } } },
       });
       if (!prescription || prescription.status !== "OPEN") throw new PharmacyRuleError("الوصفة غير متاحة للصرف");
       if (!isPrescriptionValidToday(prescription.created_at)) throw new PharmacyRuleError(PRESCRIPTION_EXPIRED_MESSAGE);
       if (prescription.beneficiary.deleted_at || prescription.beneficiary.status === "SUSPENDED") throw new PharmacyRuleError("المستفيد موقوف");
+      if (prescription.medicine_category === "CHEMICAL" && !prescription.beneficiary.chemical_enabled) throw new PharmacyRuleError("الكيميائي موقوف لهذا المستفيد");
       if (prescription.medicine_category === "CHRONIC") throw new PharmacyRuleError("صرف الأدوية المزمنة يتم من قائمة الأدوية المرتبطة بالمستفيد");
       if (sequences.some((sequence) => sequence > prescription.total_item_count)) throw new PharmacyRuleError(`رقم البند يجب أن يكون بين 1 و${prescription.total_item_count}`);
 

@@ -59,6 +59,7 @@ export async function getPharmacyUsage(beneficiaryId: string, companyId: string,
 
   const window = getPolicyYearWindow(now, config.policy_year_start_month);
   const today = getTripoliDayWindow(now);
+  const beneficiary = await prisma.beneficiary.findFirst({ where: { id: beneficiaryId, company_id: companyId, deleted_at: null }, select: { chemical_enabled: true } });
   const categories: PharmacyCategoryUsage[] = await Promise.all((["ROUTINE", "CHRONIC", "CHEMICAL"] as const).map(async (category) => {
     const resolved = resolvePharmacyCategoryPolicy(policy, config, category);
     const consumption = await getPharmacyConsumption(prisma, beneficiaryId, category, window);
@@ -71,7 +72,7 @@ export async function getPharmacyUsage(beneficiaryId: string, companyId: string,
     ].filter((value): value is number => value !== null);
     return {
       category,
-      enabled: resolved.enabled,
+      enabled: resolved.enabled && (category !== "CHEMICAL" || beneficiary?.chemical_enabled === true),
       coveragePercent: resolved.coveragePercent,
       categoryCeiling: resolved.categoryCeiling,
       overallCeiling: resolved.overallCeiling,

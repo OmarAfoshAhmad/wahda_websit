@@ -5,6 +5,9 @@ import { hasPermission } from "@/lib/session-guard";
 import { relationLabel } from "@/lib/beneficiary-family";
 import { FAMILY_FILTERS, familyCte, filterSql, extraFilterSql, requirePharmacyStaff as requireStaff, familyStatsCache as statsCache, type FamilyFilter, type FamilyStats, type HeadRow, type MemberRow } from "@/lib/pharmacy/families";
 import { normalizeLibyanMobile } from "@/lib/phone";
+import { canAccessAdmin } from "@/lib/permissions";
+import { getSessionWithFreshPermissions } from "@/lib/session-guard";
+import { assertCompanyAccessForSession } from "@/lib/company-scope";
 
 const PAGE_SIZE = 50;
 
@@ -36,7 +39,7 @@ async function familyStats(companyId: string): Promise<FamilyStats> {
  */
 export async function listPharmacyFamilies(companyId: string, input: { query?: string; filter?: FamilyFilter; page?: number; phone?: string | null; chronic?: string | null }) {
   const access = await requireStaff(companyId, "read");
-  if ("error" in access) return { error: access.error, families: [], total: 0, pageSize: PAGE_SIZE, stats: null };
+  if ("error" in access) return { error: access.error, families: [], total: 0, pageSize: PAGE_SIZE, stats: null, canManageChemical: false };
   const search = (input.query ?? "").trim().slice(0, 80);
   const filter = FAMILY_FILTERS.includes(input.filter as FamilyFilter) ? (input.filter as FamilyFilter) : "all";
   const offset = (Math.max(1, Math.floor(input.page ?? 1)) - 1) * PAGE_SIZE;
@@ -53,7 +56,7 @@ export async function listPharmacyFamilies(companyId: string, input: { query?: s
       )
       SELECT pg.*, (
         SELECT json_agg(json_build_object('id', m.id, 'name', m.name, 'card_number', m.card_number, 'status', m.status,
-          'chronic_count', m.chronic_count, 'last_dispense_at', m.last_dispense_at, 'is_head', m.is_head, 'matched', m.matched)
+          'chemical_enabled', m.chemical_enabled, 'chronic_count', m.chronic_count, 'last_dispense_at', m.last_dispense_at, 'is_head', m.is_head, 'matched', m.matched)
           ORDER BY (m.id = pg.head_id) DESC, m.card_number)
         FROM m WHERE m.fam = pg.fam
       ) AS members_json
@@ -80,6 +83,7 @@ export async function listPharmacyFamilies(companyId: string, input: { query?: s
         cardNumber: member.card_number,
         relation: relationLabel(member.card_number, member.id === head.head_id && head.is_head),
         status: member.status,
+        chemicalEnabled: member.chemical_enabled,
         chronicCount: member.chronic_count,
         lastDispenseAt: member.last_dispense_at ? new Date(member.last_dispense_at).toISOString() : null,
         matched: Boolean(search) && member.matched,
@@ -88,7 +92,32 @@ export async function listPharmacyFamilies(companyId: string, input: { query?: s
     total: heads[0]?.total ?? 0,
     pageSize: PAGE_SIZE,
     stats,
+    canManageChemical: hasPermission(access.session, "edit_beneficiary"),
   };
+}
+
+/** تعديل أهلية الكيميائي للفرد فقط، دون تغيير أسرته أو سياسة شركته. */
+export async function setBeneficiaryChemicalEnabled(beneficiaryId: string, enabled: boolean) {
+  if (typeof beneficiaryId !== "string" || !beneficiaryId || typeof enabled !== "boolean") return { error: "طلب غير صالح" };
+  const session = await getSessionWithFreshPermissions();
+  if (!session || !canAccessAdmin(session) || !hasPermission(session, "edit_beneficiary")) return { error: "غير مصرح" };
+  const target = await prisma.beneficiary.findFirst({ where: { id: beneficiaryId, deleted_at: null }, select: { id: true, company_id: true } });
+  if (!target?.company_id) return { error: "المستفيد غير موجود" };
+  try { await assertCompanyAccessForSession(session, target.company_id); }
+  catch { return { error: "لا تملك صلاحية الوصول إلى هذه الشركة" }; }
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "Beneficiary" WHERE "id" = ${beneficiaryId} FOR UPDATE`;
+    const current = await tx.beneficiary.findFirst({ where: { id: beneficiaryId, company_id: target.company_id, deleted_at: null }, select: { id: true, card_number: true, chemical_enabled: true } });
+    if (!current) return { error: "المستفيد غير موجود" };
+    if (current.chemical_enabled === enabled) return { success: true, enabled };
+    await tx.beneficiary.update({ where: { id: current.id }, data: { chemical_enabled: enabled } });
+    await tx.auditLog.create({ data: {
+      facility_id: session.id, user: session.username, company_id: target.company_id,
+      action: "BENEFICIARY_CHEMICAL_CHANGE",
+      metadata: { beneficiary_id: current.id, card_number: current.card_number, before: current.chemical_enabled, after: enabled },
+    } });
+    return { success: true, enabled };
+  });
 }
 
 /** يضيف أو يغيّر هاتف صاحب البطاقة (وجهة رمز التحقق). لا يُسمح بنفس الرقم لبطاقتين. */

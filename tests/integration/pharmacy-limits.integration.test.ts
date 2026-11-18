@@ -10,7 +10,8 @@ import {
   getPharmacyBeneficiaryWorkspace,
   reservePharmacyPrescriptionItems,
 } from "@/app/actions/pharmacy";
-import { ACTIVE_DISPENSE } from "@/lib/pharmacy/summary";
+import { ACTIVE_DISPENSE, getPharmacyUsage } from "@/lib/pharmacy/summary";
+import { setBeneficiaryChemicalEnabled, listPharmacyFamilies } from "@/app/actions/pharmacy-beneficiaries";
 import { calculateBeneficiaryBalance } from "@/lib/tx-balance-guard";
 
 /**
@@ -132,9 +133,31 @@ describe("pharmacy limits against a real database", () => {
     expect((await createPharmacyPrescription({ companyId, beneficiaryId: id, category: "ROUTINE" })).error).toBeUndefined();
     expect((await createPharmacyPrescription({ companyId, beneficiaryId: id, category: "ROUTINE" })).error).toMatch(/الحد اليومي/);
     // الأورام لها حدها المستقل
+    expect((await setBeneficiaryChemicalEnabled(id, true)).error).toBeUndefined();
     expect((await createPharmacyPrescription({ companyId, beneficiaryId: id, category: "CHEMICAL" })).error).toBeUndefined();
     expect((await createPharmacyPrescription({ companyId, beneficiaryId: id, category: "CHEMICAL" })).error).toBeUndefined();
     expect((await createPharmacyPrescription({ companyId, beneficiaryId: id, category: "CHEMICAL" })).error).toMatch(/الحد اليومي/);
+  });
+
+  it("keeps chemical eligibility independent and blocks an open prescription after disabling", async () => {
+    const enabledId = await newBeneficiary("كيميائي مفعل");
+    const disabledId = await newBeneficiary("كيميائي موقوف");
+    expect((await createPharmacyPrescription({ companyId, beneficiaryId: disabledId, category: "CHEMICAL" })).error).toBe("الكيميائي موقوف لهذا المستفيد");
+    expect((await setBeneficiaryChemicalEnabled(enabledId, true)).error).toBeUndefined();
+    expect((await prisma.beneficiary.findUniqueOrThrow({ where: { id: disabledId } })).chemical_enabled).toBe(false);
+    const listed = await listPharmacyFamilies(companyId, {});
+    expect(listed.families.flatMap((family) => family.members).find((member) => member.id === enabledId)?.chemicalEnabled).toBe(true);
+    const usage = await getPharmacyUsage(enabledId, companyId);
+    expect(usage.usage?.categories.find((category) => category.category === "CHEMICAL")?.enabled).toBe(true);
+    const prescriptionId = await openPrescription(enabledId, "CHEMICAL");
+    expect((await setBeneficiaryChemicalEnabled(enabledId, false)).error).toBeUndefined();
+    expect((await dispensePharmacyPrescriptionItems({ prescriptionId, items: [{ sequence: 1, price: 10 }], idempotencyKey: key() })).error).toBe("الكيميائي موقوف لهذا المستفيد");
+    expect(await prisma.pharmacyDispense.count({ where: { beneficiary_id: enabledId } })).toBe(0);
+    expect((await prisma.pharmacyPrescription.findUniqueOrThrow({ where: { id: prescriptionId } })).status).toBe("OPEN");
+    expect((await setBeneficiaryChemicalEnabled(enabledId, true)).error).toBeUndefined();
+    const dispensed = await dispensePharmacyPrescriptionItems({ prescriptionId, items: [{ sequence: 1, price: 10 }], idempotencyKey: key() });
+    expect(dispensed.error).toBeUndefined();
+    expect(await prisma.pharmacyDispense.count({ where: { beneficiary_id: enabledId } })).toBe(1);
   });
 
   it("never exceeds the daily limit under concurrent requests", async () => {

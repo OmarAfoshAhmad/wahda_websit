@@ -139,6 +139,7 @@ model FacilityServiceCapability {
 
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model Beneficiary {
+  chemical_enabled             Boolean                  @default(false)
   id                           String                   @id @default(cuid())
   card_number                  String
   name                         String

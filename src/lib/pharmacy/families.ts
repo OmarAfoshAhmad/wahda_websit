@@ -31,7 +31,7 @@ export type FamilyFilter = "all" | "with_phone" | "no_phone" | "no_portal" | "ch
 export const FAMILY_FILTERS: FamilyFilter[] = ["all", "with_phone", "no_phone", "no_portal", "chronic", "recent", "never"];
 
 /** أفراد الأسرة كما يرجعهم json_agg (التاريخ نص). */
-export type MemberRow = { id: string; name: string; card_number: string; status: string; chronic_count: number; last_dispense_at: string | null; is_head: boolean; matched: boolean };
+export type MemberRow = { id: string; name: string; card_number: string; status: string; chemical_enabled: boolean; chronic_count: number; last_dispense_at: string | null; is_head: boolean; matched: boolean };
 export type HeadRow = { fam: string; head_id: string; members: number; chronic_count: number; last_dispense_at: Date | null; name: string; card_number: string; phone_number: string | null; has_password: boolean; status: string; is_head: boolean; total: number };
 
 /** الرقم الوظيفي بلا رمز الشركة والسنة والأصفار البادئة. */
@@ -58,7 +58,7 @@ export function familyCte(companyId: string, search: string) {
   const famExpr = Prisma.sql`COALESCE(NULLIF(regexp_replace(e.emp, '[A-Z][0-9]*$', ''), ''), e.emp)`;
   return Prisma.sql`
     m AS (
-      SELECT b.id, b.name, b.card_number, b.phone_number, b.status::text AS status, (b.pin_hash IS NOT NULL) AS has_password,
+      SELECT b.id, b.name, b.card_number, b.phone_number, b.chemical_enabled, b.status::text AS status, (b.pin_hash IS NOT NULL) AS has_password,
         ${famExpr} AS fam, (e.emp = ${famExpr}) AS is_head,
         COALESCE(cc.n, 0)::int AS chronic_count, GREATEST(ld.last_at, cc.imported_at) AS last_dispense_at,
         ${search ? memberSearchSql(search) : Prisma.sql`TRUE`} AS matched
