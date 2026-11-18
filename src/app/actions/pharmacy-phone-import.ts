@@ -2,7 +2,7 @@
 
 import ExcelJS from "exceljs";
 import prisma from "@/lib/prisma";
-import { normalizeLibyanMobile } from "@/lib/phone";
+import { normalizePhone } from "@/lib/phone";
 import { familyCte, familyStatsCache, requirePharmacyStaff } from "@/lib/pharmacy/families";
 
 const MAX_ROWS = 30_000;
@@ -39,7 +39,7 @@ export async function importFamilyPhones(companyId: string, fileBase64: string, 
   `;
   const holderOf = new Map(holders.map((item) => [item.card, item]));
 
-  const phones = [...new Set(parsed.map((item) => normalizeLibyanMobile(item.phone)).filter((value): value is string => Boolean(value)))];
+  const phones = [...new Set(parsed.map((item) => normalizePhone(item.phone)).filter((value): value is string => Boolean(value)))];
   const owners = phones.length === 0 ? [] : await prisma.beneficiary.findMany({ where: { phone_number: { in: phones }, deleted_at: null }, select: { id: true, phone_number: true, card_number: true } });
   const ownerOf = new Map(owners.map((owner) => [owner.phone_number!, owner]));
 
@@ -47,7 +47,7 @@ export async function importFamilyPhones(companyId: string, fileBase64: string, 
   const holdersByPhone = new Map<string, Set<string>>();
   const phonesByHolder = new Map<string, Set<string>>();
   for (const item of parsed) {
-    const phone = normalizeLibyanMobile(item.phone);
+    const phone = normalizePhone(item.phone);
     const holder = holderOf.get(item.card);
     if (!phone || !holder) continue;
     (holdersByPhone.get(phone) ?? holdersByPhone.set(phone, new Set()).get(phone)!).add(holder.holder_id);
@@ -59,7 +59,7 @@ export async function importFamilyPhones(companyId: string, fileBase64: string, 
     const holder = holderOf.get(item.card);
     if (!holder) return { ...item, status: "not_found" };
     const base = { ...item, holderId: holder.holder_id, holderCard: holder.holder_card, holderName: holder.holder_name, before: holder.holder_phone };
-    const phone = normalizeLibyanMobile(item.phone);
+    const phone = normalizePhone(item.phone);
     if (!phone) return { ...base, status: "invalid_phone" };
     if ((phonesByHolder.get(holder.holder_id)?.size ?? 0) > 1) return { ...base, phone, status: "conflict", note: "الأسرة نفسها بأكثر من هاتف في الملف" };
     if ((holdersByPhone.get(phone)?.size ?? 0) > 1) return { ...base, phone, status: "duplicate_phone", note: "الهاتف مكرر لأكثر من أسرة في الملف" };
@@ -119,7 +119,7 @@ async function readSheet(buffer: Buffer) {
   ws.eachRow((row, number) => {
     if (number === 1) return;
     const card = text(row.getCell(cardCol).value).replace(/[\s-]/g, "").toUpperCase();
-    // هاتف محفوظ كرقم يفقد الصفر الأول (912345678) — normalizeLibyanMobile يقبله.
+    // هاتف محفوظ كرقم يفقد الصفر الأول (912345678) — normalizePhone يقبله.
     const phone = text(row.getCell(phoneCol).value).trim();
     if (card && phone) rows.push({ row: number, card, phone });
   });

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomInt } from "crypto";
 import prisma from "@/lib/prisma";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { normalizeLibyanMobile } from "@/lib/phone";
+import { normalizePhone } from "@/lib/phone";
 import { getOtpSettings } from "@/lib/system-settings";
 import { normalizeCardInput } from "@/lib/card-number";
 import { resolveFamilyAccountCard } from "@/lib/beneficiary-family";
@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   // صيغة موحدة للهاتف (0912345678) حتى يطابق الرقم المسجل مهما كُتب (مسافات، 218…).
   const rawPhone = typeof body?.phone_number === "string" ? body.phone_number.trim() : "";
-  const phone_number = normalizeLibyanMobile(rawPhone) ?? rawPhone;
+  const phone_number = normalizePhone(rawPhone) ?? rawPhone;
   // الدخول بالشركة + الرقم الوظيفي (الجزء بعد رمز الشركة والسنة)، مع بقاء الدخول برقم البطاقة الكامل مدعومًا.
   let card_number = typeof body?.card_number === "string" ? normalizeCardInput(body.card_number) : "";
 
@@ -135,8 +135,10 @@ export async function POST(req: NextRequest) {
   if (otpSettings.provider === "RESALA") {
     try {
       let formattedPhone = phone_number.trim();
-      if (formattedPhone.startsWith("0")) formattedPhone = "218" + formattedPhone.substring(1);
-      if (!formattedPhone.startsWith("218")) formattedPhone = "218" + formattedPhone;
+      // رقم دولي محفوظ بصيغة +رمز الدولة: يُرسل كما هو بدون +.
+      if (formattedPhone.startsWith("+")) formattedPhone = formattedPhone.slice(1);
+      else if (formattedPhone.startsWith("0")) formattedPhone = "218" + formattedPhone.substring(1);
+      else if (!formattedPhone.startsWith("218")) formattedPhone = "218" + formattedPhone;
 
       const serviceName = otpSettings.senderId || otpSettings.facilityName || "بوابة المستفيد";
       const token = otpSettings.apiKey.trim();

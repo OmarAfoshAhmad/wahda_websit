@@ -4,7 +4,7 @@ import prisma from "@/lib/prisma";
 import { hasPermission } from "@/lib/session-guard";
 import { relationLabel } from "@/lib/beneficiary-family";
 import { FAMILY_FILTERS, familyCte, filterSql, extraFilterSql, requirePharmacyStaff as requireStaff, familyStatsCache as statsCache, type FamilyFilter, type FamilyStats, type HeadRow, type MemberRow } from "@/lib/pharmacy/families";
-import { normalizeLibyanMobile } from "@/lib/phone";
+import { normalizePhone } from "@/lib/phone";
 import { canAccessAdmin } from "@/lib/permissions";
 import { getSessionWithFreshPermissions } from "@/lib/session-guard";
 import { assertCompanyAccessForSession } from "@/lib/company-scope";
@@ -127,8 +127,8 @@ export async function setBeneficiaryPhone(beneficiaryId: string, phone: string) 
   const access = await requireStaff(target.company_id, "phones");
   if ("error" in access) return { error: access.error };
 
-  const normalized = phone.trim() === "" ? null : normalizeLibyanMobile(phone);
-  if (phone.trim() !== "" && !normalized) return { error: "رقم الهاتف غير صحيح. اكتبه هكذا: 0912345678" };
+  const normalized = phone.trim() === "" ? null : normalizePhone(phone);
+  if (phone.trim() !== "" && !normalized) return { error: "رقم الهاتف غير صحيح. اكتبه هكذا: 0912345678، أو الدولي مع رمز الدولة: +905321234567" };
   if (normalized) {
     const used = await prisma.beneficiary.findFirst({ where: { phone_number: normalized, id: { not: target.id }, deleted_at: null }, select: { card_number: true, name: true } });
     if (used) return { error: `الرقم مسجل لبطاقة أخرى: ${used.name} (${used.card_number})` };

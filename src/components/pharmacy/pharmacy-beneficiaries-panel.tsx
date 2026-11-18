@@ -496,7 +496,7 @@ function BeneficiaryDrawer({ companyId, beneficiaryId, onClose, onChanged }: { c
                         </span>
                       ) : (
                         <form className="flex items-center gap-1" onSubmit={(event) => { event.preventDefault(); run(() => setBeneficiaryPhone(data.account!.id, phoneDraft), "حُفظ الهاتف"); setPhoneDraft(null); }}>
-                          <Input autoFocus value={phoneDraft} onChange={(event) => setPhoneDraft(event.target.value)} placeholder="0912345678" dir="ltr" inputMode="tel" className="h-9 w-36" aria-label="رقم الهاتف" />
+                          <Input autoFocus value={phoneDraft} onChange={(event) => setPhoneDraft(event.target.value)} placeholder="0912345678 أو +90…" dir="ltr" inputMode="tel" className="h-9 w-44" aria-label="رقم الهاتف" />
                           <Button type="submit" disabled={busy} className="h-9 bg-teal-600 px-3 text-xs text-white">حفظ</Button>
                           <button type="button" onClick={() => setPhoneDraft(null)} aria-label="إلغاء" className="p-1 text-slate-400"><X className="h-4 w-4" /></button>
                         </form>

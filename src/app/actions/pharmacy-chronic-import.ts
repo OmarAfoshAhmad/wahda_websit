@@ -8,7 +8,7 @@ import { buildChronicImportTemplate, normalizeDrugName, parseChronicImportWorkbo
 import { familyCte, familyStatsCache } from "@/lib/pharmacy/families";
 import { loadPharmacyPolicy } from "@/lib/pharmacy/summary";
 import { getNextChronicEligibleDate, getTripoliDayWindow, tripoliMidnight } from "@/lib/pharmacy/policy";
-import { normalizeLibyanMobile } from "@/lib/phone";
+import { normalizePhone } from "@/lib/phone";
 
 export type ChronicImportMode = "ADD" | "REPLACE";
 export type ChronicImportRowResult = {
@@ -158,7 +158,7 @@ async function planPhones(companyId: string, results: Array<ChronicImportRowResu
   const phonesByHolder = new Map<string, Set<string>>();
   const holdersByPhone = new Map<string, Set<string>>();
   for (const row of withPhone) {
-    const phone = normalizeLibyanMobile(row.phone);
+    const phone = normalizePhone(row.phone);
     const holder = holderOf.get(row.beneficiaryId!);
     if (!phone || !holder) continue;
     (phonesByHolder.get(holder.holder_id) ?? phonesByHolder.set(holder.holder_id, new Set()).get(holder.holder_id)!).add(phone);
@@ -168,7 +168,7 @@ async function planPhones(companyId: string, results: Array<ChronicImportRowResu
   const ownerOf = new Map(owners.map((owner) => [owner.phone_number!, owner]));
   for (const row of withPhone) {
     const holder = holderOf.get(row.beneficiaryId!);
-    const phone = normalizeLibyanMobile(row.phone);
+    const phone = normalizePhone(row.phone);
     const skip = (note: string) => { row.phoneAction = "SKIP"; row.phoneNote = note; };
     if (!holder) skip("لم يُعرف صاحب البطاقة");
     else if (!phone) skip("هاتف غير صحيح");
